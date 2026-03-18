@@ -13,52 +13,30 @@ import {
   Trash2,
 } from 'lucide-react'
 
+import { CenteredModal } from '../components/ui/CenteredModal'
+import { ModalOverlay } from '../components/ui/ModalOverlay'
 import { MOCK_PRODUCTS } from '../data/mockData'
-import type { CartItem, Product } from '../types'
+import { useCart } from '../features/cart/useCart'
 import { formatMoney } from '../utils/formatMoney'
 
 export function POSPage() {
-  const [cart, setCart] = useState<CartItem[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [isScanning, setIsScanning] = useState(false)
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentStatus, setPaymentStatus] = useState<'waiting' | 'success'>(
     'waiting',
   )
+  const {
+    cart,
+    total: subtotal,
+    itemCount,
+    addToCart,
+    updateQuantity,
+    removeFromCart,
+    clearCart,
+  } = useCart()
 
   const products = MOCK_PRODUCTS
-  const subtotal = cart.reduce(
-    (sum, item) => sum + item.product.price * item.quantity,
-    0,
-  )
-
-  const addToCart = (product: Product) => {
-    setCart((current) => {
-      const existing = current.find((item) => item.product.id === product.id)
-      if (existing) {
-        return current.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item,
-        )
-      }
-      return [...current, { product, quantity: 1 }]
-    })
-  }
-
-  const updateQuantity = (productId: string, delta: number) => {
-    setCart((current) =>
-      current.map((item) =>
-        item.product.id === productId
-          ? { ...item, quantity: Math.max(1, item.quantity + delta) }
-          : item,
-      ),
-    )
-  }
-
-  const removeFromCart = (productId: string) => {
-    setCart((current) => current.filter((item) => item.product.id !== productId))
-  }
 
   const simulateScan = () => {
     setIsScanning(true)
@@ -73,7 +51,7 @@ export function POSPage() {
     setPaymentStatus('success')
     window.setTimeout(() => {
       setPaymentModalOpen(false)
-      setCart([])
+      clearCart()
     }, 1800)
   }
 
@@ -155,7 +133,7 @@ export function POSPage() {
         <div className="flex items-center justify-between border-b border-slate-100 p-4">
           <h2 className="text-lg font-bold text-slate-800">Current Order</h2>
           <span className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-            {cart.reduce((sum, item) => sum + item.quantity, 0)} items
+            {itemCount} items
           </span>
         </div>
 
@@ -237,7 +215,7 @@ export function POSPage() {
 
           <div className="flex gap-3">
             <button
-              onClick={() => setCart([])}
+              onClick={clearCart}
               disabled={cart.length === 0}
               className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50"
             >
@@ -261,10 +239,7 @@ export function POSPage() {
       <AnimatePresence>
         {paymentModalOpen ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+            <ModalOverlay
               className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
               onClick={() => {
                 if (paymentStatus === 'waiting') {
@@ -272,12 +247,7 @@ export function POSPage() {
                 }
               }}
             />
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
-            >
+            <CenteredModal className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
               {paymentStatus === 'waiting' ? (
                 <div className="flex flex-col items-center p-8 text-center">
                   <h2 className="mb-2 text-2xl font-bold text-slate-800">
@@ -332,7 +302,7 @@ export function POSPage() {
                   <button
                     onClick={() => {
                       setPaymentModalOpen(false)
-                      setCart([])
+                      clearCart()
                     }}
                     className="w-full rounded-xl bg-emerald-600 py-3 font-bold text-white transition-colors hover:bg-emerald-700"
                   >
@@ -340,7 +310,7 @@ export function POSPage() {
                   </button>
                 </div>
               )}
-            </motion.div>
+            </CenteredModal>
           </div>
         ) : null}
       </AnimatePresence>

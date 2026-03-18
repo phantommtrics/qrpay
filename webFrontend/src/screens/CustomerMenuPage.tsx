@@ -10,17 +10,24 @@ import {
   Utensils,
 } from 'lucide-react'
 
+import { BottomSheet } from '../components/ui/BottomSheet'
+import { ModalOverlay } from '../components/ui/ModalOverlay'
 import { MOCK_PRODUCTS } from '../data/mockData'
-import type { CartItem, Product } from '../types'
+import { useCart } from '../features/cart/useCart'
 import { formatMoney } from '../utils/formatMoney'
 
 export function CustomerMenuPage() {
   const { tableId = 'T-01' } = useParams()
   const [activeCategory, setActiveCategory] = useState('All')
-  const [cart, setCart] = useState<CartItem[]>([])
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [orderStatus, setOrderStatus] = useState<'browsing' | 'paying' | 'success'>(
     'browsing',
+  )
+  const { cart, total, itemCount, addToCart, updateQuantity, clearCart } = useCart(
+    {
+      minQuantity: 0,
+      removeWhenZero: true,
+    },
   )
 
   const menuItems = MOCK_PRODUCTS.filter((product) => product.businessId === 'b2')
@@ -29,34 +36,6 @@ export function CustomerMenuPage() {
     activeCategory === 'All'
       ? menuItems
       : menuItems.filter((item) => item.category === activeCategory)
-  const total = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
-  const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0)
-
-  const addToCart = (product: Product) => {
-    setCart((current) => {
-      const existing = current.find((item) => item.product.id === product.id)
-      if (existing) {
-        return current.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item,
-        )
-      }
-      return [...current, { product, quantity: 1 }]
-    })
-  }
-
-  const updateQuantity = (productId: string, delta: number) => {
-    setCart((current) =>
-      current
-        .map((item) =>
-          item.product.id === productId
-            ? { ...item, quantity: Math.max(0, item.quantity + delta) }
-            : item,
-        )
-        .filter((item) => item.quantity > 0),
-    )
-  }
 
   if (orderStatus === 'success') {
     return (
@@ -82,7 +61,7 @@ export function CustomerMenuPage() {
         <button
           onClick={() => {
             setOrderStatus('browsing')
-            setCart([])
+            clearCart()
           }}
           className="font-medium text-teal-600 hover:underline"
         >
@@ -223,20 +202,11 @@ export function CustomerMenuPage() {
       <AnimatePresence>
         {isCartOpen ? (
           <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+            <ModalOverlay
               className="fixed inset-0 z-30 bg-slate-900/60 backdrop-blur-sm"
               onClick={() => setIsCartOpen(false)}
             />
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed right-0 bottom-0 left-0 z-40 mx-auto flex max-h-[85vh] max-w-3xl flex-col rounded-t-3xl bg-white"
-            >
+            <BottomSheet className="fixed right-0 bottom-0 left-0 z-40 mx-auto flex max-h-[85vh] max-w-3xl flex-col rounded-t-3xl bg-white">
               <div className="flex items-center justify-between border-b border-slate-100 p-4">
                 <h2 className="text-xl font-bold text-slate-800">Your Order</h2>
                 <button
@@ -296,7 +266,7 @@ export function CustomerMenuPage() {
                   Place Order & Pay
                 </button>
               </div>
-            </motion.div>
+            </BottomSheet>
           </>
         ) : null}
       </AnimatePresence>
