@@ -1,73 +1,162 @@
-# React + TypeScript + Vite
+# EasyPay Web Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This frontend is a React + TypeScript + Vite application for the EasyPay demo flows:
 
-Currently, two official plugins are available:
+- admin and merchant dashboard views
+- cashier POS and checkout flow
+- customer self-service restaurant ordering flow
+- reporting, payments, and products management screens
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## What Changed So Far
 
-## React Compiler
+The original app was heavily centered in `src/App.tsx`, with screens, layout, routes, helpers, and UI patterns mixed together. The codebase has now been refactored into smaller responsibilities so multiple teammates can work in parallel more safely.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Completed refactor work:
 
-## Expanding the ESLint configuration
+- split page-level screens into separate files under `src/screens`
+- moved shared layout into `src/layouts`
+- moved routing into `src/routes`
+- centralized route and sidebar config in `src/config/navigation.ts`
+- extracted auth state into `src/features/auth/AuthContext.tsx`
+- added route-level lazy loading for screens
+- extracted reusable UI wrappers into `src/components/ui`
+- extracted reusable status UI into `src/components/status`
+- extracted product details modal into `src/components/products`
+- extracted shared cart logic into `src/features/cart/useCart.ts`
+- extracted shared money formatting into `src/utils/formatMoney.ts`
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Current Structure
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```text
+src/
+  App.tsx
+  config/
+    navigation.ts
+  components/
+    products/
+    status/
+    ui/
+  data/
+    mockData.ts
+  features/
+    auth/
+      AuthContext.tsx
+    cart/
+      useCart.ts
+  layouts/
+    AppLayout.tsx
+    Header.tsx
+    Sidebar.tsx
+  routes/
+    AppRoutes.tsx
+    ProtectedRoute.tsx
+    RouteFallback.tsx
+  screens/
+    CustomerMenuPage.tsx
+    DashboardPage.tsx
+    LoginPage.tsx
+    OrdersPage.tsx
+    PaymentsPage.tsx
+    POSPage.tsx
+    ProductsPage.tsx
+    ReportsPage.tsx
+  types.ts
+  utils/
+    formatMoney.ts
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Responsibility Guide
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### `src/App.tsx`
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+App bootstrap only. It should stay small and mainly compose providers plus the router.
+
+### `src/routes`
+
+Owns navigation flow and route protection.
+
+- `AppRoutes.tsx`: route definitions and lazy-loaded screens
+- `ProtectedRoute.tsx`: authenticated route guard
+- `RouteFallback.tsx`: route loading state
+
+### `src/layouts`
+
+Owns shared app shell and persistent layout UI.
+
+- `AppLayout.tsx`: page frame for authenticated areas
+- `Header.tsx`: top bar
+- `Sidebar.tsx`: main navigation
+
+### `src/features`
+
+Owns reusable stateful business logic.
+
+- `auth/AuthContext.tsx`: login state and logout/login actions
+- `cart/useCart.ts`: reusable cart behavior for POS and customer ordering
+
+### `src/screens`
+
+Owns page-specific UI and flow logic. A screen should focus on its page behavior, not shared shell logic.
+
+### `src/components`
+
+Owns reusable presentational pieces.
+
+- `ui/`: generic building blocks like cards, transitions, modals, sheets
+- `status/`: reusable status badges
+- `products/`: product-specific shared UI
+
+### `src/config`
+
+Owns shared route paths, page titles, and sidebar metadata so route changes happen in one place.
+
+### `src/utils`
+
+Owns pure reusable helpers with no React state.
+
+## Team Working Notes
+
+Use these guidelines when extending the project:
+
+- add new full pages inside `src/screens`
+- add shared page chrome inside `src/layouts`
+- add reusable stateful logic inside `src/features`
+- add reusable display components inside `src/components`
+- add route constants and shared nav metadata inside `src/config`
+- add formatting and pure helper logic inside `src/utils`
+- keep `src/App.tsx` thin
+- avoid re-adding business logic directly into screen files when it can be shared
+
+## Why This Refactor Matters
+
+- easier onboarding because files now reflect clear responsibilities
+- safer parallel work because screens, routing, layout, and features are separated
+- less duplication across screens
+- simpler reviews because changes are more localized
+- better performance because screens are lazy-loaded instead of bundled together upfront
+
+## Commands
+
+Run the dev server:
+
+```bash
+npm run dev
 ```
+
+Build the app:
+
+```bash
+npm run build
+```
+
+Run linting:
+
+```bash
+npm run lint
+```
+
+## Current Status
+
+The refactor so far is structural. The goal has been to improve maintainability and readability without changing existing flow or user-facing behavior.
+
+The app has been repeatedly validated with successful production builds after each major refactor step.
