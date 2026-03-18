@@ -1,36 +1,41 @@
-import { motion } from 'framer-motion'
 import { ArrowUpRight, Banknote, CreditCard, Download } from 'lucide-react'
 
+import { PaymentStatusBadge } from '../components/status/PaymentStatusBadge'
+import { PageCard } from '../components/ui/PageCard'
+import { PageTransition } from '../components/ui/PageTransition'
 import { MOCK_PAYMENTS } from '../data/mockData'
+import { formatMoney } from '../utils/formatMoney'
 
 export function PaymentsPage() {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+    <PageTransition className="space-y-6">
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-        <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        <PageCard className="p-6">
           <p className="mb-1 text-sm font-medium text-slate-500">Total Processed</p>
-          <h3 className="mb-4 text-2xl font-bold text-slate-800">D12,450.00</h3>
+          <h3 className="mb-4 text-2xl font-bold text-slate-800">
+            {formatMoney(12450)}
+          </h3>
           <div className="h-2 w-full rounded-full bg-slate-100">
             <div className="h-2 w-[85%] rounded-full bg-teal-500" />
           </div>
           <p className="mt-2 text-xs text-slate-400">85% via QR Wallet</p>
-        </div>
-        <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        </PageCard>
+        <PageCard className="p-6">
           <p className="mb-1 text-sm font-medium text-slate-500">Successful</p>
           <h3 className="mb-4 text-2xl font-bold text-emerald-600">42</h3>
           <div className="flex items-center text-sm font-medium text-emerald-600">
             <ArrowUpRight className="mr-1 h-4 w-4" />
             +12% this week
           </div>
-        </div>
-        <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        </PageCard>
+        <PageCard className="p-6">
           <p className="mb-1 text-sm font-medium text-slate-500">Failed / Pending</p>
           <h3 className="mb-4 text-2xl font-bold text-amber-600">3</h3>
           <p className="text-sm text-slate-500">Requires attention</p>
-        </div>
+        </PageCard>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
+      <PageCard className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-200 p-4">
           <h2 className="font-semibold text-slate-800">Recent Transactions</h2>
           <button className="flex items-center text-sm font-medium text-slate-600 hover:text-teal-600">
@@ -74,19 +79,11 @@ export function PaymentsPage() {
                       )}
                     </div>
                   </td>
-                  <td className="p-4 font-bold text-slate-800">D{payment.amount}</td>
+                  <td className="p-4 font-bold text-slate-800">
+                    {formatMoney(payment.amount, { decimals: 0 })}
+                  </td>
                   <td className="p-4">
-                    <span
-                      className={`inline-flex rounded-full px-2 py-1 text-xs font-medium capitalize ${
-                        payment.status === 'completed'
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : payment.status === 'pending'
-                            ? 'bg-amber-100 text-amber-700'
-                            : 'bg-red-100 text-red-700'
-                      }`}
-                    >
-                      {payment.status}
-                    </span>
+                    <PaymentStatusBadge status={payment.status} />
                   </td>
                   <td className="p-4 text-sm text-slate-500">
                     {new Date(payment.createdAt).toLocaleString([], {
@@ -101,7 +98,7 @@ export function PaymentsPage() {
             </tbody>
           </table>
         </div>
-      </div>
-    </motion.div>
+      </PageCard>
+    </PageTransition>
   )
 }

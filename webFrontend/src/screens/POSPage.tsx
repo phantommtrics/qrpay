@@ -15,10 +15,7 @@ import {
 
 import { MOCK_PRODUCTS } from '../data/mockData'
 import type { CartItem, Product } from '../types'
-
-function formatMoney(value: number) {
-  return `D${value.toFixed(2)}`
-}
+import { formatMoney } from '../utils/formatMoney'
 
 export function POSPage() {
   const [cart, setCart] = useState<CartItem[]>([])

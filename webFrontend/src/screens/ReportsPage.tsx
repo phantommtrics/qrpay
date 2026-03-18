@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import {
   Bar,
   BarChart,
@@ -14,24 +13,25 @@ import {
 } from 'recharts'
 import { Calendar } from 'lucide-react'
 
+import { PageCard } from '../components/ui/PageCard'
+import { PageSectionHeader } from '../components/ui/PageSectionHeader'
+import { PageTransition } from '../components/ui/PageTransition'
 import { CATEGORY_DATA, COLORS, TOP_PRODUCTS } from '../data/mockData'
 
 export function ReportsPage() {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+    <PageTransition className="space-y-6">
+      <PageCard className="flex items-center justify-between p-4">
         <h2 className="font-semibold text-slate-800">Analytics Dashboard</h2>
         <button className="flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
           <Calendar className="mr-2 h-4 w-4" />
           Last 7 Days
         </button>
-      </div>
+      </PageCard>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
-          <h3 className="mb-6 text-lg font-semibold text-slate-800">
-            Sales by Category
-          </h3>
+        <PageCard className="p-6">
+          <PageSectionHeader title="Sales by Category" className="mb-6" />
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -53,12 +53,10 @@ export function ReportsPage() {
               </PieChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </PageCard>
 
-        <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
-          <h3 className="mb-6 text-lg font-semibold text-slate-800">
-            Top Selling Products (Units)
-          </h3>
+        <PageCard className="p-6">
+          <PageSectionHeader title="Top Selling Products (Units)" className="mb-6" />
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={TOP_PRODUCTS} layout="vertical" margin={{ left: 40 }}>
@@ -87,8 +85,8 @@ export function ReportsPage() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </PageCard>
       </div>
-    </motion.div>
+    </PageTransition>
   )
 }

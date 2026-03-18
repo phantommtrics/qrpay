@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import {
   Area,
   AreaChart,
@@ -17,7 +16,12 @@ import {
   TrendingUp,
 } from 'lucide-react'
 
+import { OrderStatusBadge } from '../components/status/OrderStatusBadge'
+import { PageCard } from '../components/ui/PageCard'
+import { PageSectionHeader } from '../components/ui/PageSectionHeader'
+import { PageTransition } from '../components/ui/PageTransition'
 import { MOCK_ORDERS, MOCK_STATS, REVENUE_DATA } from '../data/mockData'
+import { formatMoney } from '../utils/formatMoney'
 
 export function DashboardPage() {
   const stats = [
@@ -60,17 +64,10 @@ export function DashboardPage() {
   ]
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6"
-    >
+    <PageTransition className="space-y-6" withSlide>
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => (
-          <div
-            key={stat.title}
-            className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm"
-          >
+          <PageCard key={stat.title} className="p-6">
             <div className="flex items-start justify-between">
               <div>
                 <p className="mb-1 text-sm font-medium text-slate-500">{stat.title}</p>
@@ -97,15 +94,13 @@ export function DashboardPage() {
               </span>
               <span className="ml-2 text-slate-400">vs last week</span>
             </div>
-          </div>
+          </PageCard>
         ))}
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm xl:col-span-2">
-          <h3 className="mb-6 text-lg font-semibold text-slate-800">
-            Revenue Overview
-          </h3>
+        <PageCard className="p-6 xl:col-span-2">
+          <PageSectionHeader title="Revenue Overview" className="mb-6" />
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={REVENUE_DATA}>
@@ -150,15 +145,18 @@ export function DashboardPage() {
               </AreaChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </PageCard>
 
-        <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
-          <div className="mb-6 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-slate-800">Recent Orders</h3>
-            <button className="text-sm font-medium text-teal-600 hover:text-teal-700">
-              View All
-            </button>
-          </div>
+        <PageCard className="p-6">
+          <PageSectionHeader
+            title="Recent Orders"
+            className="mb-6"
+            action={
+              <button className="text-sm font-medium text-teal-600 hover:text-teal-700">
+                View All
+              </button>
+            }
+          />
           <div className="space-y-4">
             {MOCK_ORDERS.slice(0, 5).map((order) => (
               <div
@@ -172,24 +170,22 @@ export function DashboardPage() {
                   <p className="text-xs text-slate-500">{order.items.length} items</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold text-slate-800">D{order.total}</p>
-                  <span
-                    className={`mt-1 inline-block rounded-full px-2 py-1 text-xs font-medium capitalize ${
-                      order.status === 'completed'
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : order.status === 'pending'
-                          ? 'bg-amber-100 text-amber-700'
-                          : 'bg-blue-100 text-blue-700'
-                    }`}
-                  >
-                    {order.status}
-                  </span>
+                  <p className="font-semibold text-slate-800">
+                    {formatMoney(order.total, { decimals: 0 })}
+                  </p>
+                  <div className="mt-1">
+                    <OrderStatusBadge
+                      status={order.status}
+                      showIcon={false}
+                      bordered={false}
+                    />
+                  </div>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </PageCard>
       </div>
-    </motion.div>
+    </PageTransition>
   )
 }
