@@ -7,9 +7,12 @@ import {
   User as UserIcon,
 } from 'lucide-react'
 
+import { APP_PATHS } from '../config/navigation'
+import { useAuth } from '../features/auth/AuthContext'
 import type { User } from '../types'
 
-export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
+export function LoginPage() {
+  const { login } = useAuth()
   const roles = [
     {
       id: 'admin',
@@ -43,7 +46,7 @@ export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
 
   const handleRoleSelect = (roleId: (typeof roles)[number]['id']) => {
     if (roleId === 'customer') {
-      window.location.hash = '#/menu/T-01'
+      window.location.hash = `#${APP_PATHS.customerMenuDemo}`
       return
     }
 
@@ -60,7 +63,7 @@ export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
       businessId: roleId === 'admin' ? undefined : 'b1',
     }
 
-    onLogin(mockUser)
+    login(mockUser)
   }
 
   return (

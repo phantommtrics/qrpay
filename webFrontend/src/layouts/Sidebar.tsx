@@ -1,69 +1,26 @@
 import {
-  BarChart3,
-  ClipboardList,
-  CreditCard,
-  LayoutDashboard,
   LogOut,
-  Package,
   QrCode,
-  ShoppingBag,
-  Utensils,
 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
-import type { User } from '../types'
+import { MAIN_NAV_ITEMS, RESTAURANT_NAV_ITEM } from '../config/navigation'
+import { useAuth } from '../features/auth/AuthContext'
 
 export function Sidebar({
-  user,
-  onLogout,
   isOpen,
   setIsOpen,
 }: {
-  user: User
-  onLogout: () => void
   isOpen: boolean
   setIsOpen: (open: boolean) => void
 }) {
-  const items = [
-    {
-      name: 'Dashboard',
-      path: '/dashboard',
-      icon: LayoutDashboard,
-      roles: ['admin', 'merchant'] as User['role'][],
-    },
-    {
-      name: 'POS / Checkout',
-      path: '/pos',
-      icon: ShoppingBag,
-      roles: ['admin', 'merchant', 'cashier'] as User['role'][],
-    },
-    {
-      name: 'Products',
-      path: '/products',
-      icon: Package,
-      roles: ['admin', 'merchant'] as User['role'][],
-    },
-    {
-      name: 'Orders',
-      path: '/orders',
-      icon: ClipboardList,
-      roles: ['admin', 'merchant', 'cashier'] as User['role'][],
-    },
-    {
-      name: 'Payments',
-      path: '/payments',
-      icon: CreditCard,
-      roles: ['admin', 'merchant'] as User['role'][],
-    },
-    {
-      name: 'Reports',
-      path: '/reports',
-      icon: BarChart3,
-      roles: ['admin', 'merchant'] as User['role'][],
-    },
-  ]
+  const { user, logout } = useAuth()
 
-  const navItems = items.filter((item) => item.roles.includes(user.role))
+  if (!user) {
+    return null
+  }
+
+  const navItems = MAIN_NAV_ITEMS.filter((item) => item.roles.includes(user.role))
 
   return (
     <>
@@ -112,12 +69,12 @@ export function Sidebar({
                 Restaurant
               </div>
               <NavLink
-                to="/menu/T-01"
+                to={RESTAURANT_NAV_ITEM.path}
                 onClick={() => setIsOpen(false)}
                 className="flex items-center rounded-lg border-l-2 border-transparent px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white"
               >
-                <Utensils className="mr-3 h-5 w-5" />
-                <span className="font-medium">View Menu (Demo)</span>
+                <RESTAURANT_NAV_ITEM.icon className="mr-3 h-5 w-5" />
+                <span className="font-medium">{RESTAURANT_NAV_ITEM.name}</span>
               </NavLink>
             </>
           ) : null}
@@ -134,7 +91,7 @@ export function Sidebar({
             </div>
           </div>
           <button
-            onClick={onLogout}
+            onClick={logout}
             className="flex w-full items-center rounded-lg px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
           >
             <LogOut className="mr-3 h-4 w-4" />

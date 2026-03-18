@@ -1,24 +1,23 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 
+import { APP_PATHS } from '../config/navigation'
+import { useAuth } from '../features/auth/AuthContext'
 import { AppLayout } from '../layouts/AppLayout'
-import type { User } from '../types'
 
 export function ProtectedRoute({
-  user,
-  onLogout,
   children,
 }: {
-  user: User | null
-  onLogout: () => void
   children: ReactNode
 }) {
+  const { user } = useAuth()
+
   if (!user) {
-    return <Navigate to="/" replace />
+    return <Navigate to={APP_PATHS.root} replace />
   }
 
   return (
-    <AppLayout user={user} onLogout={onLogout}>
+    <AppLayout>
       {children}
     </AppLayout>
   )
