@@ -1,0 +1,2761 @@
+```App.tsx
+import React, { useState } from 'react'
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { User } from './types'
+// Layouts
+import { AppLayout } from './components/layout/AppLayout'
+// Pages
+import { LoginPage } from './pages/LoginPage'
+import { DashboardPage } from './pages/DashboardPage'
+import { ProductsPage } from './pages/ProductsPage'
+import { POSPage } from './pages/POSPage'
+import { CustomerMenuPage } from './pages/CustomerMenuPage'
+import { OrdersPage } from './pages/OrdersPage'
+import { PaymentsPage } from './pages/PaymentsPage'
+import { ReportsPage } from './pages/ReportsPage'
+export function App() {
+  const [user, setUser] = useState<User | null>(null)
+  const handleLogin = (loggedInUser: User) => {
+    setUser(loggedInUser)
+  }
+  const handleLogout = () => {
+    setUser(null)
+  }
+  return (
+    <Router>
+      <Routes>
+        {/* Public / Customer Routes */}
+        <Route path="/menu/:tableId" element={<CustomerMenuPage />} />
+
+        {/* Auth Route */}
+        <Route
+          path="/"
+          element={
+            !user ? (
+              <LoginPage onLogin={handleLogin} />
+            ) : (
+              <Navigate
+                to={user.role === 'cashier' ? '/pos' : '/dashboard'}
+                replace
+              />
+            )
+          }
+        />
+
+        {/* Protected Routes */}
+        {user ? (
+          <Route
+            element={
+              <AppLayout user={user} onLogout={handleLogout}>
+                <div />
+              </AppLayout>
+            }
+          >
+            {/* We use a wrapper approach for AppLayout to keep routing simple */}
+          </Route>
+        ) : null}
+
+        {/* Explicit Protected Routes wrapped in Layout */}
+        <Route
+          path="/dashboard"
+          element={
+            user ? (
+              <AppLayout user={user} onLogout={handleLogout}>
+                <DashboardPage />
+              </AppLayout>
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+        <Route
+          path="/products"
+          element={
+            user ? (
+              <AppLayout user={user} onLogout={handleLogout}>
+                <ProductsPage />
+              </AppLayout>
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+        <Route
+          path="/pos"
+          element={
+            user ? (
+              <AppLayout user={user} onLogout={handleLogout}>
+                <POSPage />
+              </AppLayout>
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+        <Route
+          path="/orders"
+          element={
+            user ? (
+              <AppLayout user={user} onLogout={handleLogout}>
+                <OrdersPage />
+              </AppLayout>
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+        <Route
+          path="/payments"
+          element={
+            user ? (
+              <AppLayout user={user} onLogout={handleLogout}>
+                <PaymentsPage />
+              </AppLayout>
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+        <Route
+          path="/reports"
+          element={
+            user ? (
+              <AppLayout user={user} onLogout={handleLogout}>
+                <ReportsPage />
+              </AppLayout>
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Router>
+  )
+}
+
+```
+```components/layout/AppLayout.tsx
+import React, { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
+import { Sidebar } from './Sidebar'
+import { Header } from './Header'
+import { User } from '../../types'
+interface AppLayoutProps {
+  user: User
+  onLogout: () => void
+  children: React.ReactNode
+}
+export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const location = useLocation()
+  // Close sidebar on route change (mobile)
+  useEffect(() => {
+    setIsSidebarOpen(false)
+  }, [location.pathname])
+  const getPageTitle = () => {
+    const path = location.pathname
+    if (path.includes('/dashboard')) return 'Dashboard'
+    if (path.includes('/products')) return 'Products'
+    if (path.includes('/pos')) return 'Point of Sale'
+    if (path.includes('/orders')) return 'Orders'
+    if (path.includes('/payments')) return 'Payments'
+    if (path.includes('/reports')) return 'Reports'
+    return 'QRPay'
+  }
+  return (
+    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
+      <Sidebar
+        user={user}
+        onLogout={onLogout}
+        isOpen={isSidebarOpen}
+        setIsOpen={setIsSidebarOpen}
+      />
+
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <Header
+          title={getPageTitle()}
+          onMenuClick={() => setIsSidebarOpen(true)}
+        />
+
+        <main className="flex-1 overflow-y-auto p-4 lg:p-8">
+          <div className="max-w-7xl mx-auto h-full">{children}</div>
+        </main>
+      </div>
+    </div>
+  )
+}
+
+```
+```components/layout/Header.tsx
+import React from 'react'
+import { MenuIcon, BellIcon, SearchIcon } from 'lucide-react'
+interface HeaderProps {
+  title: string
+  onMenuClick: () => void
+}
+export function Header({ title, onMenuClick }: HeaderProps) {
+  return (
+    <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30">
+      <div className="flex items-center">
+        <button
+          onClick={onMenuClick}
+          className="p-2 mr-3 -ml-2 text-slate-500 hover:bg-slate-100 rounded-lg lg:hidden"
+        >
+          <MenuIcon className="w-6 h-6" />
+        </button>
+        <h1 className="text-xl font-semibold text-slate-800">{title}</h1>
+      </div>
+
+      <div className="flex items-center gap-4">
+        <div className="hidden md:flex items-center relative">
+          <SearchIcon className="w-4 h-4 text-slate-400 absolute left-3" />
+          <input
+            type="text"
+            placeholder="Search..."
+            className="pl-9 pr-4 py-2 bg-slate-100 border-transparent rounded-full text-sm focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-200 outline-none transition-all w-64"
+          />
+        </div>
+
+        <button className="p-2 text-slate-500 hover:bg-slate-100 rounded-full relative">
+          <BellIcon className="w-5 h-5" />
+          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full border-2 border-white"></span>
+        </button>
+      </div>
+    </header>
+  )
+}
+
+```
+```components/layout/Sidebar.tsx
+import React from 'react'
+import { NavLink } from 'react-router-dom'
+import {
+  LayoutDashboardIcon,
+  PackageIcon,
+  ShoppingBagIcon,
+  ClipboardListIcon,
+  CreditCardIcon,
+  BarChart3Icon,
+  QrCodeIcon,
+  LogOutIcon,
+  UtensilsIcon,
+} from 'lucide-react'
+import { User } from '../../types'
+interface SidebarProps {
+  user: User
+  onLogout: () => void
+  isOpen: boolean
+  setIsOpen: (isOpen: boolean) => void
+}
+export function Sidebar({ user, onLogout, isOpen, setIsOpen }: SidebarProps) {
+  const navItems = [
+    {
+      name: 'Dashboard',
+      path: '/dashboard',
+      icon: LayoutDashboardIcon,
+      roles: ['admin', 'merchant'],
+    },
+    {
+      name: 'POS / Checkout',
+      path: '/pos',
+      icon: ShoppingBagIcon,
+      roles: ['admin', 'merchant', 'cashier'],
+    },
+    {
+      name: 'Products',
+      path: '/products',
+      icon: PackageIcon,
+      roles: ['admin', 'merchant'],
+    },
+    {
+      name: 'Orders',
+      path: '/orders',
+      icon: ClipboardListIcon,
+      roles: ['admin', 'merchant', 'cashier'],
+    },
+    {
+      name: 'Payments',
+      path: '/payments',
+      icon: CreditCardIcon,
+      roles: ['admin', 'merchant'],
+    },
+    {
+      name: 'Reports',
+      path: '/reports',
+      icon: BarChart3Icon,
+      roles: ['admin', 'merchant'],
+    },
+  ]
+  const filteredNav = navItems.filter((item) => item.roles.includes(user.role))
+  return (
+    <>
+      {/* Mobile Overlay */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden"
+          onClick={() => setIsOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`
+        fixed lg:static inset-y-0 left-0 z-50
+        w-64 bg-slate-900 text-slate-300 flex flex-col
+        transition-transform duration-300 ease-in-out
+        ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+      `}
+      >
+        <div className="h-16 flex items-center px-6 border-b border-slate-800">
+          <QrCodeIcon className="w-8 h-8 text-teal-500 mr-3" />
+          <span className="text-xl font-bold text-white tracking-tight">
+            QRPay
+          </span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto py-6 flex flex-col gap-1 px-3">
+          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">
+            Main Menu
+          </div>
+          {filteredNav.map((item) => (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              onClick={() => setIsOpen(false)}
+              className={({ isActive }) => `
+                flex items-center px-3 py-2.5 rounded-lg transition-colors
+                ${isActive ? 'bg-teal-500/10 text-teal-400 border-l-2 border-teal-500' : 'hover:bg-slate-800 hover:text-white border-l-2 border-transparent'}
+              `}
+            >
+              <item.icon className="w-5 h-5 mr-3" />
+              <span className="font-medium">{item.name}</span>
+            </NavLink>
+          ))}
+
+          {(user.role === 'admin' || user.role === 'merchant') && (
+            <>
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-6 mb-2 px-3">
+                Restaurant
+              </div>
+              <NavLink
+                to="/menu/T-01"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center px-3 py-2.5 rounded-lg transition-colors hover:bg-slate-800 hover:text-white border-l-2 border-transparent"
+              >
+                <UtensilsIcon className="w-5 h-5 mr-3" />
+                <span className="font-medium">View Menu (Demo)</span>
+              </NavLink>
+            </>
+          )}
+        </div>
+
+        <div className="p-4 border-t border-slate-800">
+          <div className="flex items-center mb-4 px-2">
+            <div className="w-10 h-10 rounded-full bg-teal-600 flex items-center justify-center text-white font-bold">
+              {user.name.charAt(0)}
+            </div>
+            <div className="ml-3 overflow-hidden">
+              <p className="text-sm font-medium text-white truncate">
+                {user.name}
+              </p>
+              <p className="text-xs text-slate-400 capitalize">{user.role}</p>
+            </div>
+          </div>
+          <button
+            onClick={onLogout}
+            className="flex items-center w-full px-3 py-2 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+          >
+            <LogOutIcon className="w-4 h-4 mr-3" />
+            Sign Out
+          </button>
+        </div>
+      </aside>
+    </>
+  )
+}
+
+```
+```data/mockData.ts
+import {
+  Product,
+  Order,
+  Payment,
+  DashboardStats,
+  RestaurantTable,
+} from '../types'
+
+export const MOCK_PRODUCTS: Product[] = [
+  {
+    id: 'p1',
+    name: 'Coca-Cola 500ml',
+    price: 35,
+    category: 'Beverages',
+    stock: 145,
+    imageColor: 'bg-red-100',
+    imageEmoji: '🥤',
+    businessId: 'b1',
+  },
+  {
+    id: 'p2',
+    name: 'Bottled Water 1L',
+    price: 20,
+    category: 'Beverages',
+    stock: 300,
+    imageColor: 'bg-blue-100',
+    imageEmoji: '💧',
+    businessId: 'b1',
+  },
+  {
+    id: 'p3',
+    name: 'Plantain Chips',
+    price: 25,
+    category: 'Snacks',
+    stock: 50,
+    imageColor: 'bg-yellow-100',
+    imageEmoji: '🍌',
+    businessId: 'b1',
+  },
+  {
+    id: 'p4',
+    name: 'Fresh Bread',
+    price: 15,
+    category: 'Bakery',
+    stock: 8,
+    imageColor: 'bg-amber-100',
+    imageEmoji: '🍞',
+    businessId: 'b1',
+  },
+  {
+    id: 'p5',
+    name: 'Local Rice 5kg',
+    price: 450,
+    category: 'Household',
+    stock: 24,
+    imageColor: 'bg-stone-100',
+    imageEmoji: '🍚',
+    businessId: 'b1',
+  },
+  {
+    id: 'p6',
+    name: 'Milk Powder 400g',
+    price: 180,
+    category: 'Dairy',
+    stock: 40,
+    imageColor: 'bg-sky-100',
+    imageEmoji: '🥛',
+    businessId: 'b1',
+  },
+  {
+    id: 'p7',
+    name: 'Mangoes (1kg)',
+    price: 60,
+    category: 'Fresh Produce',
+    stock: 15,
+    imageColor: 'bg-orange-100',
+    imageEmoji: '🥭',
+    businessId: 'b1',
+  },
+  {
+    id: 'p8',
+    name: 'Washing Powder',
+    price: 120,
+    category: 'Household',
+    stock: 60,
+    imageColor: 'bg-indigo-100',
+    imageEmoji: '🧼',
+    businessId: 'b1',
+  },
+
+  // Restaurant Menu Items
+  {
+    id: 'r1',
+    name: 'Grilled Chicken Yassa',
+    price: 350,
+    category: 'Mains',
+    stock: 999,
+    imageColor: 'bg-orange-100',
+    imageEmoji: '🍗',
+    businessId: 'b2',
+    description: 'Marinated chicken in onion and lemon sauce with rice.',
+  },
+  {
+    id: 'r2',
+    name: 'Domoda (Peanut Stew)',
+    price: 300,
+    category: 'Mains',
+    stock: 999,
+    imageColor: 'bg-amber-200',
+    imageEmoji: '🍲',
+    businessId: 'b2',
+    description: 'Rich peanut butter stew with beef and vegetables.',
+  },
+  {
+    id: 'r3',
+    name: 'Benachin (Jollof Rice)',
+    price: 250,
+    category: 'Mains',
+    stock: 999,
+    imageColor: 'bg-red-200',
+    imageEmoji: '🍛',
+    businessId: 'b2',
+    description: 'One-pot rice dish with fish and vegetables.',
+  },
+  {
+    id: 'r4',
+    name: 'Akara & Bread',
+    price: 75,
+    category: 'Starters',
+    stock: 999,
+    imageColor: 'bg-yellow-200',
+    imageEmoji: '🧆',
+    businessId: 'b2',
+    description: 'Black-eyed pea fritters served with fresh tapalapa bread.',
+  },
+  {
+    id: 'r5',
+    name: 'Wonjo Juice',
+    price: 50,
+    category: 'Drinks',
+    stock: 999,
+    imageColor: 'bg-rose-200',
+    imageEmoji: '🍷',
+    businessId: 'b2',
+    description: 'Sweet and tart hibiscus drink.',
+  },
+  {
+    id: 'r6',
+    name: 'Baobab Juice (Bouye)',
+    price: 60,
+    category: 'Drinks',
+    stock: 999,
+    imageColor: 'bg-stone-200',
+    imageEmoji: '🍹',
+    businessId: 'b2',
+    description: 'Creamy, sweet drink made from baobab fruit.',
+  },
+  {
+    id: 'r7',
+    name: 'Fruit Salad',
+    price: 120,
+    category: 'Desserts',
+    stock: 999,
+    imageColor: 'bg-green-100',
+    imageEmoji: '🥗',
+    businessId: 'b2',
+    description: 'Fresh seasonal local fruits.',
+  },
+]
+
+export const MOCK_ORDERS: Order[] = [
+  {
+    id: 'ORD-8821',
+    items: [
+      {
+        id: 'i1',
+        productId: 'p1',
+        productName: 'Coca-Cola 500ml',
+        quantity: 2,
+        price: 35,
+      },
+      {
+        id: 'i2',
+        productId: 'p3',
+        productName: 'Plantain Chips',
+        quantity: 1,
+        price: 25,
+      },
+    ],
+    status: 'completed',
+    total: 95,
+    createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
+  },
+  {
+    id: 'ORD-8822',
+    items: [
+      {
+        id: 'i3',
+        productId: 'r1',
+        productName: 'Grilled Chicken Yassa',
+        quantity: 1,
+        price: 350,
+      },
+      {
+        id: 'i4',
+        productId: 'r5',
+        productName: 'Wonjo Juice',
+        quantity: 2,
+        price: 50,
+      },
+    ],
+    status: 'preparing',
+    total: 450,
+    tableId: 'T-04',
+    createdAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+  },
+  {
+    id: 'ORD-8823',
+    items: [
+      {
+        id: 'i5',
+        productId: 'p5',
+        productName: 'Local Rice 5kg',
+        quantity: 1,
+        price: 450,
+      },
+    ],
+    status: 'completed',
+    total: 450,
+    createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
+  },
+  {
+    id: 'ORD-8824',
+    items: [
+      {
+        id: 'i6',
+        productId: 'r3',
+        productName: 'Benachin (Jollof Rice)',
+        quantity: 3,
+        price: 250,
+      },
+    ],
+    status: 'served',
+    total: 750,
+    tableId: 'T-02',
+    createdAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
+  },
+  {
+    id: 'ORD-8825',
+    items: [
+      {
+        id: 'i7',
+        productId: 'p2',
+        productName: 'Bottled Water 1L',
+        quantity: 5,
+        price: 20,
+      },
+    ],
+    status: 'pending',
+    total: 100,
+    createdAt: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
+  },
+]
+
+export const MOCK_PAYMENTS: Payment[] = [
+  {
+    id: 'PAY-9910',
+    orderId: 'ORD-8821',
+    amount: 95,
+    status: 'completed',
+    reference: 'WLT-7738291',
+    method: 'qr_wallet',
+    createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
+  },
+  {
+    id: 'PAY-9911',
+    orderId: 'ORD-8823',
+    amount: 450,
+    status: 'completed',
+    reference: 'CSH-0000001',
+    method: 'cash',
+    createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
+  },
+  {
+    id: 'PAY-9912',
+    orderId: 'ORD-8824',
+    amount: 750,
+    status: 'completed',
+    reference: 'WLT-7738292',
+    method: 'qr_wallet',
+    createdAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
+  },
+  {
+    id: 'PAY-9913',
+    orderId: 'ORD-8825',
+    amount: 100,
+    status: 'pending',
+    reference: 'WLT-7738293',
+    method: 'qr_wallet',
+    createdAt: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
+  },
+  {
+    id: 'PAY-9914',
+    orderId: 'ORD-8820',
+    amount: 1200,
+    status: 'failed',
+    reference: 'WLT-7738290',
+    method: 'qr_wallet',
+    createdAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
+  },
+]
+
+export const MOCK_TABLES: RestaurantTable[] = [
+  { id: 'T-01', name: 'Table 1', restaurantId: 'b2', qrCode: 'QR-T01' },
+  { id: 'T-02', name: 'Table 2', restaurantId: 'b2', qrCode: 'QR-T02' },
+  { id: 'T-03', name: 'Table 3', restaurantId: 'b2', qrCode: 'QR-T03' },
+  { id: 'T-04', name: 'Table 4', restaurantId: 'b2', qrCode: 'QR-T04' },
+  { id: 'T-05', name: 'Table 5', restaurantId: 'b2', qrCode: 'QR-T05' },
+  { id: 'T-06', name: 'Table 6', restaurantId: 'b2', qrCode: 'QR-T06' },
+]
+
+export const MOCK_STATS: DashboardStats = {
+  totalSales: 12450,
+  totalOrders: 48,
+  totalProducts: 14,
+  lowStockCount: 2,
+}
+
+export const REVENUE_DATA = [
+  { name: 'Mon', revenue: 4000 },
+  { name: 'Tue', revenue: 3000 },
+  { name: 'Wed', revenue: 5500 },
+  { name: 'Thu', revenue: 4500 },
+  { name: 'Fri', revenue: 7000 },
+  { name: 'Sat', revenue: 9500 },
+  { name: 'Sun', revenue: 8200 },
+]
+
+```
+```index.css
+/* @import url() FONT IMPORTS MUST ALWAYS BE AT THE VERY TOP OF THIS FILE, ABOVE THE TAILWIND IMPORTS — DO NOT DELETE THIS COMMENT */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* CRITICAL: THE FOLLOWING TAILWIND IMPORTS MUST NEVER BE DELETED OR REORDERED — DO NOT DELETE THIS COMMENT */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* END TAILWIND IMPORTS — ALL OTHER CSS MUST GO BELOW THIS LINE */
+
+:root {
+  --color-primary: #0D9488;
+  --color-primary-light: #14B8A6;
+  --color-primary-dark: #0F766E;
+  --color-accent: #F59E0B;
+  --color-accent-light: #FBBF24;
+  --color-surface: #FFFFFF;
+  --color-surface-alt: #F8FAFC;
+  --color-sidebar: #0F172A;
+  --color-sidebar-hover: #1E293B;
+  --color-text: #0F172A;
+  --color-text-secondary: #64748B;
+  --color-border: #E2E8F0;
+  --color-success: #10B981;
+  --color-error: #EF4444;
+  --color-warning: #F59E0B;
+  --color-info: #3B82F6;
+}
+* {
+  box-sizing: border-box;
+}
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: var(--color-text);
+  background: var(--color-surface-alt);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+/* QR Code animation */
+@keyframes scanline {
+  0% { top: 0; }
+  100% { top: 100%; }
+}
+.scan-line {
+  animation: scanline 2s ease-in-out infinite;
+}
+/* Pulse for active scanning */
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.7; }
+  100% { transform: scale(0.95); opacity: 1; }
+}
+.pulse-scan {
+  animation: pulse-ring 1.5s ease-in-out infinite;
+}
+
+```
+```index.tsx
+import "./index.css";
+import React from "react";
+import { render } from "react-dom";
+import { App } from "./App";
+
+render(<App />, document.getElementById("root"));
+
+```
+```pages/CustomerMenuPage.tsx
+import React, { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  ShoppingBagIcon,
+  PlusIcon,
+  MinusIcon,
+  ChevronLeftIcon,
+  UtensilsIcon,
+  QrCodeIcon,
+  CheckCircle2Icon,
+} from 'lucide-react'
+import { MOCK_PRODUCTS } from '../data/mockData'
+import { Product, CartItem } from '../types'
+export function CustomerMenuPage() {
+  const [activeCategory, setActiveCategory] = useState('All')
+  const [cart, setCart] = useState<CartItem[]>([])
+  const [isCartOpen, setIsCartOpen] = useState(false)
+  const [orderStatus, setOrderStatus] = useState<
+    'browsing' | 'paying' | 'success'
+  >('browsing')
+  const restaurantItems = MOCK_PRODUCTS.filter((p) => p.businessId === 'b2')
+  const categories = [
+    'All',
+    ...Array.from(new Set(restaurantItems.map((p) => p.category))),
+  ]
+  const filteredItems =
+    activeCategory === 'All'
+      ? restaurantItems
+      : restaurantItems.filter((p) => p.category === activeCategory)
+  const total = cart.reduce(
+    (sum, item) => sum + item.product.price * item.quantity,
+    0,
+  )
+  const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+  const addToCart = (product: Product) => {
+    setCart((prev) => {
+      const existing = prev.find((item) => item.product.id === product.id)
+      if (existing) {
+        return prev.map((item) =>
+          item.product.id === product.id
+            ? {
+                ...item,
+                quantity: item.quantity + 1,
+              }
+            : item,
+        )
+      }
+      return [
+        ...prev,
+        {
+          product,
+          quantity: 1,
+        },
+      ]
+    })
+  }
+  const updateQuantity = (productId: string, delta: number) => {
+    setCart((prev) =>
+      prev
+        .map((item) => {
+          if (item.product.id === productId) {
+            const newQty = Math.max(0, item.quantity + delta)
+            return {
+              ...item,
+              quantity: newQty,
+            }
+          }
+          return item
+        })
+        .filter((item) => item.quantity > 0),
+    )
+  }
+  const handlePlaceOrder = () => {
+    setOrderStatus('paying')
+  }
+  const handleSimulatePayment = () => {
+    setOrderStatus('success')
+  }
+  if (orderStatus === 'success') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
+        <motion.div
+          initial={{
+            scale: 0,
+          }}
+          animate={{
+            scale: 1,
+          }}
+          className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-6"
+        >
+          <CheckCircle2Icon className="w-12 h-12" />
+        </motion.div>
+        <h1 className="text-3xl font-bold text-slate-800 mb-2">
+          Order Placed!
+        </h1>
+        <p className="text-slate-600 mb-8 max-w-sm">
+          Your order has been sent to the kitchen. We'll bring it to Table 1
+          shortly.
+        </p>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 w-full max-w-sm mb-8">
+          <p className="text-sm text-slate-500 mb-1">Order Number</p>
+          <p className="text-2xl font-mono font-bold text-slate-800">
+            #ORD-{Math.floor(Math.random() * 10000)}
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            setOrderStatus('browsing')
+            setCart([])
+          }}
+          className="text-teal-600 font-medium hover:underline"
+        >
+          Order more items
+        </button>
+      </div>
+    )
+  }
+  if (orderStatus === 'paying') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col">
+        <header className="bg-white p-4 flex items-center border-b border-slate-200 sticky top-0 z-10">
+          <button
+            onClick={() => setOrderStatus('browsing')}
+            className="p-2 -ml-2 text-slate-600"
+          >
+            <ChevronLeftIcon className="w-6 h-6" />
+          </button>
+          <h1 className="text-lg font-bold text-slate-800 ml-2">Checkout</h1>
+        </header>
+
+        <div className="flex-1 p-6 flex flex-col items-center justify-center max-w-md mx-auto w-full">
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 w-full text-center">
+            <h2 className="text-xl font-bold text-slate-800 mb-2">
+              Pay via Wallet
+            </h2>
+            <p className="text-slate-500 text-sm mb-8">
+              Scan with your mobile money app
+            </p>
+
+            <div className="inline-block p-4 bg-white border-2 border-slate-100 rounded-2xl shadow-inner mb-8">
+              <QrCodeIcon className="w-48 h-48 text-slate-800" />
+            </div>
+
+            <div className="flex justify-between items-center py-4 border-t border-slate-100 mb-6">
+              <span className="text-slate-600 font-medium">Total to pay</span>
+              <span className="text-2xl font-bold text-teal-600">
+                D{total.toFixed(2)}
+              </span>
+            </div>
+
+            <button
+              onClick={handleSimulatePayment}
+              className="w-full py-4 bg-teal-600 text-white rounded-xl font-bold text-lg hover:bg-teal-700 transition-colors shadow-md shadow-teal-600/20"
+            >
+              Simulate Payment
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="min-h-screen bg-slate-50 pb-24">
+      {/* Header */}
+      <header className="bg-white pt-8 pb-4 px-4 shadow-sm sticky top-0 z-10">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800">
+                Taste of Gambia
+              </h1>
+              <p className="text-teal-600 font-medium flex items-center mt-1">
+                <UtensilsIcon className="w-4 h-4 mr-1" /> Table 1
+              </p>
+            </div>
+          </div>
+
+          {/* Categories */}
+          <div className="flex overflow-x-auto hide-scrollbar gap-2 pb-2">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`px-5 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activeCategory === cat ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      {/* Menu Grid */}
+      <main className="max-w-3xl mx-auto p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {filteredItems.map((item) => (
+            <motion.div
+              key={item.id}
+              layout
+              initial={{
+                opacity: 0,
+                y: 20,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex gap-4"
+            >
+              <div
+                className={`w-24 h-24 rounded-xl ${item.imageColor} flex-shrink-0 flex items-center justify-center text-4xl`}
+              >
+                {item.imageEmoji}
+              </div>
+              <div className="flex-1 flex flex-col justify-between">
+                <div>
+                  <h3 className="font-bold text-slate-800 leading-tight mb-1">
+                    {item.name}
+                  </h3>
+                  <p className="text-xs text-slate-500 line-clamp-2">
+                    {item.description}
+                  </p>
+                </div>
+                <div className="flex justify-between items-center mt-3">
+                  <span className="font-bold text-teal-600">D{item.price}</span>
+                  <button
+                    onClick={() => addToCart(item)}
+                    className="w-8 h-8 bg-teal-50 text-teal-600 rounded-full flex items-center justify-center hover:bg-teal-100 transition-colors"
+                  >
+                    <PlusIcon className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </main>
+
+      {/* Floating Cart Button */}
+      <AnimatePresence>
+        {itemCount > 0 && !isCartOpen && (
+          <motion.div
+            initial={{
+              y: 100,
+            }}
+            animate={{
+              y: 0,
+            }}
+            exit={{
+              y: 100,
+            }}
+            className="fixed bottom-6 left-0 right-0 px-4 z-20 max-w-3xl mx-auto"
+          >
+            <button
+              onClick={() => setIsCartOpen(true)}
+              className="w-full bg-slate-900 text-white p-4 rounded-2xl shadow-xl flex items-center justify-between"
+            >
+              <div className="flex items-center">
+                <div className="bg-teal-500 w-8 h-8 rounded-full flex items-center justify-center font-bold mr-3">
+                  {itemCount}
+                </div>
+                <span className="font-medium">View Order</span>
+              </div>
+              <span className="font-bold">D{total.toFixed(2)}</span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Cart Drawer */}
+      <AnimatePresence>
+        {isCartOpen && (
+          <>
+            <motion.div
+              initial={{
+                opacity: 0,
+              }}
+              animate={{
+                opacity: 1,
+              }}
+              exit={{
+                opacity: 0,
+              }}
+              onClick={() => setIsCartOpen(false)}
+              className="fixed inset-0 bg-slate-900/60 z-30 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{
+                y: '100%',
+              }}
+              animate={{
+                y: 0,
+              }}
+              exit={{
+                y: '100%',
+              }}
+              transition={{
+                type: 'spring',
+                damping: 25,
+                stiffness: 200,
+              }}
+              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl z-40 max-h-[85vh] flex flex-col max-w-3xl mx-auto"
+            >
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+                <h2 className="text-xl font-bold text-slate-800">Your Order</h2>
+                <button
+                  onClick={() => setIsCartOpen(false)}
+                  className="p-2 text-slate-400 bg-slate-100 rounded-full"
+                >
+                  <ChevronLeftIcon className="w-5 h-5 -rotate-90" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {cart.map((item) => (
+                  <div
+                    key={item.product.id}
+                    className="flex items-center gap-4"
+                  >
+                    <div
+                      className={`w-16 h-16 rounded-xl ${item.product.imageColor} flex items-center justify-center text-2xl`}
+                    >
+                      {item.product.imageEmoji}
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-bold text-slate-800 text-sm">
+                        {item.product.name}
+                      </h4>
+                      <p className="text-teal-600 font-semibold text-sm">
+                        D{item.product.price}
+                      </p>
+                    </div>
+                    <div className="flex items-center bg-slate-100 rounded-full p-1">
+                      <button
+                        onClick={() => updateQuantity(item.product.id, -1)}
+                        className="w-8 h-8 flex items-center justify-center text-slate-600"
+                      >
+                        <MinusIcon className="w-4 h-4" />
+                      </button>
+                      <span className="w-6 text-center font-medium text-sm">
+                        {item.quantity}
+                      </span>
+                      <button
+                        onClick={() => updateQuantity(item.product.id, 1)}
+                        className="w-8 h-8 flex items-center justify-center text-slate-600 bg-white rounded-full shadow-sm"
+                      >
+                        <PlusIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-6 bg-slate-50 border-t border-slate-100 rounded-t-3xl pb-8">
+                <div className="flex justify-between items-center mb-6">
+                  <span className="text-slate-500 font-medium">
+                    Total Amount
+                  </span>
+                  <span className="text-2xl font-bold text-slate-800">
+                    D{total.toFixed(2)}
+                  </span>
+                </div>
+                <button
+                  onClick={handlePlaceOrder}
+                  className="w-full py-4 bg-teal-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-teal-600/30 active:scale-[0.98] transition-transform"
+                >
+                  Place Order & Pay
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+```
+```pages/DashboardPage.tsx
+import React from 'react'
+import { motion } from 'framer-motion'
+import {
+  TrendingUpIcon,
+  ShoppingBagIcon,
+  PackageIcon,
+  AlertTriangleIcon,
+  ArrowUpRightIcon,
+  ArrowDownRightIcon,
+} from 'lucide-react'
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts'
+import {
+  MOCK_STATS,
+  REVENUE_DATA,
+  MOCK_ORDERS,
+  MOCK_PRODUCTS,
+} from '../data/mockData'
+export function DashboardPage() {
+  const stats = [
+    {
+      title: 'Total Revenue',
+      value: `D${MOCK_STATS.totalSales.toLocaleString()}`,
+      icon: TrendingUpIcon,
+      color: 'text-teal-600',
+      bg: 'bg-teal-100',
+      trend: '+12.5%',
+      isPositive: true,
+    },
+    {
+      title: 'Orders Today',
+      value: MOCK_STATS.totalOrders,
+      icon: ShoppingBagIcon,
+      color: 'text-blue-600',
+      bg: 'bg-blue-100',
+      trend: '+5.2%',
+      isPositive: true,
+    },
+    {
+      title: 'Total Products',
+      value: MOCK_STATS.totalProducts,
+      icon: PackageIcon,
+      color: 'text-indigo-600',
+      bg: 'bg-indigo-100',
+      trend: '0%',
+      isPositive: true,
+    },
+    {
+      title: 'Low Stock Alerts',
+      value: MOCK_STATS.lowStockCount,
+      icon: AlertTriangleIcon,
+      color: 'text-amber-600',
+      bg: 'bg-amber-100',
+      trend: '-2',
+      isPositive: false,
+    },
+  ]
+  return (
+    <motion.div
+      initial={{
+        opacity: 0,
+        y: 20,
+      }}
+      animate={{
+        opacity: 1,
+        y: 0,
+      }}
+      className="space-y-6"
+    >
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {stats.map((stat, idx) => (
+          <div
+            key={idx}
+            className="bg-white p-6 rounded-xl shadow-sm border border-slate-100"
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-sm font-medium text-slate-500 mb-1">
+                  {stat.title}
+                </p>
+                <h3 className="text-2xl font-bold text-slate-800">
+                  {stat.value}
+                </h3>
+              </div>
+              <div className={`p-3 rounded-lg ${stat.bg}`}>
+                <stat.icon className={`w-6 h-6 ${stat.color}`} />
+              </div>
+            </div>
+            <div className="mt-4 flex items-center text-sm">
+              {stat.isPositive ? (
+                <ArrowUpRightIcon className="w-4 h-4 text-emerald-500 mr-1" />
+              ) : (
+                <ArrowDownRightIcon className="w-4 h-4 text-amber-500 mr-1" />
+              )}
+              <span
+                className={
+                  stat.isPositive
+                    ? 'text-emerald-600 font-medium'
+                    : 'text-amber-600 font-medium'
+                }
+              >
+                {stat.trend}
+              </span>
+              <span className="text-slate-400 ml-2">vs last week</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Chart */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 lg:col-span-2">
+          <h3 className="text-lg font-semibold text-slate-800 mb-6">
+            Revenue Overview
+          </h3>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={REVENUE_DATA}
+                margin={{
+                  top: 10,
+                  right: 10,
+                  left: 0,
+                  bottom: 0,
+                }}
+              >
+                <defs>
+                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#0D9488" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#0D9488" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  vertical={false}
+                  stroke="#E2E8F0"
+                />
+                <XAxis
+                  dataKey="name"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{
+                    fill: '#64748B',
+                    fontSize: 12,
+                  }}
+                  dy={10}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{
+                    fill: '#64748B',
+                    fontSize: 12,
+                  }}
+                  tickFormatter={(value) => `D${value}`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: '8px',
+                    border: 'none',
+                    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                  }}
+                  formatter={(value: number) => [`D${value}`, 'Revenue']}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="#0D9488"
+                  strokeWidth={3}
+                  fillOpacity={1}
+                  fill="url(#colorRevenue)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Recent Orders */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-semibold text-slate-800">
+              Recent Orders
+            </h3>
+            <button className="text-sm text-teal-600 font-medium hover:text-teal-700">
+              View All
+            </button>
+          </div>
+          <div className="space-y-4">
+            {MOCK_ORDERS.slice(0, 5).map((order) => (
+              <div
+                key={order.id}
+                className="flex items-center justify-between p-3 hover:bg-slate-50 rounded-lg transition-colors"
+              >
+                <div>
+                  <p className="font-medium text-slate-800 font-mono text-sm">
+                    {order.id}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {order.items.length} items
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold text-slate-800">D{order.total}</p>
+                  <span
+                    className={`text-xs px-2 py-1 rounded-full font-medium inline-block mt-1
+                    ${order.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : order.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}
+                  >
+                    {order.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+```
+```pages/LoginPage.tsx
+import React from 'react'
+import { motion } from 'framer-motion'
+import {
+  QrCodeIcon,
+  ShieldCheckIcon,
+  StoreIcon,
+  ShoppingCartIcon,
+  UserIcon,
+} from 'lucide-react'
+import { User } from '../types'
+interface LoginPageProps {
+  onLogin: (user: User) => void
+}
+export function LoginPage({ onLogin }: LoginPageProps) {
+  const roles = [
+    {
+      id: 'admin',
+      name: 'Platform Admin',
+      icon: ShieldCheckIcon,
+      desc: 'Manage tenants & system',
+      color: 'bg-indigo-100 text-indigo-600',
+    },
+    {
+      id: 'merchant',
+      name: 'Business Owner',
+      icon: StoreIcon,
+      desc: 'Manage products & reports',
+      color: 'bg-teal-100 text-teal-600',
+    },
+    {
+      id: 'cashier',
+      name: 'Cashier / Waiter',
+      icon: ShoppingCartIcon,
+      desc: 'Process orders & payments',
+      color: 'bg-amber-100 text-amber-600',
+    },
+    {
+      id: 'customer',
+      name: 'Customer (Demo)',
+      icon: UserIcon,
+      desc: 'Self-service ordering',
+      color: 'bg-rose-100 text-rose-600',
+    },
+  ]
+  const handleRoleSelect = (roleId: string) => {
+    if (roleId === 'customer') {
+      // Redirect to a demo table
+      window.location.hash = '#/menu/T-01'
+      return
+    }
+    const mockUser: User = {
+      id: `usr-${Math.floor(Math.random() * 1000)}`,
+      name:
+        roleId === 'admin'
+          ? 'System Admin'
+          : roleId === 'merchant'
+            ? 'Fatou Store'
+            : 'John Cashier',
+      email: `${roleId}@qrpay.com`,
+      role: roleId as any,
+      businessId: roleId !== 'admin' ? 'b1' : undefined,
+    }
+    onLogin(mockUser)
+  }
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
+      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5 pointer-events-none"></div>
+
+      <motion.div
+        initial={{
+          opacity: 0,
+          y: 20,
+        }}
+        animate={{
+          opacity: 1,
+          y: 0,
+        }}
+        className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden z-10"
+      >
+        <div className="bg-slate-900 p-8 text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-teal-500/20 mb-4">
+            <QrCodeIcon className="w-8 h-8 text-teal-400" />
+          </div>
+          <h1 className="text-3xl font-bold text-white mb-2">QRPay</h1>
+          <p className="text-slate-400 text-sm">
+            Smart Retail & Restaurant Payment System
+          </p>
+        </div>
+
+        <div className="p-8">
+          <h2 className="text-lg font-semibold text-slate-800 mb-4 text-center">
+            Select a role to continue
+          </h2>
+
+          <div className="grid grid-cols-1 gap-3">
+            {roles.map((role, idx) => (
+              <motion.button
+                key={role.id}
+                initial={{
+                  opacity: 0,
+                  x: -20,
+                }}
+                animate={{
+                  opacity: 1,
+                  x: 0,
+                }}
+                transition={{
+                  delay: idx * 0.1,
+                }}
+                onClick={() => handleRoleSelect(role.id)}
+                className="flex items-center p-4 border border-slate-200 rounded-xl hover:border-teal-500 hover:shadow-md transition-all group text-left bg-white"
+              >
+                <div
+                  className={`w-12 h-12 rounded-lg flex items-center justify-center mr-4 ${role.color} group-hover:scale-110 transition-transform`}
+                >
+                  <role.icon className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-800 group-hover:text-teal-600 transition-colors">
+                    {role.name}
+                  </h3>
+                  <p className="text-xs text-slate-500">{role.desc}</p>
+                </div>
+              </motion.button>
+            ))}
+          </div>
+
+          <div className="mt-8 text-center">
+            <p className="text-xs text-slate-400">
+              This is a prototype. No actual authentication is required.
+            </p>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+```
+```pages/OrdersPage.tsx
+import React, { useState } from 'react'
+import { motion } from 'framer-motion'
+import {
+  SearchIcon,
+  FilterIcon,
+  ClockIcon,
+  CheckCircle2Icon,
+  ChefHatIcon,
+  UtensilsIcon,
+} from 'lucide-react'
+import { MOCK_ORDERS } from '../data/mockData'
+export function OrdersPage() {
+  const [activeTab, setActiveTab] = useState('All')
+  const tabs = ['All', 'Pending', 'Preparing', 'Served', 'Completed']
+  const filteredOrders =
+    activeTab === 'All'
+      ? MOCK_ORDERS
+      : MOCK_ORDERS.filter(
+          (o) => o.status.toLowerCase() === activeTab.toLowerCase(),
+        )
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'bg-amber-100 text-amber-700 border-amber-200'
+      case 'preparing':
+        return 'bg-blue-100 text-blue-700 border-blue-200'
+      case 'served':
+        return 'bg-teal-100 text-teal-700 border-teal-200'
+      case 'completed':
+        return 'bg-emerald-100 text-emerald-700 border-emerald-200'
+      default:
+        return 'bg-slate-100 text-slate-700 border-slate-200'
+    }
+  }
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <ClockIcon className="w-4 h-4 mr-1.5" />
+      case 'preparing':
+        return <ChefHatIcon className="w-4 h-4 mr-1.5" />
+      case 'served':
+        return <UtensilsIcon className="w-4 h-4 mr-1.5" />
+      case 'completed':
+        return <CheckCircle2Icon className="w-4 h-4 mr-1.5" />
+      default:
+        return null
+    }
+  }
+  return (
+    <motion.div
+      initial={{
+        opacity: 0,
+      }}
+      animate={{
+        opacity: 1,
+      }}
+      className="space-y-6"
+    >
+      {/* Header & Tabs */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+        <div className="flex overflow-x-auto hide-scrollbar gap-2 w-full sm:w-auto">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${activeTab === tab ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-3 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-64">
+            <SearchIcon className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              placeholder="Search orders..."
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
+          <button className="p-2 border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">
+            <FilterIcon className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Orders List */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
+                <th className="p-4 font-medium">Order ID</th>
+                <th className="p-4 font-medium">Date & Time</th>
+                <th className="p-4 font-medium">Items</th>
+                <th className="p-4 font-medium">Table</th>
+                <th className="p-4 font-medium">Total</th>
+                <th className="p-4 font-medium">Status</th>
+                <th className="p-4 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredOrders.map((order) => (
+                <tr
+                  key={order.id}
+                  className="hover:bg-slate-50 transition-colors group"
+                >
+                  <td className="p-4 font-mono text-sm font-medium text-slate-800">
+                    {order.id}
+                  </td>
+                  <td className="p-4 text-sm text-slate-500">
+                    {new Date(order.createdAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </td>
+                  <td className="p-4">
+                    <div className="text-sm text-slate-800">
+                      {order.items.length} items
+                    </div>
+                    <div className="text-xs text-slate-500 truncate max-w-[200px]">
+                      {order.items.map((i) => i.productName).join(', ')}
+                    </div>
+                  </td>
+                  <td className="p-4 text-sm text-slate-600 font-medium">
+                    {order.tableId || '-'}
+                  </td>
+                  <td className="p-4 font-semibold text-slate-800">
+                    D{order.total}
+                  </td>
+                  <td className="p-4">
+                    <span
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(order.status)} capitalize`}
+                    >
+                      {getStatusIcon(order.status)}
+                      {order.status}
+                    </span>
+                  </td>
+                  <td className="p-4 text-right">
+                    <button className="text-teal-600 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity hover:underline">
+                      View Details
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+```
+```pages/PaymentsPage.tsx
+import React from 'react'
+import { motion } from 'framer-motion'
+import {
+  CreditCardIcon,
+  BanknoteIcon,
+  ArrowUpRightIcon,
+  DownloadIcon,
+} from 'lucide-react'
+import { MOCK_PAYMENTS } from '../data/mockData'
+export function PaymentsPage() {
+  return (
+    <motion.div
+      initial={{
+        opacity: 0,
+      }}
+      animate={{
+        opacity: 1,
+      }}
+      className="space-y-6"
+    >
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <p className="text-sm font-medium text-slate-500 mb-1">
+            Total Processed
+          </p>
+          <h3 className="text-2xl font-bold text-slate-800 mb-4">D12,450.00</h3>
+          <div className="w-full bg-slate-100 rounded-full h-2">
+            <div
+              className="bg-teal-500 h-2 rounded-full"
+              style={{
+                width: '85%',
+              }}
+            ></div>
+          </div>
+          <p className="text-xs text-slate-400 mt-2">85% via QR Wallet</p>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <p className="text-sm font-medium text-slate-500 mb-1">Successful</p>
+          <h3 className="text-2xl font-bold text-emerald-600 mb-4">42</h3>
+          <div className="flex items-center text-sm text-emerald-600 font-medium">
+            <ArrowUpRightIcon className="w-4 h-4 mr-1" /> +12% this week
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <p className="text-sm font-medium text-slate-500 mb-1">
+            Failed / Pending
+          </p>
+          <h3 className="text-2xl font-bold text-amber-600 mb-4">3</h3>
+          <p className="text-sm text-slate-500">Requires attention</p>
+        </div>
+      </div>
+
+      {/* Payments Table */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+          <h2 className="font-semibold text-slate-800">Recent Transactions</h2>
+          <button className="flex items-center text-sm text-slate-600 hover:text-teal-600 font-medium">
+            <DownloadIcon className="w-4 h-4 mr-1.5" /> Export CSV
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
+                <th className="p-4 font-medium">Reference</th>
+                <th className="p-4 font-medium">Order ID</th>
+                <th className="p-4 font-medium">Method</th>
+                <th className="p-4 font-medium">Amount</th>
+                <th className="p-4 font-medium">Status</th>
+                <th className="p-4 font-medium">Date</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {MOCK_PAYMENTS.map((payment) => (
+                <tr
+                  key={payment.id}
+                  className="hover:bg-slate-50 transition-colors"
+                >
+                  <td className="p-4 font-mono text-sm text-slate-600">
+                    {payment.reference}
+                  </td>
+                  <td className="p-4 font-mono text-sm font-medium text-slate-800">
+                    {payment.orderId}
+                  </td>
+                  <td className="p-4">
+                    <div className="flex items-center text-sm text-slate-700">
+                      {payment.method === 'qr_wallet' ? (
+                        <>
+                          <CreditCardIcon className="w-4 h-4 mr-2 text-teal-500" />{' '}
+                          QR Wallet
+                        </>
+                      ) : (
+                        <>
+                          <BanknoteIcon className="w-4 h-4 mr-2 text-emerald-500" />{' '}
+                          Cash
+                        </>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-4 font-bold text-slate-800">
+                    D{payment.amount}
+                  </td>
+                  <td className="p-4">
+                    <span
+                      className={`inline-flex px-2 py-1 rounded-full text-xs font-medium capitalize
+                      ${payment.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : payment.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}
+                    >
+                      {payment.status}
+                    </span>
+                  </td>
+                  <td className="p-4 text-sm text-slate-500">
+                    {new Date(payment.createdAt).toLocaleString([], {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+```
+```pages/POSPage.tsx
+import React, { useEffect, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  SearchIcon,
+  ScanLineIcon,
+  Trash2Icon,
+  PlusIcon,
+  MinusIcon,
+  CreditCardIcon,
+  BanknoteIcon,
+  CheckCircle2Icon,
+  QrCodeIcon,
+  ShoppingCartIcon,
+} from 'lucide-react'
+import { MOCK_PRODUCTS } from '../data/mockData'
+import { Product, CartItem } from '../types'
+export function POSPage() {
+  const [cart, setCart] = useState<CartItem[]>([])
+  const [searchTerm, setSearchTerm] = useState('')
+  const [isScanning, setIsScanning] = useState(false)
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false)
+  const [paymentStatus, setPaymentStatus] = useState<'waiting' | 'success'>(
+    'waiting',
+  )
+  const subtotal = cart.reduce(
+    (sum, item) => sum + item.product.price * item.quantity,
+    0,
+  )
+  const total = subtotal // No tax for simplicity in prototype
+  const addToCart = (product: Product) => {
+    setCart((prev) => {
+      const existing = prev.find((item) => item.product.id === product.id)
+      if (existing) {
+        return prev.map((item) =>
+          item.product.id === product.id
+            ? {
+                ...item,
+                quantity: item.quantity + 1,
+              }
+            : item,
+        )
+      }
+      return [
+        ...prev,
+        {
+          product,
+          quantity: 1,
+        },
+      ]
+    })
+  }
+  const updateQuantity = (productId: string, delta: number) => {
+    setCart((prev) =>
+      prev.map((item) => {
+        if (item.product.id === productId) {
+          const newQty = Math.max(1, item.quantity + delta)
+          return {
+            ...item,
+            quantity: newQty,
+          }
+        }
+        return item
+      }),
+    )
+  }
+  const removeFromCart = (productId: string) => {
+    setCart((prev) => prev.filter((item) => item.product.id !== productId))
+  }
+  const simulateScan = () => {
+    setIsScanning(true)
+    setTimeout(() => {
+      setIsScanning(false)
+      const randomProduct =
+        MOCK_PRODUCTS[Math.floor(Math.random() * MOCK_PRODUCTS.length)]
+      addToCart(randomProduct)
+    }, 800)
+  }
+  const handleCharge = () => {
+    if (cart.length === 0) return
+    setPaymentModalOpen(true)
+    setPaymentStatus('waiting')
+  }
+  const simulatePaymentSuccess = () => {
+    setPaymentStatus('success')
+    setTimeout(() => {
+      setPaymentModalOpen(false)
+      setCart([])
+    }, 2000)
+  }
+  return (
+    <div className="h-[calc(100vh-8rem)] flex flex-col lg:flex-row gap-6">
+      {/* Left Side - Scanner & Products */}
+      <div className="flex-1 flex flex-col gap-6">
+        {/* Scanner Area */}
+        <div className="bg-slate-900 rounded-2xl p-6 flex flex-col items-center justify-center relative overflow-hidden min-h-[240px]">
+          <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-teal-500 via-slate-900 to-slate-900"></div>
+
+          <div className="relative z-10 flex flex-col items-center">
+            <div className="w-48 h-48 border-2 border-teal-500/50 rounded-xl relative flex items-center justify-center mb-4">
+              {/* Corner markers */}
+              <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-teal-400 rounded-tl-lg -mt-1 -ml-1"></div>
+              <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-teal-400 rounded-tr-lg -mt-1 -mr-1"></div>
+              <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-teal-400 rounded-bl-lg -mb-1 -ml-1"></div>
+              <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-teal-400 rounded-br-lg -mb-1 -mr-1"></div>
+
+              {isScanning ? (
+                <motion.div
+                  animate={{
+                    y: [-80, 80, -80],
+                  }}
+                  transition={{
+                    repeat: Infinity,
+                    duration: 1.5,
+                    ease: 'linear',
+                  }}
+                  className="w-full h-1 bg-teal-400 shadow-[0_0_15px_rgba(45,212,191,0.8)]"
+                />
+              ) : (
+                <ScanLineIcon className="w-12 h-12 text-teal-500/50" />
+              )}
+            </div>
+
+            <button
+              onClick={simulateScan}
+              disabled={isScanning}
+              className="px-6 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-full font-medium transition-colors shadow-lg shadow-teal-900/50"
+            >
+              {isScanning ? 'Scanning...' : 'Simulate Scan'}
+            </button>
+          </div>
+        </div>
+
+        {/* Quick Add Products */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex-1 flex flex-col overflow-hidden">
+          <div className="p-4 border-b border-slate-100">
+            <div className="relative">
+              <SearchIcon className="w-5 h-5 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search products manually..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {MOCK_PRODUCTS.filter((p) =>
+                p.name.toLowerCase().includes(searchTerm.toLowerCase()),
+              ).map((product) => (
+                <button
+                  key={product.id}
+                  onClick={() => addToCart(product)}
+                  className="flex flex-col items-center p-3 border border-slate-100 rounded-xl hover:border-teal-500 hover:bg-teal-50 transition-all text-center"
+                >
+                  <div
+                    className={`w-12 h-12 rounded-full ${product.imageColor} flex items-center justify-center text-2xl mb-2`}
+                  >
+                    {product.imageEmoji}
+                  </div>
+                  <span className="text-sm font-medium text-slate-700 line-clamp-1 w-full">
+                    {product.name}
+                  </span>
+                  <span className="text-xs font-bold text-teal-600 mt-1">
+                    D{product.price}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Right Side - Cart */}
+      <div className="w-full lg:w-96 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col">
+        <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+          <h2 className="font-bold text-slate-800 text-lg">Current Order</h2>
+          <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-medium">
+            {cart.reduce((sum, item) => sum + item.quantity, 0)} items
+          </span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <AnimatePresence>
+            {cart.length === 0 ? (
+              <motion.div
+                initial={{
+                  opacity: 0,
+                }}
+                animate={{
+                  opacity: 1,
+                }}
+                className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4"
+              >
+                <ShoppingCartIcon className="w-16 h-16 opacity-20" />
+                <p>Scan items to add to cart</p>
+              </motion.div>
+            ) : (
+              cart.map((item) => (
+                <motion.div
+                  key={item.product.id}
+                  layout
+                  initial={{
+                    opacity: 0,
+                    x: 20,
+                  }}
+                  animate={{
+                    opacity: 1,
+                    x: 0,
+                  }}
+                  exit={{
+                    opacity: 0,
+                    x: -20,
+                  }}
+                  className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100"
+                >
+                  <div className="flex-1 min-w-0 mr-3">
+                    <h4 className="font-medium text-slate-800 text-sm truncate">
+                      {item.product.name}
+                    </h4>
+                    <p className="text-teal-600 font-semibold text-sm">
+                      D{item.product.price}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center bg-white border border-slate-200 rounded-lg">
+                      <button
+                        onClick={() => updateQuantity(item.product.id, -1)}
+                        className="p-1.5 text-slate-500 hover:text-teal-600"
+                      >
+                        <MinusIcon className="w-4 h-4" />
+                      </button>
+                      <span className="w-6 text-center text-sm font-medium">
+                        {item.quantity}
+                      </span>
+                      <button
+                        onClick={() => updateQuantity(item.product.id, 1)}
+                        className="p-1.5 text-slate-500 hover:text-teal-600"
+                      >
+                        <PlusIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => removeFromCart(item.product.id)}
+                      className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <Trash2Icon className="w-4 h-4" />
+                    </button>
+                  </div>
+                </motion.div>
+              ))
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="p-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
+          <div className="space-y-2 mb-4 text-sm">
+            <div className="flex justify-between text-slate-500">
+              <span>Subtotal</span>
+              <span>D{subtotal.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-slate-500">
+              <span>Tax (0%)</span>
+              <span>D0.00</span>
+            </div>
+            <div className="flex justify-between font-bold text-lg text-slate-800 pt-2 border-t border-slate-200">
+              <span>Total</span>
+              <span>D{total.toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => setCart([])}
+              disabled={cart.length === 0}
+              className="px-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-medium hover:bg-slate-100 disabled:opacity-50 transition-colors"
+            >
+              Clear
+            </button>
+            <button
+              onClick={handleCharge}
+              disabled={cart.length === 0}
+              className="flex-1 py-3 bg-teal-600 text-white rounded-xl font-bold text-lg hover:bg-teal-700 disabled:opacity-50 transition-colors shadow-sm flex items-center justify-center"
+            >
+              Charge D{total.toFixed(2)}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Payment Modal */}
+      <AnimatePresence>
+        {paymentModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{
+                opacity: 0,
+              }}
+              animate={{
+                opacity: 1,
+              }}
+              exit={{
+                opacity: 0,
+              }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              onClick={() =>
+                paymentStatus === 'waiting' && setPaymentModalOpen(false)
+              }
+            />
+            <motion.div
+              initial={{
+                scale: 0.95,
+                opacity: 0,
+              }}
+              animate={{
+                scale: 1,
+                opacity: 1,
+              }}
+              exit={{
+                scale: 0.95,
+                opacity: 0,
+              }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md z-10 overflow-hidden"
+            >
+              {paymentStatus === 'waiting' ? (
+                <div className="p-8 flex flex-col items-center text-center">
+                  <h2 className="text-2xl font-bold text-slate-800 mb-2">
+                    Scan to Pay
+                  </h2>
+                  <p className="text-slate-500 mb-6">
+                    Customer scans this QR with their wallet app
+                  </p>
+
+                  <div className="bg-white p-4 rounded-2xl shadow-inner border-2 border-slate-100 mb-6 relative">
+                    <QrCodeIcon className="w-48 h-48 text-slate-800" />
+                    <div className="absolute inset-0 bg-gradient-to-b from-transparent to-white/20 animate-pulse"></div>
+                  </div>
+
+                  <div className="bg-slate-50 w-full p-4 rounded-xl mb-6">
+                    <p className="text-sm text-slate-500 mb-1">Amount Due</p>
+                    <p className="text-3xl font-bold text-teal-600">
+                      D{total.toFixed(2)}
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3 w-full">
+                    <button
+                      onClick={simulatePaymentSuccess}
+                      className="flex-1 flex items-center justify-center py-3 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 transition-colors"
+                    >
+                      <CreditCardIcon className="w-5 h-5 mr-2" />
+                      Simulate Wallet
+                    </button>
+                    <button
+                      onClick={simulatePaymentSuccess}
+                      className="flex-1 flex items-center justify-center py-3 bg-white border-2 border-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-50 transition-colors"
+                    >
+                      <BanknoteIcon className="w-5 h-5 mr-2" />
+                      Cash
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-10 flex flex-col items-center text-center bg-emerald-50">
+                  <motion.div
+                    initial={{
+                      scale: 0,
+                    }}
+                    animate={{
+                      scale: 1,
+                    }}
+                    transition={{
+                      type: 'spring',
+                    }}
+                    className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-6"
+                  >
+                    <CheckCircle2Icon className="w-10 h-10" />
+                  </motion.div>
+                  <h2 className="text-2xl font-bold text-emerald-800 mb-2">
+                    Payment Successful!
+                  </h2>
+                  <p className="text-emerald-600 font-medium mb-8">
+                    D{total.toFixed(2)} received
+                  </p>
+
+                  <button
+                    onClick={() => {
+                      setPaymentModalOpen(false)
+                      setCart([])
+                    }}
+                    className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors"
+                  >
+                    New Order
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+```
+```pages/ProductsPage.tsx
+import React, { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  PlusIcon,
+  SearchIcon,
+  FilterIcon,
+  QrCodeIcon,
+  EditIcon,
+  DownloadIcon,
+  XIcon,
+} from 'lucide-react'
+import { MOCK_PRODUCTS } from '../data/mockData'
+import { Product } from '../types'
+export function ProductsPage() {
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const filteredProducts = MOCK_PRODUCTS.filter(
+    (p) =>
+      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.category.toLowerCase().includes(searchTerm.toLowerCase()),
+  )
+  const openProductModal = (product: Product) => {
+    setSelectedProduct(product)
+    setIsModalOpen(true)
+  }
+  return (
+    <motion.div
+      initial={{
+        opacity: 0,
+      }}
+      animate={{
+        opacity: 1,
+      }}
+      className="space-y-6"
+    >
+      {/* Header Actions */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="relative w-full sm:w-96">
+          <SearchIcon className="w-5 h-5 text-slate-400 absolute left-3 top-2.5" />
+          <input
+            type="text"
+            placeholder="Search products..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+          />
+        </div>
+        <div className="flex gap-3 w-full sm:w-auto">
+          <button className="flex items-center justify-center px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">
+            <FilterIcon className="w-4 h-4 mr-2" />
+            Filter
+          </button>
+          <button className="flex items-center justify-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors shadow-sm">
+            <PlusIcon className="w-4 h-4 mr-2" />
+            Add Product
+          </button>
+        </div>
+      </div>
+
+      {/* Product Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {filteredProducts.map((product) => (
+          <motion.div
+            key={product.id}
+            layoutId={`card-${product.id}`}
+            onClick={() => openProductModal(product)}
+            className="bg-white rounded-xl border border-slate-200 overflow-hidden hover:shadow-md transition-shadow cursor-pointer group"
+          >
+            <div
+              className={`h-32 ${product.imageColor} flex items-center justify-center text-5xl group-hover:scale-105 transition-transform duration-300`}
+            >
+              {product.imageEmoji}
+            </div>
+            <div className="p-4">
+              <div className="flex justify-between items-start mb-2">
+                <h3 className="font-semibold text-slate-800 line-clamp-1">
+                  {product.name}
+                </h3>
+                <span className="font-bold text-teal-600">
+                  D{product.price}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-500">{product.category}</span>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-xs font-medium ${product.stock < 20 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'}`}
+                >
+                  {product.stock} in stock
+                </span>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Product Detail / QR Modal */}
+      <AnimatePresence>
+        {isModalOpen && selectedProduct && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{
+                opacity: 0,
+              }}
+              animate={{
+                opacity: 1,
+              }}
+              exit={{
+                opacity: 0,
+              }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              onClick={() => setIsModalOpen(false)}
+            />
+            <motion.div
+              layoutId={`card-${selectedProduct.id}`}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-2xl z-10 overflow-hidden flex flex-col md:flex-row"
+            >
+              {/* Left side - Info */}
+              <div className="flex-1 p-6 border-b md:border-b-0 md:border-r border-slate-100">
+                <div className="flex justify-between items-start mb-6">
+                  <div
+                    className={`w-16 h-16 rounded-xl ${selectedProduct.imageColor} flex items-center justify-center text-3xl`}
+                  >
+                    {selectedProduct.imageEmoji}
+                  </div>
+                  <button
+                    onClick={() => setIsModalOpen(false)}
+                    className="p-2 text-slate-400 hover:bg-slate-100 rounded-full md:hidden"
+                  >
+                    <XIcon className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <h2 className="text-2xl font-bold text-slate-800 mb-1">
+                  {selectedProduct.name}
+                </h2>
+                <p className="text-slate-500 mb-6">
+                  {selectedProduct.category}
+                </p>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between py-3 border-b border-slate-100">
+                    <span className="text-slate-500">Price</span>
+                    <span className="font-semibold text-slate-800">
+                      D{selectedProduct.price}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-3 border-b border-slate-100">
+                    <span className="text-slate-500">Current Stock</span>
+                    <span className="font-semibold text-slate-800">
+                      {selectedProduct.stock} units
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-3 border-b border-slate-100">
+                    <span className="text-slate-500">Product ID</span>
+                    <span className="font-mono text-sm text-slate-600">
+                      {selectedProduct.id}
+                    </span>
+                  </div>
+                </div>
+
+                <button className="mt-8 w-full flex items-center justify-center px-4 py-2 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">
+                  <EditIcon className="w-4 h-4 mr-2" />
+                  Edit Details
+                </button>
+              </div>
+
+              {/* Right side - QR Generation */}
+              <div className="flex-1 p-6 bg-slate-50 flex flex-col items-center justify-center text-center relative">
+                <button
+                  onClick={() => setIsModalOpen(false)}
+                  className="absolute top-4 right-4 p-2 text-slate-400 hover:bg-slate-200 rounded-full hidden md:block"
+                >
+                  <XIcon className="w-5 h-5" />
+                </button>
+
+                <div className="w-48 h-48 bg-white border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center mb-6 p-4">
+                  <QrCodeIcon className="w-16 h-16 text-slate-400 mb-2" />
+                  <p className="text-sm text-slate-500">
+                    Generate unique QR codes for inventory
+                  </p>
+                </div>
+
+                <h3 className="font-semibold text-slate-800 mb-2">
+                  Inventory QR Codes
+                </h3>
+                <p className="text-sm text-slate-500 mb-6">
+                  Print these to stick on physical items for fast POS scanning.
+                </p>
+
+                <div className="space-y-3 w-full">
+                  <button className="w-full flex items-center justify-center px-4 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors shadow-sm font-medium">
+                    <QrCodeIcon className="w-4 h-4 mr-2" />
+                    Generate {selectedProduct.stock} Codes
+                  </button>
+                  <button className="w-full flex items-center justify-center px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors font-medium">
+                    <DownloadIcon className="w-4 h-4 mr-2" />
+                    Download PDF
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  )
+}
+
+```
+```pages/ReportsPage.tsx
+import React from 'react'
+import { motion } from 'framer-motion'
+import {
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts'
+import { CalendarIcon } from 'lucide-react'
+const CATEGORY_DATA = [
+  {
+    name: 'Beverages',
+    value: 4500,
+  },
+  {
+    name: 'Mains',
+    value: 3200,
+  },
+  {
+    name: 'Snacks',
+    value: 1800,
+  },
+  {
+    name: 'Household',
+    value: 2950,
+  },
+]
+const TOP_PRODUCTS = [
+  {
+    name: 'Coca-Cola 500ml',
+    sales: 120,
+  },
+  {
+    name: 'Grilled Chicken',
+    sales: 85,
+  },
+  {
+    name: 'Local Rice 5kg',
+    sales: 64,
+  },
+  {
+    name: 'Bottled Water',
+    sales: 210,
+  },
+]
+const COLORS = ['#0D9488', '#F59E0B', '#3B82F6', '#8B5CF6']
+export function ReportsPage() {
+  return (
+    <motion.div
+      initial={{
+        opacity: 0,
+      }}
+      animate={{
+        opacity: 1,
+      }}
+      className="space-y-6"
+    >
+      <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+        <h2 className="font-semibold text-slate-800">Analytics Dashboard</h2>
+        <button className="flex items-center px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">
+          <CalendarIcon className="w-4 h-4 mr-2" />
+          Last 7 Days
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Sales by Category (Pie Chart) */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <h3 className="text-lg font-semibold text-slate-800 mb-6">
+            Sales by Category
+          </h3>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={CATEGORY_DATA}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {CATEGORY_DATA.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={COLORS[index % COLORS.length]}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => `D${value}`} />
+                <Legend verticalAlign="bottom" height={36} iconType="circle" />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Top Products (Bar Chart) */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <h3 className="text-lg font-semibold text-slate-800 mb-6">
+            Top Selling Products (Units)
+          </h3>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={TOP_PRODUCTS}
+                layout="vertical"
+                margin={{
+                  top: 0,
+                  right: 0,
+                  left: 40,
+                  bottom: 0,
+                }}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  horizontal={true}
+                  vertical={false}
+                  stroke="#E2E8F0"
+                />
+                <XAxis
+                  type="number"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{
+                    fill: '#64748B',
+                    fontSize: 12,
+                  }}
+                />
+                <YAxis
+                  dataKey="name"
+                  type="category"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{
+                    fill: '#475569',
+                    fontSize: 12,
+                  }}
+                />
+                <Tooltip
+                  cursor={{
+                    fill: '#F1F5F9',
+                  }}
+                  contentStyle={{
+                    borderRadius: '8px',
+                    border: 'none',
+                    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                  }}
+                />
+                <Bar
+                  dataKey="sales"
+                  fill="#0D9488"
+                  radius={[0, 4, 4, 0]}
+                  barSize={24}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+```
+```tailwind.config.js
+
+export default {
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          50: '#F0FDFA',
+          100: '#CCFBF1',
+          200: '#99F6E4',
+          300: '#5EEAD4',
+          400: '#2DD4BF',
+          500: '#14B8A6',
+          600: '#0D9488',
+          700: '#0F766E',
+          800: '#115E59',
+          900: '#134E4A',
+        },
+        accent: {
+          50: '#FFFBEB',
+          100: '#FEF3C7',
+          200: '#FDE68A',
+          300: '#FCD34D',
+          400: '#FBBF24',
+          500: '#F59E0B',
+          600: '#D97706',
+          700: '#B45309',
+          800: '#92400E',
+          900: '#78350F',
+        },
+        sidebar: {
+          DEFAULT: '#0F172A',
+          hover: '#1E293B',
+          active: '#334155',
+        },
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
+      },
+    },
+  },
+}
+
+```
+```types/index.ts
+export interface User {
+  id: string
+  name: string
+  email: string
+  role: 'admin' | 'merchant' | 'cashier' | 'customer'
+  businessId?: string
+}
+
+export interface Business {
+  id: string
+  name: string
+  type: 'market' | 'restaurant'
+  address: string
+  phone: string
+}
+
+export interface Product {
+  id: string
+  name: string
+  price: number
+  category: string
+  stock: number
+  imageColor: string
+  imageEmoji: string
+  businessId: string
+  description?: string
+}
+
+export interface ProductQRCode {
+  id: string
+  productId: string
+  serialCode: string
+  isUsed: boolean
+  createdAt: string
+}
+
+export interface OrderItem {
+  id: string
+  productId: string
+  productName: string
+  quantity: number
+  price: number
+}
+
+export interface Order {
+  id: string
+  items: OrderItem[]
+  status: 'pending' | 'preparing' | 'served' | 'completed' | 'cancelled'
+  total: number
+  tableId?: string
+  customerId?: string
+  createdAt: string
+}
+
+export interface Payment {
+  id: string
+  orderId: string
+  amount: number
+  status: 'pending' | 'completed' | 'failed'
+  reference: string
+  method: 'qr_wallet' | 'cash'
+  createdAt: string
+}
+
+export interface RestaurantTable {
+  id: string
+  name: string
+  restaurantId: string
+  qrCode: string
+}
+
+export interface CartItem {
+  product: Product
+  quantity: number
+}
+
+export interface DashboardStats {
+  totalSales: number
+  totalOrders: number
+  totalProducts: number
+  lowStockCount: number
+}
+
+```
