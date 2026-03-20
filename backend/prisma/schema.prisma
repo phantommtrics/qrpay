@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlanCode {
+  BASIC
+  PRO
+  BUSINESS_PRO
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  FAILED
+  VOID
+}
+
+model Business {
+  id            String                @id @default(cuid())
+  name          String
+  slug          String                @unique
+  ownerName     String
+  ownerEmail    String                @unique
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  subscriptions Subscription[]
+  invoices      SubscriptionInvoice[]
+}
+
+model Plan {
+  id            String                @id @default(cuid())
+  code          PlanCode              @unique
+  name          String
+  monthlyPrice  Decimal               @db.Decimal(10, 2)
+  currency      String                @default("GMD")
+  description   String
+  staffLimit    Int
+  outletLimit   Int
+  productLimit  Int
+  featureFlags  Json
+  isActive      Boolean               @default(true)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  subscriptions Subscription[]
+  invoices      SubscriptionInvoice[]
+}
+
+model Subscription {
+  id                  String                @id @default(cuid())
+  businessId          String
+  planId              String
+  status              SubscriptionStatus    @default(ACTIVE)
+  startDate           DateTime
+  currentPeriodStart  DateTime
+  currentPeriodEnd    DateTime
+  cancelAtPeriodEnd   Boolean               @default(false)
+  cancelledAt         DateTime?
+  endedAt             DateTime?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  business            Business              @relation(fields: [businessId], references: [id])
+  plan                Plan                  @relation(fields: [planId], references: [id])
+  invoices            SubscriptionInvoice[]
+
+  @@index([businessId, status])
+  @@index([planId])
+}
+
+model SubscriptionInvoice {
+  id                  String             @id @default(cuid())
+  businessId          String
+  subscriptionId      String
+  planId              String
+  amount              Decimal            @db.Decimal(10, 2)
+  currency            String             @default("GMD")
+  status              InvoiceStatus      @default(PENDING)
+  billingPeriodStart  DateTime
+  billingPeriodEnd    DateTime
+  dueDate             DateTime
+  paidAt              DateTime?
+  externalReference   String?            @unique
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  business            Business           @relation(fields: [businessId], references: [id])
+  subscription        Subscription       @relation(fields: [subscriptionId], references: [id])
+  plan                Plan               @relation(fields: [planId], references: [id])
+
+  @@index([businessId, status])
+  @@index([subscriptionId])
+}

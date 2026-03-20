@@ -19,20 +19,24 @@ export function SignupPage() {
   })
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setMessage(null)
     setError(null)
+    setIsSubmitting(true)
 
-    const result = registerOrganization(form)
+    const result = await registerOrganization(form)
 
     if (!result.ok) {
       setError(result.error ?? 'Unable to create the organization.')
+      setIsSubmitting(false)
       return
     }
 
     setMessage(`Organization created. Demo password: ${result.generatedPassword}`)
+    setIsSubmitting(false)
     navigate(APP_PATHS.dashboard)
   }
 
@@ -47,7 +51,7 @@ export function SignupPage() {
             <div>
               <p className="text-xl font-bold">Create your QRPay organization</p>
               <p className="text-sm text-slate-400">
-                Choose a plan and start with mock subscription data.
+                Choose a plan and start with backend-connected subscriptions.
               </p>
             </div>
           </div>
@@ -203,9 +207,12 @@ export function SignupPage() {
               </div>
             ) : null}
 
-            <button className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 font-semibold text-white hover:bg-slate-800">
+            <button
+              disabled={isSubmitting}
+              className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+            >
               <Building2 className="mr-2 h-4 w-4" />
-              Create Organization
+              {isSubmitting ? 'Creating organization...' : 'Create Organization'}
             </button>
           </form>
 

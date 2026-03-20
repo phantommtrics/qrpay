@@ -59,7 +59,7 @@ export function LandingPage() {
                 </h1>
                 <p className="mt-6 max-w-2xl text-lg text-slate-300">
                   Showcase your business online, create an organization, choose a plan, and let
-                  staff sign in with plan-aware access powered by mock data for now.
+                  staff sign in with plan-aware access while subscriptions load from the backend.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-4">
                   <Link
@@ -85,7 +85,7 @@ export function LandingPage() {
                   {
                     icon: Store,
                     title: 'Business onboarding',
-                    text: 'Choose a plan, create an organization, and start with a guided mock setup.',
+                    text: 'Choose a plan, create an organization, and start with backend-backed subscriptions.',
                   },
                   {
                     icon: Users,
@@ -100,7 +100,7 @@ export function LandingPage() {
                   {
                     icon: CheckCircle2,
                     title: 'Plan-aware login',
-                    text: 'Mock sign-in auto-detects the organization, subscription plan, and expiry state.',
+                    text: 'Demo sign-in still works while organization plans and expiry state can sync from the backend.',
                   },
                 ].map((item) => (
                   <div key={item.title} className="rounded-2xl border border-white/10 bg-slate-900/55 p-4">

@@ -86,7 +86,7 @@ export function LoginPage() {
 
           <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
             Demo examples: `owner@qrpay.com`, `owner@sunrise.com`, `owner@baobab.com`
-            with password `demo123`.
+            with password `demo123`. Newly created organizations also use `demo123`.
           </div>
 
           <div className="mt-6 flex items-center justify-between text-sm text-slate-500">
