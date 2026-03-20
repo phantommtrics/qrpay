@@ -1,5 +1,7 @@
 import { Bell, Menu, Search } from 'lucide-react'
 
+import { useAuth } from '../features/auth/AuthContext'
+
 export function Header({
   title,
   onMenuClick,
@@ -7,6 +9,9 @@ export function Header({
   title: string
   onMenuClick: () => void
 }) {
+  const { currentOrganization, currentPlan, subscriptionStatus, subscriptionDaysLeft, user } =
+    useAuth()
+
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 lg:px-8">
       <div className="flex items-center">
@@ -20,6 +25,43 @@ export function Header({
       </div>
 
       <div className="flex items-center gap-4">
+        <div className="hidden items-center gap-3 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 lg:flex">
+          <div className="text-right">
+            <p className="text-xs font-semibold text-slate-800">
+              {user?.isPlatformOwner ? 'Platform Owner' : currentOrganization?.name ?? 'No organization'}
+            </p>
+            <p className="text-[11px] text-slate-500">
+              {user?.isPlatformOwner
+                ? 'Bypasses subscription limits'
+                : `${currentPlan?.name ?? 'No'} plan${
+                    subscriptionStatus === 'expiring_soon' && subscriptionDaysLeft
+                      ? `, ${subscriptionDaysLeft} day(s) left`
+                      : subscriptionStatus === 'expired'
+                        ? ', expired'
+                        : ''
+                  }`}
+            </p>
+          </div>
+          <span
+            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
+              user?.isPlatformOwner
+                ? 'bg-indigo-100 text-indigo-700'
+                : subscriptionStatus === 'expired'
+                  ? 'bg-red-100 text-red-700'
+                  : subscriptionStatus === 'expiring_soon'
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-emerald-100 text-emerald-700'
+            }`}
+          >
+            {user?.isPlatformOwner
+              ? 'Owner'
+              : subscriptionStatus === 'expired'
+                ? 'Expired'
+                : subscriptionStatus === 'expiring_soon'
+                  ? 'Expiring'
+                  : 'Active'}
+          </span>
+        </div>
         <div className="relative hidden md:flex">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input

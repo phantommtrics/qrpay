@@ -16,12 +16,15 @@ import {
 import { CenteredModal } from '../components/ui/CenteredModal'
 import { ModalOverlay } from '../components/ui/ModalOverlay'
 import { MOCK_PRODUCTS } from '../data/mockData'
+import { useAuth } from '../features/auth/AuthContext'
 import { useCart } from '../features/cart/useCart'
 import { formatMoney } from '../utils/formatMoney'
 
 export function POSPage() {
+  const { user } = useAuth()
   const [searchTerm, setSearchTerm] = useState('')
   const [isScanning, setIsScanning] = useState(false)
+  const [scanMessage, setScanMessage] = useState<string | null>(null)
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentStatus, setPaymentStatus] = useState<'waiting' | 'success'>(
     'waiting',
@@ -36,14 +39,29 @@ export function POSPage() {
     clearCart,
   } = useCart()
 
-  const products = MOCK_PRODUCTS
+  const scopedProducts = user?.businessId
+    ? MOCK_PRODUCTS.filter((product) => product.businessId === user.businessId)
+    : MOCK_PRODUCTS
+  const products = scopedProducts.length > 0 ? scopedProducts : MOCK_PRODUCTS
 
   const simulateScan = () => {
+    if (products.length === 0) {
+      setScanMessage('No products available to scan.')
+      return
+    }
+
+    setScanMessage(null)
     setIsScanning(true)
     window.setTimeout(() => {
       setIsScanning(false)
       const randomProduct = products[Math.floor(Math.random() * products.length)]
+      if (!randomProduct) {
+        setScanMessage('Scan simulation could not find a product.')
+        return
+      }
+
       addToCart(randomProduct)
+      setScanMessage(`${randomProduct.name} added to cart.`)
     }, 800)
   }
 
@@ -83,6 +101,7 @@ export function POSPage() {
             >
               {isScanning ? 'Scanning...' : 'Simulate Scan'}
             </button>
+            {scanMessage ? <p className="mt-3 text-sm text-teal-200">{scanMessage}</p> : null}
           </div>
         </div>
 

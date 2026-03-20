@@ -20,14 +20,30 @@ import { OrderStatusBadge } from '../components/status/OrderStatusBadge'
 import { PageCard } from '../components/ui/PageCard'
 import { PageSectionHeader } from '../components/ui/PageSectionHeader'
 import { PageTransition } from '../components/ui/PageTransition'
-import { MOCK_ORDERS, MOCK_STATS, REVENUE_DATA } from '../data/mockData'
+import { MOCK_ORDERS, MOCK_PAYMENTS, MOCK_PRODUCTS, REVENUE_DATA } from '../data/mockData'
+import { useAuth } from '../features/auth/AuthContext'
 import { formatMoney } from '../utils/formatMoney'
 
 export function DashboardPage() {
+  const { user } = useAuth()
+  const businessId = user?.businessId
+  const orders = businessId
+    ? MOCK_ORDERS.filter((order) => order.businessId === businessId)
+    : MOCK_ORDERS
+  const products = businessId
+    ? MOCK_PRODUCTS.filter((product) => product.businessId === businessId)
+    : MOCK_PRODUCTS
+  const payments = businessId
+    ? MOCK_PAYMENTS.filter((payment) => payment.businessId === businessId)
+    : MOCK_PAYMENTS
+  const totalRevenue = payments
+    .filter((payment) => payment.status === 'completed')
+    .reduce((sum, payment) => sum + payment.amount, 0)
+  const lowStockCount = products.filter((product) => product.stock < 20).length
   const stats = [
     {
       title: 'Total Revenue',
-      value: `D${MOCK_STATS.totalSales.toLocaleString()}`,
+      value: `D${totalRevenue.toLocaleString()}`,
       icon: TrendingUp,
       color: 'text-teal-600',
       bg: 'bg-teal-100',
@@ -36,7 +52,7 @@ export function DashboardPage() {
     },
     {
       title: 'Orders Today',
-      value: MOCK_STATS.totalOrders,
+      value: orders.length,
       icon: ShoppingBag,
       color: 'text-blue-600',
       bg: 'bg-blue-100',
@@ -45,7 +61,7 @@ export function DashboardPage() {
     },
     {
       title: 'Total Products',
-      value: MOCK_STATS.totalProducts,
+      value: products.length,
       icon: Package,
       color: 'text-indigo-600',
       bg: 'bg-indigo-100',
@@ -54,7 +70,7 @@ export function DashboardPage() {
     },
     {
       title: 'Low Stock Alerts',
-      value: MOCK_STATS.lowStockCount,
+      value: lowStockCount,
       icon: Clock3,
       color: 'text-amber-600',
       bg: 'bg-amber-100',
@@ -158,7 +174,7 @@ export function DashboardPage() {
             }
           />
           <div className="space-y-4">
-            {MOCK_ORDERS.slice(0, 5).map((order) => (
+            {orders.slice(0, 5).map((order) => (
               <div
                 key={order.id}
                 className="flex items-center justify-between rounded-lg p-3 transition-colors hover:bg-slate-50"

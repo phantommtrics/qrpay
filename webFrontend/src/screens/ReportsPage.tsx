@@ -11,22 +11,40 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Calendar } from 'lucide-react'
+import { Calendar, Download } from 'lucide-react'
 
 import { PageCard } from '../components/ui/PageCard'
 import { PageSectionHeader } from '../components/ui/PageSectionHeader'
 import { PageTransition } from '../components/ui/PageTransition'
 import { CATEGORY_DATA, COLORS, TOP_PRODUCTS } from '../data/mockData'
+import { useAuth } from '../features/auth/AuthContext'
 
 export function ReportsPage() {
+  const { canAccess, currentOrganization } = useAuth()
+  const canExportReports = canAccess('reports.export')
+
   return (
     <PageTransition className="space-y-6">
       <PageCard className="flex items-center justify-between p-4">
-        <h2 className="font-semibold text-slate-800">Analytics Dashboard</h2>
-        <button className="flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
-          <Calendar className="mr-2 h-4 w-4" />
-          Last 7 Days
-        </button>
+        <div>
+          <h2 className="font-semibold text-slate-800">Analytics Dashboard</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {currentOrganization?.name ?? 'Current organization'} performance summary
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button className="flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
+            <Calendar className="mr-2 h-4 w-4" />
+            Last 7 Days
+          </button>
+          <button
+            disabled={!canExportReports}
+            className="flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+          >
+            <Download className="mr-2 h-4 w-4" />
+            {canExportReports ? 'Export Report' : 'Export locked'}
+          </button>
+        </div>
       </PageCard>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">

@@ -1,123 +1,104 @@
+import { useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
-import {
-  QrCode,
-  ShieldCheck,
-  ShoppingCart,
-  Store,
-  User as UserIcon,
-} from 'lucide-react'
+import { ArrowRight, LockKeyhole, QrCode } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
 
 import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
-import type { User } from '../types'
 
 export function LoginPage() {
-  const { login } = useAuth()
-  const roles = [
-    {
-      id: 'admin',
-      name: 'Platform Admin',
-      icon: ShieldCheck,
-      desc: 'Manage tenants and system',
-      color: 'bg-indigo-100 text-indigo-600',
-    },
-    {
-      id: 'merchant',
-      name: 'Business Owner',
-      icon: Store,
-      desc: 'Manage products and reports',
-      color: 'bg-teal-100 text-teal-600',
-    },
-    {
-      id: 'cashier',
-      name: 'Cashier / Waiter',
-      icon: ShoppingCart,
-      desc: 'Process orders and payments',
-      color: 'bg-amber-100 text-amber-600',
-    },
-    {
-      id: 'customer',
-      name: 'Customer (Demo)',
-      icon: UserIcon,
-      desc: 'Self-service ordering',
-      color: 'bg-rose-100 text-rose-600',
-    },
-  ] as const
+  const navigate = useNavigate()
+  const { loginWithCredentials } = useAuth()
+  const [email, setEmail] = useState('owner@sunrise.com')
+  const [password, setPassword] = useState('demo123')
+  const [error, setError] = useState<string | null>(null)
 
-  const handleRoleSelect = (roleId: (typeof roles)[number]['id']) => {
-    if (roleId === 'customer') {
-      window.location.hash = `#${APP_PATHS.customerMenuDemo}`
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError(null)
+
+    const result = loginWithCredentials(email, password)
+
+    if (!result.ok) {
+      setError(result.error ?? 'Sign in failed.')
       return
     }
 
-    const mockUser: User = {
-      id: `usr-${Math.floor(Math.random() * 1000)}`,
-      name:
-        roleId === 'admin'
-          ? 'System Admin'
-          : roleId === 'merchant'
-            ? 'Fatou Store'
-            : 'John Cashier',
-      email: `${roleId}@qrpay.com`,
-      role: roleId,
-      businessId: roleId === 'admin' ? undefined : 'b1',
-    }
-
-    login(mockUser)
+    navigate(APP_PATHS.dashboard)
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-slate-50 p-4">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(20,184,166,0.08),transparent_45%)]" />
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8">
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl"
+        className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-sm"
       >
-        <div className="bg-slate-900 p-8 text-center">
-          <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full bg-teal-500/20">
-            <QrCode className="h-8 w-8 text-teal-400" />
+        <div className="mb-8 flex flex-col items-center text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900">
+            <QrCode className="h-7 w-7 text-teal-400" />
           </div>
-          <h1 className="mb-2 text-3xl font-bold text-white">QRPay</h1>
-          <p className="text-sm text-slate-400">
-            Smart Retail and Restaurant Payment System
+          <p className="mt-4 text-sm font-semibold uppercase tracking-[0.2em] text-teal-600">
+            Sign In
+          </p>
+          <h1 className="mt-3 text-3xl font-bold text-slate-900">Welcome back to QRPay</h1>
+          <p className="mt-3 text-sm text-slate-500">
+            Sign in with your business or platform owner account.
           </p>
         </div>
 
-        <div className="p-8">
-          <h2 className="mb-4 text-center text-lg font-semibold text-slate-800">
-            Select a role to continue
-          </h2>
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <form className="space-y-5" onSubmit={handleSubmit}>
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-slate-700">Email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500"
+              />
+            </label>
 
-          <div className="grid gap-3">
-            {roles.map((role, index) => (
-              <motion.button
-                key={role.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.08 }}
-                onClick={() => handleRoleSelect(role.id)}
-                className="group flex items-center rounded-xl border border-slate-200 bg-white p-4 text-left transition-all hover:border-teal-500 hover:shadow-md"
-              >
-                <div
-                  className={`mr-4 flex h-12 w-12 items-center justify-center rounded-lg ${role.color} transition-transform group-hover:scale-110`}
-                >
-                  <role.icon className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-slate-800 transition-colors group-hover:text-teal-600">
-                    {role.name}
-                  </h3>
-                  <p className="text-xs text-slate-500">{role.desc}</p>
-                </div>
-              </motion.button>
-            ))}
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-slate-700">Password</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500"
+              />
+            </label>
+
+            {error ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            ) : null}
+
+            <button className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 font-semibold text-white hover:bg-slate-800">
+              <LockKeyhole className="mr-2 h-4 w-4" />
+              Sign In
+            </button>
+          </form>
+
+          <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
+            Demo examples: `owner@qrpay.com`, `owner@sunrise.com`, `owner@baobab.com`
+            with password `demo123`.
           </div>
 
-          <p className="mt-8 text-center text-xs text-slate-400">
-            Demo-only login with mock data. No backend auth is required.
-          </p>
-        </div>
+          <div className="mt-6 flex items-center justify-between text-sm text-slate-500">
+            <Link to={APP_PATHS.root} className="hover:text-teal-600">
+              Back to website
+            </Link>
+            <Link to={APP_PATHS.signup} className="inline-flex items-center font-medium text-teal-600">
+              Create organization
+              <ArrowRight className="ml-1 h-4 w-4" />
+            </Link>
+          </div>
+        </motion.div>
       </motion.div>
     </div>
   )

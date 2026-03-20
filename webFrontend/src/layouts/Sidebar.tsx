@@ -14,13 +14,22 @@ export function Sidebar({
   isOpen: boolean
   setIsOpen: (open: boolean) => void
 }) {
-  const { user, logout } = useAuth()
+  const {
+    user,
+    logout,
+    canAccess,
+    currentOrganization,
+    currentPlan,
+    subscriptionStatus,
+  } = useAuth()
 
   if (!user) {
     return null
   }
 
-  const navItems = MAIN_NAV_ITEMS.filter((item) => item.roles.includes(user.role))
+  const navItems = MAIN_NAV_ITEMS.filter(
+    (item) => (user.isPlatformOwner || item.roles.includes(user.role)) && canAccess(item.permission),
+  )
 
   return (
     <>
@@ -81,6 +90,34 @@ export function Sidebar({
         </div>
 
         <div className="border-t border-slate-800 p-4">
+          {currentOrganization ? (
+            <div className="mb-4 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+              <p className="truncate text-sm font-semibold text-white">{currentOrganization.name}</p>
+              <p className="mt-1 text-xs text-slate-400">
+                {currentPlan?.name ?? 'No plan'} plan
+              </p>
+              <span
+                className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
+                  subscriptionStatus === 'expired'
+                    ? 'bg-red-500/15 text-red-300'
+                    : subscriptionStatus === 'expiring_soon'
+                      ? 'bg-amber-500/15 text-amber-300'
+                      : 'bg-emerald-500/15 text-emerald-300'
+                }`}
+              >
+                {subscriptionStatus === 'expiring_soon'
+                  ? 'Expiring soon'
+                  : subscriptionStatus === 'expired'
+                    ? 'Expired'
+                    : 'Active'}
+              </span>
+            </div>
+          ) : (
+            <div className="mb-4 rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-xs font-semibold uppercase tracking-wide text-teal-300">
+              Platform owner access
+            </div>
+          )}
+
           <div className="mb-4 flex items-center px-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-600 font-bold text-white">
               {user.name.charAt(0)}

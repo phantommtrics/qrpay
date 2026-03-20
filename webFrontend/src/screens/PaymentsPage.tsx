@@ -4,16 +4,28 @@ import { PaymentStatusBadge } from '../components/status/PaymentStatusBadge'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { MOCK_PAYMENTS } from '../data/mockData'
+import { useAuth } from '../features/auth/AuthContext'
 import { formatMoney } from '../utils/formatMoney'
 
 export function PaymentsPage() {
+  const { user, canAccess } = useAuth()
+  const payments = user?.businessId
+    ? MOCK_PAYMENTS.filter((payment) => payment.businessId === user.businessId)
+    : MOCK_PAYMENTS
+  const totalProcessed = payments
+    .filter((payment) => payment.status === 'completed')
+    .reduce((sum, payment) => sum + payment.amount, 0)
+  const successfulPayments = payments.filter((payment) => payment.status === 'completed').length
+  const failedOrPending = payments.filter((payment) => payment.status !== 'completed').length
+  const canExportPayments = canAccess('payments.export')
+
   return (
     <PageTransition className="space-y-6">
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <PageCard className="p-6">
           <p className="mb-1 text-sm font-medium text-slate-500">Total Processed</p>
           <h3 className="mb-4 text-2xl font-bold text-slate-800">
-            {formatMoney(12450)}
+            {formatMoney(totalProcessed)}
           </h3>
           <div className="h-2 w-full rounded-full bg-slate-100">
             <div className="h-2 w-[85%] rounded-full bg-teal-500" />
@@ -22,7 +34,7 @@ export function PaymentsPage() {
         </PageCard>
         <PageCard className="p-6">
           <p className="mb-1 text-sm font-medium text-slate-500">Successful</p>
-          <h3 className="mb-4 text-2xl font-bold text-emerald-600">42</h3>
+          <h3 className="mb-4 text-2xl font-bold text-emerald-600">{successfulPayments}</h3>
           <div className="flex items-center text-sm font-medium text-emerald-600">
             <ArrowUpRight className="mr-1 h-4 w-4" />
             +12% this week
@@ -30,7 +42,7 @@ export function PaymentsPage() {
         </PageCard>
         <PageCard className="p-6">
           <p className="mb-1 text-sm font-medium text-slate-500">Failed / Pending</p>
-          <h3 className="mb-4 text-2xl font-bold text-amber-600">3</h3>
+          <h3 className="mb-4 text-2xl font-bold text-amber-600">{failedOrPending}</h3>
           <p className="text-sm text-slate-500">Requires attention</p>
         </PageCard>
       </div>
@@ -38,9 +50,12 @@ export function PaymentsPage() {
       <PageCard className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-200 p-4">
           <h2 className="font-semibold text-slate-800">Recent Transactions</h2>
-          <button className="flex items-center text-sm font-medium text-slate-600 hover:text-teal-600">
+          <button
+            disabled={!canExportPayments}
+            className="flex items-center text-sm font-medium text-slate-600 hover:text-teal-600 disabled:cursor-not-allowed disabled:text-slate-300"
+          >
             <Download className="mr-1.5 h-4 w-4" />
-            Export CSV
+            {canExportPayments ? 'Export CSV' : 'Export locked'}
           </button>
         </div>
         <div className="overflow-x-auto">
@@ -56,7 +71,7 @@ export function PaymentsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {MOCK_PAYMENTS.map((payment) => (
+              {payments.map((payment) => (
                 <tr key={payment.id} className="transition-colors hover:bg-slate-50">
                   <td className="p-4 font-mono text-sm text-slate-600">
                     {payment.reference}

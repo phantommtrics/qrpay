@@ -5,17 +5,22 @@ import { OrderStatusBadge } from '../components/status/OrderStatusBadge'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { MOCK_ORDERS } from '../data/mockData'
+import { useAuth } from '../features/auth/AuthContext'
 import { formatMoney } from '../utils/formatMoney'
 
 export function OrdersPage() {
+  const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<
     'All' | 'Pending' | 'Preparing' | 'Served' | 'Completed'
   >('All')
   const tabs = ['All', 'Pending', 'Preparing', 'Served', 'Completed'] as const
+  const scopedOrders = user?.businessId
+    ? MOCK_ORDERS.filter((order) => order.businessId === user.businessId)
+    : MOCK_ORDERS
   const filteredOrders =
     activeTab === 'All'
-      ? MOCK_ORDERS
-      : MOCK_ORDERS.filter(
+      ? scopedOrders
+      : scopedOrders.filter(
           (order) => order.status.toLowerCase() === activeTab.toLowerCase(),
         )
 

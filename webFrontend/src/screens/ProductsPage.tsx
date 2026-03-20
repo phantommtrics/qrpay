@@ -5,16 +5,24 @@ import { Filter, Plus, Search } from 'lucide-react'
 import { ProductDetailsModal } from '../components/products/ProductDetailsModal'
 import { PageTransition } from '../components/ui/PageTransition'
 import { MOCK_PRODUCTS } from '../data/mockData'
+import { useAuth } from '../features/auth/AuthContext'
 import type { Product } from '../types'
 
 export function ProductsPage() {
+  const { user, canAccess } = useAuth()
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
-  const filteredProducts = MOCK_PRODUCTS.filter(
-    (product) =>
-      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.category.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const filteredProducts = MOCK_PRODUCTS.filter((product) => {
+    const belongsToOrganization = user?.businessId ? product.businessId === user.businessId : true
+
+    return (
+      belongsToOrganization &&
+      (product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.category.toLowerCase().includes(searchTerm.toLowerCase()))
+    )
+  })
+  const canCreateProducts = canAccess('products.create')
+  const canEditProducts = canAccess('products.edit')
 
   return (
     <PageTransition className="space-y-6">
@@ -34,9 +42,12 @@ export function ProductsPage() {
             <Filter className="mr-2 h-4 w-4" />
             Filter
           </button>
-          <button className="flex items-center justify-center rounded-lg bg-teal-600 px-4 py-2 text-white shadow-sm transition-colors hover:bg-teal-700">
+          <button
+            disabled={!canCreateProducts}
+            className="flex items-center justify-center rounded-lg bg-teal-600 px-4 py-2 text-white shadow-sm transition-colors hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
             <Plus className="mr-2 h-4 w-4" />
-            Add Product
+            {canCreateProducts ? 'Add Product' : 'Plan locked'}
           </button>
         </div>
       </div>
@@ -72,6 +83,9 @@ export function ProductsPage() {
                 >
                   {product.stock} in stock
                 </span>
+              </div>
+              <div className="mt-3 text-xs font-medium text-slate-500">
+                {canEditProducts ? 'Editing allowed for this plan' : 'Editing limited by plan'}
               </div>
             </div>
           </motion.button>
