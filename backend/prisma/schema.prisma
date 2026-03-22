@@ -13,6 +13,13 @@ enum PlanCode {
   BUSINESS_PRO
 }
 
+enum UserRole {
+  ADMIN
+  MERCHANT
+  CASHIER
+  CUSTOMER
+}
+
 enum SubscriptionStatus {
   TRIALING
   ACTIVE
@@ -32,12 +39,41 @@ model Business {
   id            String                @id @default(cuid())
   name          String
   slug          String                @unique
+  industry      String?
   ownerName     String
-  ownerEmail    String                @unique
+  ownerEmail    String
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
+  memberships   BusinessMembership[]
   subscriptions Subscription[]
   invoices      SubscriptionInvoice[]
+}
+
+model User {
+  id           String               @id @default(cuid())
+  name         String
+  email        String               @unique
+  passwordHash String
+  role         UserRole             @default(MERCHANT)
+  isActive     Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  memberships  BusinessMembership[]
+}
+
+model BusinessMembership {
+  id         String   @id @default(cuid())
+  userId     String
+  businessId String
+  isOwner    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id])
+  business    Business @relation(fields: [businessId], references: [id])
+
+  @@unique([userId, businessId])
+  @@index([businessId])
+  @@index([userId])
 }
 
 model Plan {

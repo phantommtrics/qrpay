@@ -25,8 +25,8 @@ import { useAuth } from '../features/auth/AuthContext'
 import { formatMoney } from '../utils/formatMoney'
 
 export function DashboardPage() {
-  const { user } = useAuth()
-  const businessId = user?.businessId
+  const { currentOrganization } = useAuth()
+  const businessId = currentOrganization?.id
   const orders = businessId
     ? MOCK_ORDERS.filter((order) => order.businessId === businessId)
     : MOCK_ORDERS

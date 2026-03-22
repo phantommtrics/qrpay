@@ -9,18 +9,21 @@ import {
 
 import {
   INITIAL_PLAN_PERMISSIONS,
-  MOCK_LOGIN_ACCOUNTS,
-  MOCK_ORGANIZATIONS,
   PERMISSION_DEFINITIONS,
   SUBSCRIPTION_PLANS,
 } from '../../data/mockData'
 import {
   ApiError,
-  createBusiness,
-  createSubscription,
+  createBusinessUser,
+  fetchBusinessUsers,
   fetchBusinessSubscription,
   fetchPlans,
+  login,
+  mapAccessibleBusinessToOrganization,
+  mapBackendUserToLoginAccount,
   mapBackendPlanToSubscriptionPlan,
+  mapBackendUserToUser,
+  registerBusinessOwner,
 } from '../../services/subscriptionApi'
 import type {
   LoginAccount,
@@ -38,6 +41,7 @@ import type {
 type RegisterOrganizationPayload = {
   ownerName: string
   ownerEmail: string
+  password: string
   organizationName: string
   industry: string
   planId: PlanId
@@ -54,11 +58,12 @@ type CreateStaffPayload = {
 type AuthActionResult = {
   ok: boolean
   error?: string
-  generatedPassword?: string
+  message?: string
 }
 
 type AuthContextValue = {
   user: User | null
+  activeOrganizationId: string | null
   currentOrganization: Organization | null
   currentPlan: SubscriptionPlan | null
   subscriptionStatus: SubscriptionStatus | null
@@ -68,12 +73,13 @@ type AuthContextValue = {
   plans: SubscriptionPlan[]
   permissionDefinitions: PermissionDefinition[]
   planPermissions: PlanPermissions
-  loginWithCredentials: (email: string, password: string) => AuthActionResult
+  loginWithCredentials: (email: string, password: string) => Promise<AuthActionResult>
   registerOrganization: (
     payload: RegisterOrganizationPayload,
   ) => Promise<AuthActionResult>
-  createStaffAccount: (payload: CreateStaffPayload) => AuthActionResult
+  createStaffAccount: (payload: CreateStaffPayload) => Promise<AuthActionResult>
   logout: () => void
+  setActiveOrganization: (organizationId: string) => void
   canAccess: (permission: PermissionKey) => boolean
   updatePlanPermission: (
     planId: PlanId,
@@ -86,24 +92,13 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 const STORAGE_KEYS = {
-  user: 'qrpay.auth.user',
-  accounts: 'qrpay.auth.accounts',
-  organizations: 'qrpay.auth.organizations',
+  user: 'qrpay.auth.user.v3',
+  accounts: 'qrpay.auth.accounts.v3',
+  organizations: 'qrpay.auth.organizations.v3',
+  activeOrganizationId: 'qrpay.auth.active-organization.v3',
   plans: 'qrpay.auth.plans',
   planPermissions: 'qrpay.auth.plan-permissions',
 } as const
-
-function normalizeUser(account: LoginAccount): User {
-  return {
-    id: account.id,
-    name: account.name,
-    email: account.email,
-    role: account.role,
-    businessId: account.organizationId,
-    organizationId: account.organizationId,
-    isPlatformOwner: account.isPlatformOwner,
-  }
-}
 
 function slugify(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -165,6 +160,32 @@ function getSubscriptionMeta(expiresAt?: string) {
   return { status: 'active' as const, daysLeft }
 }
 
+function getDaysLeft(expiresAt?: string | null) {
+  if (!expiresAt) {
+    return null
+  }
+
+  return Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+}
+
+function mergeOrganizations(
+  currentOrganizations: Organization[],
+  incomingOrganizations: Organization[],
+  staffCountOverrides: Record<string, number> = {},
+) {
+  return incomingOrganizations.map((organization) => {
+    const current = currentOrganizations.find((item) => item.id === organization.id)
+
+    return {
+      ...organization,
+      staffCount:
+        staffCountOverrides[organization.id] ??
+        current?.staffCount ??
+        organization.staffCount,
+    }
+  })
+}
+
 function isStaffCountValid(plan: SubscriptionPlan, staffCount: number) {
   if (staffCount < plan.minStaff) {
     return false
@@ -179,11 +200,14 @@ function isStaffCountValid(plan: SubscriptionPlan, staffCount: number) {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => readStorage(STORAGE_KEYS.user, null))
+  const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(() =>
+    readStorage<string | null>(STORAGE_KEYS.activeOrganizationId, null),
+  )
   const [accounts, setAccounts] = useState<LoginAccount[]>(() =>
-    mergeById(MOCK_LOGIN_ACCOUNTS, readStorage<LoginAccount[]>(STORAGE_KEYS.accounts, [])),
+    readStorage<LoginAccount[]>(STORAGE_KEYS.accounts, []),
   )
   const [organizations, setOrganizations] = useState<Organization[]>(() =>
-    mergeById(MOCK_ORGANIZATIONS, readStorage<Organization[]>(STORAGE_KEYS.organizations, [])),
+    readStorage<Organization[]>(STORAGE_KEYS.organizations, []),
   )
   const [plans, setPlans] = useState<SubscriptionPlan[]>(() =>
     readStorage(STORAGE_KEYS.plans, SUBSCRIPTION_PLANS),
@@ -196,6 +220,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     writeStorage(STORAGE_KEYS.user, user)
   }, [user])
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.activeOrganizationId, activeOrganizationId)
+  }, [activeOrganizationId])
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.accounts, accounts)
@@ -233,10 +261,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const currentOrganization = useMemo(
     () =>
-      user?.organizationId
-        ? organizations.find((organization) => organization.id === user.organizationId) ?? null
-        : null,
-    [organizations, user],
+      activeOrganizationId
+        ? organizations.find((organization) => organization.id === activeOrganizationId) ?? null
+        : organizations[0] ?? null,
+    [activeOrganizationId, organizations],
   )
 
   const currentPlan = useMemo(
@@ -248,20 +276,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const organizationMembers = useMemo(
-    () =>
-      currentOrganization
-        ? accounts.filter((account) => account.organizationId === currentOrganization.id)
-        : [],
-    [accounts, currentOrganization],
+    () => accounts,
+    [accounts],
   )
 
   const subscriptionMeta = useMemo(
     () =>
       user?.isPlatformOwner
         ? { status: 'active' as const, daysLeft: null }
-        : getSubscriptionMeta(currentOrganization?.subscriptionExpiresAt),
-    [currentOrganization?.subscriptionExpiresAt, user?.isPlatformOwner],
+        : currentOrganization?.subscriptionState === 'trialing'
+          ? { status: 'trialing' as const, daysLeft: getDaysLeft(currentOrganization.subscriptionInvoiceDueAt) }
+          : currentOrganization?.subscriptionState === 'past_due'
+            ? { status: 'past_due' as const, daysLeft: getDaysLeft(currentOrganization.subscriptionInvoiceDueAt) }
+            : getSubscriptionMeta(currentOrganization?.subscriptionExpiresAt),
+    [
+      currentOrganization?.subscriptionExpiresAt,
+      currentOrganization?.subscriptionInvoiceDueAt,
+      currentOrganization?.subscriptionState,
+      user?.isPlatformOwner,
+    ],
   )
+
+  useEffect(() => {
+    if (!organizations.length) {
+      if (activeOrganizationId !== null) {
+        setActiveOrganizationId(null)
+      }
+      return
+    }
+
+    if (
+      !activeOrganizationId ||
+      !organizations.some((organization) => organization.id === activeOrganizationId)
+    ) {
+      setActiveOrganizationId(organizations[0].id)
+    }
+  }, [activeOrganizationId, organizations])
 
   useEffect(() => {
     if (!currentOrganization || user?.isPlatformOwner) {
@@ -288,11 +338,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             organization.id === currentOrganization.id
               ? {
                   ...organization,
-                  name: payload.business.name,
-                  slug: payload.business.slug,
-                  ownerName: payload.business.ownerName,
+                  ...mapAccessibleBusinessToOrganization({
+                    business: payload.business,
+                    currentSubscription: payload.currentSubscription,
+                    isOwner: organization.isOwner ?? false,
+                  }),
+                  staffCount: organization.staffCount,
                   planId: mappedPlan.id,
-                  subscriptionExpiresAt: payload.currentSubscription?.currentPeriodEnd,
                 }
               : organization,
           ),
@@ -307,9 +359,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [currentOrganization?.id, user?.isPlatformOwner])
 
+  useEffect(() => {
+    if (!currentOrganization || user?.isPlatformOwner) {
+      setAccounts([])
+      return
+    }
+
+    let cancelled = false
+
+    fetchBusinessUsers(currentOrganization.id)
+      .then((members) => {
+        if (!cancelled) {
+          setAccounts(members)
+          setOrganizations((current) =>
+            current.map((organization) =>
+              organization.id === currentOrganization.id
+                ? { ...organization, staffCount: members.length }
+                : organization,
+            ),
+          )
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAccounts([])
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentOrganization?.id, user?.isPlatformOwner])
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
+      activeOrganizationId,
       currentOrganization,
       currentPlan,
       subscriptionStatus: subscriptionMeta.status,
@@ -319,27 +404,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       plans,
       permissionDefinitions: PERMISSION_DEFINITIONS,
       planPermissions,
-      loginWithCredentials: (email, password) => {
+      loginWithCredentials: async (email, password) => {
         const normalizedEmail = email.trim().toLowerCase()
-        const account = accounts.find(
-          (item) =>
-            item.email.toLowerCase() === normalizedEmail && item.password === password,
-        )
 
-        if (!account) {
+        try {
+          const payload = await login({
+            email: normalizedEmail,
+            password,
+          })
+
+          const nextUser = mapBackendUserToUser(payload.user)
+          setUser(nextUser)
+          const nextOrganizations = payload.accessibleBusinesses.map(
+            mapAccessibleBusinessToOrganization,
+          )
+
+          setOrganizations((current) => mergeOrganizations(current, nextOrganizations))
+          setActiveOrganizationId(
+            payload.activeBusinessId ?? nextOrganizations[0]?.id ?? null,
+          )
+          setAccounts([])
+
+          return { ok: true }
+        } catch (error) {
+          if (error instanceof ApiError) {
+            return {
+              ok: false,
+              error: error.message,
+            }
+          }
+
           return {
             ok: false,
-            error: 'Invalid demo credentials. Use one of the listed mock accounts.',
+            error: 'Unable to reach the server.',
           }
         }
-
-        setUser(normalizeUser(account))
-
-        return { ok: true }
       },
       registerOrganization: async ({
         ownerName,
         ownerEmail,
+        password,
         organizationName,
         industry,
         planId,
@@ -359,68 +463,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        if (accounts.some((account) => account.email.toLowerCase() === normalizedEmail)) {
-          return {
-            ok: false,
-            error: 'This email is already used by another mock account.',
-          }
-        }
-
-        const generatedPassword = 'demo123'
-        const registerLocally = (payload: {
-          organizationId: string
-          subscriptionExpiresAt: string
-          createdAt?: string
-          slug?: string
-          organizationName?: string
-          ownerName?: string
-        }) => {
-          const nextOrganization: Organization = {
-            id: payload.organizationId,
-            name: payload.organizationName ?? organizationName.trim(),
-            slug: payload.slug ?? slugify(organizationName),
-            industry: industry.trim(),
-            planId,
-            staffCount,
-            ownerName: payload.ownerName ?? ownerName.trim(),
-            subscriptionExpiresAt: payload.subscriptionExpiresAt,
-            createdAt: payload.createdAt ?? new Date().toISOString(),
-          }
-
-          const nextAccount: LoginAccount = {
-            id: `acct-${payload.organizationId}-owner`,
-            email: normalizedEmail,
-            password: generatedPassword,
-            name: ownerName.trim(),
-            role: 'merchant',
-            organizationId: payload.organizationId,
-          }
-
-          setOrganizations((current) => mergeById(current, [nextOrganization]))
-          setAccounts((current) => mergeById(current, [nextAccount]))
-          setUser(normalizeUser(nextAccount))
-
-          return { ok: true, generatedPassword }
-        }
-
         try {
-          const business = await createBusiness({
-            name: organizationName.trim(),
-            slug: slugify(organizationName),
+          const payload = await registerBusinessOwner({
             ownerName: ownerName.trim(),
             ownerEmail: normalizedEmail,
+            password: password.trim(),
+            businessName: organizationName.trim(),
+            slug: slugify(organizationName),
+            industry: industry.trim(),
+            planId,
           })
+          const nextOrganizations = payload.accessibleBusinesses.map(
+            mapAccessibleBusinessToOrganization,
+          )
 
-          const { subscription } = await createSubscription(business.id, planId)
+          setOrganizations((current) =>
+            mergeOrganizations(current, nextOrganizations, {
+              [payload.business.id]: staffCount,
+            }),
+          )
+          setActiveOrganizationId(payload.activeBusinessId ?? payload.business.id)
+          setAccounts([
+            mapBackendUserToLoginAccount(payload.user, payload.business.id, true),
+          ])
+          setUser(mapBackendUserToUser(payload.user))
 
-          return registerLocally({
-            organizationId: business.id,
-            subscriptionExpiresAt: subscription.currentPeriodEnd,
-            createdAt: business.createdAt,
-            slug: business.slug,
-            organizationName: business.name,
-            ownerName: business.ownerName,
-          })
+          return { ok: true, message: 'Account created and trial started.' }
         } catch (error) {
           if (error instanceof ApiError) {
             return {
@@ -429,15 +497,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           }
 
-          return registerLocally({
-            organizationId: `local-${Date.now()}`,
-            subscriptionExpiresAt: new Date(
-              Date.now() + 1000 * 60 * 60 * 24 * 30,
-            ).toISOString(),
-          })
+          return {
+            ok: false,
+            error: 'Unable to reach the server.',
+          }
         }
       },
-      createStaffAccount: ({ name, email, password, role }) => {
+      createStaffAccount: async ({ name, email, password, role }) => {
         if (!currentOrganization || !currentPlan) {
           return {
             ok: false,
@@ -447,14 +513,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const normalizedEmail = email.trim().toLowerCase()
         const maxSeats = currentPlan.maxStaff
-        const activeMembers = accounts.filter(
-          (account) => account.organizationId === currentOrganization.id,
-        ).length
+        const activeMembers = organizationMembers.length
 
         if (accounts.some((account) => account.email.toLowerCase() === normalizedEmail)) {
           return {
             ok: false,
-            error: 'This email is already used by another mock account.',
+            error: 'This email is already used by another account.',
           }
         }
 
@@ -465,20 +529,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        const nextAccount: LoginAccount = {
-          id: `acct-${currentOrganization.id}-${Date.now()}`,
-          email: normalizedEmail,
-          password: password.trim(),
-          name: name.trim(),
-          role,
-          organizationId: currentOrganization.id,
+        try {
+          const nextAccount = await createBusinessUser({
+            businessId: currentOrganization.id,
+            name: name.trim(),
+            email: normalizedEmail,
+            password: password.trim(),
+            role,
+          })
+
+          setAccounts((current) => mergeById(current, [nextAccount]))
+
+          return { ok: true }
+        } catch (error) {
+          if (error instanceof ApiError) {
+            return {
+              ok: false,
+              error: error.message,
+            }
+          }
+
+          return {
+            ok: false,
+            error: 'Unable to reach the server.',
+          }
         }
-
-        setAccounts((current) => [...current, nextAccount])
-
-        return { ok: true }
       },
-      logout: () => setUser(null),
+      logout: () => {
+        setUser(null)
+        setActiveOrganizationId(null)
+        setAccounts([])
+        setOrganizations([])
+      },
+      setActiveOrganization: (organizationId) => {
+        setActiveOrganizationId(organizationId)
+      },
       canAccess: (permission) => {
         if (!user) {
           return false
@@ -492,7 +577,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return false
         }
 
-        if (getSubscriptionMeta(currentOrganization.subscriptionExpiresAt).status === 'expired') {
+        if (
+          currentOrganization.subscriptionState === 'expired' ||
+          getSubscriptionMeta(currentOrganization.subscriptionExpiresAt).status === 'expired'
+        ) {
           return false
         }
 
@@ -520,6 +608,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
     }),
     [
+      activeOrganizationId,
       accounts,
       currentOrganization,
       currentPlan,

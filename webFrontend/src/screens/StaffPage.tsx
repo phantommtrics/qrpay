@@ -37,7 +37,7 @@ export function StaffPage() {
     [organizationMembers],
   )
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError(null)
     setSuccess(null)
@@ -47,7 +47,7 @@ export function StaffPage() {
       return
     }
 
-    const result = createStaffAccount({
+    const result = await createStaffAccount({
       name: form.name,
       email: form.email,
       password: form.password,
@@ -232,7 +232,7 @@ export function StaffPage() {
                   <div className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     {roleLabels[member.role as StaffRole] ?? member.role}
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">Password: {member.password}</p>
+                  <p className="mt-2 text-xs text-slate-500">Password stored securely</p>
                 </div>
               </div>
             ))}

@@ -12,6 +12,7 @@ export function SignupPage() {
   const [form, setForm] = useState({
     ownerName: '',
     ownerEmail: '',
+    password: '',
     organizationName: '',
     industry: 'Retail',
     planId: 'basic' as PlanId,
@@ -35,7 +36,7 @@ export function SignupPage() {
       return
     }
 
-    setMessage(`Organization created. Demo password: ${result.generatedPassword}`)
+    setMessage(result.message ?? 'Account created. Your 7-day payment trial has started.')
     setIsSubmitting(false)
     navigate(APP_PATHS.dashboard)
   }
@@ -51,7 +52,7 @@ export function SignupPage() {
             <div>
               <p className="text-xl font-bold">Create your QRPay organization</p>
               <p className="text-sm text-slate-400">
-                Choose a plan and start with backend-connected subscriptions.
+                Choose a plan, create an account, and start a 7-day payment trial.
               </p>
             </div>
           </div>
@@ -92,7 +93,7 @@ export function SignupPage() {
             <h1 className="mt-3 text-3xl font-bold text-slate-900">Sign up and create organization</h1>
             <p className="mt-3 text-slate-600">
               Businesses can onboard here and the system will attach the selected subscription plan
-              to the organization.
+              to the organization, then give one week to complete the first payment.
             </p>
           </div>
 
@@ -122,6 +123,23 @@ export function SignupPage() {
                 />
               </label>
             </div>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-slate-700">Password</span>
+              <input
+                type="password"
+                value={form.password}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, password: event.target.value }))
+                }
+                minLength={6}
+                required
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500"
+              />
+              <span className="mt-2 block text-xs text-slate-500">
+                Use this password to sign in after creating the account.
+              </span>
+            </label>
 
             <div className="grid gap-5 sm:grid-cols-2">
               <label className="block">
@@ -212,7 +230,7 @@ export function SignupPage() {
               className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
             >
               <Building2 className="mr-2 h-4 w-4" />
-              {isSubmitting ? 'Creating organization...' : 'Create Organization'}
+              {isSubmitting ? 'Creating account...' : 'Create Account'}
             </button>
           </form>
 

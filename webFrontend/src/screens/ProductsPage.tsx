@@ -9,11 +9,13 @@ import { useAuth } from '../features/auth/AuthContext'
 import type { Product } from '../types'
 
 export function ProductsPage() {
-  const { user, canAccess } = useAuth()
+  const { currentOrganization, canAccess } = useAuth()
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const filteredProducts = MOCK_PRODUCTS.filter((product) => {
-    const belongsToOrganization = user?.businessId ? product.businessId === user.businessId : true
+    const belongsToOrganization = currentOrganization?.id
+      ? product.businessId === currentOrganization.id
+      : true
 
     return (
       belongsToOrganization &&

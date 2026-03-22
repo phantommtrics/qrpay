@@ -2,7 +2,7 @@ export type UserRole = 'admin' | 'merchant' | 'cashier' | 'customer'
 
 export type PlanId = 'basic' | 'pro' | 'business_pro'
 
-export type SubscriptionStatus = 'active' | 'expiring_soon' | 'expired'
+export type SubscriptionStatus = 'trialing' | 'active' | 'expiring_soon' | 'past_due' | 'expired'
 
 export type PermissionKey =
   | 'dashboard.view'
@@ -26,8 +26,6 @@ export interface User {
   name: string
   email: string
   role: UserRole
-  businessId?: string
-  organizationId?: string
   isPlatformOwner?: boolean
 }
 
@@ -51,17 +49,22 @@ export interface Organization {
   staffCount: number
   ownerName: string
   subscriptionExpiresAt: string
+  subscriptionState?: SubscriptionStatus
+  subscriptionInvoiceDueAt?: string | null
+  isOwner?: boolean
   createdAt: string
 }
 
 export interface LoginAccount {
   id: string
   email: string
-  password: string
+  password?: string
   name: string
   role: UserRole
   organizationId?: string
+  isOwner?: boolean
   isPlatformOwner?: boolean
+  createdAt?: string
 }
 
 export interface PermissionDefinition {

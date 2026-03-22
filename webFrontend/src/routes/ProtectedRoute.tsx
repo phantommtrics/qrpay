@@ -29,7 +29,10 @@ export function ProtectedRoute({
     return <Navigate to={APP_PATHS.login} replace />
   }
 
-  if (!user.isPlatformOwner && subscriptionStatus === 'expired') {
+  if (
+    !user.isPlatformOwner &&
+    (subscriptionStatus === 'expired' || subscriptionStatus === 'past_due')
+  ) {
     return (
       <AppLayout>
         <div className="flex min-h-full items-center justify-center">
@@ -38,15 +41,15 @@ export function ProtectedRoute({
               <AlertTriangle className="h-7 w-7" />
             </div>
             <h2 className="text-2xl font-bold text-slate-900">
-              Subscription expired for {currentOrganization?.name}
+              Subscription access blocked for {currentOrganization?.name}
             </h2>
             <p className="mt-3 text-slate-600">
               This organization is on the {currentPlan?.name ?? 'current'} plan and needs a
-              renewal before protected tools can be opened again.
+              completed payment before protected tools can be opened again.
             </p>
             <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
               Platform owners can still sign in and manage plan permissions. Business users are
-              blocked until the mock subscription is renewed.
+              blocked once the payment window ends.
             </div>
           </div>
         </div>

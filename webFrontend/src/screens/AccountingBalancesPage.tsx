@@ -9,8 +9,8 @@ import { formatMoney } from '../utils/formatMoney'
 import { getCashBalancesForBusiness, getOverallCashBalance } from '../utils/accounting'
 
 export function AccountingBalancesPage() {
-  const { user } = useAuth()
-  const balances = getCashBalancesForBusiness(user?.businessId)
+  const { currentOrganization } = useAuth()
+  const balances = getCashBalancesForBusiness(currentOrganization?.id)
   const consolidatedBalance = getOverallCashBalance(balances)
 
   return (

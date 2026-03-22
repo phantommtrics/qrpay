@@ -9,8 +9,30 @@ export function Header({
   title: string
   onMenuClick: () => void
 }) {
-  const { currentOrganization, currentPlan, subscriptionStatus, subscriptionDaysLeft, user } =
-    useAuth()
+  const {
+    currentOrganization,
+    currentPlan,
+    organizations,
+    setActiveOrganization,
+    subscriptionStatus,
+    subscriptionDaysLeft,
+    user,
+  } = useAuth()
+  const subscriptionText = user?.isPlatformOwner
+    ? 'Bypasses subscription limits'
+    : subscriptionStatus === 'trialing'
+      ? `${currentPlan?.name ?? 'No'} plan trial${
+          subscriptionDaysLeft !== null ? `, ${subscriptionDaysLeft} day(s) left to pay` : ''
+        }`
+      : subscriptionStatus === 'past_due'
+        ? `${currentPlan?.name ?? 'No'} plan, payment overdue`
+        : `${currentPlan?.name ?? 'No'} plan${
+            subscriptionStatus === 'expiring_soon' && subscriptionDaysLeft
+              ? `, ${subscriptionDaysLeft} day(s) left`
+              : subscriptionStatus === 'expired'
+                ? ', expired'
+                : ''
+          }`
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 lg:px-8">
@@ -30,24 +52,31 @@ export function Header({
             <p className="text-xs font-semibold text-slate-800">
               {user?.isPlatformOwner ? 'Platform Owner' : currentOrganization?.name ?? 'No organization'}
             </p>
-            <p className="text-[11px] text-slate-500">
-              {user?.isPlatformOwner
-                ? 'Bypasses subscription limits'
-                : `${currentPlan?.name ?? 'No'} plan${
-                    subscriptionStatus === 'expiring_soon' && subscriptionDaysLeft
-                      ? `, ${subscriptionDaysLeft} day(s) left`
-                      : subscriptionStatus === 'expired'
-                        ? ', expired'
-                        : ''
-                  }`}
-            </p>
+            <p className="text-[11px] text-slate-500">{subscriptionText}</p>
           </div>
+          {!user?.isPlatformOwner && organizations.length > 1 ? (
+            <select
+              value={currentOrganization?.id ?? ''}
+              onChange={(event) => setActiveOrganization(event.target.value)}
+              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 outline-none"
+            >
+              {organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <span
             className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
               user?.isPlatformOwner
                 ? 'bg-indigo-100 text-indigo-700'
                 : subscriptionStatus === 'expired'
                   ? 'bg-red-100 text-red-700'
+                  : subscriptionStatus === 'past_due'
+                    ? 'bg-red-100 text-red-700'
+                    : subscriptionStatus === 'trialing'
+                      ? 'bg-blue-100 text-blue-700'
                   : subscriptionStatus === 'expiring_soon'
                     ? 'bg-amber-100 text-amber-700'
                     : 'bg-emerald-100 text-emerald-700'
@@ -57,6 +86,10 @@ export function Header({
               ? 'Owner'
               : subscriptionStatus === 'expired'
                 ? 'Expired'
+                : subscriptionStatus === 'past_due'
+                  ? 'Past Due'
+                  : subscriptionStatus === 'trialing'
+                    ? 'Trial'
                 : subscriptionStatus === 'expiring_soon'
                   ? 'Expiring'
                   : 'Active'}

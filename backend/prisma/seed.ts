@@ -1,4 +1,5 @@
-import { PrismaClient, PlanCode } from "@prisma/client";
+import { PrismaClient, PlanCode, UserRole } from "@prisma/client";
+import { hashPassword } from "../src/utils/password.js";
 
 const prisma = new PrismaClient();
 
@@ -60,6 +61,23 @@ async function main() {
       create: plan,
     });
   }
+
+  await prisma.user.upsert({
+    where: { email: "owner@qrpay.com" },
+    update: {
+      name: "Platform Owner",
+      passwordHash: hashPassword("demo123"),
+      role: UserRole.ADMIN,
+      isActive: true,
+    },
+    create: {
+      name: "Platform Owner",
+      email: "owner@qrpay.com",
+      passwordHash: hashPassword("demo123"),
+      role: UserRole.ADMIN,
+      isActive: true,
+    },
+  });
 }
 
 main()

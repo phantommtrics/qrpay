@@ -26,8 +26,8 @@ import type { AccountingTransaction } from '../types'
 type EntryAction = AccountingTransaction['type']
 
 export function AccountingChartAccountsPage() {
-  const { user } = useAuth()
-  const businessId = user?.businessId
+  const { currentOrganization } = useAuth()
+  const businessId = currentOrganization?.id
   const baseCashAccounts = getCashBalancesForBusiness(businessId)
   const baseChartAccounts = getChartAccountsForBusiness(businessId)
   const [transactions, setTransactions] = useState<AccountingTransaction[]>(

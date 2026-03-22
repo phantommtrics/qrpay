@@ -22,8 +22,8 @@ import {
 } from '../utils/accounting'
 
 export function AccountingProfitLossPage() {
-  const { user } = useAuth()
-  const businessId = user?.businessId
+  const { currentOrganization } = useAuth()
+  const businessId = currentOrganization?.id
   const snapshot = getProfitLossSnapshotForBusiness(businessId)
   const trend = summarizeTrend(getProfitLossTrendForBusiness(businessId))
   const profitLossAccounts = getProfitLossAccountsForBusiness(businessId)

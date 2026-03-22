@@ -12,18 +12,22 @@ export function LoginPage() {
   const [email, setEmail] = useState('owner@sunrise.com')
   const [password, setPassword] = useState('demo123')
   const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError(null)
+    setIsSubmitting(true)
 
-    const result = loginWithCredentials(email, password)
+    const result = await loginWithCredentials(email, password)
 
     if (!result.ok) {
       setError(result.error ?? 'Sign in failed.')
+      setIsSubmitting(false)
       return
     }
 
+    setIsSubmitting(false)
     navigate(APP_PATHS.dashboard)
   }
 
@@ -78,15 +82,18 @@ export function LoginPage() {
               </div>
             ) : null}
 
-            <button className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 font-semibold text-white hover:bg-slate-800">
+            <button
+              disabled={isSubmitting}
+              className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+            >
               <LockKeyhole className="mr-2 h-4 w-4" />
-              Sign In
+              {isSubmitting ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
 
           <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
-            Demo examples: `owner@qrpay.com`, `owner@sunrise.com`, `owner@baobab.com`
-            with password `demo123`. Newly created organizations also use `demo123`.
+            Sign in with a database-backed account. Platform owner seed:
+            `owner@qrpay.com / demo123`.
           </div>
 
           <div className="mt-6 flex items-center justify-between text-sm text-slate-500">

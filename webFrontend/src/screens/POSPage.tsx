@@ -21,7 +21,7 @@ import { useCart } from '../features/cart/useCart'
 import { formatMoney } from '../utils/formatMoney'
 
 export function POSPage() {
-  const { user } = useAuth()
+  const { currentOrganization } = useAuth()
   const [searchTerm, setSearchTerm] = useState('')
   const [isScanning, setIsScanning] = useState(false)
   const [scanMessage, setScanMessage] = useState<string | null>(null)
@@ -39,8 +39,8 @@ export function POSPage() {
     clearCart,
   } = useCart()
 
-  const scopedProducts = user?.businessId
-    ? MOCK_PRODUCTS.filter((product) => product.businessId === user.businessId)
+  const scopedProducts = currentOrganization?.id
+    ? MOCK_PRODUCTS.filter((product) => product.businessId === currentOrganization.id)
     : MOCK_PRODUCTS
   const products = scopedProducts.length > 0 ? scopedProducts : MOCK_PRODUCTS
 

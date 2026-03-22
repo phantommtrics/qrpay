@@ -33,8 +33,8 @@ import {
 
 export function AccountingPage() {
   const navigate = useNavigate()
-  const { user, canAccess, currentOrganization, currentPlan } = useAuth()
-  const businessId = user?.businessId
+  const { canAccess, currentOrganization, currentPlan } = useAuth()
+  const businessId = currentOrganization?.id
   const cashBalances = getCashBalancesForBusiness(businessId)
   const profitLossSnapshot = getProfitLossSnapshotForBusiness(businessId)
   const trend = summarizeTrend(getProfitLossTrendForBusiness(businessId))

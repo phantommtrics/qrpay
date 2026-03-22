@@ -9,13 +9,13 @@ import { useAuth } from '../features/auth/AuthContext'
 import { formatMoney } from '../utils/formatMoney'
 
 export function OrdersPage() {
-  const { user } = useAuth()
+  const { currentOrganization } = useAuth()
   const [activeTab, setActiveTab] = useState<
     'All' | 'Pending' | 'Preparing' | 'Served' | 'Completed'
   >('All')
   const tabs = ['All', 'Pending', 'Preparing', 'Served', 'Completed'] as const
-  const scopedOrders = user?.businessId
-    ? MOCK_ORDERS.filter((order) => order.businessId === user.businessId)
+  const scopedOrders = currentOrganization?.id
+    ? MOCK_ORDERS.filter((order) => order.businessId === currentOrganization.id)
     : MOCK_ORDERS
   const filteredOrders =
     activeTab === 'All'

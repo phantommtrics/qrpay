@@ -15,6 +15,7 @@ import {
 type CreateBusinessInput = {
   name: string;
   slug: string;
+  industry?: string;
   ownerName: string;
   ownerEmail: string;
 };
@@ -23,6 +24,20 @@ type StartSubscriptionInput = {
   businessId: string;
   planCode: PlanCode;
 };
+
+export const SUBSCRIPTION_TRIAL_DAYS = 7;
+
+type SubscriptionWithPlanAndInvoices = Prisma.SubscriptionGetPayload<{
+  include: {
+    plan: true;
+    invoices: {
+      orderBy: {
+        createdAt: "desc";
+      };
+      take: 6;
+    };
+  };
+}>;
 
 function normalizeSlug(value: string) {
   return value
@@ -46,8 +61,38 @@ export async function createBusiness(input: CreateBusinessInput) {
     data: {
       name: input.name.trim(),
       slug,
+      industry: input.industry?.trim() || null,
       ownerName: input.ownerName.trim(),
       ownerEmail: input.ownerEmail.trim().toLowerCase(),
+    },
+  });
+}
+
+async function expireTrialIfNeeded(subscription: SubscriptionWithPlanAndInvoices) {
+  const latestInvoice = subscription.invoices[0];
+
+  if (
+    subscription.status !== SubscriptionStatus.TRIALING ||
+    !latestInvoice ||
+    latestInvoice.status === InvoiceStatus.PAID ||
+    latestInvoice.dueDate.getTime() >= Date.now()
+  ) {
+    return subscription;
+  }
+
+  return prisma.subscription.update({
+    where: { id: subscription.id },
+    data: {
+      status: SubscriptionStatus.EXPIRED,
+      endedAt: latestInvoice.dueDate,
+      currentPeriodEnd: latestInvoice.dueDate,
+    },
+    include: {
+      plan: true,
+      invoices: {
+        orderBy: { createdAt: "desc" },
+        take: 6,
+      },
     },
   });
 }
@@ -74,14 +119,21 @@ export async function getBusinessSubscription(businessId: string) {
     throw new HttpError(404, "Business not found.");
   }
 
+  const currentSubscription = business.subscriptions[0]
+    ? await expireTrialIfNeeded(business.subscriptions[0])
+    : null;
+
   return {
     business,
-    currentSubscription: business.subscriptions[0] ?? null,
+    currentSubscription,
   };
 }
 
-export async function startSubscription(input: StartSubscriptionInput) {
-  const business = await prisma.business.findUnique({
+export async function createSubscriptionForBusinessTx(
+  tx: Prisma.TransactionClient,
+  input: StartSubscriptionInput,
+) {
+  const business = await tx.business.findUnique({
     where: { id: input.businessId },
   });
 
@@ -89,7 +141,7 @@ export async function startSubscription(input: StartSubscriptionInput) {
     throw new HttpError(404, "Business not found.");
   }
 
-  const plan = await prisma.plan.findUnique({
+  const plan = await tx.plan.findUnique({
     where: { code: input.planCode },
   });
 
@@ -97,7 +149,7 @@ export async function startSubscription(input: StartSubscriptionInput) {
     throw new HttpError(404, "Plan not found.");
   }
 
-  const activeSubscription = await prisma.subscription.findFirst({
+  const activeSubscription = await tx.subscription.findFirst({
     where: {
       businessId: input.businessId,
       status: {
@@ -115,43 +167,46 @@ export async function startSubscription(input: StartSubscriptionInput) {
   }
 
   const currentPeriodStart = new Date();
-  const currentPeriodEnd = addMonths(currentPeriodStart, 1);
+  const trialEndsAt = dueInDays(currentPeriodStart, SUBSCRIPTION_TRIAL_DAYS);
+  const billingPeriodEnd = addMonths(currentPeriodStart, 1);
 
-  return prisma.$transaction(async (tx) => {
-    const subscription = await tx.subscription.create({
-      data: {
-        businessId: input.businessId,
-        planId: plan.id,
-        status: SubscriptionStatus.ACTIVE,
-        startDate: currentPeriodStart,
-        currentPeriodStart,
-        currentPeriodEnd,
-      },
-      include: {
-        plan: true,
-      },
-    });
-
-    const invoice = await tx.subscriptionInvoice.create({
-      data: {
-        businessId: input.businessId,
-        subscriptionId: subscription.id,
-        planId: plan.id,
-        amount: plan.monthlyPrice,
-        currency: plan.currency,
-        status: InvoiceStatus.PENDING,
-        billingPeriodStart: currentPeriodStart,
-        billingPeriodEnd: currentPeriodEnd,
-        dueDate: dueInDays(currentPeriodStart, 7),
-        externalReference: createInvoiceReference(),
-      },
-    });
-
-    return {
-      subscription,
-      invoice,
-    };
+  const subscription = await tx.subscription.create({
+    data: {
+      businessId: input.businessId,
+      planId: plan.id,
+      status: SubscriptionStatus.TRIALING,
+      startDate: currentPeriodStart,
+      currentPeriodStart,
+      currentPeriodEnd: trialEndsAt,
+    },
+    include: {
+      plan: true,
+    },
   });
+
+  const invoice = await tx.subscriptionInvoice.create({
+    data: {
+      businessId: input.businessId,
+      subscriptionId: subscription.id,
+      planId: plan.id,
+      amount: plan.monthlyPrice,
+      currency: plan.currency,
+      status: InvoiceStatus.PENDING,
+      billingPeriodStart: currentPeriodStart,
+      billingPeriodEnd,
+      dueDate: trialEndsAt,
+      externalReference: createInvoiceReference(),
+    },
+  });
+
+  return {
+    subscription,
+    invoice,
+  };
+}
+
+export async function startSubscription(input: StartSubscriptionInput) {
+  return prisma.$transaction((tx) => createSubscriptionForBusinessTx(tx, input));
 }
 
 export async function renewSubscription(subscriptionId: string) {
@@ -223,6 +278,9 @@ export async function renewSubscription(subscriptionId: string) {
 export async function payInvoice(invoiceId: string) {
   const invoice = await prisma.subscriptionInvoice.findUnique({
     where: { id: invoiceId },
+    include: {
+      subscription: true,
+    },
   });
 
   if (!invoice) {
@@ -233,12 +291,32 @@ export async function payInvoice(invoiceId: string) {
     throw new HttpError(400, "Invoice is already paid.");
   }
 
-  return prisma.subscriptionInvoice.update({
-    where: { id: invoiceId },
-    data: {
-      status: InvoiceStatus.PAID,
-      paidAt: new Date(),
-    },
+  return prisma.$transaction(async (tx) => {
+    const paidInvoice = await tx.subscriptionInvoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: InvoiceStatus.PAID,
+        paidAt: new Date(),
+      },
+    });
+
+    if (
+      invoice.subscription.status === SubscriptionStatus.TRIALING ||
+      invoice.subscription.status === SubscriptionStatus.EXPIRED ||
+      invoice.subscription.status === SubscriptionStatus.PAST_DUE
+    ) {
+      await tx.subscription.update({
+        where: { id: invoice.subscriptionId },
+        data: {
+          status: SubscriptionStatus.ACTIVE,
+          currentPeriodStart: paidInvoice.billingPeriodStart,
+          currentPeriodEnd: paidInvoice.billingPeriodEnd,
+          endedAt: null,
+        },
+      });
+    }
+
+    return paidInvoice;
   });
 }
 

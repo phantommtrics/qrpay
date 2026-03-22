@@ -8,9 +8,9 @@ import { useAuth } from '../features/auth/AuthContext'
 import { formatMoney } from '../utils/formatMoney'
 
 export function PaymentsPage() {
-  const { user, canAccess } = useAuth()
-  const payments = user?.businessId
-    ? MOCK_PAYMENTS.filter((payment) => payment.businessId === user.businessId)
+  const { currentOrganization, canAccess } = useAuth()
+  const payments = currentOrganization?.id
+    ? MOCK_PAYMENTS.filter((payment) => payment.businessId === currentOrganization.id)
     : MOCK_PAYMENTS
   const totalProcessed = payments
     .filter((payment) => payment.status === 'completed')
