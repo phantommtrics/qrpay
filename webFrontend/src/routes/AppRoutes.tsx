@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { APP_PATHS, MAIN_NAV_ITEMS, getDefaultProtectedPath } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
+import type { UserRole } from '../types'
 import { ProtectedRoute } from './ProtectedRoute'
 import { RouteFallback } from './RouteFallback'
 
@@ -81,6 +82,11 @@ const StaffPage = lazy(() =>
     default: module.StaffPage,
   })),
 )
+const BusinessesPage = lazy(() =>
+  import('../screens/BusinessesPage').then((module) => ({
+    default: module.BusinessesPage,
+  })),
+)
 const PlanControlsPage = lazy(() =>
   import('../screens/PlanControlsPage').then((module) => ({
     default: module.PlanControlsPage,
@@ -149,6 +155,12 @@ export function AppRoutes() {
       element: <AccountingChartAccountsPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
       permission: 'accounting.chart.view' as const,
+    },
+    {
+      path: APP_PATHS.businesses,
+      element: <BusinessesPage />,
+      roles: ['admin', 'merchant'] as UserRole[],
+      permission: 'organization.manage' as const,
     },
     {
       path: APP_PATHS.staff,

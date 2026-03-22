@@ -29,6 +29,7 @@ export const APP_PATHS = {
   accountingProfitLoss: '/accounting/profit-loss',
   accountingChart: '/accounting/chart-of-accounts',
   staff: '/staff',
+  businesses: '/businesses',
   subscriptions: '/subscriptions',
   customerMenu: '/menu/:tableId',
   customerMenuDemo: '/menu/T-01',
@@ -125,6 +126,10 @@ export const RESTAURANT_NAV_ITEM = {
 }
 
 export function getPageTitle(pathname: string) {
+  if (pathname.includes(APP_PATHS.businesses)) {
+    return 'My Businesses'
+  }
+
   const matchedItem = MAIN_NAV_ITEMS.find((item) => pathname.includes(item.path))
   return matchedItem?.title ?? 'QRPay'
 }

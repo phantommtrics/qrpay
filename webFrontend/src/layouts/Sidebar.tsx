@@ -1,11 +1,11 @@
-import {
-  LogOut,
-  QrCode,
-} from 'lucide-react'
-import { NavLink } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Check, ChevronDown, LogOut, Plus, QrCode } from 'lucide-react'
+import { NavLink, useNavigate } from 'react-router-dom'
 
-import { MAIN_NAV_ITEMS, RESTAURANT_NAV_ITEM } from '../config/navigation'
+import { APP_PATHS, MAIN_NAV_ITEMS, RESTAURANT_NAV_ITEM } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
+
+const BUSINESS_SECTION_STORAGE_KEY = 'qrpay.sidebar.businesses.open.v1'
 
 export function Sidebar({
   isOpen,
@@ -14,12 +14,22 @@ export function Sidebar({
   isOpen: boolean
   setIsOpen: (open: boolean) => void
 }) {
+  const navigate = useNavigate()
+  const [isBusinessSectionOpen, setIsBusinessSectionOpen] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true
+    }
+
+    const stored = window.localStorage.getItem(BUSINESS_SECTION_STORAGE_KEY)
+    return stored ? stored === 'true' : true
+  })
   const {
     user,
     logout,
     canAccess,
     currentOrganization,
-    currentPlan,
+    organizations,
+    setActiveOrganization,
     subscriptionStatus,
   } = useAuth()
 
@@ -30,6 +40,17 @@ export function Sidebar({
   const navItems = MAIN_NAV_ITEMS.filter(
     (item) => (user.isPlatformOwner || item.roles.includes(user.role)) && canAccess(item.permission),
   )
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    window.localStorage.setItem(
+      BUSINESS_SECTION_STORAGE_KEY,
+      String(isBusinessSectionOpen),
+    )
+  }, [isBusinessSectionOpen])
 
   return (
     <>
@@ -51,6 +72,67 @@ export function Sidebar({
         </div>
 
         <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-6">
+          {!user.isPlatformOwner && organizations.length > 0 ? (
+            <>
+              <button
+                onClick={() => setIsBusinessSectionOpen((current) => !current)}
+                className="mb-2 flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
+              >
+                <span className="truncate">
+                  Businesses
+                  {currentOrganization ? ` · ${currentOrganization.name}` : ''}
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform ${
+                    isBusinessSectionOpen ? 'rotate-0' : '-rotate-90'
+                  }`}
+                />
+              </button>
+              {isBusinessSectionOpen ? (
+                <div className="mb-4 space-y-1 px-1">
+                  {organizations.map((organization) => {
+                    const isActive = organization.id === currentOrganization?.id
+
+                    return (
+                      <button
+                        key={organization.id}
+                        onClick={() => {
+                          setActiveOrganization(organization.id)
+                          setIsOpen(false)
+                        }}
+                        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
+                          isActive
+                            ? 'bg-teal-500/10 text-teal-300'
+                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        <span
+                          className={`h-2.5 w-2.5 rounded-full ${
+                            isActive ? 'bg-teal-400' : 'bg-slate-600'
+                          }`}
+                        />
+                        <span className="min-w-0 flex-1 truncate font-medium">
+                          {organization.name}
+                        </span>
+                        {isActive ? <Check className="h-4 w-4 shrink-0" /> : null}
+                      </button>
+                    )
+                  })}
+                  <button
+                    onClick={() => {
+                      setIsOpen(false)
+                      navigate(APP_PATHS.businesses)
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-teal-300 transition-colors hover:bg-slate-800 hover:text-teal-200"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add business
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
           <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
             Main Menu
           </div>
@@ -90,41 +172,29 @@ export function Sidebar({
         </div>
 
         <div className="border-t border-slate-800 p-4">
-          {currentOrganization ? (
-            <div className="mb-4 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-              <p className="truncate text-sm font-semibold text-white">{currentOrganization.name}</p>
-              <p className="mt-1 text-xs text-slate-400">
-                {currentPlan?.name ?? 'No plan'} plan
-              </p>
-              <span
-                className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
-                  subscriptionStatus === 'expired'
-                    ? 'bg-red-500/15 text-red-300'
-                    : subscriptionStatus === 'expiring_soon'
-                      ? 'bg-amber-500/15 text-amber-300'
-                      : 'bg-emerald-500/15 text-emerald-300'
-                }`}
-              >
-                {subscriptionStatus === 'expiring_soon'
-                  ? 'Expiring soon'
-                  : subscriptionStatus === 'expired'
-                    ? 'Expired'
-                    : 'Active'}
-              </span>
-            </div>
-          ) : (
-            <div className="mb-4 rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-xs font-semibold uppercase tracking-wide text-teal-300">
-              Platform owner access
-            </div>
-          )}
-
           <div className="mb-4 flex items-center px-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-600 font-bold text-white">
               {user.name.charAt(0)}
             </div>
             <div className="ml-3 overflow-hidden">
               <p className="truncate text-sm font-medium text-white">{user.name}</p>
-              <p className="text-xs capitalize text-slate-400">{user.role}</p>
+              <p className="text-xs text-slate-400">
+                {user.isPlatformOwner
+                  ? 'Platform owner'
+                  : currentOrganization
+                    ? `${currentOrganization.name} · ${
+                        subscriptionStatus === 'expired'
+                          ? 'expired'
+                          : subscriptionStatus === 'expiring_soon'
+                            ? 'expiring'
+                            : subscriptionStatus === 'past_due'
+                              ? 'past due'
+                              : subscriptionStatus === 'trialing'
+                                ? 'trial'
+                                : 'active'
+                      }`
+                    : user.role}
+              </p>
             </div>
           </div>
           <button
