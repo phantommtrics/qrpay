@@ -32,3 +32,11 @@ export function verifyPassword(password: string, storedPasswordHash: string) {
 
   return timingSafeEqual(candidateHash, expectedHash);
 }
+
+export function generateTemporaryPassword(length = 12) {
+  const charset =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*";
+  const bytes = randomBytes(length);
+
+  return Array.from(bytes, (value) => charset[value % charset.length]).join("");
+}

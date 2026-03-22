@@ -1,11 +1,25 @@
-import { PlanCode, UserRole } from "@prisma/client";
+import {
+  PlanCode,
+  StaffCreationNotificationStatus,
+  StaffCreationNotificationType,
+  UserRole,
+} from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
 import {
   createSubscriptionForBusinessTx,
   getBusinessSubscription,
 } from "./subscription.service.js";
-import { hashPassword, verifyPassword } from "../utils/password.js";
+import {
+  generateTemporaryPassword,
+  hashPassword,
+  verifyPassword,
+} from "../utils/password.js";
+import {
+  buildStaffInviteEmailContent,
+  sendStaffInviteEmail,
+} from "./staff-invite.service.js";
+import { sendPasswordResetEmail } from "./password-reset.service.js";
 
 type RegisterBusinessOwnerInput = {
   ownerName: string;
@@ -22,11 +36,20 @@ type LoginInput = {
   password: string;
 };
 
+type ChangePasswordInput = {
+  email: string;
+  currentPassword: string;
+  newPassword: string;
+};
+
+type ForgotPasswordInput = {
+  email: string;
+};
+
 type CreateBusinessUserInput = {
   businessId: string;
   name: string;
   email: string;
-  password: string;
   role: "CASHIER" | "MERCHANT";
 };
 
@@ -44,6 +67,7 @@ function sanitizeUser(user: {
   email: string;
   role: UserRole;
   isActive: boolean;
+  mustChangePassword: boolean;
   createdAt: Date;
 }) {
   return {
@@ -52,6 +76,7 @@ function sanitizeUser(user: {
     email: user.email,
     role: user.role,
     isActive: user.isActive,
+    mustChangePassword: user.mustChangePassword,
     createdAt: user.createdAt,
   };
 }
@@ -108,6 +133,7 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
           email: ownerEmail,
           passwordHash: hashPassword(input.password),
           role: UserRole.MERCHANT,
+          mustChangePassword: false,
         },
       }));
 
@@ -183,6 +209,92 @@ export async function loginUser(input: LoginInput) {
   };
 }
 
+export async function changePassword(input: ChangePasswordInput) {
+  const email = input.email.trim().toLowerCase();
+  const user = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  if (!user || !verifyPassword(input.currentPassword, user.passwordHash)) {
+    throw new HttpError(401, "Invalid email or password.");
+  }
+
+  if (!user.isActive) {
+    throw new HttpError(403, "This account has been disabled.");
+  }
+
+  const updatedUser = await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordHash: hashPassword(input.newPassword),
+      mustChangePassword: false,
+      passwordResetIssuedAt: null,
+    },
+  });
+
+  return sanitizeUser(updatedUser);
+}
+
+export async function forgotPassword(input: ForgotPasswordInput) {
+  const email = input.email.trim().toLowerCase();
+  const user = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  if (!user || !user.isActive) {
+    return {
+      message:
+        "If an account with that email exists, a temporary password has been sent.",
+    };
+  }
+
+  const temporaryPassword = generateTemporaryPassword();
+  const previousPasswordHash = user.passwordHash;
+  const previousMustChangePassword = user.mustChangePassword;
+  const previousPasswordResetIssuedAt = user.passwordResetIssuedAt;
+  const resetIssuedAt = new Date();
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordHash: hashPassword(temporaryPassword),
+      mustChangePassword: true,
+      passwordResetIssuedAt: resetIssuedAt,
+    },
+  });
+
+  try {
+    await sendPasswordResetEmail({
+      userName: user.name,
+      userEmail: user.email,
+      temporaryPassword,
+    });
+  } catch (error) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: previousPasswordHash,
+        mustChangePassword: previousMustChangePassword,
+        passwordResetIssuedAt: previousPasswordResetIssuedAt,
+      },
+    });
+
+    if (error instanceof HttpError) {
+      throw error;
+    }
+
+    throw new HttpError(
+      502,
+      "Temporary password email could not be sent. Please try again.",
+    );
+  }
+
+  return {
+    message:
+      "If an account with that email exists, a temporary password has been sent.",
+  };
+}
+
 export async function listBusinessUsers(businessId: string) {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
@@ -242,6 +354,8 @@ export async function createBusinessUser(input: CreateBusinessUserInput) {
   }
 
   let user = existingUser;
+  let createdNewUser = false;
+  let temporaryPassword: string | null = null;
 
   if (user) {
     if (!user.isActive) {
@@ -252,13 +366,6 @@ export async function createBusinessUser(input: CreateBusinessUserInput) {
       throw new HttpError(
         400,
         `This account already exists as a ${user.role.toLowerCase()} user.`,
-      );
-    }
-
-    if (!verifyPassword(input.password, user.passwordHash)) {
-      throw new HttpError(
-        401,
-        "Existing account password is incorrect for this email.",
       );
     }
 
@@ -275,23 +382,144 @@ export async function createBusinessUser(input: CreateBusinessUserInput) {
       throw new HttpError(409, "This user already has access to the business.");
     }
   } else {
+    temporaryPassword = generateTemporaryPassword();
     user = await prisma.user.create({
       data: {
         name: input.name.trim(),
         email: input.email.trim().toLowerCase(),
-        passwordHash: hashPassword(input.password),
+        passwordHash: hashPassword(temporaryPassword),
         role: input.role,
       },
     });
+    createdNewUser = true;
   }
 
-  await prisma.businessMembership.create({
-    data: {
-      userId: user.id,
-      businessId: input.businessId,
-      isOwner: false,
-    },
-  });
+  const notificationType = createdNewUser
+    ? StaffCreationNotificationType.NEW_USER
+    : StaffCreationNotificationType.EXISTING_USER;
+  const inviteInput = createdNewUser
+    ? {
+        type: "new-user" as const,
+        temporaryPassword: temporaryPassword!,
+        staffName: user.name,
+        staffEmail: user.email,
+        staffRole: input.role,
+        businessName: business.name,
+        businessIndustry: business.industry,
+        businessOwnerName: business.ownerName,
+        businessOwnerEmail: business.ownerEmail,
+      }
+    : {
+        type: "existing-user" as const,
+        staffName: user.name,
+        staffEmail: user.email,
+        staffRole: input.role,
+        businessName: business.name,
+        businessIndustry: business.industry,
+        businessOwnerName: business.ownerName,
+        businessOwnerEmail: business.ownerEmail,
+      };
+  const emailContent = buildStaffInviteEmailContent(inviteInput);
 
-  return sanitizeUser(user);
+  try {
+    await prisma.businessMembership.create({
+      data: {
+        userId: user.id,
+        businessId: input.businessId,
+        isOwner: false,
+      },
+    });
+
+    const notificationLog = await prisma.staffCreationNotificationLog.create({
+      data: {
+        businessId: business.id,
+        userId: user.id,
+        recipientName: user.name,
+        recipientEmail: user.email,
+        staffRole: input.role,
+        notificationType,
+        deliveryStatus: StaffCreationNotificationStatus.PENDING,
+        provider: "resend",
+        subject: emailContent.subject,
+        htmlBody: emailContent.htmlBody,
+        textBody: emailContent.textBody,
+      },
+    });
+
+    const emailResult = await sendStaffInviteEmail(inviteInput);
+
+    try {
+      await prisma.staffCreationNotificationLog.update({
+        where: { id: notificationLog.id },
+        data: {
+          deliveryStatus: StaffCreationNotificationStatus.SENT,
+          resendEmailId: emailResult.resendEmailId,
+          subject: emailResult.subject,
+          sentAt: new Date(),
+          failureReason: null,
+        },
+      });
+    } catch (logUpdateError) {
+      console.error("Failed to mark staff notification as sent.", logUpdateError);
+    }
+  } catch (error) {
+    try {
+      await prisma.staffCreationNotificationLog.updateMany({
+        where: {
+          businessId: input.businessId,
+          userId: user.id,
+          notificationType,
+          deliveryStatus: StaffCreationNotificationStatus.PENDING,
+        },
+        data: {
+          deliveryStatus: StaffCreationNotificationStatus.FAILED,
+          failureReason:
+            error instanceof Error
+              ? error.message
+              : "Unable to send staff invite email.",
+        },
+      });
+    } catch (logFailureError) {
+      console.error(
+        "Failed to mark staff notification as failed.",
+        logFailureError,
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.businessMembership.deleteMany({
+        where: {
+          userId: user.id,
+          businessId: input.businessId,
+          isOwner: false,
+        },
+      });
+
+      if (createdNewUser) {
+        const memberships = await tx.businessMembership.count({
+          where: { userId: user.id },
+        });
+
+        if (memberships === 0) {
+          await tx.user.delete({
+            where: { id: user.id },
+          });
+        }
+      }
+    });
+
+    if (error instanceof HttpError) {
+      throw error;
+    }
+
+    throw new HttpError(
+      502,
+      "Staff account could not be created because the invite email failed to send.",
+    );
+  }
+
+  return {
+    user: sanitizeUser(user),
+    inviteType: createdNewUser ? "new-user" : "existing-user",
+  };
 }

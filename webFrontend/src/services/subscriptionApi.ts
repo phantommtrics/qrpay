@@ -48,6 +48,7 @@ export type BackendUser = {
   email: string
   role: UserRole
   isActive: boolean
+  mustChangePassword: boolean
   createdAt: string
 }
 
@@ -154,6 +155,7 @@ export function mapBackendUserToUser(user: BackendUser): User {
     name: user.name,
     email: user.email,
     role: user.role,
+    mustChangePassword: user.mustChangePassword,
     isPlatformOwner: user.role === 'admin',
   }
 }
@@ -320,6 +322,36 @@ export async function login(payload: { email: string; password: string }) {
   return response.data
 }
 
+export async function changePassword(payload: {
+  email: string
+  currentPassword: string
+  newPassword: string
+}) {
+  const response = await apiRequest<{
+    data: {
+      user: BackendUser
+    }
+  }>('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+  return response.data
+}
+
+export async function forgotPassword(payload: { email: string }) {
+  const response = await apiRequest<{
+    data: {
+      message: string
+    }
+  }>('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+  return response.data
+}
+
 export async function fetchBusinessUsers(businessId: string) {
   const response = await apiRequest<{ data: BackendUser[] }>(`/businesses/${businessId}/users`)
   return response.data.map((user) => mapBackendUserToLoginAccount(user, businessId))
@@ -329,18 +361,24 @@ export async function createBusinessUser(payload: {
   businessId: string
   name: string
   email: string
-  password: string
   role: Extract<UserRole, 'merchant' | 'cashier'>
 }) {
-  const response = await apiRequest<{ data: BackendUser }>(`/businesses/${payload.businessId}/users`, {
+  const response = await apiRequest<{
+    data: {
+      user: BackendUser
+      inviteType: 'existing-user' | 'new-user'
+    }
+  }>(`/businesses/${payload.businessId}/users`, {
     method: 'POST',
     body: JSON.stringify({
       name: payload.name,
       email: payload.email,
-      password: payload.password,
       role: payload.role.toUpperCase(),
     }),
   })
 
-  return mapBackendUserToLoginAccount(response.data, payload.businessId)
+  return {
+    account: mapBackendUserToLoginAccount(response.data.user, payload.businessId),
+    inviteType: response.data.inviteType,
+  }
 }

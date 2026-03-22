@@ -18,6 +18,8 @@ export const APP_PATHS = {
   root: '/',
   login: '/login',
   signup: '/signup',
+  forgotPassword: '/forgot-password',
+  changePassword: '/account/change-password',
   dashboard: '/dashboard',
   pos: '/pos',
   products: '/products',
@@ -128,6 +130,10 @@ export const RESTAURANT_NAV_ITEM = {
 export function getPageTitle(pathname: string) {
   if (pathname.includes(APP_PATHS.businesses)) {
     return 'My Businesses'
+  }
+
+  if (pathname.includes(APP_PATHS.changePassword)) {
+    return 'Change Password'
   }
 
   const matchedItem = MAIN_NAV_ITEMS.find((item) => pathname.includes(item.path))

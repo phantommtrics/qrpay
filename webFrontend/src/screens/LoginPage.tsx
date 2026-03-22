@@ -28,7 +28,7 @@ export function LoginPage() {
     }
 
     setIsSubmitting(false)
-    navigate(APP_PATHS.dashboard)
+    navigate(result.redirectPath ?? APP_PATHS.dashboard)
   }
 
   return (
@@ -67,7 +67,12 @@ export function LoginPage() {
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-700">Password</span>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="block text-sm font-medium text-slate-700">Password</span>
+                <Link to={APP_PATHS.forgotPassword} className="text-sm font-medium text-teal-600">
+                  Forgot password?
+                </Link>
+              </div>
               <input
                 type="password"
                 value={password}

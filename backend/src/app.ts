@@ -3,7 +3,9 @@ import express from "express";
 import { PlanCode, Prisma, UserRole } from "@prisma/client";
 import { z } from "zod";
 import {
+  changePassword,
   createBusinessUser,
+  forgotPassword,
   listBusinessUsers,
   loginUser,
   registerBusinessOwner,
@@ -42,6 +44,16 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const changePasswordSchema = z.object({
+  email: z.string().email(),
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(6),
+});
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
 const createSubscriptionSchema = z.object({
   planCode: z.nativeEnum(PlanCode),
 });
@@ -49,7 +61,6 @@ const createSubscriptionSchema = z.object({
 const createBusinessUserSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
-  password: z.string().min(6),
   role: z.enum([UserRole.MERCHANT, UserRole.CASHIER]),
 });
 
@@ -138,6 +149,7 @@ function formatUserResponse(user: {
   email: string;
   role: UserRole;
   isActive: boolean;
+  mustChangePassword: boolean;
   createdAt: Date;
 }) {
   return {
@@ -217,6 +229,34 @@ app.post("/api/auth/login", async (request, response, next) => {
   }
 });
 
+app.post("/api/auth/change-password", async (request, response, next) => {
+  try {
+    const payload = changePasswordSchema.parse(request.body);
+    const user = await changePassword(payload);
+
+    response.json({
+      data: {
+        user: formatUserResponse(user),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/forgot-password", async (request, response, next) => {
+  try {
+    const payload = forgotPasswordSchema.parse(request.body);
+    const result = await forgotPassword(payload);
+
+    response.json({
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/health", (_request, response) => {
   response.json({
     status: "ok",
@@ -271,13 +311,16 @@ app.post(
   async (request, response, next) => {
     try {
       const payload = createBusinessUserSchema.parse(request.body);
-      const user = await createBusinessUser({
+      const result = await createBusinessUser({
         businessId: request.params.businessId,
         ...payload,
       });
 
       response.status(201).json({
-        data: formatUserResponse(user),
+        data: {
+          user: formatUserResponse(result.user),
+          inviteType: result.inviteType,
+        },
       });
     } catch (error) {
       next(error);

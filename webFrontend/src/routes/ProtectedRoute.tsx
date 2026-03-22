@@ -29,6 +29,10 @@ export function ProtectedRoute({
     return <Navigate to={APP_PATHS.login} replace />
   }
 
+  if (user.mustChangePassword) {
+    return <Navigate to={APP_PATHS.changePassword} replace />
+  }
+
   if (
     !user.isPlatformOwner &&
     (subscriptionStatus === 'expired' || subscriptionStatus === 'past_due')

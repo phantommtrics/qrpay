@@ -35,30 +35,45 @@ enum InvoiceStatus {
   VOID
 }
 
+enum StaffCreationNotificationType {
+  EXISTING_USER
+  NEW_USER
+}
+
+enum StaffCreationNotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
 model Business {
-  id            String                @id @default(cuid())
-  name          String
-  slug          String                @unique
-  industry      String?
-  ownerName     String
-  ownerEmail    String
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
-  memberships   BusinessMembership[]
-  subscriptions Subscription[]
-  invoices      SubscriptionInvoice[]
+  id                            String                         @id @default(cuid())
+  name                          String
+  slug                          String                         @unique
+  industry                      String?
+  ownerName                     String
+  ownerEmail                    String
+  createdAt                     DateTime                       @default(now())
+  updatedAt                     DateTime                       @updatedAt
+  memberships                   BusinessMembership[]
+  subscriptions                 Subscription[]
+  invoices                      SubscriptionInvoice[]
+  staffCreationNotificationLogs StaffCreationNotificationLog[]
 }
 
 model User {
-  id           String               @id @default(cuid())
-  name         String
-  email        String               @unique
-  passwordHash String
-  role         UserRole             @default(MERCHANT)
-  isActive     Boolean              @default(true)
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
-  memberships  BusinessMembership[]
+  id                            String                         @id @default(cuid())
+  name                          String
+  email                         String                         @unique
+  passwordHash                  String
+  role                          UserRole                       @default(MERCHANT)
+  isActive                      Boolean                        @default(true)
+  mustChangePassword            Boolean                        @default(false)
+  passwordResetIssuedAt         DateTime?
+  createdAt                     DateTime                       @default(now())
+  updatedAt                     DateTime                       @updatedAt
+  memberships                   BusinessMembership[]
+  staffCreationNotificationLogs StaffCreationNotificationLog[]
 }
 
 model BusinessMembership {
@@ -136,4 +151,31 @@ model SubscriptionInvoice {
 
   @@index([businessId, status])
   @@index([subscriptionId])
+}
+
+model StaffCreationNotificationLog {
+  id               String                          @id @default(cuid())
+  businessId       String
+  userId           String?
+  recipientName    String
+  recipientEmail   String
+  staffRole        UserRole
+  notificationType StaffCreationNotificationType
+  deliveryStatus   StaffCreationNotificationStatus @default(PENDING)
+  provider         String                          @default("resend")
+  subject          String
+  htmlBody         String?
+  textBody         String?
+  resendEmailId    String?
+  failureReason    String?
+  sentAt           DateTime?
+  createdAt        DateTime                        @default(now())
+  updatedAt        DateTime                        @updatedAt
+  business         Business                        @relation(fields: [businessId], references: [id])
+  user             User?                           @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("staffCreationNotificationLogs")
 }

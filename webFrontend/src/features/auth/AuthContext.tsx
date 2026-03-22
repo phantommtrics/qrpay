@@ -12,12 +12,15 @@ import {
   PERMISSION_DEFINITIONS,
   SUBSCRIPTION_PLANS,
 } from '../../data/mockData'
+import { APP_PATHS, getDefaultProtectedPath } from '../../config/navigation'
 import {
   ApiError,
+  changePassword as changePasswordRequest,
   createBusinessUser,
   fetchBusinessUsers,
   fetchBusinessSubscription,
   fetchPlans,
+  forgotPassword as forgotPasswordRequest,
   login,
   mapAccessibleBusinessToOrganization,
   mapBackendUserToLoginAccount,
@@ -51,7 +54,6 @@ type RegisterOrganizationPayload = {
 type CreateStaffPayload = {
   name: string
   email: string
-  password: string
   role: Extract<UserRole, 'merchant' | 'cashier'>
 }
 
@@ -59,6 +61,8 @@ type AuthActionResult = {
   ok: boolean
   error?: string
   message?: string
+  mustChangePassword?: boolean
+  redirectPath?: string
 }
 
 type AuthContextValue = {
@@ -74,6 +78,8 @@ type AuthContextValue = {
   permissionDefinitions: PermissionDefinition[]
   planPermissions: PlanPermissions
   loginWithCredentials: (email: string, password: string) => Promise<AuthActionResult>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<AuthActionResult>
+  forgotPassword: (email: string) => Promise<AuthActionResult>
   registerOrganization: (
     payload: RegisterOrganizationPayload,
   ) => Promise<AuthActionResult>
@@ -92,7 +98,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 const STORAGE_KEYS = {
-  user: 'qrpay.auth.user.v3',
+  user: 'qrpay.auth.user.v4',
   accounts: 'qrpay.auth.accounts.v3',
   organizations: 'qrpay.auth.organizations.v3',
   activeOrganizationId: 'qrpay.auth.active-organization.v3',
@@ -425,7 +431,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           )
           setAccounts([])
 
-          return { ok: true }
+          return {
+            ok: true,
+            mustChangePassword: nextUser.mustChangePassword,
+            redirectPath: nextUser.mustChangePassword
+              ? APP_PATHS.changePassword
+              : getDefaultProtectedPath(nextUser.role),
+          }
+        } catch (error) {
+          if (error instanceof ApiError) {
+            return {
+              ok: false,
+              error: error.message,
+            }
+          }
+
+          return {
+            ok: false,
+            error: 'Unable to reach the server.',
+          }
+        }
+      },
+      changePassword: async (currentPassword, newPassword) => {
+        if (!user) {
+          return {
+            ok: false,
+            error: 'You must be signed in to change your password.',
+          }
+        }
+
+        try {
+          const payload = await changePasswordRequest({
+            email: user.email,
+            currentPassword,
+            newPassword,
+          })
+
+          setUser(mapBackendUserToUser(payload.user))
+
+          return {
+            ok: true,
+            message: 'Password updated successfully.',
+          }
+        } catch (error) {
+          if (error instanceof ApiError) {
+            return {
+              ok: false,
+              error: error.message,
+            }
+          }
+
+          return {
+            ok: false,
+            error: 'Unable to reach the server.',
+          }
+        }
+      },
+      forgotPassword: async (email) => {
+        try {
+          const payload = await forgotPasswordRequest({
+            email: email.trim().toLowerCase(),
+          })
+
+          return {
+            ok: true,
+            message: payload.message,
+          }
         } catch (error) {
           if (error instanceof ApiError) {
             return {
@@ -503,7 +574,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       },
-      createStaffAccount: async ({ name, email, password, role }) => {
+      createStaffAccount: async ({ name, email, role }) => {
         if (!currentOrganization || !currentPlan) {
           return {
             ok: false,
@@ -515,13 +586,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const maxSeats = currentPlan.maxStaff
         const activeMembers = organizationMembers.length
 
-        if (accounts.some((account) => account.email.toLowerCase() === normalizedEmail)) {
-          return {
-            ok: false,
-            error: 'This email is already used by another account.',
-          }
-        }
-
         if (maxSeats !== null && activeMembers >= maxSeats) {
           return {
             ok: false,
@@ -530,17 +594,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         try {
-          const nextAccount = await createBusinessUser({
+          const result = await createBusinessUser({
             businessId: currentOrganization.id,
             name: name.trim(),
             email: normalizedEmail,
-            password: password.trim(),
             role,
           })
 
-          setAccounts((current) => mergeById(current, [nextAccount]))
+          setAccounts((current) => mergeById(current, [result.account]))
 
-          return { ok: true }
+          return {
+            ok: true,
+            message:
+              result.inviteType === 'new-user'
+                ? 'Staff account created and a temporary password was emailed.'
+                : 'Existing user added to the business and notified by email.',
+          }
         } catch (error) {
           if (error instanceof ApiError) {
             return {

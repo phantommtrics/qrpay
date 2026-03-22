@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, ChevronDown, LogOut, Plus, QrCode } from 'lucide-react'
+import { Check, ChevronDown, LockKeyhole, LogOut, Plus, QrCode } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
 import { APP_PATHS, MAIN_NAV_ITEMS, RESTAURANT_NAV_ITEM } from '../config/navigation'
@@ -197,6 +197,16 @@ export function Sidebar({
               </p>
             </div>
           </div>
+          <button
+            onClick={() => {
+              setIsOpen(false)
+              navigate(APP_PATHS.changePassword)
+            }}
+            className="mb-1 flex w-full items-center rounded-lg px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+          >
+            <LockKeyhole className="mr-3 h-4 w-4" />
+            Change Password
+          </button>
           <button
             onClick={logout}
             className="flex w-full items-center rounded-lg px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"

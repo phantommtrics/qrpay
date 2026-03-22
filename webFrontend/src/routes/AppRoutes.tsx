@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { APP_PATHS, MAIN_NAV_ITEMS, getDefaultProtectedPath } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
 import type { UserRole } from '../types'
+import { AuthOnlyRoute } from './AuthOnlyRoute'
 import { ProtectedRoute } from './ProtectedRoute'
 import { RouteFallback } from './RouteFallback'
 
@@ -20,6 +21,11 @@ const LoginPage = lazy(() =>
 const SignupPage = lazy(() =>
   import('../screens/SignupPage').then((module) => ({
     default: module.SignupPage,
+  })),
+)
+const ForgotPasswordPage = lazy(() =>
+  import('../screens/ForgotPasswordPage').then((module) => ({
+    default: module.ForgotPasswordPage,
   })),
 )
 const CustomerMenuPage = lazy(() =>
@@ -92,9 +98,19 @@ const PlanControlsPage = lazy(() =>
     default: module.PlanControlsPage,
   })),
 )
+const ChangePasswordPage = lazy(() =>
+  import('../screens/ChangePasswordPage').then((module) => ({
+    default: module.ChangePasswordPage,
+  })),
+)
 
 export function AppRoutes() {
   const { user } = useAuth()
+  const authRedirectPath = user
+    ? user.mustChangePassword
+      ? APP_PATHS.changePassword
+      : getDefaultProtectedPath(user.role)
+    : null
   const protectedRoutes = [
     {
       path: APP_PATHS.dashboard,
@@ -183,16 +199,30 @@ export function AppRoutes() {
         <Route
           path={APP_PATHS.login}
           element={
-            user ? <Navigate to={getDefaultProtectedPath(user.role)} replace /> : <LoginPage />
+            user ? <Navigate to={authRedirectPath!} replace /> : <LoginPage />
           }
         />
         <Route
           path={APP_PATHS.signup}
           element={
-            user ? <Navigate to={getDefaultProtectedPath(user.role)} replace /> : <SignupPage />
+            user ? <Navigate to={authRedirectPath!} replace /> : <SignupPage />
+          }
+        />
+        <Route
+          path={APP_PATHS.forgotPassword}
+          element={
+            user ? <Navigate to={authRedirectPath!} replace /> : <ForgotPasswordPage />
           }
         />
         <Route path={APP_PATHS.customerMenu} element={<CustomerMenuPage />} />
+        <Route
+          path={APP_PATHS.changePassword}
+          element={
+            <AuthOnlyRoute>
+              <ChangePasswordPage />
+            </AuthOnlyRoute>
+          }
+        />
         {protectedRoutes.map((route) => (
           <Route
             key={route.path}
