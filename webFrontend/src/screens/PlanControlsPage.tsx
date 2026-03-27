@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Check, ShieldCheck } from 'lucide-react'
 
 import { PageCard } from '../components/ui/PageCard'
@@ -12,6 +13,7 @@ export function PlanControlsPage() {
     plans,
     updatePlanPermission,
   } = useAuth()
+  const [now] = useState(() => Date.now())
 
   return (
     <PageTransition className="space-y-6">
@@ -113,7 +115,7 @@ export function PlanControlsPage() {
             <div className="mt-4 space-y-3">
               {organizations.map((organization) => {
                 const expiresAt = new Date(organization.subscriptionExpiresAt)
-                const expired = expiresAt.getTime() < Date.now()
+                const expired = expiresAt.getTime() < now
                 const plan = plans.find((item) => item.id === organization.planId)
 
                 return (

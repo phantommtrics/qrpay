@@ -1,24 +1,32 @@
-export type UserRole = 'admin' | 'merchant' | 'cashier' | 'customer'
+export type UserRole = 'platform_owner' | 'admin' | 'merchant' | 'cashier' | 'customer'
 
 export type PlanId = 'basic' | 'pro' | 'business_pro'
 
 export type SubscriptionStatus = 'trialing' | 'active' | 'expiring_soon' | 'past_due' | 'expired'
 
 export type PermissionKey =
-  | 'dashboard.view'
-  | 'pos.view'
+  | 'platform.manage'
+  | 'platform.users.manage'
+  | 'platform.businesses.manage'
+  | 'platform.billing.manage'
+  | 'business.manage'
+  | 'staff.manage'
+  | 'products.manage'
   | 'products.view'
   | 'products.create'
   | 'products.edit'
   | 'products.delete'
+  | 'orders.manage'
   | 'orders.view'
+  | 'payments.manage'
   | 'payments.view'
   | 'payments.export'
   | 'reports.view'
   | 'reports.export'
   | 'accounting.view'
   | 'accounting.chart.view'
-  | 'staff.manage'
+  | 'pos.access'
+  | 'dashboard.view'
   | 'organization.manage'
 
 export interface User {
@@ -72,10 +80,16 @@ export interface PermissionDefinition {
   key: PermissionKey
   label: string
   description: string
-  category: 'Views' | 'Actions' | 'Reports' | 'Administration'
+  category:
+    | 'Views'
+    | 'Actions'
+    | 'Reports'
+    | 'Administration'
+    | 'Products'
+    | 'Operations'
 }
 
-export type PlanPermissions = Record<PlanId, Record<PermissionKey, boolean>>
+export type PlanPermissions = Record<PlanId, Partial<Record<PermissionKey, boolean>>>
 
 export interface Product {
   id: string
@@ -87,6 +101,13 @@ export interface Product {
   imageEmoji: string
   businessId: string
   description?: string
+  barcodeType?: string
+  barcodeValue?: string
+  qrUrl?: string
+  /** Pack photo (e.g. from Open Food Facts) or merchant-provided https URL */
+  imageUrl?: string | null
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface OrderItem {

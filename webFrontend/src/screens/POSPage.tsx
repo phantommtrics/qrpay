@@ -4,6 +4,7 @@ import {
   Banknote,
   CheckCircle2,
   CreditCard,
+  ExternalLink,
   Minus,
   Plus,
   QrCode,
@@ -13,18 +14,22 @@ import {
   Trash2,
 } from 'lucide-react'
 
+import { AddProductModal } from '../components/products/AddProductModal'
+import { ProductThumb } from '../components/products/ProductThumb'
+import { CameraBarcodeScanner } from '../components/scanner/CameraBarcodeScanner'
 import { CenteredModal } from '../components/ui/CenteredModal'
 import { ModalOverlay } from '../components/ui/ModalOverlay'
-import { MOCK_PRODUCTS } from '../data/mockData'
 import { useAuth } from '../features/auth/AuthContext'
 import { useCart } from '../features/cart/useCart'
 import { formatMoney } from '../utils/formatMoney'
 
 export function POSPage() {
-  const { currentOrganization } = useAuth()
+  const { businessProducts, currentOrganization, refreshBusinessProducts } = useAuth()
   const [searchTerm, setSearchTerm] = useState('')
-  const [isScanning, setIsScanning] = useState(false)
+  const [scannerOpen, setScannerOpen] = useState(false)
   const [scanMessage, setScanMessage] = useState<string | null>(null)
+  const [missingBarcode, setMissingBarcode] = useState<string | null>(null)
+  const [addProductOpen, setAddProductOpen] = useState(false)
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentStatus, setPaymentStatus] = useState<'waiting' | 'success'>(
     'waiting',
@@ -39,30 +44,31 @@ export function POSPage() {
     clearCart,
   } = useCart()
 
-  const scopedProducts = currentOrganization?.id
-    ? MOCK_PRODUCTS.filter((product) => product.businessId === currentOrganization.id)
-    : MOCK_PRODUCTS
-  const products = scopedProducts.length > 0 ? scopedProducts : MOCK_PRODUCTS
+  const products = businessProducts
 
-  const simulateScan = () => {
+  const handleDetectedBarcode = (rawValue: string) => {
+    setScannerOpen(false)
+    setMissingBarcode(null)
     if (products.length === 0) {
       setScanMessage('No products available to scan.')
       return
     }
 
-    setScanMessage(null)
-    setIsScanning(true)
-    window.setTimeout(() => {
-      setIsScanning(false)
-      const randomProduct = products[Math.floor(Math.random() * products.length)]
-      if (!randomProduct) {
-        setScanMessage('Scan simulation could not find a product.')
-        return
-      }
+    const normalized = rawValue.replace(/\s+/g, '').toLowerCase()
+    const matched = products.find(
+      (product) => (product.barcodeValue ?? '').replace(/\s+/g, '').toLowerCase() === normalized,
+    )
 
-      addToCart(randomProduct)
-      setScanMessage(`${randomProduct.name} added to cart.`)
-    }, 800)
+    if (!matched) {
+      setMissingBarcode(rawValue)
+      setScanMessage(
+        `Barcode ${rawValue} is not in this catalog yet.`,
+      )
+      return
+    }
+
+    addToCart(matched)
+    setScanMessage(`${matched.name} added to cart.`)
   }
 
   const simulatePaymentSuccess = () => {
@@ -80,7 +86,7 @@ export function POSPage() {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(20,184,166,0.25),transparent_55%)] opacity-60" />
           <div className="relative z-10 flex flex-col items-center">
             <div className="relative mb-4 flex h-48 w-48 items-center justify-center rounded-xl border-2 border-teal-500/50">
-              {isScanning ? (
+              {scannerOpen ? (
                 <motion.div
                   animate={{ y: [-80, 80, -80] }}
                   transition={{
@@ -95,13 +101,23 @@ export function POSPage() {
               )}
             </div>
             <button
-              onClick={simulateScan}
-              disabled={isScanning}
+              onClick={() => setScannerOpen(true)}
+              disabled={scannerOpen}
               className="rounded-full bg-teal-600 px-6 py-2 font-medium text-white shadow-lg shadow-teal-900/50 transition-colors hover:bg-teal-500 disabled:opacity-70"
             >
-              {isScanning ? 'Scanning...' : 'Simulate Scan'}
+              {scannerOpen ? 'Scanning...' : 'Scan barcode'}
             </button>
             {scanMessage ? <p className="mt-3 text-sm text-teal-200">{scanMessage}</p> : null}
+            {missingBarcode ? (
+              <button
+                type="button"
+                onClick={() => setAddProductOpen(true)}
+                className="mt-2 inline-flex items-center text-sm font-medium text-teal-200 underline hover:text-white"
+              >
+                Add this product now
+                <ExternalLink className="ml-1 h-3.5 w-3.5" />
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -130,11 +146,7 @@ export function POSPage() {
                     onClick={() => addToCart(product)}
                     className="flex flex-col items-center rounded-xl border border-slate-100 p-3 text-center transition-all hover:border-teal-500 hover:bg-teal-50"
                   >
-                    <div
-                      className={`mb-2 flex h-12 w-12 items-center justify-center rounded-full text-2xl ${product.imageColor}`}
-                    >
-                      {product.imageEmoji}
-                    </div>
+                    <ProductThumb product={product} size="sm" className="mb-2 rounded-full" />
                     <span className="line-clamp-1 w-full text-sm font-medium text-slate-700">
                       {product.name}
                     </span>
@@ -189,6 +201,7 @@ export function POSPage() {
                     <div className="flex items-center rounded-lg border border-slate-200 bg-white">
                       <button
                         onClick={() => updateQuantity(item.product.id, -1)}
+                        aria-label={`Decrease quantity for ${item.product.name}`}
                         className="p-1.5 text-slate-500 hover:text-teal-600"
                       >
                         <Minus className="h-4 w-4" />
@@ -198,6 +211,7 @@ export function POSPage() {
                       </span>
                       <button
                         onClick={() => updateQuantity(item.product.id, 1)}
+                        aria-label={`Increase quantity for ${item.product.name}`}
                         className="p-1.5 text-slate-500 hover:text-teal-600"
                       >
                         <Plus className="h-4 w-4" />
@@ -205,6 +219,7 @@ export function POSPage() {
                     </div>
                     <button
                       onClick={() => removeFromCart(item.product.id)}
+                      aria-label={`Remove ${item.product.name} from cart`}
                       className="rounded-lg p-2 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -333,6 +348,20 @@ export function POSPage() {
           </div>
         ) : null}
       </AnimatePresence>
+      <CameraBarcodeScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        minimalUI
+        onDetected={handleDetectedBarcode}
+      />
+      {addProductOpen && currentOrganization ? (
+        <AddProductModal
+          businessId={currentOrganization.id}
+          initialBarcode={missingBarcode ?? undefined}
+          onClose={() => setAddProductOpen(false)}
+          onCreated={() => void refreshBusinessProducts()}
+        />
+      ) : null}
     </div>
   )
 }

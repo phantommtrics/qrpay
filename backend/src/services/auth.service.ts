@@ -3,6 +3,7 @@ import {
   StaffCreationNotificationStatus,
   StaffCreationNotificationType,
   UserRole,
+  User,
 } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
@@ -50,14 +51,15 @@ type CreateBusinessUserInput = {
   businessId: string;
   name: string;
   email: string;
-  role: "CASHIER" | "MERCHANT";
+  role: "ADMIN" | "CASHIER" | "MERCHANT";
 };
 
 function normalizeSlug(value: string) {
   return value
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
 
@@ -161,6 +163,21 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
         isOwner: true,
       },
     });
+
+    const businessAdminRole = await tx.role.findFirst({
+      where: { name: "Business Admin" },
+    });
+
+    if (businessAdminRole) {
+      await tx.userRoleAssignment.create({
+        data: {
+          userId: user.id,
+          roleId: businessAdminRole.id,
+          scope: business.id,
+          assignedBy: user.id,
+        },
+      });
+    }
 
     const { subscription, invoice } = await createSubscriptionForBusinessTx(tx, {
       businessId: business.id,
@@ -315,113 +332,36 @@ export async function listBusinessUsers(businessId: string) {
   return memberships.map((membership) => sanitizeUser(membership.user));
 }
 
-export async function createBusinessUser(input: CreateBusinessUserInput) {
+export async function createBusinessUser(input: CreateBusinessUserInput): Promise<{ user: User; inviteType: 'existing-user' | 'new-user' }> {
   const business = await prisma.business.findUnique({
     where: { id: input.businessId },
-    include: {
-      subscriptions: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        include: {
-          plan: true,
-        },
-      },
-      memberships: {
-        where: { user: { isActive: true } },
-      },
-    },
   });
 
   if (!business) {
     throw new HttpError(404, "Business not found.");
   }
 
-  const existingUser = await prisma.user.findUnique({
-    where: { email: input.email.trim().toLowerCase() },
+  // Check if user already exists
+  let user = await prisma.user.findUnique({
+    where: { email: input.email },
   });
 
-  const currentSubscription = business.subscriptions[0];
-
-  if (!currentSubscription) {
-    throw new HttpError(400, "Business does not have a subscription yet.");
-  }
-
-  if (business.memberships.length >= currentSubscription.plan.staffLimit) {
-    throw new HttpError(
-      400,
-      `This plan allows up to ${currentSubscription.plan.staffLimit} active users.`,
-    );
-  }
-
-  let user = existingUser;
-  let createdNewUser = false;
-  let temporaryPassword: string | null = null;
+  const inviteType: 'existing-user' | 'new-user' = user ? 'existing-user' : 'new-user';
 
   if (user) {
-    if (!user.isActive) {
-      throw new HttpError(403, "This account has been disabled.");
-    }
-
-    if (user.role !== input.role) {
-      throw new HttpError(
-        400,
-        `This account already exists as a ${user.role.toLowerCase()} user.`,
-      );
-    }
-
-    const existingMembership = await prisma.businessMembership.findUnique({
+    // Check if user is already a member of this business
+    const existingMembership = await prisma.businessMembership.findFirst({
       where: {
-        userId_businessId: {
-          userId: user.id,
-          businessId: input.businessId,
-        },
+        userId: user.id,
+        businessId: input.businessId,
       },
     });
 
     if (existingMembership) {
       throw new HttpError(409, "This user already has access to the business.");
     }
-  } else {
-    temporaryPassword = generateTemporaryPassword();
-    user = await prisma.user.create({
-      data: {
-        name: input.name.trim(),
-        email: input.email.trim().toLowerCase(),
-        passwordHash: hashPassword(temporaryPassword),
-        role: input.role,
-      },
-    });
-    createdNewUser = true;
-  }
 
-  const notificationType = createdNewUser
-    ? StaffCreationNotificationType.NEW_USER
-    : StaffCreationNotificationType.EXISTING_USER;
-  const inviteInput = createdNewUser
-    ? {
-        type: "new-user" as const,
-        temporaryPassword: temporaryPassword!,
-        staffName: user.name,
-        staffEmail: user.email,
-        staffRole: input.role,
-        businessName: business.name,
-        businessIndustry: business.industry,
-        businessOwnerName: business.ownerName,
-        businessOwnerEmail: business.ownerEmail,
-      }
-    : {
-        type: "existing-user" as const,
-        staffName: user.name,
-        staffEmail: user.email,
-        staffRole: input.role,
-        businessName: business.name,
-        businessIndustry: business.industry,
-        businessOwnerName: business.ownerName,
-        businessOwnerEmail: business.ownerEmail,
-      };
-  const emailContent = buildStaffInviteEmailContent(inviteInput);
-
-  try {
+    // Add user to business
     await prisma.businessMembership.create({
       data: {
         userId: user.id,
@@ -430,14 +370,116 @@ export async function createBusinessUser(input: CreateBusinessUserInput) {
       },
     });
 
+    // Build email content for existing user - only for non-ADMIN roles
+    if (input.role !== 'ADMIN') {
+      const existingUserInviteInput = {
+        type: "existing-user" as const,
+        staffName: user.name,
+        staffEmail: user.email,
+        staffRole: input.role as 'CASHIER' | 'MERCHANT',
+        businessName: business.name,
+        businessIndustry: business.industry,
+        businessOwnerName: business.ownerName,
+        businessOwnerEmail: business.ownerEmail,
+      };
+      const existingUserEmailContent = buildStaffInviteEmailContent(existingUserInviteInput);
+
+      // Create notification log
+      const existingUserNotificationLog = await prisma.staffCreationNotificationLog.create({
+        data: {
+          businessId: input.businessId,
+          userId: user.id,
+          recipientName: user.name,
+          recipientEmail: user.email,
+          staffRole: input.role as UserRole,
+          notificationType: StaffCreationNotificationType.EXISTING_USER,
+          deliveryStatus: StaffCreationNotificationStatus.PENDING,
+          provider: "resend",
+          subject: existingUserEmailContent.subject,
+          htmlBody: existingUserEmailContent.htmlBody,
+          textBody: existingUserEmailContent.textBody,
+        },
+      });
+
+      // Send email
+      try {
+        const emailResult = await sendStaffInviteEmail(existingUserInviteInput);
+
+        // Update notification log with sent status
+        await prisma.staffCreationNotificationLog.update({
+          where: { id: existingUserNotificationLog.id },
+          data: {
+            deliveryStatus: StaffCreationNotificationStatus.SENT,
+            resendEmailId: emailResult.resendEmailId,
+            sentAt: new Date(),
+          },
+        });
+      } catch (error) {
+        // Update notification log with failed status
+        await prisma.staffCreationNotificationLog.update({
+          where: { id: existingUserNotificationLog.id },
+          data: {
+            deliveryStatus: StaffCreationNotificationStatus.FAILED,
+            failureReason: error instanceof Error ? error.message : 'Unknown error',
+          },
+        });
+
+        // Continue - notification is logged but don't fail the entire operation
+        console.error('Failed to send staff invite email:', error);
+      }
+    }
+
+    return { user, inviteType };
+  }
+
+  // User doesn't exist, so create a new one
+  // Create new user
+  const temporaryPassword = generateTemporaryPassword();
+  const hashedPassword = hashPassword(temporaryPassword);
+
+  user = await prisma.user.create({
+    data: {
+      name: input.name,
+      email: input.email,
+      passwordHash: hashedPassword,
+      role: input.role,
+      mustChangePassword: true,
+    },
+  });
+
+  // Add user to business
+  await prisma.businessMembership.create({
+    data: {
+      userId: user.id,
+      businessId: input.businessId,
+      isOwner: false,
+    },
+  });
+
+  // Build email content - only for non-ADMIN roles
+  if (input.role !== 'ADMIN') {
+    const inviteInput = {
+      type: "new-user" as const,
+      temporaryPassword,
+      staffName: user.name,
+      staffEmail: user.email,
+      staffRole: input.role as 'CASHIER' | 'MERCHANT',
+      businessName: business.name,
+      businessIndustry: business.industry,
+      businessOwnerName: business.ownerName,
+      businessOwnerEmail: business.ownerEmail,
+    };
+    const emailContent = buildStaffInviteEmailContent(inviteInput);
+
+    // Create notification log
     const notificationLog = await prisma.staffCreationNotificationLog.create({
       data: {
-        businessId: business.id,
+        businessId: input.businessId,
         userId: user.id,
         recipientName: user.name,
         recipientEmail: user.email,
-        staffRole: input.role,
-        notificationType,
+        staffRole: input.role as UserRole,
+        notificationType: StaffCreationNotificationType.NEW_USER,
         deliveryStatus: StaffCreationNotificationStatus.PENDING,
         provider: "resend",
         subject: emailContent.subject,
@@ -446,80 +488,33 @@ export async function createBusinessUser(input: CreateBusinessUserInput) {
       },
     });
 
-    const emailResult = await sendStaffInviteEmail(inviteInput);
-
+    // Send email
     try {
+      const emailResult = await sendStaffInviteEmail(inviteInput);
+
+      // Update notification log with sent status
       await prisma.staffCreationNotificationLog.update({
         where: { id: notificationLog.id },
         data: {
           deliveryStatus: StaffCreationNotificationStatus.SENT,
           resendEmailId: emailResult.resendEmailId,
-          subject: emailResult.subject,
           sentAt: new Date(),
-          failureReason: null,
         },
       });
-    } catch (logUpdateError) {
-      console.error("Failed to mark staff notification as sent.", logUpdateError);
-    }
-  } catch (error) {
-    try {
-      await prisma.staffCreationNotificationLog.updateMany({
-        where: {
-          businessId: input.businessId,
-          userId: user.id,
-          notificationType,
-          deliveryStatus: StaffCreationNotificationStatus.PENDING,
-        },
+    } catch (error) {
+      // Update notification log with failed status
+      await prisma.staffCreationNotificationLog.update({
+        where: { id: notificationLog.id },
         data: {
           deliveryStatus: StaffCreationNotificationStatus.FAILED,
-          failureReason:
-            error instanceof Error
-              ? error.message
-              : "Unable to send staff invite email.",
-        },
-      });
-    } catch (logFailureError) {
-      console.error(
-        "Failed to mark staff notification as failed.",
-        logFailureError,
-      );
-    }
-
-    await prisma.$transaction(async (tx) => {
-      await tx.businessMembership.deleteMany({
-        where: {
-          userId: user.id,
-          businessId: input.businessId,
-          isOwner: false,
+          failureReason: error instanceof Error ? error.message : 'Unknown error',
         },
       });
 
-      if (createdNewUser) {
-        const memberships = await tx.businessMembership.count({
-          where: { userId: user.id },
-        });
-
-        if (memberships === 0) {
-          await tx.user.delete({
-            where: { id: user.id },
-          });
-        }
-      }
-    });
-
-    if (error instanceof HttpError) {
-      throw error;
+      // Continue - notification is logged but don't fail the entire operation
+      console.error('Failed to send staff invite email:', error);
     }
-
-    throw new HttpError(
-      502,
-      "Staff account could not be created because the invite email failed to send.",
-    );
   }
 
-  return {
-    user: sanitizeUser(user),
-    inviteType: createdNewUser ? "new-user" : "existing-user",
-  };
+  return { user, inviteType };
 }

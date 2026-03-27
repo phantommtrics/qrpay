@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Check, ChevronDown, LockKeyhole, LogOut, Plus, QrCode } from 'lucide-react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { generatePath, NavLink, useNavigate } from 'react-router-dom'
 
 import { APP_PATHS, MAIN_NAV_ITEMS, RESTAURANT_NAV_ITEM } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
+import { isRetailOrWholesaleIndustry } from '../utils/businessIndustry'
 
 const BUSINESS_SECTION_STORAGE_KEY = 'qrpay.sidebar.businesses.open.v1'
 
@@ -33,14 +34,6 @@ export function Sidebar({
     subscriptionStatus,
   } = useAuth()
 
-  if (!user) {
-    return null
-  }
-
-  const navItems = MAIN_NAV_ITEMS.filter(
-    (item) => (user.isPlatformOwner || item.roles.includes(user.role)) && canAccess(item.permission),
-  )
-
   useEffect(() => {
     if (typeof window === 'undefined') {
       return
@@ -51,6 +44,14 @@ export function Sidebar({
       String(isBusinessSectionOpen),
     )
   }, [isBusinessSectionOpen])
+
+  if (!user) {
+    return null
+  }
+
+  const navItems = MAIN_NAV_ITEMS.filter(
+    (item) => (user.isPlatformOwner || item.roles.includes(user.role)) && canAccess(item.permission),
+  )
 
   return (
     <>
@@ -154,13 +155,18 @@ export function Sidebar({
             </NavLink>
           ))}
 
-          {user.role !== 'cashier' ? (
+          {user.role !== 'cashier' &&
+          currentOrganization &&
+          isRetailOrWholesaleIndustry(currentOrganization.industry) ? (
             <>
               <div className="mt-6 mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Restaurant
               </div>
               <NavLink
-                to={RESTAURANT_NAV_ITEM.path}
+                to={generatePath(APP_PATHS.customerMenu, {
+                  businessId: currentOrganization.id,
+                  tableId: 'T-01',
+                })}
                 onClick={() => setIsOpen(false)}
                 className="flex items-center rounded-lg border-l-2 border-transparent px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white"
               >

@@ -20,21 +20,30 @@ import { OrderStatusBadge } from '../components/status/OrderStatusBadge'
 import { PageCard } from '../components/ui/PageCard'
 import { PageSectionHeader } from '../components/ui/PageSectionHeader'
 import { PageTransition } from '../components/ui/PageTransition'
-import { MOCK_ORDERS, MOCK_PAYMENTS, MOCK_PRODUCTS, REVENUE_DATA } from '../data/mockData'
+import { MOCK_ORDERS, MOCK_PAYMENTS, REVENUE_DATA } from '../data/mockData'
 import { useAuth } from '../features/auth/AuthContext'
 import { formatMoney } from '../utils/formatMoney'
 
+function mockDataKeyForOrganization(organizationId: string | undefined) {
+  if (!organizationId) {
+    return undefined
+  }
+
+  const hasMockRows = MOCK_ORDERS.some((order) => order.businessId === organizationId)
+  return hasMockRows ? organizationId : 'b1'
+}
+
 export function DashboardPage() {
-  const { currentOrganization } = useAuth()
+  const { currentOrganization, businessProducts } = useAuth()
   const businessId = currentOrganization?.id
-  const orders = businessId
-    ? MOCK_ORDERS.filter((order) => order.businessId === businessId)
+  const mockBusinessKey = mockDataKeyForOrganization(businessId)
+  const showingDemoSnapshot = Boolean(businessId && mockBusinessKey !== businessId)
+  const orders = mockBusinessKey
+    ? MOCK_ORDERS.filter((order) => order.businessId === mockBusinessKey)
     : MOCK_ORDERS
-  const products = businessId
-    ? MOCK_PRODUCTS.filter((product) => product.businessId === businessId)
-    : MOCK_PRODUCTS
-  const payments = businessId
-    ? MOCK_PAYMENTS.filter((payment) => payment.businessId === businessId)
+  const products = businessProducts
+  const payments = mockBusinessKey
+    ? MOCK_PAYMENTS.filter((payment) => payment.businessId === mockBusinessKey)
     : MOCK_PAYMENTS
   const totalRevenue = payments
     .filter((payment) => payment.status === 'completed')
@@ -81,6 +90,13 @@ export function DashboardPage() {
 
   return (
     <PageTransition className="space-y-6" withSlide>
+      {showingDemoSnapshot ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Revenue, orders, and payments below are sample demo data (your live business ID does not
+          match the built-in mock stores yet). Product counts and low-stock alerts use your catalog
+          from the API when you are signed in with product access.
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => (
           <PageCard key={stat.title} className="p-6">

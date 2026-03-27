@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -16,11 +17,14 @@ import { APP_PATHS, getDefaultProtectedPath } from '../../config/navigation'
 import {
   ApiError,
   changePassword as changePasswordRequest,
+  clearToken,
   createBusinessUser,
+  fetchBusinessProducts,
   fetchBusinessUsers,
   fetchBusinessSubscription,
   fetchPlans,
   forgotPassword as forgotPasswordRequest,
+  hasStoredToken,
   login,
   mapAccessibleBusinessToOrganization,
   mapBackendUserToLoginAccount,
@@ -35,6 +39,7 @@ import type {
   PermissionKey,
   PlanId,
   PlanPermissions,
+  Product,
   SubscriptionPlan,
   SubscriptionStatus,
   User,
@@ -92,7 +97,12 @@ type AuthContextValue = {
     permission: PermissionKey,
     enabled: boolean,
   ) => void
+  hasAnyPermission: (permissions: PermissionKey[]) => boolean
   isRoleAllowed: (roles: UserRole[]) => boolean
+  businessProducts: Product[]
+  businessProductsLoading: boolean
+  businessProductsError: string | null
+  refreshBusinessProducts: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -103,7 +113,7 @@ const STORAGE_KEYS = {
   organizations: 'qrpay.auth.organizations.v3',
   activeOrganizationId: 'qrpay.auth.active-organization.v3',
   plans: 'qrpay.auth.plans',
-  planPermissions: 'qrpay.auth.plan-permissions',
+  planPermissions: 'qrpay.auth.plan-permissions.v2',
 } as const
 
 function slugify(value: string) {
@@ -206,7 +216,7 @@ function isStaffCountValid(plan: SubscriptionPlan, staffCount: number) {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => readStorage(STORAGE_KEYS.user, null))
-  const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(() =>
+  const [storedActiveOrganizationId, setStoredActiveOrganizationId] = useState<string | null>(() =>
     readStorage<string | null>(STORAGE_KEYS.activeOrganizationId, null),
   )
   const [accounts, setAccounts] = useState<LoginAccount[]>(() =>
@@ -222,14 +232,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useState<PlanPermissions>(() =>
       readStorage<PlanPermissions>(STORAGE_KEYS.planPermissions, INITIAL_PLAN_PERMISSIONS),
     )
+  const [businessProducts, setBusinessProducts] = useState<Product[]>([])
+  const [businessProductsLoading, setBusinessProductsLoading] = useState(false)
+  const [businessProductsError, setBusinessProductsError] = useState<string | null>(null)
+
+  const clearSessionState = () => {
+    clearToken()
+    setUser(null)
+    setStoredActiveOrganizationId(null)
+    setAccounts([])
+    setOrganizations([])
+    setBusinessProducts([])
+    setBusinessProductsError(null)
+    setBusinessProductsLoading(false)
+  }
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.user, user)
   }, [user])
 
   useEffect(() => {
-    writeStorage(STORAGE_KEYS.activeOrganizationId, activeOrganizationId)
-  }, [activeOrganizationId])
+    if (user && !hasStoredToken()) {
+      clearSessionState()
+    }
+    // Run once on mount to prevent stale local sessions without JWT.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.accounts, accounts)
@@ -265,6 +293,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const activeOrganizationId = useMemo(
+    () => {
+      if (!organizations.length) {
+        return null
+      }
+
+      if (
+        storedActiveOrganizationId &&
+        organizations.some((organization) => organization.id === storedActiveOrganizationId)
+      ) {
+        return storedActiveOrganizationId
+      }
+
+      return organizations[0].id
+    },
+    [organizations, storedActiveOrganizationId],
+  )
+
   const currentOrganization = useMemo(
     () =>
       activeOrganizationId
@@ -272,6 +318,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         : organizations[0] ?? null,
     [activeOrganizationId, organizations],
   )
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.activeOrganizationId, activeOrganizationId)
+  }, [activeOrganizationId])
 
   const currentPlan = useMemo(
     () =>
@@ -282,51 +332,85 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const organizationMembers = useMemo(
-    () => accounts,
-    [accounts],
-  )
-
-  const subscriptionMeta = useMemo(
-    () =>
-      user?.isPlatformOwner
-        ? { status: 'active' as const, daysLeft: null }
-        : currentOrganization?.subscriptionState === 'trialing'
-          ? { status: 'trialing' as const, daysLeft: getDaysLeft(currentOrganization.subscriptionInvoiceDueAt) }
-          : currentOrganization?.subscriptionState === 'past_due'
-            ? { status: 'past_due' as const, daysLeft: getDaysLeft(currentOrganization.subscriptionInvoiceDueAt) }
-            : getSubscriptionMeta(currentOrganization?.subscriptionExpiresAt),
-    [
-      currentOrganization?.subscriptionExpiresAt,
-      currentOrganization?.subscriptionInvoiceDueAt,
-      currentOrganization?.subscriptionState,
-      user?.isPlatformOwner,
-    ],
-  )
-
-  useEffect(() => {
-    if (!organizations.length) {
-      if (activeOrganizationId !== null) {
-        setActiveOrganizationId(null)
+    () => {
+      if (!currentOrganization || user?.isPlatformOwner) {
+        return []
       }
+
+      return accounts.filter((account) => account.organizationId === currentOrganization.id)
+    },
+    [accounts, currentOrganization, user?.isPlatformOwner],
+  )
+
+  const subscriptionMeta = useMemo<{
+    status: SubscriptionStatus | null
+    daysLeft: number | null
+  }>(
+    () => {
+      if (user?.isPlatformOwner) {
+        return { status: 'active', daysLeft: null }
+      }
+
+      if (!currentOrganization) {
+        return getSubscriptionMeta()
+      }
+
+      if (currentOrganization.subscriptionState === 'trialing') {
+        return {
+          status: 'trialing',
+          daysLeft: getDaysLeft(currentOrganization.subscriptionInvoiceDueAt),
+        }
+      }
+
+      if (currentOrganization.subscriptionState === 'past_due') {
+        return {
+          status: 'past_due',
+          daysLeft: getDaysLeft(currentOrganization.subscriptionInvoiceDueAt),
+        }
+      }
+
+      return getSubscriptionMeta(currentOrganization.subscriptionExpiresAt)
+    },
+    [currentOrganization, user?.isPlatformOwner],
+  )
+
+  const businessIdForApi = currentOrganization?.id
+
+  const refreshBusinessProducts = useCallback(async () => {
+    if (!businessIdForApi) {
+      setBusinessProducts([])
+      setBusinessProductsError(null)
+      setBusinessProductsLoading(false)
       return
     }
 
-    if (
-      !activeOrganizationId ||
-      !organizations.some((organization) => organization.id === activeOrganizationId)
-    ) {
-      setActiveOrganizationId(organizations[0].id)
+    setBusinessProductsLoading(true)
+    setBusinessProductsError(null)
+    try {
+      const list = await fetchBusinessProducts(businessIdForApi)
+      setBusinessProducts(list)
+    } catch (error) {
+      setBusinessProducts([])
+      setBusinessProductsError(
+        error instanceof ApiError ? error.message : 'Could not load products.',
+      )
+    } finally {
+      setBusinessProductsLoading(false)
     }
-  }, [activeOrganizationId, organizations])
+  }, [businessIdForApi])
 
   useEffect(() => {
-    if (!currentOrganization || user?.isPlatformOwner) {
+    void refreshBusinessProducts()
+  }, [refreshBusinessProducts])
+
+  useEffect(() => {
+    if (!businessIdForApi || user?.isPlatformOwner) {
       return
     }
 
     let cancelled = false
 
-    fetchBusinessSubscription(currentOrganization.id)
+    fetchBusinessSubscription(businessIdForApi)
       .then((payload) => {
         if (cancelled || !payload.currentSubscription) {
           return
@@ -341,7 +425,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setOrganizations((current) =>
           current.map((organization) =>
-            organization.id === currentOrganization.id
+            organization.id === businessIdForApi
               ? {
                   ...organization,
                   ...mapAccessibleBusinessToOrganization({
@@ -363,23 +447,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [currentOrganization?.id, user?.isPlatformOwner])
+  }, [businessIdForApi, user?.isPlatformOwner])
 
   useEffect(() => {
-    if (!currentOrganization || user?.isPlatformOwner) {
-      setAccounts([])
+    if (!businessIdForApi || user?.isPlatformOwner) {
       return
     }
 
     let cancelled = false
 
-    fetchBusinessUsers(currentOrganization.id)
+    fetchBusinessUsers(businessIdForApi)
       .then((members) => {
         if (!cancelled) {
           setAccounts(members)
           setOrganizations((current) =>
             current.map((organization) =>
-              organization.id === currentOrganization.id
+              organization.id === businessIdForApi
                 ? { ...organization, staffCount: members.length }
                 : organization,
             ),
@@ -395,7 +478,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [currentOrganization?.id, user?.isPlatformOwner])
+  }, [businessIdForApi, user?.isPlatformOwner])
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -426,7 +509,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           )
 
           setOrganizations((current) => mergeOrganizations(current, nextOrganizations))
-          setActiveOrganizationId(
+          setStoredActiveOrganizationId(
             payload.activeBusinessId ?? nextOrganizations[0]?.id ?? null,
           )
           setAccounts([])
@@ -553,7 +636,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               [payload.business.id]: staffCount,
             }),
           )
-          setActiveOrganizationId(payload.activeBusinessId ?? payload.business.id)
+          setStoredActiveOrganizationId(payload.activeBusinessId ?? payload.business.id)
           setAccounts([
             mapBackendUserToLoginAccount(payload.user, payload.business.id, true),
           ])
@@ -614,7 +697,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (error instanceof ApiError) {
             return {
               ok: false,
-              error: error.message,
+              error:
+                error.statusCode === 401
+                  ? `${error.message} Sign out and sign in again if this keeps happening.`
+                  : error.message,
             }
           }
 
@@ -625,13 +711,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
       logout: () => {
-        setUser(null)
-        setActiveOrganizationId(null)
-        setAccounts([])
-        setOrganizations([])
+        clearSessionState()
       },
       setActiveOrganization: (organizationId) => {
-        setActiveOrganizationId(organizationId)
+        setStoredActiveOrganizationId(organizationId)
       },
       canAccess: (permission) => {
         if (!user) {
@@ -655,6 +738,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         return Boolean(planPermissions[currentOrganization.planId]?.[permission])
       },
+      hasAnyPermission: (permissions) => {
+        if (!user) {
+          return false
+        }
+
+        if (user.isPlatformOwner) {
+          return true
+        }
+
+        if (!currentOrganization) {
+          return false
+        }
+
+        if (
+          currentOrganization.subscriptionState === 'expired' ||
+          getSubscriptionMeta(currentOrganization.subscriptionExpiresAt).status === 'expired'
+        ) {
+          return false
+        }
+
+        return permissions.some((permission) => Boolean(planPermissions[currentOrganization.planId]?.[permission]))
+      },
       updatePlanPermission: (planId, permission, enabled) => {
         setPlanPermissions((current) => ({
           ...current,
@@ -675,16 +780,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         return roles.includes(user.role)
       },
+      businessProducts,
+      businessProductsLoading,
+      businessProductsError,
+      refreshBusinessProducts,
     }),
     [
       activeOrganizationId,
-      accounts,
+      businessProducts,
+      businessProductsError,
+      businessProductsLoading,
       currentOrganization,
       currentPlan,
       organizationMembers,
       organizations,
       plans,
       planPermissions,
+      refreshBusinessProducts,
       subscriptionMeta,
       user,
     ],
@@ -693,6 +805,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext)
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { getPageTitle } from '../config/navigation'
@@ -12,10 +12,6 @@ export function AppLayout({
 }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const location = useLocation()
-
-  useEffect(() => {
-    setIsSidebarOpen(false)
-  }, [location.pathname])
 
   const title = useMemo(() => getPageTitle(location.pathname), [location.pathname])
 

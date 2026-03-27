@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -10,16 +10,19 @@ import {
   Utensils,
 } from 'lucide-react'
 
+import { ProductThumb } from '../components/products/ProductThumb'
 import { BottomSheet } from '../components/ui/BottomSheet'
 import { ModalOverlay } from '../components/ui/ModalOverlay'
-import { MOCK_PRODUCTS } from '../data/mockData'
 import { useCart } from '../features/cart/useCart'
+import { ApiError, fetchPublicBusinessMenu } from '../services/subscriptionApi'
+import type { Product } from '../types'
 import { formatMoney } from '../utils/formatMoney'
 
 export function CustomerMenuPage() {
-  const { tableId = 'T-01' } = useParams()
+  const { businessId = '', tableId = 'T-01' } = useParams()
   const [activeCategory, setActiveCategory] = useState('All')
   const [isCartOpen, setIsCartOpen] = useState(false)
+  const [orderNumber, setOrderNumber] = useState<number | null>(null)
   const [orderStatus, setOrderStatus] = useState<'browsing' | 'paying' | 'success'>(
     'browsing',
   )
@@ -30,12 +33,75 @@ export function CustomerMenuPage() {
     },
   )
 
-  const menuItems = MOCK_PRODUCTS.filter((product) => product.businessId === 'b2')
+  const [menuItems, setMenuItems] = useState<Product[]>([])
+  const [businessName, setBusinessName] = useState('')
+  const [menuLoading, setMenuLoading] = useState(true)
+  const [menuError, setMenuError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!businessId) {
+      setMenuItems([])
+      setBusinessName('')
+      setMenuError('This menu link is missing a business ID.')
+      setMenuLoading(false)
+      return
+    }
+
+    let cancelled = false
+
+    setMenuLoading(true)
+    setMenuError(null)
+
+    fetchPublicBusinessMenu(businessId)
+      .then(({ business, products }) => {
+        if (!cancelled) {
+          setBusinessName(business.name)
+          setMenuItems(products)
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setMenuItems([])
+          setBusinessName('')
+          setMenuError(
+            error instanceof ApiError ? error.message : 'Could not load this menu.',
+          )
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setMenuLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [businessId])
   const categories = ['All', ...new Set(menuItems.map((item) => item.category))]
   const filteredItems =
     activeCategory === 'All'
       ? menuItems
       : menuItems.filter((item) => item.category === activeCategory)
+
+  if (menuLoading) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6 text-slate-600">
+        Loading menu…
+      </div>
+    )
+  }
+
+  if (menuError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6 text-center">
+        <p className="max-w-md text-slate-700">{menuError}</p>
+        <p className="mt-2 text-sm text-slate-500">
+          Menus are only available for retail and wholesale businesses with a public catalog.
+        </p>
+      </div>
+    )
+  }
 
   if (orderStatus === 'success') {
     return (
@@ -55,7 +121,7 @@ export function CustomerMenuPage() {
         <div className="mb-8 w-full max-w-sm rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
           <p className="mb-1 text-sm text-slate-500">Order Number</p>
           <p className="font-mono text-2xl font-bold text-slate-800">
-            #ORD-{Math.floor(Math.random() * 10000)}
+            #ORD-{orderNumber ?? 0}
           </p>
         </div>
         <button
@@ -77,6 +143,7 @@ export function CustomerMenuPage() {
         <header className="sticky top-0 z-10 flex items-center border-b border-slate-200 bg-white p-4">
           <button
             onClick={() => setOrderStatus('browsing')}
+            aria-label="Back to menu"
             className="-ml-2 p-2 text-slate-600"
           >
             <ChevronLeft className="h-6 w-6" />
@@ -95,7 +162,10 @@ export function CustomerMenuPage() {
               <span className="text-2xl font-bold text-teal-600">{formatMoney(total)}</span>
             </div>
             <button
-              onClick={() => setOrderStatus('success')}
+              onClick={() => {
+                setOrderNumber(Math.floor(Math.random() * 10000))
+                setOrderStatus('success')
+              }}
               className="w-full rounded-xl bg-teal-600 py-4 text-lg font-bold text-white shadow-md shadow-teal-600/20 transition-colors hover:bg-teal-700"
             >
               Simulate Payment
@@ -112,7 +182,9 @@ export function CustomerMenuPage() {
         <div className="mx-auto max-w-3xl">
           <div className="mb-6 flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-slate-800">Taste of Gambia</h1>
+              <h1 className="text-2xl font-bold text-slate-800">
+                {businessName || 'Menu'}
+              </h1>
               <p className="mt-1 flex items-center font-medium text-teal-600">
                 <Utensils className="mr-1 h-4 w-4" /> {tableId}
               </p>
@@ -137,6 +209,11 @@ export function CustomerMenuPage() {
       </header>
 
       <main className="mx-auto max-w-3xl p-4">
+        {filteredItems.length === 0 ? (
+          <p className="py-12 text-center text-sm text-slate-500">
+            No items in this menu yet. Add products in the merchant dashboard.
+          </p>
+        ) : null}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {filteredItems.map((item) => (
             <motion.div
@@ -146,24 +223,21 @@ export function CustomerMenuPage() {
               animate={{ opacity: 1, y: 0 }}
               className="flex gap-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm"
             >
-              <div
-                className={`flex h-24 w-24 flex-shrink-0 items-center justify-center rounded-xl text-4xl ${item.imageColor}`}
-              >
-                {item.imageEmoji}
-              </div>
+              <ProductThumb product={item} className="h-24 w-24 flex-shrink-0" />
               <div className="flex flex-1 flex-col justify-between">
                 <div>
                   <h3 className="mb-1 font-bold leading-tight text-slate-800">
                     {item.name}
                   </h3>
                   <p className="line-clamp-2 text-xs text-slate-500">
-                    {item.description}
+                    {item.description ?? ''}
                   </p>
                 </div>
                 <div className="mt-3 flex items-center justify-between">
                   <span className="font-bold text-teal-600">D{item.price}</span>
                   <button
                     onClick={() => addToCart(item)}
+                    aria-label={`Add ${item.name} to cart`}
                     className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-50 text-teal-600 transition-colors hover:bg-teal-100"
                   >
                     <Plus className="h-5 w-5" />
@@ -211,6 +285,7 @@ export function CustomerMenuPage() {
                 <h2 className="text-xl font-bold text-slate-800">Your Order</h2>
                 <button
                   onClick={() => setIsCartOpen(false)}
+                  aria-label="Close order sheet"
                   className="rounded-full bg-slate-100 p-2 text-slate-400"
                 >
                   <ChevronLeft className="h-5 w-5 -rotate-90" />
@@ -219,11 +294,7 @@ export function CustomerMenuPage() {
               <div className="flex-1 space-y-4 overflow-y-auto p-4">
                 {cart.map((item) => (
                   <div key={item.product.id} className="flex items-center gap-4">
-                    <div
-                      className={`flex h-16 w-16 items-center justify-center rounded-xl text-2xl ${item.product.imageColor}`}
-                    >
-                      {item.product.imageEmoji}
-                    </div>
+                    <ProductThumb product={item.product} className="h-16 w-16" />
                     <div className="flex-1">
                       <h4 className="text-sm font-bold text-slate-800">
                         {item.product.name}
@@ -235,6 +306,7 @@ export function CustomerMenuPage() {
                     <div className="flex items-center rounded-full bg-slate-100 p-1">
                       <button
                         onClick={() => updateQuantity(item.product.id, -1)}
+                        aria-label={`Decrease quantity for ${item.product.name}`}
                         className="flex h-8 w-8 items-center justify-center text-slate-600"
                       >
                         <Minus className="h-4 w-4" />
@@ -244,6 +316,7 @@ export function CustomerMenuPage() {
                       </span>
                       <button
                         onClick={() => updateQuantity(item.product.id, 1)}
+                        aria-label={`Increase quantity for ${item.product.name}`}
                         className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm"
                       >
                         <Plus className="h-4 w-4" />

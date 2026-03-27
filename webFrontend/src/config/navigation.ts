@@ -33,8 +33,7 @@ export const APP_PATHS = {
   staff: '/staff',
   businesses: '/businesses',
   subscriptions: '/subscriptions',
-  customerMenu: '/menu/:tableId',
-  customerMenuDemo: '/menu/T-01',
+  customerMenu: '/menu/:businessId/:tableId',
 } as const
 
 export type NavigationItem = {
@@ -51,7 +50,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Dashboard',
     path: APP_PATHS.dashboard,
     icon: LayoutDashboard,
-    roles: ['admin', 'merchant'],
+    roles: ['platform_owner', 'admin', 'merchant'],
     title: 'Dashboard',
     permission: 'dashboard.view',
   },
@@ -59,15 +58,15 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'POS / Checkout',
     path: APP_PATHS.pos,
     icon: ShoppingBag,
-    roles: ['admin', 'merchant', 'cashier'],
+    roles: ['platform_owner', 'admin', 'merchant', 'cashier'],
     title: 'Point of Sale',
-    permission: 'pos.view',
+    permission: 'pos.access',
   },
   {
     name: 'Products',
     path: APP_PATHS.products,
     icon: Package,
-    roles: ['admin', 'merchant'],
+    roles: ['platform_owner', 'admin', 'merchant'],
     title: 'Products',
     permission: 'products.view',
   },
@@ -75,7 +74,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Orders',
     path: APP_PATHS.orders,
     icon: ClipboardList,
-    roles: ['admin', 'merchant', 'cashier'],
+    roles: ['platform_owner', 'admin', 'merchant', 'cashier'],
     title: 'Orders',
     permission: 'orders.view',
   },
@@ -83,7 +82,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Payments',
     path: APP_PATHS.payments,
     icon: CreditCard,
-    roles: ['admin', 'merchant'],
+    roles: ['platform_owner', 'admin', 'merchant'],
     title: 'Payments',
     permission: 'payments.view',
   },
@@ -91,7 +90,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Reports',
     path: APP_PATHS.reports,
     icon: BarChart3,
-    roles: ['admin', 'merchant'],
+    roles: ['platform_owner', 'admin', 'merchant'],
     title: 'Reports',
     permission: 'reports.view',
   },
@@ -122,8 +121,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
 ]
 
 export const RESTAURANT_NAV_ITEM = {
-  name: 'View Menu (Demo)',
-  path: APP_PATHS.customerMenuDemo,
+  name: 'Customer menu',
   icon: Utensils,
 }
 

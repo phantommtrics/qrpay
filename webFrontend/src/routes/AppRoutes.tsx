@@ -103,6 +103,11 @@ const ChangePasswordPage = lazy(() =>
     default: module.ChangePasswordPage,
   })),
 )
+const ProductPublicPage = lazy(() =>
+  import('../screens/ProductPublicPage').then((module) => ({
+    default: module.ProductPublicPage,
+  })),
+)
 
 export function AppRoutes() {
   const { user } = useAuth()
@@ -215,6 +220,7 @@ export function AppRoutes() {
           }
         />
         <Route path={APP_PATHS.customerMenu} element={<CustomerMenuPage />} />
+        <Route path="/p/:productId" element={<ProductPublicPage />} />
         <Route
           path={APP_PATHS.changePassword}
           element={

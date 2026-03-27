@@ -1,5 +1,13 @@
 import { API_BASE_URL } from '../config/api'
-import type { LoginAccount, Organization, PlanId, SubscriptionPlan, User, UserRole } from '../types'
+import type {
+  LoginAccount,
+  Organization,
+  PlanId,
+  Product,
+  SubscriptionPlan,
+  User,
+  UserRole,
+} from '../types'
 
 type BackendPlanCode = 'BASIC' | 'PRO' | 'BUSINESS_PRO'
 
@@ -149,6 +157,10 @@ export function toFrontendSubscriptionStatus(
   return 'active' as const
 }
 
+function isPlatformOwnerRole(role: BackendUser['role']): boolean {
+  return role === 'admin' || role === 'platform_owner'
+}
+
 export function mapBackendUserToUser(user: BackendUser): User {
   return {
     id: user.id,
@@ -156,7 +168,7 @@ export function mapBackendUserToUser(user: BackendUser): User {
     email: user.email,
     role: user.role,
     mustChangePassword: user.mustChangePassword,
-    isPlatformOwner: user.role === 'admin',
+    isPlatformOwner: isPlatformOwnerRole(user.role),
   }
 }
 
@@ -172,7 +184,7 @@ export function mapBackendUserToLoginAccount(
     role: user.role,
     organizationId,
     isOwner,
-    isPlatformOwner: user.role === 'admin',
+    isPlatformOwner: isPlatformOwnerRole(user.role),
     createdAt: user.createdAt,
   }
 }
@@ -201,13 +213,45 @@ export function mapAccessibleBusinessToOrganization(entry: BackendAccessibleBusi
   }
 }
 
+const STORAGE_KEY_TOKEN = 'qrpay.auth.token'
+
+function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage.getItem(STORAGE_KEY_TOKEN)
+}
+
+export function hasStoredToken(): boolean {
+  return Boolean(getStoredToken())
+}
+
+function storeToken(token: string): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(STORAGE_KEY_TOKEN, token)
+}
+
+export function clearToken(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(STORAGE_KEY_TOKEN)
+}
+
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getStoredToken()
+
+  const headers = new Headers(init?.headers)
+  const isFormData = init?.body instanceof FormData
+  if (!isFormData && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
+  // Spread init first, then headers last — otherwise init.headers replaces our merged Headers
+  // and drops Authorization (e.g. fetchBusinessUsers only passes x-business-id).
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
     ...init,
+    headers,
   })
 
   let payload: unknown = null
@@ -257,6 +301,9 @@ export async function createSubscription(businessId: string, planId: PlanId) {
     }
   }>(`/businesses/${businessId}/subscription`, {
     method: 'POST',
+    headers: {
+      'x-business-id': businessId,
+    },
     body: JSON.stringify({
       planCode: toPlanCode(planId),
     }),
@@ -268,6 +315,11 @@ export async function createSubscription(businessId: string, planId: PlanId) {
 export async function fetchBusinessSubscription(businessId: string) {
   const response = await apiRequest<{ data: BackendSubscriptionEnvelope }>(
     `/businesses/${businessId}/subscription`,
+    {
+      headers: {
+        'x-business-id': businessId,
+      },
+    },
   )
 
   return response.data
@@ -285,6 +337,7 @@ export async function registerBusinessOwner(payload: {
   const response = await apiRequest<{
     data: {
       user: BackendUser
+      token: string
       business: BackendBusiness
       subscription: BackendSubscription
       invoice: BackendInvoice
@@ -304,6 +357,10 @@ export async function registerBusinessOwner(payload: {
     }),
   })
 
+  if (response.data.token) {
+    storeToken(response.data.token)
+  }
+
   return response.data
 }
 
@@ -311,6 +368,7 @@ export async function login(payload: { email: string; password: string }) {
   const response = await apiRequest<{
     data: {
       user: BackendUser
+      token: string
       accessibleBusinesses: BackendAccessibleBusiness[]
       activeBusinessId: string | null
     }
@@ -318,6 +376,10 @@ export async function login(payload: { email: string; password: string }) {
     method: 'POST',
     body: JSON.stringify(payload),
   })
+
+  if (response.data.token) {
+    storeToken(response.data.token)
+  }
 
   return response.data
 }
@@ -353,7 +415,11 @@ export async function forgotPassword(payload: { email: string }) {
 }
 
 export async function fetchBusinessUsers(businessId: string) {
-  const response = await apiRequest<{ data: BackendUser[] }>(`/businesses/${businessId}/users`)
+  const response = await apiRequest<{ data: BackendUser[] }>(`/businesses/${businessId}/users`, {
+    headers: {
+      'x-business-id': businessId,
+    },
+  })
   return response.data.map((user) => mapBackendUserToLoginAccount(user, businessId))
 }
 
@@ -370,6 +436,9 @@ export async function createBusinessUser(payload: {
     }
   }>(`/businesses/${payload.businessId}/users`, {
     method: 'POST',
+    headers: {
+      'x-business-id': payload.businessId,
+    },
     body: JSON.stringify({
       name: payload.name,
       email: payload.email,
@@ -381,4 +450,154 @@ export async function createBusinessUser(payload: {
     account: mapBackendUserToLoginAccount(response.data.user, payload.businessId),
     inviteType: response.data.inviteType,
   }
+}
+
+export type BackendProduct = {
+  id: string
+  businessId: string
+  name: string
+  category: string
+  description: string | null
+  price: number
+  stock: number
+  barcodeType: string
+  barcodeValue: string
+  qrUrl: string
+  imageUrl: string | null
+  imageColor: string
+  imageEmoji: string
+  createdAt: string
+  updatedAt: string
+}
+
+export function mapBackendProductToProduct(p: BackendProduct): Product {
+  return {
+    id: p.id,
+    businessId: p.businessId,
+    name: p.name,
+    price: p.price,
+    category: p.category,
+    stock: p.stock,
+    imageColor: p.imageColor,
+    imageEmoji: p.imageEmoji,
+    description: p.description ?? undefined,
+    barcodeType: p.barcodeType,
+    barcodeValue: p.barcodeValue,
+    qrUrl: p.qrUrl,
+    imageUrl: p.imageUrl,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+  }
+}
+
+export type OpenFoodFactsLookupResult = {
+  code: string
+  name: string
+  category: string
+  description: string | null
+  imageUrl: string | null
+  barcodeType: string
+  source: 'openfoodfacts'
+}
+
+export async function lookupOpenFoodFactsProduct(businessId: string, code: string) {
+  const params = new URLSearchParams({ code: code.trim() })
+  const response = await apiRequest<{ data: OpenFoodFactsLookupResult | null }>(
+    `/businesses/${businessId}/products/openfoodfacts-lookup?${params.toString()}`,
+    {
+      headers: {
+        'x-business-id': businessId,
+      },
+    },
+  )
+  return response.data
+}
+
+export async function fetchBusinessProducts(businessId: string) {
+  const response = await apiRequest<{ data: BackendProduct[] }>(
+    `/businesses/${businessId}/products`,
+    {
+      headers: {
+        'x-business-id': businessId,
+      },
+    },
+  )
+  return response.data.map(mapBackendProductToProduct)
+}
+
+export type PublicBusinessMenuPayload = {
+  business: { id: string; name: string; slug: string }
+  products: BackendProduct[]
+}
+
+export async function fetchPublicBusinessMenu(businessId: string) {
+  const response = await apiRequest<{ data: PublicBusinessMenuPayload }>(
+    `/public/businesses/${businessId}/products`,
+  )
+  return {
+    business: response.data.business,
+    products: response.data.products.map(mapBackendProductToProduct),
+  }
+}
+
+export async function createBusinessProduct(
+  businessId: string,
+  payload: {
+    name: string
+    category: string
+    description?: string
+    price: number
+    stock: number
+    barcodeValue?: string
+    qrUrl?: string
+    imageUrl?: string
+    imageColor?: string
+    imageEmoji?: string
+  },
+) {
+  const response = await apiRequest<{ data: BackendProduct }>(
+    `/businesses/${businessId}/products`,
+    {
+      method: 'POST',
+      headers: {
+        'x-business-id': businessId,
+      },
+      body: JSON.stringify(payload),
+    },
+  )
+  return mapBackendProductToProduct(response.data)
+}
+
+export async function uploadBusinessProductImage(businessId: string, file: File) {
+  const form = new FormData()
+  form.append('image', file)
+
+  const response = await apiRequest<{ data: { imageUrl: string } }>(
+    `/businesses/${businessId}/products/upload-image`,
+    {
+      method: 'POST',
+      headers: {
+        'x-business-id': businessId,
+      },
+      body: form,
+    },
+  )
+
+  return response.data.imageUrl
+}
+
+export type PublicProductPayload = {
+  id: string
+  name: string
+  category: string
+  price: string
+  imageUrl: string | null
+  business: { id: string; name: string; slug: string }
+}
+
+export async function fetchPublicProduct(productId: string) {
+  const response = await apiRequest<{ data: PublicProductPayload }>(
+    `/public/products/${productId}`,
+  )
+  return response.data
 }
