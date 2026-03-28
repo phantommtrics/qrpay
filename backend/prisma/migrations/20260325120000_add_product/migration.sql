@@ -11,7 +11,8 @@ CREATE TABLE "Product" (
     "barcodeValue" TEXT NOT NULL,
     "qrUrl" TEXT NOT NULL,
     "imageColor" TEXT NOT NULL DEFAULT 'bg-slate-100',
-    "imageEmoji" TEXT NOT NULL DEFAULT '📦',
+    -- ASCII-only default: avoid non-ASCII in migration SQL (Windows shadow DB / WIN1252 issue)
+    "imageEmoji" TEXT NOT NULL DEFAULT '',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

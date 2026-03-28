@@ -20,6 +20,7 @@ import {
   clearToken,
   createBusinessUser,
   fetchBusinessProducts,
+  fetchBusinessEntitlements,
   fetchBusinessUsers,
   fetchBusinessSubscription,
   fetchPlans,
@@ -103,6 +104,7 @@ type AuthContextValue = {
   businessProductsLoading: boolean
   businessProductsError: string | null
   refreshBusinessProducts: () => Promise<void>
+  refreshBusinessEntitlements: (businessId: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -232,6 +234,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useState<PlanPermissions>(() =>
       readStorage<PlanPermissions>(STORAGE_KEYS.planPermissions, INITIAL_PLAN_PERMISSIONS),
     )
+  const [entitlementsByBusinessId, setEntitlementsByBusinessId] = useState<
+    Record<string, string[]>
+  >({})
   const [businessProducts, setBusinessProducts] = useState<Product[]>([])
   const [businessProductsLoading, setBusinessProductsLoading] = useState(false)
   const [businessProductsError, setBusinessProductsError] = useState<string | null>(null)
@@ -242,6 +247,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStoredActiveOrganizationId(null)
     setAccounts([])
     setOrganizations([])
+    setEntitlementsByBusinessId({})
     setBusinessProducts([])
     setBusinessProductsError(null)
     setBusinessProductsLoading(false)
@@ -399,6 +405,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [businessIdForApi])
 
+  const refreshBusinessEntitlements = useCallback(async (businessId: string) => {
+    try {
+      const slugs = await fetchBusinessEntitlements(businessId)
+      setEntitlementsByBusinessId((prev) => ({
+        ...prev,
+        [businessId]: slugs,
+      }))
+    } catch {
+      // Keep cached entitlements on failure.
+    }
+  }, [])
+
   useEffect(() => {
     void refreshBusinessProducts()
   }, [refreshBusinessProducts])
@@ -480,6 +498,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [businessIdForApi, user?.isPlatformOwner])
 
+  useEffect(() => {
+    if (!businessIdForApi || user?.isPlatformOwner) {
+      return
+    }
+
+    let cancelled = false
+
+    fetchBusinessEntitlements(businessIdForApi)
+      .then((slugs) => {
+        if (!cancelled) {
+          setEntitlementsByBusinessId((prev) => ({
+            ...prev,
+            [businessIdForApi]: slugs,
+          }))
+        }
+      })
+      .catch(() => {
+        // Offline or unauthorized; keep prior entitlements or fall back to plan matrix.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [businessIdForApi, user?.isPlatformOwner])
+
+  useEffect(() => {
+    if (!businessIdForApi || user?.isPlatformOwner) {
+      return
+    }
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshBusinessEntitlements(businessIdForApi)
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [businessIdForApi, user?.isPlatformOwner, refreshBusinessEntitlements])
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -509,6 +567,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           )
 
           setOrganizations((current) => mergeOrganizations(current, nextOrganizations))
+          setEntitlementsByBusinessId((prev) => ({
+            ...prev,
+            ...Object.fromEntries(
+              payload.accessibleBusinesses.map((e) => [
+                e.business.id,
+                e.entitlements ?? prev[e.business.id] ?? [],
+              ]),
+            ),
+          }))
           setStoredActiveOrganizationId(
             payload.activeBusinessId ?? nextOrganizations[0]?.id ?? null,
           )
@@ -641,6 +708,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             mapBackendUserToLoginAccount(payload.user, payload.business.id, true),
           ])
           setUser(mapBackendUserToUser(payload.user))
+          setEntitlementsByBusinessId((prev) => ({
+            ...prev,
+            ...Object.fromEntries(
+              payload.accessibleBusinesses.map((e) => [
+                e.business.id,
+                e.entitlements ?? prev[e.business.id] ?? [],
+              ]),
+            ),
+          }))
 
           return { ok: true, message: 'Account created and trial started.' }
         } catch (error) {
@@ -736,6 +812,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return false
         }
 
+        const fromServer = entitlementsByBusinessId[currentOrganization.id]
+        if (fromServer !== undefined) {
+          return fromServer.includes(permission)
+        }
+
         return Boolean(planPermissions[currentOrganization.planId]?.[permission])
       },
       hasAnyPermission: (permissions) => {
@@ -756,6 +837,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           getSubscriptionMeta(currentOrganization.subscriptionExpiresAt).status === 'expired'
         ) {
           return false
+        }
+
+        const fromServer = entitlementsByBusinessId[currentOrganization.id]
+        if (fromServer !== undefined) {
+          return permissions.some((p) => fromServer.includes(p))
         }
 
         return permissions.some((permission) => Boolean(planPermissions[currentOrganization.planId]?.[permission]))
@@ -784,12 +870,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       businessProductsLoading,
       businessProductsError,
       refreshBusinessProducts,
+      refreshBusinessEntitlements,
     }),
     [
       activeOrganizationId,
       businessProducts,
       businessProductsError,
       businessProductsLoading,
+      entitlementsByBusinessId,
       currentOrganization,
       currentPlan,
       organizationMembers,
@@ -797,6 +885,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       plans,
       planPermissions,
       refreshBusinessProducts,
+      refreshBusinessEntitlements,
       subscriptionMeta,
       user,
     ],

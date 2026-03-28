@@ -1,6 +1,8 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { BadgeCheck, Mail, ShieldCheck, UserPlus, Users } from 'lucide-react'
+import { Navigate } from 'react-router-dom'
 
+import { APP_PATHS } from '../config/navigation'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { useAuth } from '../features/auth/AuthContext'
@@ -10,6 +12,7 @@ type StaffRole = Extract<UserRole, 'merchant' | 'cashier'>
 
 export function StaffPage() {
   const {
+    user,
     createStaffAccount,
     currentOrganization,
     currentPlan,
@@ -30,6 +33,10 @@ export function StaffPage() {
   const roleLabels: Record<StaffRole, string> = {
     merchant: 'Manager',
     cashier: 'Cashier',
+  }
+
+  if (user && !user.isPlatformOwner && !currentOrganization?.isOwner) {
+    return <Navigate to={APP_PATHS.dashboard} replace />
   }
 
   const ownerSummary = useMemo(

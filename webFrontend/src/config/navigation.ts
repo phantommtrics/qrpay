@@ -31,8 +31,10 @@ export const APP_PATHS = {
   accountingProfitLoss: '/accounting/profit-loss',
   accountingChart: '/accounting/chart-of-accounts',
   staff: '/staff',
+  configuration: '/configuration',
   businesses: '/businesses',
   subscriptions: '/subscriptions',
+  platformSystemConfiguration: '/platform/system-configuration',
   customerMenu: '/menu/:businessId/:tableId',
 } as const
 
@@ -50,7 +52,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Dashboard',
     path: APP_PATHS.dashboard,
     icon: LayoutDashboard,
-    roles: ['platform_owner', 'admin', 'merchant'],
+    roles: ['platform_owner', 'admin', 'merchant', 'cashier'],
     title: 'Dashboard',
     permission: 'dashboard.view',
   },
@@ -66,7 +68,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Products',
     path: APP_PATHS.products,
     icon: Package,
-    roles: ['platform_owner', 'admin', 'merchant'],
+    roles: ['platform_owner', 'admin', 'merchant', 'cashier'],
     title: 'Products',
     permission: 'products.view',
   },
@@ -82,7 +84,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Payments',
     path: APP_PATHS.payments,
     icon: CreditCard,
-    roles: ['platform_owner', 'admin', 'merchant'],
+    roles: ['platform_owner', 'admin', 'merchant', 'cashier'],
     title: 'Payments',
     permission: 'payments.view',
   },
@@ -90,7 +92,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Reports',
     path: APP_PATHS.reports,
     icon: BarChart3,
-    roles: ['platform_owner', 'admin', 'merchant'],
+    roles: ['platform_owner', 'admin', 'merchant', 'cashier'],
     title: 'Reports',
     permission: 'reports.view',
   },
@@ -98,7 +100,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Accounting',
     path: APP_PATHS.accounting,
     icon: BookOpenText,
-    roles: ['merchant'],
+    roles: ['merchant', 'cashier'],
     title: 'Accounting',
     permission: 'accounting.view',
   },
@@ -114,7 +116,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Plan Controls',
     path: APP_PATHS.subscriptions,
     icon: Settings2,
-    roles: ['admin'],
+    roles: ['admin', 'platform_owner'],
     title: 'Plan Controls',
     permission: 'organization.manage',
   },
@@ -132,6 +134,14 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.changePassword)) {
     return 'Change Password'
+  }
+
+  if (pathname.includes(APP_PATHS.platformSystemConfiguration)) {
+    return 'System configuration'
+  }
+
+  if (pathname.includes(APP_PATHS.configuration)) {
+    return 'Configuration'
   }
 
   const matchedItem = MAIN_NAV_ITEMS.find((item) => pathname.includes(item.path))

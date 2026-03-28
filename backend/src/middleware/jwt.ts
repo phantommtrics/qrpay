@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
 import { HttpError } from '../lib/http-error.js';
 import { UserRole } from '@prisma/client';
-import { AuthenticatedRequest, requirePermission } from '../middleware/auth.js';
+import { AuthenticatedRequest, requireEntitlement } from '../middleware/auth.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -79,8 +79,7 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
       name: user.name,
       role: user.role,
       businessId: businessContextId,
-      isPlatformOwner:
-        user.role === UserRole.PLATFORM_OWNER || user.role === UserRole.ADMIN,
+      isPlatformOwner: user.role === UserRole.PLATFORM_OWNER,
     };
 
     next();
@@ -101,5 +100,4 @@ export function requirePlatformOwner(req: AuthenticatedRequest, res: Response, n
   next();
 }
 
-// Export permission middleware
-export { requirePermission };
+export { requireEntitlement };

@@ -98,6 +98,16 @@ const PlanControlsPage = lazy(() =>
     default: module.PlanControlsPage,
   })),
 )
+const SystemConfigurationPage = lazy(() =>
+  import('../screens/SystemConfigurationPage').then((module) => ({
+    default: module.SystemConfigurationPage,
+  })),
+)
+const BusinessConfigurationPage = lazy(() =>
+  import('../screens/BusinessConfigurationPage').then((module) => ({
+    default: module.BusinessConfigurationPage,
+  })),
+)
 const ChangePasswordPage = lazy(() =>
   import('../screens/ChangePasswordPage').then((module) => ({
     default: module.ChangePasswordPage,
@@ -194,6 +204,18 @@ export function AppRoutes() {
       element: <PlanControlsPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.subscriptions)!.roles,
       permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.subscriptions)!.permission,
+    },
+    {
+      path: APP_PATHS.platformSystemConfiguration,
+      element: <SystemConfigurationPage />,
+      roles: ['platform_owner'] as UserRole[],
+      permission: 'dashboard.view' as const,
+    },
+    {
+      path: APP_PATHS.configuration,
+      element: <BusinessConfigurationPage />,
+      roles: ['merchant', 'platform_owner'] as UserRole[],
+      permission: 'business.configuration' as const,
     },
   ]
 

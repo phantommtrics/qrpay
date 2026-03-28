@@ -106,6 +106,58 @@ npm run dev
 
 - Platform owner: `owner@qrpay.com / demo123`
 
+## Plan entitlements and staff access
+
+The app models **what a business is allowed to do** with two layers:
+
+1. **Subscription plan** — each plan includes a set of **system products** (entitlement slugs such as `products.view`, `products.create`). These rows live in `SystemService`, `SystemProduct`, and `PlanSystemProduct`.
+2. **Per-user assignments** — for **non-owner** members, `BusinessUserSystemProduct` stores which plan products that user may use.
+
+### Effective entitlements
+
+- **Business owner**: always receives **all** slugs on the business’s current plan (assignments are not applied).
+- **Staff (non-owner)**:
+  - **No assignment rows** → **no** plan feature entitlements until the owner assigns products in **Configuration**.
+  - **Some assignment rows** → entitlements are the **intersection** of plan slugs and assigned product slugs.
+
+Login and `GET /api/businesses/:businessId/entitlements` return this effective list. API routes use `requireEntitlement("<slug>")` so server checks match the same slugs the UI uses (`canAccess`).
+
+### Business Configuration (merchant)
+
+- Route: **Configuration** in the sidebar (permission `business.configuration`, typically owner + plan).
+- Owners choose a **staff** member and toggle which plan products they may use.
+- Saving with **every** plan product selected stores explicit IDs (full access for that user); the UI explains this in copy on the page.
+
+### Related API endpoints
+
+- `GET /api/businesses/:businessId/entitlements` — effective slug list for the current user.
+- `GET /api/businesses/:businessId/navigation-menu` — sidebar structure grouped by **system service**, filtered by effective entitlements (only products with `navPath` + `navLabel` appear as links).
+- `GET /api/businesses/:businessId/plan-catalog` — full plan product catalog grouped by service (for the assignment UI).
+- `GET|PUT /api/businesses/:businessId/users/:targetUserId/plan-access` — read/update assigned `systemProductIds`. **PUT** is rejected for the **business owner** (owner always has full plan access).
+
+Platform-only catalog and plan editing:
+
+- `GET|POST /api/platform/system-services`, `PATCH|DELETE .../system-services/:id`
+- `GET|POST /api/platform/system-products`, `PATCH|DELETE .../system-products/:id`
+- `GET|PUT /api/platform/plans/:planCode/entitlements`
+
+## Platform system configuration (UI)
+
+Under **`/platform/system-configuration`** (platform owner):
+
+- **Services** — create/delete system services.
+- **Products** — add a **module name** and **base slug**. The API ensures five entitlement products exist: `{base}.view`, `{base}.edit`, `{base}.delete`, `{base}.export`, `{base}.create` (creates only missing slugs; fails if all five already exist). Trailing `.view` / `.create` / etc. on input are stripped to normalize the base.
+- **Plan entitlements** — attach system products to each plan.
+- The **system products** list is grouped **by service**, then each row shows **product name** and **key** (slug).
+
+New catalog products are **not** added to plans automatically; enable them under **Plan entitlements** after creation.
+
+## Frontend notes (sidebar and guards)
+
+- For **non–platform-owner** users with a selected business, the sidebar loads **`navigation-menu`** from the API and renders **collapsible sections per system service** with links from `navPath` / `navLabel`. If that request fails or returns nothing, the UI falls back to the static nav filtered by `canAccess`.
+- After a successful navigation-menu fetch (and on some error paths), the client **refetches entitlements** so `canAccess` stays aligned with the server. Returning to the tab (**visibility change**) also refetches entitlements.
+- **Cashier** is included on the same route role lists as **merchant** for modules that can be assigned by plan (e.g. products, dashboard, payments, reports, accounting), so assigned cashiers are not blocked by role while still requiring the correct entitlement slug.
+
 ## Next recommended step
 
 The current billing flow creates invoices and trial deadlines, but payment collection is still manual/mock. The next logical milestone is a subscription billing screen plus merchant API integration for real payment collection.

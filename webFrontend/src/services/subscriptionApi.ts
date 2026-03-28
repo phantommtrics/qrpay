@@ -58,12 +58,14 @@ export type BackendUser = {
   isActive: boolean
   mustChangePassword: boolean
   createdAt: string
+  isOwner?: boolean
 }
 
 export type BackendAccessibleBusiness = {
   business: BackendBusiness
   currentSubscription: (BackendSubscription & { invoices?: BackendInvoice[] }) | null
   isOwner: boolean
+  entitlements?: string[]
 }
 
 export class ApiError extends Error {
@@ -158,7 +160,7 @@ export function toFrontendSubscriptionStatus(
 }
 
 function isPlatformOwnerRole(role: BackendUser['role']): boolean {
-  return role === 'admin' || role === 'platform_owner'
+  return role === 'platform_owner'
 }
 
 export function mapBackendUserToUser(user: BackendUser): User {
@@ -420,7 +422,9 @@ export async function fetchBusinessUsers(businessId: string) {
       'x-business-id': businessId,
     },
   })
-  return response.data.map((user) => mapBackendUserToLoginAccount(user, businessId))
+  return response.data.map((user) =>
+    mapBackendUserToLoginAccount(user, businessId, Boolean(user.isOwner)),
+  )
 }
 
 export async function createBusinessUser(payload: {
@@ -599,5 +603,211 @@ export async function fetchPublicProduct(productId: string) {
   const response = await apiRequest<{ data: PublicProductPayload }>(
     `/public/products/${productId}`,
   )
+  return response.data
+}
+
+export type PlatformSystemService = {
+  id: string
+  name: string
+  description: string | null
+  sortOrder: number
+  productCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type PlatformSystemProduct = {
+  id: string
+  serviceId: string
+  serviceName: string
+  name: string
+  slug: string
+  description: string | null
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type PlanEntitlementsPayload = {
+  planId: string
+  planCode: BackendPlanCode
+  planName: string
+  systemProductIds: string[]
+  items: Array<{
+    id: string
+    serviceId: string
+    serviceName: string
+    name: string
+    slug: string
+  }>
+}
+
+export async function fetchPlatformSystemServices() {
+  const response = await apiRequest<{ data: PlatformSystemService[] }>('/platform/system-services')
+  return response.data
+}
+
+export async function createPlatformSystemService(payload: {
+  name: string
+  description?: string
+  sortOrder?: number
+}) {
+  const response = await apiRequest<{ data: Omit<PlatformSystemService, 'productCount'> }>(
+    '/platform/system-services',
+    { method: 'POST', body: JSON.stringify(payload) },
+  )
+  return response.data
+}
+
+export async function updatePlatformSystemService(
+  serviceId: string,
+  payload: { name?: string; description?: string; sortOrder?: number },
+) {
+  const response = await apiRequest<{ data: Omit<PlatformSystemService, 'productCount'> }>(
+    `/platform/system-services/${serviceId}`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+  )
+  return response.data
+}
+
+export async function deletePlatformSystemService(serviceId: string) {
+  await apiRequest<unknown>(`/platform/system-services/${serviceId}`, { method: 'DELETE' })
+}
+
+export async function fetchPlatformSystemProducts(serviceId?: string) {
+  const q = serviceId ? `?serviceId=${encodeURIComponent(serviceId)}` : ''
+  const response = await apiRequest<{ data: PlatformSystemProduct[] }>(
+    `/platform/system-products${q}`,
+  )
+  return response.data
+}
+
+export async function createPlatformSystemProduct(payload: {
+  serviceId: string
+  name: string
+  slug: string
+  description?: string
+  sortOrder?: number
+}) {
+  const response = await apiRequest<{ data: PlatformSystemProduct }>('/platform/system-products', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return response.data
+}
+
+export async function updatePlatformSystemProduct(
+  productId: string,
+  payload: Partial<{
+    serviceId: string
+    name: string
+    slug: string
+    description: string
+    sortOrder: number
+  }>,
+) {
+  const response = await apiRequest<{ data: PlatformSystemProduct }>(
+    `/platform/system-products/${productId}`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+  )
+  return response.data
+}
+
+export async function deletePlatformSystemProduct(productId: string) {
+  await apiRequest<unknown>(`/platform/system-products/${productId}`, { method: 'DELETE' })
+}
+
+export async function fetchPlanEntitlements(planCode: BackendPlanCode) {
+  const response = await apiRequest<{ data: PlanEntitlementsPayload }>(
+    `/platform/plans/${planCode}/entitlements`,
+  )
+  return response.data
+}
+
+export async function updatePlanEntitlements(
+  planCode: BackendPlanCode,
+  systemProductIds: string[],
+) {
+  const response = await apiRequest<{ data: PlanEntitlementsPayload }>(
+    `/platform/plans/${planCode}/entitlements`,
+    { method: 'PUT', body: JSON.stringify({ systemProductIds }) },
+  )
+  return response.data
+}
+
+export async function fetchBusinessEntitlements(businessId: string) {
+  const response = await apiRequest<{ data: { slugs: string[] } }>(
+    `/businesses/${businessId}/entitlements`,
+    { headers: { 'x-business-id': businessId } },
+  )
+  return response.data.slugs
+}
+
+export type NavigationMenuItem = {
+  slug: string
+  name: string
+  navPath: string
+  navLabel: string
+  sortOrder: number
+}
+
+export type NavigationMenuService = {
+  id: string
+  name: string
+  description: string | null
+  sortOrder: number
+  items: NavigationMenuItem[]
+}
+
+export async function fetchBusinessNavigationMenu(businessId: string) {
+  const response = await apiRequest<{ data: { services: NavigationMenuService[] } }>(
+    `/businesses/${businessId}/navigation-menu`,
+    { headers: { 'x-business-id': businessId } },
+  )
+  return response.data.services
+}
+
+export type PlanCatalogServiceRow = {
+  id: string
+  name: string
+  sortOrder: number
+  products: Array<{
+    id: string
+    slug: string
+    name: string
+    description: string | null
+    sortOrder: number
+  }>
+}
+
+export async function fetchBusinessPlanCatalog(businessId: string) {
+  const response = await apiRequest<{ data: { services: PlanCatalogServiceRow[] } }>(
+    `/businesses/${businessId}/plan-catalog`,
+    { headers: { 'x-business-id': businessId } },
+  )
+  return response.data.services
+}
+
+export async function fetchUserPlanAccess(businessId: string, userId: string) {
+  const response = await apiRequest<{
+    data: { systemProductIds: string[] }
+  }>(`/businesses/${businessId}/users/${userId}/plan-access`, {
+    headers: { 'x-business-id': businessId },
+  })
+  return response.data
+}
+
+export async function updateUserPlanAccess(
+  businessId: string,
+  userId: string,
+  systemProductIds: string[],
+) {
+  const response = await apiRequest<{
+    data: { systemProductIds: string[] }
+  }>(`/businesses/${businessId}/users/${userId}/plan-access`, {
+    method: 'PUT',
+    headers: { 'x-business-id': businessId },
+    body: JSON.stringify({ systemProductIds }),
+  })
   return response.data
 }

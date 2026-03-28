@@ -36,7 +36,7 @@ export function ProductThumb({
     <div
       className={`flex shrink-0 items-center justify-center rounded-xl ${product.imageColor} ${sizeClass} ${className}`}
     >
-      {product.imageEmoji}
+      {product.imageEmoji.trim() ? product.imageEmoji : '📦'}
     </div>
   )
 }

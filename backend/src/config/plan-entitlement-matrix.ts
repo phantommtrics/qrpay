@@ -1,0 +1,238 @@
+import { PlanCode } from "@prisma/client";
+
+/**
+ * Slugs match PermissionKey / UI keys so the frontend can map entitlements to canAccess without a second naming layer.
+ */
+export const PLAN_ENTITLEMENT_SLUGS: Record<PlanCode, string[]> = {
+  [PlanCode.BASIC]: [
+    "dashboard.view",
+    "pos.access",
+    "products.view",
+    "products.create",
+    "products.edit",
+    "orders.view",
+    "payments.view",
+    "staff.manage",
+    "organization.manage",
+    "business.configuration",
+  ],
+  [PlanCode.PRO]: [
+    "dashboard.view",
+    "pos.access",
+    "products.view",
+    "products.create",
+    "products.edit",
+    "orders.view",
+    "payments.view",
+    "payments.export",
+    "reports.view",
+    "accounting.view",
+    "staff.manage",
+    "organization.manage",
+    "business.configuration",
+  ],
+  [PlanCode.BUSINESS_PRO]: [
+    "dashboard.view",
+    "pos.access",
+    "products.view",
+    "products.create",
+    "products.edit",
+    "products.delete",
+    "orders.view",
+    "payments.view",
+    "payments.export",
+    "reports.view",
+    "reports.export",
+    "accounting.view",
+    "accounting.chart.view",
+    "staff.manage",
+    "organization.manage",
+    "business.configuration",
+  ],
+};
+
+export const SYSTEM_CATALOG_SERVICES: Array<{
+  id: string;
+  name: string;
+  description: string;
+  sortOrder: number;
+}> = [
+  { id: "svc_core", name: "Core", description: "Dashboard and POS", sortOrder: 0 },
+  { id: "svc_catalog", name: "Catalog", description: "Product catalogue", sortOrder: 1 },
+  { id: "svc_sales", name: "Sales", description: "Orders and payments", sortOrder: 2 },
+  { id: "svc_insights", name: "Insights", description: "Reporting", sortOrder: 3 },
+  { id: "svc_finance", name: "Finance", description: "Accounting", sortOrder: 4 },
+  { id: "svc_org", name: "Organization", description: "Staff and organization", sortOrder: 5 },
+];
+
+export const SYSTEM_CATALOG_PRODUCTS: Array<{
+  id: string;
+  serviceId: string;
+  slug: string;
+  name: string;
+  description: string;
+  sortOrder: number;
+  navPath?: string | null;
+  navLabel?: string | null;
+}> = [
+  {
+    id: "sp_dashboard",
+    serviceId: "svc_core",
+    slug: "dashboard.view",
+    name: "Dashboard",
+    description: "Business dashboard",
+    sortOrder: 0,
+    navPath: "/dashboard",
+    navLabel: "Dashboard",
+  },
+  {
+    id: "sp_pos",
+    serviceId: "svc_core",
+    slug: "pos.access",
+    name: "POS",
+    description: "Point of sale",
+    sortOrder: 1,
+    navPath: "/pos",
+    navLabel: "POS / Checkout",
+  },
+  {
+    id: "sp_pv",
+    serviceId: "svc_catalog",
+    slug: "products.view",
+    name: "View products",
+    description: "View catalogue",
+    sortOrder: 0,
+    navPath: "/products",
+    navLabel: "Products",
+  },
+  {
+    id: "sp_pc",
+    serviceId: "svc_catalog",
+    slug: "products.create",
+    name: "Create products",
+    description: "Add products",
+    sortOrder: 1,
+    navPath: null,
+    navLabel: null,
+  },
+  {
+    id: "sp_pe",
+    serviceId: "svc_catalog",
+    slug: "products.edit",
+    name: "Edit products",
+    description: "Update products",
+    sortOrder: 2,
+    navPath: null,
+    navLabel: null,
+  },
+  {
+    id: "sp_pd",
+    serviceId: "svc_catalog",
+    slug: "products.delete",
+    name: "Delete products",
+    description: "Remove products",
+    sortOrder: 3,
+    navPath: null,
+    navLabel: null,
+  },
+  {
+    id: "sp_ov",
+    serviceId: "svc_sales",
+    slug: "orders.view",
+    name: "Orders",
+    description: "View orders",
+    sortOrder: 0,
+    navPath: "/orders",
+    navLabel: "Orders",
+  },
+  {
+    id: "sp_payv",
+    serviceId: "svc_sales",
+    slug: "payments.view",
+    name: "Payments",
+    description: "View payments",
+    sortOrder: 1,
+    navPath: "/payments",
+    navLabel: "Payments",
+  },
+  {
+    id: "sp_paye",
+    serviceId: "svc_sales",
+    slug: "payments.export",
+    name: "Export payments",
+    description: "Export payment data",
+    sortOrder: 2,
+    navPath: null,
+    navLabel: null,
+  },
+  {
+    id: "sp_rv",
+    serviceId: "svc_insights",
+    slug: "reports.view",
+    name: "Reports",
+    description: "View reports",
+    sortOrder: 0,
+    navPath: "/reports",
+    navLabel: "Reports",
+  },
+  {
+    id: "sp_re",
+    serviceId: "svc_insights",
+    slug: "reports.export",
+    name: "Export reports",
+    description: "Export reports",
+    sortOrder: 1,
+    navPath: null,
+    navLabel: null,
+  },
+  {
+    id: "sp_av",
+    serviceId: "svc_finance",
+    slug: "accounting.view",
+    name: "Accounting",
+    description: "Accounting area",
+    sortOrder: 0,
+    navPath: "/accounting",
+    navLabel: "Accounting",
+  },
+  {
+    id: "sp_ac",
+    serviceId: "svc_finance",
+    slug: "accounting.chart.view",
+    name: "Chart of accounts",
+    description: "View chart of accounts",
+    sortOrder: 1,
+    navPath: "/accounting/chart-of-accounts",
+    navLabel: "Chart of accounts",
+  },
+  {
+    id: "sp_sm",
+    serviceId: "svc_org",
+    slug: "staff.manage",
+    name: "Staff management",
+    description: "Manage staff",
+    sortOrder: 0,
+    navPath: "/staff",
+    navLabel: "Staff",
+  },
+  {
+    id: "sp_om",
+    serviceId: "svc_org",
+    slug: "organization.manage",
+    name: "Organization",
+    description: "Manage organization",
+    sortOrder: 1,
+    navPath: "/businesses",
+    navLabel: "My businesses",
+  },
+  {
+    id: "sp_bcfg",
+    serviceId: "svc_org",
+    slug: "business.configuration",
+    name: "Access configuration",
+    description: "Assign plan features to team members",
+    sortOrder: 2,
+    navPath: "/configuration",
+    navLabel: "Configuration",
+  },
+];

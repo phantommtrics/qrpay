@@ -164,21 +164,6 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
       },
     });
 
-    const businessAdminRole = await tx.role.findFirst({
-      where: { name: "Business Admin" },
-    });
-
-    if (businessAdminRole) {
-      await tx.userRoleAssignment.create({
-        data: {
-          userId: user.id,
-          roleId: businessAdminRole.id,
-          scope: business.id,
-          assignedBy: user.id,
-        },
-      });
-    }
-
     const { subscription, invoice } = await createSubscriptionForBusinessTx(tx, {
       businessId: business.id,
       planCode: input.planCode,
@@ -329,7 +314,10 @@ export async function listBusinessUsers(businessId: string) {
     },
   });
 
-  return memberships.map((membership) => sanitizeUser(membership.user));
+  return memberships.map((membership) => ({
+    ...sanitizeUser(membership.user),
+    isOwner: membership.isOwner,
+  }));
 }
 
 export async function createBusinessUser(input: CreateBusinessUserInput): Promise<{ user: User; inviteType: 'existing-user' | 'new-user' }> {

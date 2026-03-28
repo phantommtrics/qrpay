@@ -187,6 +187,12 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     description: 'Update organization profile and subscription settings.',
     category: 'Administration',
   },
+  {
+    key: 'business.configuration',
+    label: 'Access configuration',
+    description: 'Assign subscription features to team members.',
+    category: 'Administration',
+  },
 ]
 
 export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
@@ -206,6 +212,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'accounting.chart.view': false,
     'staff.manage': true,
     'organization.manage': true,
+    'business.configuration': true,
   },
   pro: {
     'dashboard.view': true,
@@ -223,6 +230,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'accounting.chart.view': false,
     'staff.manage': true,
     'organization.manage': true,
+    'business.configuration': true,
   },
   business_pro: {
     'dashboard.view': true,
@@ -240,6 +248,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'accounting.chart.view': true,
     'staff.manage': true,
     'organization.manage': true,
+    'business.configuration': true,
   },
 }
 
@@ -285,7 +294,7 @@ export const MOCK_LOGIN_ACCOUNTS: LoginAccount[] = [
     email: 'owner@qrpay.com',
     password: 'demo123',
     name: 'Platform Owner',
-    role: 'admin',
+    role: 'platform_owner',
     isPlatformOwner: true,
   },
   {

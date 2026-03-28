@@ -28,6 +28,7 @@ export type PermissionKey =
   | 'pos.access'
   | 'dashboard.view'
   | 'organization.manage'
+  | 'business.configuration'
 
 export interface User {
   id: string

@@ -61,6 +61,7 @@ model Business {
   invoices                      SubscriptionInvoice[]
   staffCreationNotificationLogs StaffCreationNotificationLog[]
   products                      Product[]
+  userSystemProducts            BusinessUserSystemProduct[]
 }
 
 model Product {
@@ -76,7 +77,7 @@ model Product {
   qrUrl        String
   imageUrl     String?
   imageColor   String   @default("bg-slate-100")
-  imageEmoji   String   @default("📦")
+  imageEmoji   String   @default("")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   business     Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -99,53 +100,7 @@ model User {
   updatedAt                     DateTime                       @updatedAt
   memberships                   BusinessMembership[]
   staffCreationNotificationLogs StaffCreationNotificationLog[]
-  userRoles                     UserRoleAssignment[]
-}
-
-model Role {
-  id          String               @id @default(cuid())
-  name        String               @unique
-  description String?
-  isSystem    Boolean              @default(false)
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
-  permissions RolePermission[]
-  userRoles   UserRoleAssignment[]
-}
-
-model Permission {
-  id          String         @id @default(cuid())
-  key         String         @unique
-  name        String
-  description String?
-  category    String
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  roles       RolePermission[]
-}
-
-model RolePermission {
-  id           String     @id @default(cuid())
-  roleId       String
-  permissionId String
-  createdAt    DateTime   @default(now())
-  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-
-  @@unique([roleId, permissionId])
-}
-
-model UserRoleAssignment {
-  id       String   @id @default(cuid())
-  userId   String
-  roleId   String
-  scope    String?  // 'platform' or businessId for business-scoped roles
-  assignedAt DateTime @default(now())
-  assignedBy String?
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role     Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, roleId, scope])
+  businessSystemProducts        BusinessUserSystemProduct[]
 }
 
 model BusinessMembership {
@@ -163,22 +118,80 @@ model BusinessMembership {
   @@index([userId])
 }
 
+model SystemService {
+  id          String          @id @default(cuid())
+  name        String
+  description String?
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  products    SystemProduct[]
+}
+
+model SystemProduct {
+  id          String              @id @default(cuid())
+  serviceId   String
+  name        String
+  slug        String              @unique
+  description String?
+  sortOrder   Int                 @default(0)
+  /** When set, product appears in the business sidebar under its service (must match app route path). */
+  navPath     String?
+  navLabel    String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  service     SystemService       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  planLinks   PlanSystemProduct[]
+  userGrants  BusinessUserSystemProduct[]
+
+  @@index([serviceId])
+}
+
+/** Per-user assigned system products. Non-owners with no rows have no plan features until the owner assigns products. */
+model BusinessUserSystemProduct {
+  id              String        @id @default(cuid())
+  businessId      String
+  userId          String
+  systemProductId String
+  createdAt       DateTime      @default(now())
+  business        Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  systemProduct   SystemProduct @relation(fields: [systemProductId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, userId, systemProductId])
+  @@index([businessId, userId])
+}
+
+model PlanSystemProduct {
+  id              String        @id @default(cuid())
+  planId          String
+  systemProductId String
+  createdAt       DateTime      @default(now())
+  plan            Plan          @relation(fields: [planId], references: [id], onDelete: Cascade)
+  systemProduct   SystemProduct @relation(fields: [systemProductId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, systemProductId])
+  @@index([planId])
+  @@index([systemProductId])
+}
+
 model Plan {
-  id            String                @id @default(cuid())
-  code          PlanCode              @unique
-  name          String
-  monthlyPrice  Decimal               @db.Decimal(10, 2)
-  currency      String                @default("GMD")
-  description   String
-  staffLimit    Int
-  outletLimit   Int
-  productLimit  Int
-  featureFlags  Json
-  isActive      Boolean               @default(true)
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
-  subscriptions Subscription[]
-  invoices      SubscriptionInvoice[]
+  id                 String                @id @default(cuid())
+  code               PlanCode              @unique
+  name               String
+  monthlyPrice       Decimal               @db.Decimal(10, 2)
+  currency           String                @default("GMD")
+  description        String
+  staffLimit         Int
+  outletLimit        Int
+  productLimit       Int
+  featureFlags       Json
+  isActive           Boolean               @default(true)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  subscriptions      Subscription[]
+  invoices           SubscriptionInvoice[]
+  planSystemProducts PlanSystemProduct[]
 }
 
 model Subscription {

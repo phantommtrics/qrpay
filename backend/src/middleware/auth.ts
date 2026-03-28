@@ -1,6 +1,8 @@
-import { Request, Response, NextFunction } from 'express';
-import { prisma } from '../lib/prisma.js';
-import { HttpError } from '../lib/http-error.js';
+import { NextFunction, Request, Response } from "express";
+
+import { HttpError } from "../lib/http-error.js";
+import { prisma } from "../lib/prisma.js";
+import { userHasEntitlement } from "../services/entitlement.service.js";
 
 export interface AuthenticatedUser {
   id: string;
@@ -15,19 +17,25 @@ export interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
 }
 
-// Middleware to check if user has required permission
-export function requirePermission(permission: string) {
+export function requireEntitlement(slug: string) {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       if (!req.user) {
-        throw new HttpError(401, 'Authentication required');
+        throw new HttpError(401, "Authentication required");
       }
-
-      const hasPermission = await checkUserPermission(req.user.id, permission, req.user.businessId);
-      if (!hasPermission) {
-        throw new HttpError(403, 'Insufficient permissions');
+      if (req.user.isPlatformOwner) {
+        next();
+        return;
       }
-
+      const businessId =
+        req.user.businessId || (req.params as { businessId?: string }).businessId;
+      if (!businessId) {
+        throw new HttpError(400, "Business context required");
+      }
+      const ok = await userHasEntitlement(req.user.id, businessId, slug);
+      if (!ok) {
+        throw new HttpError(403, "You do not have access to this feature for this business.");
+      }
       next();
     } catch (error) {
       next(error);
@@ -35,187 +43,30 @@ export function requirePermission(permission: string) {
   };
 }
 
-// Middleware to check if user has any of the required permissions
-export function requireAnyPermission(permissions: string[]) {
+/** Business owner or platform owner only (staff management and other owner-only actions). */
+export function requireBusinessOwnerOrPlatform() {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       if (!req.user) {
-        throw new HttpError(401, 'Authentication required');
+        throw new HttpError(401, "Authentication required");
       }
-
-      const hasAnyPermission = await checkUserAnyPermission(req.user.id, permissions, req.user.businessId);
-      if (!hasAnyPermission) {
-        throw new HttpError(403, 'Insufficient permissions');
+      if (req.user.isPlatformOwner) {
+        next();
+        return;
       }
-
-      next();
-    } catch (error) {
-      next(error);
-    }
-  };
-}
-
-// Check if user has a specific permission
-export async function checkUserPermission(
-  userId: string,
-  permission: string,
-  businessId?: string
-): Promise<boolean> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    include: {
-      userRoles: true,
-    },
-  });
-
-  if (!user) return false;
-
-  // Platform owner full access shortcut
-  if (user.role === 'PLATFORM_OWNER' || user.role === 'ADMIN') {
-    return true;
-  }
-
-  // Business owners created before RBAC assignments still have isOwner membership only:
-  // grant the same permissions as the seeded "Business Admin" role for that business.
-  if (businessId) {
-    const ownerMembership = await prisma.businessMembership.findFirst({
-      where: { userId, businessId, isOwner: true },
-    });
-
-    if (ownerMembership) {
-      const businessAdminRole = await prisma.role.findFirst({
-        where: { name: 'Business Admin' },
+      const businessId = (req.params as { businessId?: string }).businessId;
+      if (!businessId) {
+        throw new HttpError(400, "Business id required");
+      }
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user.id, businessId, isOwner: true },
       });
-
-      if (businessAdminRole) {
-        const ownerMay = await prisma.rolePermission.findFirst({
-          where: {
-            roleId: businessAdminRole.id,
-            permission: { key: permission },
-          },
-        });
-
-        if (ownerMay) {
-          return true;
-        }
+      if (!membership) {
+        throw new HttpError(403, "Only the business owner can access this.");
       }
+      next();
+    } catch (error) {
+      next(error);
     }
-  }
-
-  const roleIds = (user.userRoles || [])
-    .filter((ur) => ur.scope === 'platform' || ur.scope === businessId)
-    .map((ur) => ur.roleId);
-
-  if (roleIds.length === 0) {
-    return false;
-  }
-
-  const rolePermission = await prisma.rolePermission.findFirst({
-    where: {
-      roleId: { in: roleIds },
-      permission: {
-        key: permission,
-      },
-    },
-  });
-
-  return Boolean(rolePermission);
-}
-
-// Check if user has any of the specified permissions
-export async function checkUserAnyPermission(
-  userId: string,
-  permissions: string[],
-  businessId?: string
-): Promise<boolean> {
-  for (const permission of permissions) {
-    if (await checkUserPermission(userId, permission, businessId)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// Get all permissions for a user
-export async function getUserPermissions(userId: string, businessId?: string): Promise<string[]> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    include: { userRoles: true },
-  });
-
-  if (!user) return [];
-
-  if (user.role === 'PLATFORM_OWNER' || user.role === 'ADMIN') {
-    const allPermissions = await prisma.permission.findMany();
-    return allPermissions.map((p) => p.key);
-  }
-
-  const roleIds = (user.userRoles || [])
-    .filter((ur) => ur.scope === 'platform' || ur.scope === businessId)
-    .map((ur) => ur.roleId);
-
-  if (roleIds.length === 0) {
-    return [];
-  }
-
-  const rolePermissions = await prisma.rolePermission.findMany({
-    where: {
-      roleId: { in: roleIds },
-    },
-    include: {
-      permission: true,
-    },
-  });
-
-  const permissions = new Set<string>();
-  for (const rp of rolePermissions) {
-    if (rp.permission?.key) {
-      permissions.add(rp.permission.key);
-    }
-  }
-
-  return Array.from(permissions);
-}
-
-// Assign role to user
-export async function assignUserRole(
-  userId: string,
-  roleId: string,
-  scope: string = 'platform',
-  assignedBy?: string
-): Promise<void> {
-  await prisma.userRoleAssignment.upsert({
-    where: {
-      userId_roleId_scope: {
-        userId,
-        roleId,
-        scope
-      }
-    },
-    update: {
-      assignedBy,
-      assignedAt: new Date()
-    },
-    create: {
-      userId,
-      roleId,
-      scope,
-      assignedBy
-    }
-  });
-}
-
-// Remove role from user
-export async function removeUserRole(
-  userId: string,
-  roleId: string,
-  scope: string = 'platform'
-): Promise<void> {
-  await prisma.userRoleAssignment.deleteMany({
-    where: {
-      userId,
-      roleId,
-      scope
-    }
-  });
+  };
 }

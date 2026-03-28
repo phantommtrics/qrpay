@@ -31,9 +31,31 @@ import {
   getPublicProductById,
   listProductsForBusiness,
 } from "./services/product.service.js";
+import {
+  getBusinessNavigationMenu,
+  getEffectiveEntitlementSlugs,
+  getEntitlementSlugsForBusiness,
+} from "./services/entitlement.service.js";
+import {
+  getPlanCatalogGrouped,
+  getUserSystemProductIdsForBusiness,
+  setUserSystemProductIdsForBusiness,
+} from "./services/business-user-access.service.js";
+import {
+  createSystemProduct,
+  createSystemService,
+  deleteSystemProduct,
+  deleteSystemService,
+  getPlanEntitlementsDetail,
+  listSystemProducts,
+  listSystemServices,
+  setPlanEntitlements,
+  updateSystemProduct,
+  updateSystemService,
+} from "./services/system-catalog.service.js";
 import { HttpError } from "./lib/http-error.js";
 import { authenticateToken, requirePlatformOwner, generateToken } from "./middleware/jwt.js";
-import { requirePermission } from "./middleware/auth.js";
+import { requireBusinessOwnerOrPlatform, requireEntitlement } from "./middleware/auth.js";
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
@@ -124,6 +146,28 @@ const createProductSchema = z.object({
   imageEmoji: z.string().optional(),
 });
 
+const systemServiceBodySchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  sortOrder: z.coerce.number().int().optional(),
+});
+
+const systemProductBodySchema = z.object({
+  serviceId: z.string().min(1),
+  name: z.string().min(1),
+  slug: z.string().min(1),
+  description: z.string().optional(),
+  sortOrder: z.coerce.number().int().optional(),
+});
+
+const planEntitlementsBodySchema = z.object({
+  systemProductIds: z.array(z.string().min(1)),
+});
+
+const userPlanAccessBodySchema = z.object({
+  systemProductIds: z.array(z.string()),
+});
+
 // Platform Owner Routes
 app.get("/api/platform/businesses", authenticateToken, requirePlatformOwner, async (req, res) => {
   const businesses = await prisma.business.findMany({
@@ -142,14 +186,11 @@ app.get("/api/platform/businesses", authenticateToken, requirePlatformOwner, asy
   res.json(businesses);
 });
 
-app.get("/api/platform/users", authenticateToken, requirePlatformOwner, async (req, res) => {
+app.get("/api/platform/users", authenticateToken, requirePlatformOwner, async (_req, res) => {
   const users = await prisma.user.findMany({
     include: {
       memberships: {
         include: { business: true }
-      },
-      userRoles: {
-        include: { role: true }
       }
     }
   });
@@ -157,45 +198,199 @@ app.get("/api/platform/users", authenticateToken, requirePlatformOwner, async (r
   res.json(users);
 });
 
-app.post("/api/platform/users/:userId/roles", authenticateToken, requirePlatformOwner, async (req, res) => {
-  const { userId } = req.params;
-  const { roleId, scope } = req.body;
-
-  await prisma.userRoleAssignment.upsert({
-    where: {
-      userId_roleId_scope: {
-        userId: userId as string,
-        roleId,
-        scope: scope || 'platform'
-      }
-    },
-    update: { assignedBy: req.user?.id },
-    create: {
-      userId: userId as string,
-      roleId,
-      scope: scope || 'platform',
-      assignedBy: req.user?.id
-    }
+app.get("/api/platform/system-services", authenticateToken, requirePlatformOwner, async (_req, res) => {
+  const rows = await listSystemServices();
+  res.json({
+    data: rows.map((s) => ({
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      sortOrder: s.sortOrder,
+      productCount: s._count.products,
+      createdAt: s.createdAt.toISOString(),
+      updatedAt: s.updatedAt.toISOString(),
+    })),
   });
+});
 
-  res.json({ success: true });
+app.post("/api/platform/system-services", authenticateToken, requirePlatformOwner, async (req, res, next) => {
+  try {
+    const body = systemServiceBodySchema.parse(req.body);
+    const created = await createSystemService(body);
+    res.status(201).json({
+      data: {
+        id: created.id,
+        name: created.name,
+        description: created.description,
+        sortOrder: created.sortOrder,
+        createdAt: created.createdAt.toISOString(),
+        updatedAt: created.updatedAt.toISOString(),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.patch("/api/platform/system-services/:serviceId", authenticateToken, requirePlatformOwner, async (req, res, next) => {
+  try {
+    const body = systemServiceBodySchema.partial().parse(req.body);
+    const updated = await updateSystemService(req.params.serviceId as string, body);
+    res.json({
+      data: {
+        id: updated.id,
+        name: updated.name,
+        description: updated.description,
+        sortOrder: updated.sortOrder,
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString(),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.delete("/api/platform/system-services/:serviceId", authenticateToken, requirePlatformOwner, async (req, res, next) => {
+  try {
+    await deleteSystemService(req.params.serviceId as string);
+    res.status(204).send();
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get("/api/platform/system-products", authenticateToken, requirePlatformOwner, async (req, res, next) => {
+  try {
+    const serviceId = typeof req.query.serviceId === "string" ? req.query.serviceId : undefined;
+    const rows = await listSystemProducts(serviceId);
+    res.json({
+      data: rows.map((p) => ({
+        id: p.id,
+        serviceId: p.serviceId,
+        serviceName: p.service.name,
+        name: p.name,
+        slug: p.slug,
+        description: p.description,
+        sortOrder: p.sortOrder,
+        createdAt: p.createdAt.toISOString(),
+        updatedAt: p.updatedAt.toISOString(),
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post("/api/platform/system-products", authenticateToken, requirePlatformOwner, async (req, res, next) => {
+  try {
+    const body = systemProductBodySchema.parse(req.body);
+    const created = await createSystemProduct(body);
+    res.status(201).json({
+      data: {
+        id: created.id,
+        serviceId: created.serviceId,
+        name: created.name,
+        slug: created.slug,
+        description: created.description,
+        sortOrder: created.sortOrder,
+        createdAt: created.createdAt.toISOString(),
+        updatedAt: created.updatedAt.toISOString(),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.patch("/api/platform/system-products/:productId", authenticateToken, requirePlatformOwner, async (req, res, next) => {
+  try {
+    const body = systemProductBodySchema.partial().omit({ serviceId: true }).extend({
+      serviceId: z.string().min(1).optional(),
+    }).parse(req.body);
+    const updated = await updateSystemProduct(req.params.productId as string, body);
+    res.json({
+      data: {
+        id: updated.id,
+        serviceId: updated.serviceId,
+        name: updated.name,
+        slug: updated.slug,
+        description: updated.description,
+        sortOrder: updated.sortOrder,
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString(),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.delete("/api/platform/system-products/:productId", authenticateToken, requirePlatformOwner, async (req, res, next) => {
+  try {
+    await deleteSystemProduct(req.params.productId as string);
+    res.status(204).send();
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get("/api/platform/plans/:planCode/entitlements", authenticateToken, requirePlatformOwner, async (req, res, next) => {
+  try {
+    const planCode = z.nativeEnum(PlanCode).parse(req.params.planCode);
+    const plan = await getPlanEntitlementsDetail(planCode);
+    res.json({
+      data: {
+        planId: plan.id,
+        planCode: plan.code,
+        planName: plan.name,
+        systemProductIds: plan.planSystemProducts.map((l) => l.systemProductId),
+        items: plan.planSystemProducts.map((l) => ({
+          id: l.systemProduct.id,
+          serviceId: l.systemProduct.serviceId,
+          serviceName: l.systemProduct.service.name,
+          name: l.systemProduct.name,
+          slug: l.systemProduct.slug,
+        })),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.put("/api/platform/plans/:planCode/entitlements", authenticateToken, requirePlatformOwner, async (req, res, next) => {
+  try {
+    const planCode = z.nativeEnum(PlanCode).parse(req.params.planCode);
+    const body = planEntitlementsBodySchema.parse(req.body);
+    const plan = await setPlanEntitlements(planCode, body.systemProductIds);
+    res.json({
+      data: {
+        planId: plan.id,
+        planCode: plan.code,
+        planName: plan.name,
+        systemProductIds: plan.planSystemProducts.map((l) => l.systemProductId),
+        items: plan.planSystemProducts.map((l) => ({
+          id: l.systemProduct.id,
+          serviceId: l.systemProduct.serviceId,
+          serviceName: l.systemProduct.service.name,
+          name: l.systemProduct.name,
+          slug: l.systemProduct.slug,
+        })),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
 });
 
 // Business Management Routes (with permission checks)
-app.get("/api/businesses/:businessId/users", authenticateToken, requirePermission("staff.manage"), async (req, res) => {
+app.get(
+  "/api/businesses/:businessId/users",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  async (req, res) => {
   const { businessId } = req.params;
-
-  // Verify user has access to this business
-  const membership = await prisma.businessMembership.findFirst({
-    where: {
-      userId: req.user!.id,
-      businessId: businessId as string
-    }
-  });
-
-  if (!membership && !req.user?.isPlatformOwner) {
-    throw new HttpError(403, "Access denied to this business");
-  }
 
   const users = await listBusinessUsers(businessId as string);
   res.json({
@@ -203,22 +398,13 @@ app.get("/api/businesses/:businessId/users", authenticateToken, requirePermissio
   });
 });
 
-app.post("/api/businesses/:businessId/users", authenticateToken, requirePermission("staff.manage"), async (req, res) => {
+app.post(
+  "/api/businesses/:businessId/users",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  async (req, res) => {
   const { businessId } = req.params;
   const validatedData = createBusinessUserSchema.parse(req.body);
-
-  // Verify user has access to this business
-  const membership = await prisma.businessMembership.findFirst({
-    where: {
-      userId: req.user!.id,
-      businessId: businessId as string,
-      isOwner: true
-    }
-  });
-
-  if (!membership && !req.user?.isPlatformOwner) {
-    throw new HttpError(403, "Only business owners can add staff");
-  }
 
   const result = await createBusinessUser({
     businessId: businessId as string,
@@ -235,7 +421,7 @@ app.post("/api/businesses/:businessId/users", authenticateToken, requirePermissi
 app.get(
   "/api/businesses/:businessId/products/openfoodfacts-lookup",
   authenticateToken,
-  requirePermission("products.view"),
+  requireEntitlement("products.view"),
   async (req, res, next) => {
     try {
       const { businessId } = req.params;
@@ -263,7 +449,7 @@ app.get(
 app.get(
   "/api/businesses/:businessId/products",
   authenticateToken,
-  requirePermission("products.view"),
+  requireEntitlement("products.view"),
   async (req, res) => {
     const { businessId } = req.params;
 
@@ -288,7 +474,7 @@ app.get(
 app.post(
   "/api/businesses/:businessId/products/upload-image",
   authenticateToken,
-  requirePermission("products.create"),
+  requireEntitlement("products.create"),
   upload.single("image"),
   async (req, res, next) => {
     try {
@@ -324,7 +510,7 @@ app.post(
 app.post(
   "/api/businesses/:businessId/products",
   authenticateToken,
-  requirePermission("products.create"),
+  requireEntitlement("products.create"),
   async (req, res) => {
     const { businessId } = req.params;
     const payload = createProductSchema.parse(req.body);
@@ -399,6 +585,136 @@ app.get("/api/public/businesses/:businessId/products", async (req, res, next) =>
     next(error);
   }
 });
+
+app.get(
+  "/api/businesses/:businessId/entitlements",
+  authenticateToken,
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const slugs =
+        membership || !req.user?.isPlatformOwner
+          ? await getEffectiveEntitlementSlugs(req.user!.id, businessId as string)
+          : await getEntitlementSlugsForBusiness(businessId as string);
+      res.json({ data: { slugs } });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/navigation-menu",
+  authenticateToken,
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      if (req.user?.isPlatformOwner && !membership) {
+        res.json({ data: { services: [] } });
+        return;
+      }
+      const services = await getBusinessNavigationMenu(req.user!.id, businessId as string);
+      res.json({ data: { services } });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/plan-catalog",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const services = await getPlanCatalogGrouped(businessId as string);
+      res.json({ data: { services } });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/users/:targetUserId/plan-access",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId, targetUserId } = req.params;
+      const targetMembership = await prisma.businessMembership.findFirst({
+        where: { userId: targetUserId as string, businessId: businessId as string },
+      });
+      if (!targetMembership) {
+        throw new HttpError(404, "User is not a member of this business.");
+      }
+      const systemProductIds = await getUserSystemProductIdsForBusiness(
+        businessId as string,
+        targetUserId as string,
+      );
+      res.json({
+        data: {
+          systemProductIds,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.put(
+  "/api/businesses/:businessId/users/:targetUserId/plan-access",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId, targetUserId } = req.params;
+      const targetMembership = await prisma.businessMembership.findFirst({
+        where: { userId: targetUserId as string, businessId: businessId as string },
+      });
+      if (!targetMembership) {
+        throw new HttpError(404, "User is not a member of this business.");
+      }
+      if (targetMembership.isOwner) {
+        throw new HttpError(
+          400,
+          "The business owner always has full plan access; per-user assignments do not apply.",
+        );
+      }
+      const body = userPlanAccessBodySchema.parse(req.body);
+      await setUserSystemProductIdsForBusiness(
+        businessId as string,
+        targetUserId as string,
+        body.systemProductIds,
+      );
+      const systemProductIds = await getUserSystemProductIdsForBusiness(
+        businessId as string,
+        targetUserId as string,
+      );
+      res.json({
+        data: {
+          systemProductIds,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 function formatSubscriptionResponse(
   subscription: {
@@ -482,6 +798,7 @@ function formatUserResponse(user: {
   isActive: boolean;
   mustChangePassword: boolean;
   createdAt: Date;
+  isOwner?: boolean;
 }) {
   return {
     ...user,
@@ -551,6 +868,32 @@ function formatAccessibleBusinessResponse(entry: {
   };
 }
 
+async function accessibleBusinessesWithEntitlements(
+  userId: string,
+  entries: Array<{
+    business: {
+      id: string;
+      name: string;
+      slug: string;
+      industry: string | null;
+      ownerName: string;
+      ownerEmail: string;
+      createdAt: Date;
+      updatedAt: Date;
+      subscriptions?: unknown[];
+    };
+    currentSubscription: Parameters<typeof formatSubscriptionResponse>[0] | null;
+    isOwner: boolean;
+  }>,
+) {
+  return Promise.all(
+    entries.map(async (entry) => ({
+      ...formatAccessibleBusinessResponse(entry),
+      entitlements: await getEffectiveEntitlementSlugs(userId, entry.business.id),
+    })),
+  );
+}
+
 app.post("/api/auth/register", async (request, response, next) => {
   try {
     const payload = registerSchema.parse(request.body);
@@ -566,8 +909,9 @@ app.post("/api/auth/register", async (request, response, next) => {
         business: result.business,
         subscription: formatSubscriptionResponse(result.subscription),
         invoice: formatInvoiceResponse(result.invoice),
-        accessibleBusinesses: result.accessibleBusinesses.map(
-          formatAccessibleBusinessResponse,
+        accessibleBusinesses: await accessibleBusinessesWithEntitlements(
+          result.user.id,
+          result.accessibleBusinesses,
         ),
         activeBusinessId: result.activeBusinessId,
       },
@@ -589,8 +933,9 @@ app.post("/api/auth/login", async (request, response, next) => {
           ...formatUserResponse(result.user),
         },
         token,
-        accessibleBusinesses: result.accessibleBusinesses.map(
-          formatAccessibleBusinessResponse,
+        accessibleBusinesses: await accessibleBusinessesWithEntitlements(
+          result.user.id,
+          result.accessibleBusinesses,
         ),
         activeBusinessId: result.activeBusinessId,
       },
