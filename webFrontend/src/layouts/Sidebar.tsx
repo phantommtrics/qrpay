@@ -1,14 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  Check,
-  ChevronDown,
-  Cog,
-  LockKeyhole,
-  LogOut,
-  Plus,
-  QrCode,
-  Settings2,
-} from 'lucide-react'
+import { Check, ChevronDown, Cog, LockKeyhole, LogOut, Plus, QrCode } from 'lucide-react'
 import { generatePath, NavLink, useNavigate } from 'react-router-dom'
 
 import { APP_PATHS, MAIN_NAV_ITEMS, RESTAURANT_NAV_ITEM } from '../config/navigation'
@@ -56,15 +47,6 @@ export function Sidebar({
     try {
       const services = await fetchBusinessNavigationMenu(businessId)
       setPlanMenu(services)
-      setOpenServiceIds((prev) => {
-        const next = { ...prev }
-        for (const s of services) {
-          if (next[s.id] === undefined) {
-            next[s.id] = true
-          }
-        }
-        return next
-      })
       void refreshBusinessEntitlements(businessId)
     } catch (e) {
       if (!(e instanceof ApiError && e.statusCode === 401)) {
@@ -85,6 +67,7 @@ export function Sidebar({
       setPlanMenuFailed(false)
       return
     }
+    setOpenServiceIds({})
     void loadPlanMenu(currentOrganization.id)
   }, [user?.isPlatformOwner, currentOrganization?.id, loadPlanMenu])
 
@@ -135,12 +118,6 @@ export function Sidebar({
     !planMenuLoading &&
     !planMenuFailed &&
     planMenu.length > 0
-
-  const showBusinessConfiguration =
-    Boolean(currentOrganization) &&
-    (user.isPlatformOwner ||
-      (Boolean(currentOrganization?.isOwner) &&
-        canAccess('business.configuration')))
 
   const toggleService = (id: string) => {
     setOpenServiceIds((prev) => ({ ...prev, [id]: !prev[id] }))
@@ -253,7 +230,7 @@ export function Sidebar({
             <p className="px-3 text-sm text-slate-500">Loading menu…</p>
           ) : usePlanMenu ? (
             planMenu.map((svc) => {
-              const open = openServiceIds[svc.id] !== false
+              const open = openServiceIds[svc.id] === true
               return (
                 <div key={svc.id} className="mb-1">
                   <button
@@ -310,23 +287,6 @@ export function Sidebar({
               </NavLink>
             ))
           )}
-
-          {showBusinessConfiguration ? (
-            <NavLink
-              to={APP_PATHS.configuration}
-              onClick={() => setIsOpen(false)}
-              className={({ isActive }) =>
-                `mt-2 flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors ${
-                  isActive
-                    ? 'border-teal-500 bg-teal-500/10 text-teal-400'
-                    : 'border-transparent hover:bg-slate-800 hover:text-white'
-                }`
-              }
-            >
-              <Settings2 className="mr-3 h-5 w-5" />
-              <span className="font-medium">Configuration</span>
-            </NavLink>
-          ) : null}
 
           {user.isPlatformOwner ? (
             <>

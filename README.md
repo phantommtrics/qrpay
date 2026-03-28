@@ -124,14 +124,14 @@ Login and `GET /api/businesses/:businessId/entitlements` return this effective l
 
 ### Business Configuration (merchant)
 
-- Route: **Configuration** in the sidebar (permission `business.configuration`, typically owner + plan).
+- Route: **`/configuration`** — linked from the sidebar under **Organization** via the `business.configuration` system product (`navPath` / `navLabel`), same as other plan-driven menu items. There is no separate duplicate “Configuration” row outside that group. **Platform owners** use **`/platform/system-configuration`** for the system catalog.
 - Owners choose a **staff** member and toggle which plan products they may use.
 - Saving with **every** plan product selected stores explicit IDs (full access for that user); the UI explains this in copy on the page.
 
 ### Related API endpoints
 
 - `GET /api/businesses/:businessId/entitlements` — effective slug list for the current user.
-- `GET /api/businesses/:businessId/navigation-menu` — sidebar structure grouped by **system service**, filtered by effective entitlements (only products with `navPath` + `navLabel` appear as links).
+- `GET /api/businesses/:businessId/navigation-menu` — sidebar structure grouped by **system service**, filtered by effective entitlements (only products with both `navPath` and `navLabel` set appear, including **Configuration** under Organization when entitled).
 - `GET /api/businesses/:businessId/plan-catalog` — full plan product catalog grouped by service (for the assignment UI).
 - `GET|PUT /api/businesses/:businessId/users/:targetUserId/plan-access` — read/update assigned `systemProductIds`. **PUT** is rejected for the **business owner** (owner always has full plan access).
 
