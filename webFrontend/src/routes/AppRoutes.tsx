@@ -88,6 +88,11 @@ const StaffPage = lazy(() =>
     default: module.StaffPage,
   })),
 )
+const StaffAccessStatusPage = lazy(() =>
+  import('../screens/StaffAccessStatusPage').then((module) => ({
+    default: module.StaffAccessStatusPage,
+  })),
+)
 const BusinessesPage = lazy(() =>
   import('../screens/BusinessesPage').then((module) => ({
     default: module.BusinessesPage,
@@ -198,6 +203,12 @@ export function AppRoutes() {
       element: <StaffPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.staff)!.roles,
       permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.staff)!.permission,
+    },
+    {
+      path: APP_PATHS.staffStatus,
+      element: <StaffAccessStatusPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.staffStatus)!.roles,
+      permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.staffStatus)!.permission,
     },
     {
       path: APP_PATHS.subscriptions,

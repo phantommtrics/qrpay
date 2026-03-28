@@ -1,4 +1,4 @@
-import { SubscriptionStatus } from "@prisma/client";
+import { BusinessMembershipStatus, SubscriptionStatus } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 
@@ -55,6 +55,15 @@ export async function getEffectiveEntitlementSlugs(
   });
 
   if (!membership) {
+    return [];
+  }
+
+  if (
+    !membership.isOwner &&
+    (membership.status === BusinessMembershipStatus.BLOCKED ||
+      membership.status === BusinessMembershipStatus.SUSPENDED ||
+      membership.status === BusinessMembershipStatus.TERMINATED)
+  ) {
     return [];
   }
 

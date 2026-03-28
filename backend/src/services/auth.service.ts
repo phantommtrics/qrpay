@@ -1,4 +1,5 @@
 import {
+  BusinessMembershipStatus,
   PlanCode,
   StaffCreationNotificationStatus,
   StaffCreationNotificationType,
@@ -83,13 +84,26 @@ function sanitizeUser(user: {
   };
 }
 
-async function listAccessibleBusinesses(userId: string) {
+export type AccessibleBusinessEntry = {
+  business: Awaited<ReturnType<typeof getBusinessSubscription>>["business"];
+  currentSubscription: Awaited<ReturnType<typeof getBusinessSubscription>>["currentSubscription"];
+  isOwner: boolean;
+  membershipStatus: BusinessMembershipStatus;
+};
+
+async function listAccessibleBusinesses(userId: string): Promise<{
+  businesses: AccessibleBusinessEntry[];
+  activeBusinessId: string | null;
+}> {
   const memberships = await prisma.businessMembership.findMany({
-    where: { userId },
+    where: {
+      userId,
+      status: { not: "TERMINATED" },
+    },
     orderBy: [{ isOwner: "desc" }, { createdAt: "desc" }],
   });
 
-  const businesses = await Promise.all(
+  const businesses: AccessibleBusinessEntry[] = await Promise.all(
     memberships.map(async (membership) => {
       const subscriptionContext = await getBusinessSubscription(membership.businessId);
 
@@ -97,13 +111,16 @@ async function listAccessibleBusinesses(userId: string) {
         business: subscriptionContext.business,
         currentSubscription: subscriptionContext.currentSubscription,
         isOwner: membership.isOwner,
+        membershipStatus: membership.isOwner ? "ACTIVE" : membership.status,
       };
     }),
   );
 
+  const usableFirst = businesses.find((b) => b.isOwner || b.membershipStatus === "ACTIVE");
+
   return {
     businesses,
-    activeBusinessId: businesses[0]?.business.id ?? null,
+    activeBusinessId: usableFirst?.business.id ?? businesses[0]?.business.id ?? null,
   };
 }
 
@@ -200,9 +217,18 @@ export async function loginUser(input: LoginInput) {
     throw new HttpError(403, "This account has been disabled.");
   }
 
-  const access = user.role === UserRole.ADMIN
-    ? { businesses: [], activeBusinessId: null }
-    : await listAccessibleBusinesses(user.id);
+  const access =
+    user.role === UserRole.ADMIN
+      ? { businesses: [], activeBusinessId: null }
+      : await listAccessibleBusinesses(user.id);
+
+  if (
+    user.role !== UserRole.PLATFORM_OWNER &&
+    user.role !== UserRole.ADMIN &&
+    access.businesses.length === 0
+  ) {
+    throw new HttpError(404, "User not found.");
+  }
 
   return {
     user: sanitizeUser(user),
@@ -317,6 +343,7 @@ export async function listBusinessUsers(businessId: string) {
   return memberships.map((membership) => ({
     ...sanitizeUser(membership.user),
     isOwner: membership.isOwner,
+    membershipStatus: membership.status,
   }));
 }
 

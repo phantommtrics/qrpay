@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { HttpError } from '../lib/http-error.js';
 import { UserRole } from '@prisma/client';
 import { AuthenticatedRequest, requireEntitlement } from '../middleware/auth.js';
+import { assertBusinessMembershipAllowsApiAccess } from '../services/membership-access.service.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -81,6 +82,15 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
       businessId: businessContextId,
       isPlatformOwner: user.role === UserRole.PLATFORM_OWNER,
     };
+
+    if (businessContextId) {
+      await assertBusinessMembershipAllowsApiAccess(
+        user.id,
+        businessContextId,
+        user.role === UserRole.PLATFORM_OWNER,
+        req,
+      );
+    }
 
     next();
   } catch (error) {

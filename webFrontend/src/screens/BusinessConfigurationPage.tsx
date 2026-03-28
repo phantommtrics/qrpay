@@ -64,7 +64,10 @@ export function BusinessConfigurationPage() {
   }, [loadCatalogAndMembers])
 
   const staffMembers = useMemo(
-    () => members.filter((m) => m.isOwner !== true),
+    () =>
+      members.filter(
+        (m) => m.isOwner !== true && m.membershipStatus !== 'TERMINATED',
+      ),
     [members],
   )
 

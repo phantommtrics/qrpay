@@ -2,6 +2,8 @@ export type UserRole = 'platform_owner' | 'admin' | 'merchant' | 'cashier' | 'cu
 
 export type PlanId = 'basic' | 'pro' | 'business_pro'
 
+export type BusinessMembershipStatus = 'ACTIVE' | 'BLOCKED' | 'SUSPENDED' | 'TERMINATED'
+
 export type SubscriptionStatus = 'trialing' | 'active' | 'expiring_soon' | 'past_due' | 'expired'
 
 export type PermissionKey =
@@ -11,6 +13,7 @@ export type PermissionKey =
   | 'platform.billing.manage'
   | 'business.manage'
   | 'staff.manage'
+  | 'status.change.view'
   | 'products.manage'
   | 'products.view'
   | 'products.create'
@@ -62,6 +65,8 @@ export interface Organization {
   subscriptionState?: SubscriptionStatus
   subscriptionInvoiceDueAt?: string | null
   isOwner?: boolean
+  /** Staff access state for this login; owners are always ACTIVE in API responses. */
+  membershipStatus?: BusinessMembershipStatus
   createdAt: string
 }
 
@@ -75,6 +80,7 @@ export interface LoginAccount {
   isOwner?: boolean
   isPlatformOwner?: boolean
   createdAt?: string
+  membershipStatus?: BusinessMembershipStatus
 }
 
 export interface PermissionDefinition {

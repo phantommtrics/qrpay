@@ -3,6 +3,9 @@ import { Check, ChevronDown, Cog, LockKeyhole, LogOut, Plus, QrCode } from 'luci
 import { generatePath, NavLink, useNavigate } from 'react-router-dom'
 
 import { APP_PATHS, MAIN_NAV_ITEMS, RESTAURANT_NAV_ITEM } from '../config/navigation'
+
+/** Plan menu service ids that start expanded so nested links (e.g. Organization) are visible. */
+const DEFAULT_EXPANDED_PLAN_SERVICE_IDS = ['svc_org'] as const
 import { useAuth } from '../features/auth/AuthContext'
 import { ApiError, fetchBusinessNavigationMenu, type NavigationMenuService } from '../services/subscriptionApi'
 import { isRetailOrWholesaleIndustry } from '../utils/businessIndustry'
@@ -39,7 +42,9 @@ export function Sidebar({
   const [planMenu, setPlanMenu] = useState<NavigationMenuService[]>([])
   const [planMenuLoading, setPlanMenuLoading] = useState(false)
   const [planMenuFailed, setPlanMenuFailed] = useState(false)
-  const [openServiceIds, setOpenServiceIds] = useState<Record<string, boolean>>({})
+  const [openServiceIds, setOpenServiceIds] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(DEFAULT_EXPANDED_PLAN_SERVICE_IDS.map((id) => [id, true])),
+  )
 
   const loadPlanMenu = useCallback(async (businessId: string) => {
     setPlanMenuLoading(true)
@@ -67,7 +72,9 @@ export function Sidebar({
       setPlanMenuFailed(false)
       return
     }
-    setOpenServiceIds({})
+    setOpenServiceIds(
+      Object.fromEntries(DEFAULT_EXPANDED_PLAN_SERVICE_IDS.map((id) => [id, true])),
+    )
     void loadPlanMenu(currentOrganization.id)
   }, [user?.isPlatformOwner, currentOrganization?.id, loadPlanMenu])
 
@@ -96,6 +103,9 @@ export function Sidebar({
     if (item.path === APP_PATHS.staff && !currentOrganization?.isOwner) {
       return false
     }
+    if (item.path === APP_PATHS.staffStatus && !currentOrganization?.isOwner) {
+      return false
+    }
     return true
   })
 
@@ -107,6 +117,9 @@ export function Sidebar({
       return false
     }
     if (item.path === APP_PATHS.staff && !currentOrganization?.isOwner) {
+      return false
+    }
+    if (item.path === APP_PATHS.staffStatus && !currentOrganization?.isOwner) {
       return false
     }
     return true

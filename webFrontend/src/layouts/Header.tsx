@@ -116,6 +116,39 @@ export function Header({
                   <div className="max-h-80 overflow-y-auto p-3">
                     {organizations.map((organization) => {
                       const isActive = organization.id === currentOrganization?.id
+                      const restrictedHere =
+                        !organization.isOwner &&
+                        (organization.membershipStatus === 'BLOCKED' ||
+                          organization.membershipStatus === 'SUSPENDED')
+                      const currentRestricted = isActive && restrictedHere
+
+                      if (currentRestricted) {
+                        return (
+                          <div
+                            key={organization.id}
+                            className="mb-2 flex w-full cursor-not-allowed items-start gap-3 rounded-2xl border border-red-200 bg-red-50/80 px-3 py-3 text-left opacity-95 last:mb-0"
+                            role="presentation"
+                            aria-label="Current business: access restricted"
+                          >
+                            <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-2xl bg-red-100 text-red-700">
+                              <Building2 className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="truncate text-sm font-semibold text-red-900">
+                                  {organization.name}
+                                </p>
+                                <span className="rounded-full bg-red-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-800">
+                                  {organization.membershipStatus === 'BLOCKED' ? 'Blocked' : 'Suspended'}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs text-red-700/90">
+                                No access — switch to another business below.
+                              </p>
+                            </div>
+                          </div>
+                        )
+                      }
 
                       return (
                         <button

@@ -8,7 +8,37 @@ import {
 
 const prisma = new PrismaClient();
 
+/**
+ * Ensure each catalog slug is owned by exactly one row (the canonical id). Resolves P2002 when
+ * e.g. a duplicate row or an old migration left the same slug on two products.
+ */
+async function resolveCatalogSlugConflicts() {
+  const seen = new Map<string, string>();
+  for (const p of SYSTEM_CATALOG_PRODUCTS) {
+    seen.set(p.slug, p.id);
+  }
+
+  for (const [slug, canonicalId] of seen) {
+    const rows = await prisma.systemProduct.findMany({
+      where: { slug },
+      select: { id: true },
+    });
+    for (const row of rows) {
+      if (row.id === canonicalId) {
+        continue;
+      }
+      const suffix = row.id.replace(/[^a-z0-9]/gi, "").slice(0, 12) || "row";
+      await prisma.systemProduct.update({
+        where: { id: row.id },
+        data: { slug: `${slug}.displaced.${suffix}` },
+      });
+    }
+  }
+}
+
 async function seedSystemCatalog() {
+  await resolveCatalogSlugConflicts();
+
   for (const s of SYSTEM_CATALOG_SERVICES) {
     await prisma.systemService.upsert({
       where: { id: s.id },

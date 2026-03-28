@@ -3,7 +3,7 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PlanCode, Prisma, UserRole } from "@prisma/client";
+import { BusinessMembershipStatus, PlanCode, Prisma, UserRole } from "@prisma/client";
 import multer from "multer";
 import { z } from "zod";
 import { prisma } from "./lib/prisma.js";
@@ -15,6 +15,7 @@ import {
   loginUser,
   registerBusinessOwner,
 } from "./services/auth.service.js";
+import { setBusinessMemberStatus } from "./services/membership-status.service.js";
 import {
   createBusiness,
   formatMoney,
@@ -166,6 +167,10 @@ const planEntitlementsBodySchema = z.object({
 
 const userPlanAccessBodySchema = z.object({
   systemProductIds: z.array(z.string()),
+});
+
+const membershipStatusPatchSchema = z.object({
+  status: z.nativeEnum(BusinessMembershipStatus),
 });
 
 // Platform Owner Routes
@@ -417,6 +422,27 @@ app.post(
     },
   });
 });
+
+app.patch(
+  "/api/businesses/:businessId/members/:targetUserId/membership-status",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireEntitlement("status.change.view"),
+  async (req, res, next) => {
+    try {
+      const { businessId, targetUserId } = req.params;
+      const body = membershipStatusPatchSchema.parse(req.body);
+      await setBusinessMemberStatus(
+        businessId as string,
+        targetUserId as string,
+        body.status,
+      );
+      res.json({ data: { status: body.status } });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 app.get(
   "/api/businesses/:businessId/products/openfoodfacts-lookup",
@@ -799,10 +825,18 @@ function formatUserResponse(user: {
   mustChangePassword: boolean;
   createdAt: Date;
   isOwner?: boolean;
+  membershipStatus?: BusinessMembershipStatus;
 }) {
   return {
-    ...user,
+    id: user.id,
+    name: user.name,
+    email: user.email,
     role: user.role.toLowerCase() as Lowercase<UserRole>,
+    isActive: user.isActive,
+    mustChangePassword: user.mustChangePassword,
+    createdAt: user.createdAt.toISOString(),
+    isOwner: user.isOwner,
+    ...(user.membershipStatus !== undefined ? { membershipStatus: user.membershipStatus } : {}),
   };
 }
 
@@ -856,6 +890,7 @@ function formatAccessibleBusinessResponse(entry: {
   };
   currentSubscription: Parameters<typeof formatSubscriptionResponse>[0] | null;
   isOwner: boolean;
+  membershipStatus: BusinessMembershipStatus;
 }) {
   const { subscriptions: _subscriptions, ...business } = entry.business;
 
@@ -865,6 +900,7 @@ function formatAccessibleBusinessResponse(entry: {
       ? formatSubscriptionResponse(entry.currentSubscription)
       : null,
     isOwner: entry.isOwner,
+    membershipStatus: entry.membershipStatus,
   };
 }
 
@@ -884,6 +920,7 @@ async function accessibleBusinessesWithEntitlements(
     };
     currentSubscription: Parameters<typeof formatSubscriptionResponse>[0] | null;
     isOwner: boolean;
+    membershipStatus: BusinessMembershipStatus;
   }>,
 ) {
   return Promise.all(

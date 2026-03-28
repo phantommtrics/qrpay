@@ -1,5 +1,6 @@
 import { API_BASE_URL } from '../config/api'
 import type {
+  BusinessMembershipStatus,
   LoginAccount,
   Organization,
   PlanId,
@@ -59,12 +60,14 @@ export type BackendUser = {
   mustChangePassword: boolean
   createdAt: string
   isOwner?: boolean
+  membershipStatus?: BusinessMembershipStatus
 }
 
 export type BackendAccessibleBusiness = {
   business: BackendBusiness
   currentSubscription: (BackendSubscription & { invoices?: BackendInvoice[] }) | null
   isOwner: boolean
+  membershipStatus?: BusinessMembershipStatus
   entitlements?: string[]
 }
 
@@ -188,6 +191,7 @@ export function mapBackendUserToLoginAccount(
     isOwner,
     isPlatformOwner: isPlatformOwnerRole(user.role),
     createdAt: user.createdAt,
+    membershipStatus: user.membershipStatus ?? 'ACTIVE',
   }
 }
 
@@ -211,6 +215,7 @@ export function mapAccessibleBusinessToOrganization(entry: BackendAccessibleBusi
       : 'expired',
     subscriptionInvoiceDueAt: currentSubscription?.invoices?.[0]?.dueDate ?? null,
     isOwner: entry.isOwner,
+    membershipStatus: entry.membershipStatus,
     createdAt: entry.business.createdAt,
   }
 }
@@ -451,9 +456,30 @@ export async function createBusinessUser(payload: {
   })
 
   return {
-    account: mapBackendUserToLoginAccount(response.data.user, payload.businessId),
+    account: mapBackendUserToLoginAccount(
+      response.data.user,
+      payload.businessId,
+      Boolean(response.data.user.isOwner),
+    ),
     inviteType: response.data.inviteType,
   }
+}
+
+export async function updateMemberMembershipStatus(
+  businessId: string,
+  targetUserId: string,
+  status: BusinessMembershipStatus,
+) {
+  await apiRequest<{ data: { status: BusinessMembershipStatus } }>(
+    `/businesses/${businessId}/members/${targetUserId}/membership-status`,
+    {
+      method: 'PATCH',
+      headers: {
+        'x-business-id': businessId,
+      },
+      body: JSON.stringify({ status }),
+    },
+  )
 }
 
 export type BackendProduct = {

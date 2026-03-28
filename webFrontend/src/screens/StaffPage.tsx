@@ -1,18 +1,26 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { BadgeCheck, Mail, ShieldCheck, UserPlus, Users } from 'lucide-react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, NavLink } from 'react-router-dom'
 
 import { APP_PATHS } from '../config/navigation'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { useAuth } from '../features/auth/AuthContext'
-import type { UserRole } from '../types'
+import type { BusinessMembershipStatus, UserRole } from '../types'
+
+const MEMBERSHIP_STATUS_OPTIONS: { value: BusinessMembershipStatus; label: string }[] = [
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'BLOCKED', label: 'Blocked' },
+  { value: 'SUSPENDED', label: 'Suspended' },
+  { value: 'TERMINATED', label: 'Terminated' },
+]
 
 type StaffRole = Extract<UserRole, 'merchant' | 'cashier'>
 
 export function StaffPage() {
   const {
     user,
+    canAccess,
     createStaffAccount,
     currentOrganization,
     currentPlan,
@@ -27,8 +35,9 @@ export function StaffPage() {
   const [success, setSuccess] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const canOpenStatusPage = canAccess('status.change.view')
   const seatLimit = currentPlan?.maxStaff ?? null
-  const activeMembers = organizationMembers.length
+  const activeMembers = organizationMembers.filter((m) => m.membershipStatus !== 'TERMINATED').length
   const seatsRemaining = seatLimit === null ? null : Math.max(seatLimit - activeMembers, 0)
   const roleLabels: Record<StaffRole, string> = {
     merchant: 'Manager',
@@ -109,6 +118,14 @@ export function StaffPage() {
             <p className="mt-2 text-slate-600">
               Create staff login accounts and keep usage within the {currentPlan.name} plan limit.
             </p>
+            {canOpenStatusPage ? (
+              <NavLink
+                to={APP_PATHS.staffStatus}
+                className="mt-4 inline-flex text-sm font-semibold text-teal-700 underline-offset-2 hover:underline"
+              >
+                Open staff access status
+              </NavLink>
+            ) : null}
           </div>
           <div className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white">
             {currentPlan.name} plan • {currentPlan.staffLabel}
@@ -123,7 +140,9 @@ export function StaffPage() {
             <Users className="h-5 w-5 text-teal-600" />
           </div>
           <p className="mt-4 text-3xl font-bold text-slate-900">{activeMembers}</p>
-          <p className="mt-2 text-sm text-slate-500">Owner and staff accounts with access.</p>
+          <p className="mt-2 text-sm text-slate-500">
+            Owner and staff with access (terminated logins do not count toward seats).
+          </p>
         </PageCard>
 
         <PageCard className="p-6">
@@ -225,25 +244,54 @@ export function StaffPage() {
         <PageCard className="overflow-hidden">
           <div className="border-b border-slate-200 p-4">
             <h3 className="font-semibold text-slate-900">Current staff logins</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {canOpenStatusPage ? (
+                <>
+                  To block, suspend, or terminate access, use{' '}
+                  <NavLink to={APP_PATHS.staffStatus} className="font-medium text-teal-700 underline-offset-2 hover:underline">
+                    staff access status
+                  </NavLink>
+                  .
+                </>
+              ) : (
+                'Access status is shown below for reference.'
+              )}
+            </p>
           </div>
           <div className="divide-y divide-slate-100">
-            {organizationMembers.map((member) => (
-              <div key={member.id} className="flex items-center justify-between gap-4 p-4">
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-slate-900">{member.name}</p>
-                  <div className="mt-1 flex items-center gap-2 text-sm text-slate-500">
-                    <Mail className="h-4 w-4" />
-                    <span className="truncate">{member.email}</span>
+            {organizationMembers.map((member) => {
+              const status = member.membershipStatus ?? 'ACTIVE'
+              const statusLabel =
+                MEMBERSHIP_STATUS_OPTIONS.find((o) => o.value === status)?.label ?? status
+
+              return (
+                <div key={member.id} className="flex items-center justify-between gap-4 p-4">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-slate-900">{member.name}</p>
+                    <div className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+                      <Mail className="h-4 w-4" />
+                      <span className="truncate">{member.email}</span>
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      {member.isOwner ? 'Owner' : roleLabels[member.role as StaffRole] ?? member.role}
+                    </div>
+                    <div
+                      className={`mt-2 inline-block rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
+                        status === 'ACTIVE'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : status === 'TERMINATED'
+                            ? 'bg-slate-200 text-slate-700'
+                            : 'bg-amber-100 text-amber-900'
+                      }`}
+                    >
+                      {statusLabel}
+                    </div>
                   </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <div className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    {roleLabels[member.role as StaffRole] ?? member.role}
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">Access managed securely</p>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </PageCard>
       </div>

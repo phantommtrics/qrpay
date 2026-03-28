@@ -105,6 +105,7 @@ type AuthContextValue = {
   businessProductsError: string | null
   refreshBusinessProducts: () => Promise<void>
   refreshBusinessEntitlements: (businessId: string) => Promise<void>
+  refreshOrganizationMembers: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -417,6 +418,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const refreshOrganizationMembers = useCallback(async () => {
+    if (!businessIdForApi || user?.isPlatformOwner) {
+      return
+    }
+
+    try {
+      const members = await fetchBusinessUsers(businessIdForApi)
+      setAccounts(members)
+      setOrganizations((current) =>
+        current.map((organization) =>
+          organization.id === businessIdForApi
+            ? {
+                ...organization,
+                staffCount: members.filter((m) => m.membershipStatus !== 'TERMINATED').length,
+              }
+            : organization,
+        ),
+      )
+    } catch {
+      // Keep prior members on failure.
+    }
+  }, [businessIdForApi, user?.isPlatformOwner])
+
   useEffect(() => {
     void refreshBusinessProducts()
   }, [refreshBusinessProducts])
@@ -481,7 +505,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setOrganizations((current) =>
             current.map((organization) =>
               organization.id === businessIdForApi
-                ? { ...organization, staffCount: members.length }
+                ? {
+                    ...organization,
+                    staffCount: members.filter((m) => m.membershipStatus !== 'TERMINATED').length,
+                  }
                 : organization,
             ),
           )
@@ -743,7 +770,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const normalizedEmail = email.trim().toLowerCase()
         const maxSeats = currentPlan.maxStaff
-        const activeMembers = organizationMembers.length
+        const activeMembers = organizationMembers.filter(
+          (m) => m.membershipStatus !== 'TERMINATED',
+        ).length
 
         if (maxSeats !== null && activeMembers >= maxSeats) {
           return {
@@ -871,6 +900,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       businessProductsError,
       refreshBusinessProducts,
       refreshBusinessEntitlements,
+      refreshOrganizationMembers,
     }),
     [
       activeOrganizationId,
@@ -886,6 +916,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       planPermissions,
       refreshBusinessProducts,
       refreshBusinessEntitlements,
+      refreshOrganizationMembers,
       subscriptionMeta,
       user,
     ],

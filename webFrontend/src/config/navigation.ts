@@ -8,6 +8,7 @@ import {
   Package,
   Settings2,
   ShoppingBag,
+  UserCog,
   Users,
   Utensils,
 } from 'lucide-react'
@@ -31,6 +32,7 @@ export const APP_PATHS = {
   accountingProfitLoss: '/accounting/profit-loss',
   accountingChart: '/accounting/chart-of-accounts',
   staff: '/staff',
+  staffStatus: '/staff/status',
   configuration: '/configuration',
   businesses: '/businesses',
   subscriptions: '/subscriptions',
@@ -113,6 +115,14 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     permission: 'staff.manage',
   },
   {
+    name: 'Staff access status',
+    path: APP_PATHS.staffStatus,
+    icon: UserCog,
+    roles: ['merchant'],
+    title: 'Staff access status',
+    permission: 'status.change.view',
+  },
+  {
     name: 'Plan Controls',
     path: APP_PATHS.subscriptions,
     icon: Settings2,
@@ -144,7 +154,9 @@ export function getPageTitle(pathname: string) {
     return 'Configuration'
   }
 
-  const matchedItem = MAIN_NAV_ITEMS.find((item) => pathname.includes(item.path))
+  const matchedItem = [...MAIN_NAV_ITEMS].sort((a, b) => b.path.length - a.path.length).find(
+    (item) => pathname === item.path || pathname.startsWith(`${item.path}/`),
+  )
   return matchedItem?.title ?? 'QRPay'
 }
 
