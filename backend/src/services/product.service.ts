@@ -83,6 +83,15 @@ export type CreateProductInput = {
   imageEmoji?: string | null;
 };
 
+/** Strips emoji so values fit legacy PostgreSQL encodings (e.g. WIN1252). Display fallback lives in the UI. */
+function normalizeStoredImageEmoji(raw: string | null | undefined): string {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  return trimmed.replace(/\p{Extended_Pictographic}/gu, "").trim();
+}
+
 function normalizeOptionalHttpsImageUrl(raw: string | null | undefined): string | null {
   const trimmed = raw?.trim();
   if (!trimmed) {
@@ -178,7 +187,7 @@ export async function createProduct(input: CreateProductInput) {
       qrUrl,
       imageUrl,
       imageColor: input.imageColor?.trim() || "bg-slate-100",
-      imageEmoji: input.imageEmoji?.trim() || "📦",
+      imageEmoji: normalizeStoredImageEmoji(input.imageEmoji),
     },
   });
 
@@ -298,7 +307,7 @@ export async function updateProduct(input: UpdateProductInput) {
     data.imageColor = input.imageColor?.trim() || "bg-slate-100";
   }
   if (input.imageEmoji !== undefined) {
-    data.imageEmoji = input.imageEmoji?.trim() || "📦";
+    data.imageEmoji = normalizeStoredImageEmoji(input.imageEmoji);
   }
 
   return prisma.product.update({

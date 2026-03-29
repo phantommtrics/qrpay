@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import {
   BusinessMembershipStatus,
   PlanCode,
@@ -64,6 +66,25 @@ function normalizeSlug(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
+async function allocateUniqueBusinessSlug(
+  tx: Prisma.TransactionClient,
+  baseSlug: string,
+): Promise<string> {
+  const root = baseSlug.trim() || "business";
+  let candidate = root;
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const taken = await tx.business.findUnique({
+      where: { slug: candidate },
+      select: { id: true },
+    });
+    if (!taken) {
+      return candidate;
+    }
+    candidate = `${root}-${randomBytes(3).toString("hex")}`;
+  }
+  return `${root}-${randomBytes(8).toString("hex")}`;
+}
+
 function sanitizeUser(user: {
   id: string;
   name: string;
@@ -127,7 +148,6 @@ async function listAccessibleBusinesses(userId: string): Promise<{
 export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
   const ownerEmail = input.ownerEmail.trim().toLowerCase();
   const businessName = input.businessName.trim();
-  const slug = normalizeSlug(input.slug || businessName);
   const requestedOwnerName = input.ownerName.trim();
   const industry = input.industry?.trim() || null;
 
@@ -162,6 +182,9 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
         "Only merchant or platform-owner accounts can own businesses.",
       );
     }
+
+    const baseSlug = normalizeSlug(input.slug || businessName);
+    const slug = await allocateUniqueBusinessSlug(tx, baseSlug);
 
     const business = await tx.business.create({
       data: {

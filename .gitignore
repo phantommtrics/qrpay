@@ -39,3 +39,13 @@ dist
 .env.test.production.example
 .env.test.production.local
 .env.test.production.local.example
+
+uploads/*
+uploads/**
+uploads/**/*
+uploads/**/**
+uploads/**/**/*
+uploads/**/**/**
+uploads/**/**/**/*
+uploads/**/**/**/**
+uploads/**/**/**/**/*
