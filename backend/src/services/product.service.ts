@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
-import { inferBarcodeType } from "./openfoodfacts.service.js";
+import { inferBarcodeType } from "./barcode-type.service.js";
 
 const BARCODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -96,8 +96,14 @@ function normalizeOptionalHttpsImageUrl(raw: string | null | undefined): string 
     throw new HttpError(400, "Image URL must be a valid URL.");
   }
 
-  if (parsed.protocol !== "https:") {
-    throw new HttpError(400, "Image URL must use https://");
+  const isLocalHttp =
+    parsed.protocol === "http:" &&
+    (parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "[::1]");
+
+  if (parsed.protocol !== "https:" && !isLocalHttp) {
+    throw new HttpError(400, "Image URL must use https:// (or http:// for localhost).");
   }
 
   return trimmed;
@@ -177,6 +183,128 @@ export async function createProduct(input: CreateProductInput) {
   });
 
   return product;
+}
+
+export type UpdateProductInput = {
+  businessId: string;
+  productId: string;
+  name?: string;
+  category?: string;
+  description?: string | null;
+  price?: number;
+  stock?: number;
+  barcodeValue?: string;
+  qrUrl?: string;
+  imageUrl?: string | null;
+  imageColor?: string | null;
+  imageEmoji?: string | null;
+};
+
+export async function updateProduct(input: UpdateProductInput) {
+  const product = await prisma.product.findFirst({
+    where: { id: input.productId, businessId: input.businessId },
+    include: { business: true },
+  });
+
+  if (!product) {
+    throw new HttpError(404, "Product not found.");
+  }
+
+  if (!isRetailOrWholesaleIndustry(product.business.industry)) {
+    throw new HttpError(
+      403,
+      "Products are only available for Retail or Wholesale businesses in this phase.",
+    );
+  }
+
+  if (input.barcodeValue !== undefined) {
+    const trimmed = input.barcodeValue.trim();
+    if (!/^[A-Za-z0-9]{4,48}$/.test(trimmed)) {
+      throw new HttpError(400, "Barcode must be 4–48 alphanumeric characters (A–Z, a–z, 0–9).");
+    }
+    if (trimmed !== product.barcodeValue) {
+      const clash = await prisma.product.findFirst({
+        where: {
+          businessId: input.businessId,
+          barcodeValue: trimmed,
+          NOT: { id: product.id },
+        },
+        select: { id: true },
+      });
+      if (clash) {
+        throw new HttpError(409, "This barcode is already used for another product in this business.");
+      }
+    }
+  }
+
+  if (input.qrUrl !== undefined) {
+    const q = input.qrUrl.trim();
+    if (!/^https?:\/\//i.test(q)) {
+      throw new HttpError(400, "QR URL must start with http:// or https://");
+    }
+    if (q !== product.qrUrl) {
+      const clash = await prisma.product.findFirst({
+        where: {
+          businessId: input.businessId,
+          qrUrl: q,
+          NOT: { id: product.id },
+        },
+        select: { id: true },
+      });
+      if (clash) {
+        throw new HttpError(409, "This QR URL is already used for another product in this business.");
+      }
+    }
+  }
+
+  let nextImageUrl: string | null | undefined;
+  if (input.imageUrl !== undefined) {
+    if (input.imageUrl === null || input.imageUrl.trim() === "") {
+      nextImageUrl = null;
+    } else {
+      nextImageUrl = normalizeOptionalHttpsImageUrl(input.imageUrl);
+    }
+  }
+
+  const data: Prisma.ProductUpdateInput = {};
+
+  if (input.name !== undefined) {
+    data.name = input.name.trim();
+  }
+  if (input.category !== undefined) {
+    data.category = input.category.trim();
+  }
+  if (input.description !== undefined) {
+    data.description = input.description === null ? null : input.description.trim() || null;
+  }
+  if (input.price !== undefined) {
+    data.price = new Prisma.Decimal(input.price);
+  }
+  if (input.stock !== undefined) {
+    data.stock = input.stock;
+  }
+  if (input.barcodeValue !== undefined) {
+    const trimmed = input.barcodeValue.trim();
+    data.barcodeValue = trimmed;
+    data.barcodeType = inferBarcodeType(trimmed);
+  }
+  if (input.qrUrl !== undefined) {
+    data.qrUrl = input.qrUrl.trim();
+  }
+  if (input.imageUrl !== undefined) {
+    data.imageUrl = nextImageUrl ?? null;
+  }
+  if (input.imageColor !== undefined) {
+    data.imageColor = input.imageColor?.trim() || "bg-slate-100";
+  }
+  if (input.imageEmoji !== undefined) {
+    data.imageEmoji = input.imageEmoji?.trim() || "📦";
+  }
+
+  return prisma.product.update({
+    where: { id: product.id },
+    data,
+  });
 }
 
 export async function listProductsForBusiness(businessId: string) {

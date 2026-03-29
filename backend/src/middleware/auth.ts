@@ -43,6 +43,35 @@ export function requireEntitlement(slug: string) {
   };
 }
 
+/** Passes if the user has any of the listed entitlements (platform owners always pass). */
+export function requireAnyEntitlement(slugs: string[]) {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        throw new HttpError(401, "Authentication required");
+      }
+      if (req.user.isPlatformOwner) {
+        next();
+        return;
+      }
+      const businessId =
+        req.user.businessId || (req.params as { businessId?: string }).businessId;
+      if (!businessId) {
+        throw new HttpError(400, "Business context required");
+      }
+      for (const slug of slugs) {
+        if (await userHasEntitlement(req.user.id, businessId, slug)) {
+          next();
+          return;
+        }
+      }
+      throw new HttpError(403, "You do not have access to this feature for this business.");
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
 /** Business owner or platform owner only (staff management and other owner-only actions). */
 export function requireBusinessOwnerOrPlatform() {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

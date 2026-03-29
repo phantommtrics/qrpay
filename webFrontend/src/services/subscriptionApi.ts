@@ -520,29 +520,6 @@ export function mapBackendProductToProduct(p: BackendProduct): Product {
   }
 }
 
-export type OpenFoodFactsLookupResult = {
-  code: string
-  name: string
-  category: string
-  description: string | null
-  imageUrl: string | null
-  barcodeType: string
-  source: 'openfoodfacts'
-}
-
-export async function lookupOpenFoodFactsProduct(businessId: string, code: string) {
-  const params = new URLSearchParams({ code: code.trim() })
-  const response = await apiRequest<{ data: OpenFoodFactsLookupResult | null }>(
-    `/businesses/${businessId}/products/openfoodfacts-lookup?${params.toString()}`,
-    {
-      headers: {
-        'x-business-id': businessId,
-      },
-    },
-  )
-  return response.data
-}
-
 export async function fetchBusinessProducts(businessId: string) {
   const response = await apiRequest<{ data: BackendProduct[] }>(
     `/businesses/${businessId}/products`,
@@ -589,6 +566,35 @@ export async function createBusinessProduct(
     `/businesses/${businessId}/products`,
     {
       method: 'POST',
+      headers: {
+        'x-business-id': businessId,
+      },
+      body: JSON.stringify(payload),
+    },
+  )
+  return mapBackendProductToProduct(response.data)
+}
+
+export async function updateBusinessProduct(
+  businessId: string,
+  productId: string,
+  payload: {
+    name?: string
+    category?: string
+    description?: string | null
+    price?: number
+    stock?: number
+    barcodeValue?: string
+    qrUrl?: string
+    imageUrl?: string | null
+    imageColor?: string
+    imageEmoji?: string
+  },
+) {
+  const response = await apiRequest<{ data: BackendProduct }>(
+    `/businesses/${businessId}/products/${productId}`,
+    {
+      method: 'PATCH',
       headers: {
         'x-business-id': businessId,
       },

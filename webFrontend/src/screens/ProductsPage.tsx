@@ -136,10 +136,16 @@ export function ProductsPage() {
       </div>
 
       <AnimatePresence>
-        {selectedProduct ? (
+        {selectedProduct && businessId ? (
           <ProductDetailsModal
             product={selectedProduct}
+            businessId={businessId}
+            canEdit={canEditProducts}
             onClose={() => setSelectedProduct(null)}
+            onUpdated={(updated) => {
+              setSelectedProduct(updated)
+              void refreshBusinessProducts()
+            }}
           />
         ) : null}
       </AnimatePresence>

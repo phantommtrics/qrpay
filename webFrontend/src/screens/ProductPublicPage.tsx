@@ -11,7 +11,7 @@ export function ProductPublicPage() {
   const [error, setError] = useState<string | null>(null)
   const [loadedForId, setLoadedForId] = useState<string | null>(null)
 
-  const missingIdMessage = !productId ? 'Missing product id.' : null
+  const missingLinkMessage = !productId ? 'This product link is incomplete or invalid.' : null
   const loading = Boolean(productId && loadedForId !== productId)
 
   useEffect(() => {
@@ -57,8 +57,8 @@ export function ProductPublicPage() {
           </div>
         </div>
 
-        {missingIdMessage ? (
-          <p className="text-center text-slate-600">{missingIdMessage}</p>
+        {missingLinkMessage ? (
+          <p className="text-center text-slate-600">{missingLinkMessage}</p>
         ) : loading ? (
           <p className="text-center text-slate-500">Loading…</p>
         ) : error ? (

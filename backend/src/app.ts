@@ -25,12 +25,12 @@ import {
   renewSubscription,
   startSubscription,
 } from "./services/subscription.service.js";
-import { lookupOpenFoodFactsByCode } from "./services/openfoodfacts.service.js";
 import {
   createProduct,
   getPublicBusinessMenu,
   getPublicProductById,
   listProductsForBusiness,
+  updateProduct,
 } from "./services/product.service.js";
 import {
   getBusinessNavigationMenu,
@@ -56,7 +56,11 @@ import {
 } from "./services/system-catalog.service.js";
 import { HttpError } from "./lib/http-error.js";
 import { authenticateToken, requirePlatformOwner, generateToken } from "./middleware/jwt.js";
-import { requireBusinessOwnerOrPlatform, requireEntitlement } from "./middleware/auth.js";
+import {
+  requireAnyEntitlement,
+  requireBusinessOwnerOrPlatform,
+  requireEntitlement,
+} from "./middleware/auth.js";
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
@@ -146,6 +150,21 @@ const createProductSchema = z.object({
   imageColor: z.string().optional(),
   imageEmoji: z.string().optional(),
 });
+
+const updateProductSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    category: z.string().min(1).optional(),
+    description: z.union([z.string(), z.null()]).optional(),
+    price: z.coerce.number().positive().optional(),
+    stock: z.coerce.number().int().min(0).optional(),
+    barcodeValue: z.string().optional(),
+    qrUrl: z.string().url().optional(),
+    imageUrl: z.union([z.string().url().max(2048), z.null()]).optional(),
+    imageColor: z.string().optional(),
+    imageEmoji: z.string().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, { message: "At least one field is required." });
 
 const systemServiceBodySchema = z.object({
   name: z.string().min(1),
@@ -445,34 +464,6 @@ app.patch(
 );
 
 app.get(
-  "/api/businesses/:businessId/products/openfoodfacts-lookup",
-  authenticateToken,
-  requireEntitlement("products.view"),
-  async (req, res, next) => {
-    try {
-      const { businessId } = req.params;
-      const code = typeof req.query.code === "string" ? req.query.code : "";
-
-      const membership = await prisma.businessMembership.findFirst({
-        where: {
-          userId: req.user!.id,
-          businessId: businessId as string,
-        },
-      });
-
-      if (!membership && !req.user?.isPlatformOwner) {
-        throw new HttpError(403, "Access denied to this business");
-      }
-
-      const result = await lookupOpenFoodFactsByCode(code);
-      res.json({ data: result });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-app.get(
   "/api/businesses/:businessId/products",
   authenticateToken,
   requireEntitlement("products.view"),
@@ -500,7 +491,7 @@ app.get(
 app.post(
   "/api/businesses/:businessId/products/upload-image",
   authenticateToken,
-  requireEntitlement("products.create"),
+  requireAnyEntitlement(["products.create", "products.edit"]),
   upload.single("image"),
   async (req, res, next) => {
     try {
@@ -569,6 +560,41 @@ app.post(
     res.status(201).json({
       data: formatProductResponse(product),
     });
+  },
+);
+
+app.patch(
+  "/api/businesses/:businessId/products/:productId",
+  authenticateToken,
+  requireEntitlement("products.edit"),
+  async (req, res, next) => {
+    try {
+      const { businessId, productId } = req.params;
+      const body = updateProductSchema.parse(req.body);
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: req.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const product = await updateProduct({
+        businessId: businessId as string,
+        productId: productId as string,
+        ...body,
+      });
+
+      res.json({
+        data: formatProductResponse(product),
+      });
+    } catch (e) {
+      next(e);
+    }
   },
 );
 

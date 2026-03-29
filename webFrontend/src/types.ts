@@ -111,7 +111,7 @@ export interface Product {
   barcodeType?: string
   barcodeValue?: string
   qrUrl?: string
-  /** Pack photo (e.g. from Open Food Facts) or merchant-provided https URL */
+  /** Pack or shelf photo (uploaded URL, typically https or localhost http in dev) */
   imageUrl?: string | null
   createdAt?: string
   updatedAt?: string
