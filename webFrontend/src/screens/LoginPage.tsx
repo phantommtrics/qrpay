@@ -9,8 +9,8 @@ import { useAuth } from '../features/auth/AuthContext'
 export function LoginPage() {
   const navigate = useNavigate()
   const { loginWithCredentials } = useAuth()
-  const [email, setEmail] = useState('owner@sunrise.com')
-  const [password, setPassword] = useState('demo123')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -45,10 +45,7 @@ export function LoginPage() {
           <p className="mt-4 text-sm font-semibold uppercase tracking-[0.2em] text-teal-600">
             Sign In
           </p>
-          <h1 className="mt-3 text-3xl font-bold text-slate-900">Welcome back to QRPay</h1>
-          <p className="mt-3 text-sm text-slate-500">
-            Sign in with your business or platform owner account.
-          </p>
+          <h1 className="mt-3 text-3xl font-bold text-slate-900">Welcome back to EasyPay</h1>
         </div>
 
         <motion.div
@@ -95,11 +92,6 @@ export function LoginPage() {
               {isSubmitting ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
-
-          <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
-            Sign in with a database-backed account. Platform owner seed:
-            `owner@qrpay.com / demo123`.
-          </div>
 
           <div className="mt-6 flex items-center justify-between text-sm text-slate-500">
             <Link to={APP_PATHS.root} className="hover:text-teal-600">

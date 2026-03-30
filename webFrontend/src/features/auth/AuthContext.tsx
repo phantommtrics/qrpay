@@ -890,7 +890,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         if (user.isPlatformOwner) {
-          return true
+          return roles.includes('platform_owner')
         }
 
         return roles.includes(user.role)

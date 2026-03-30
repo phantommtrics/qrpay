@@ -67,7 +67,7 @@ export function Header({
   }, [isBusinessMenuOpen])
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 lg:px-8">
+    <header className="print:hidden sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 lg:px-8">
       <div className="flex items-center">
         <button
           onClick={onMenuClick}

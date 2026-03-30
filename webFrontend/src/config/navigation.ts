@@ -37,8 +37,32 @@ export const APP_PATHS = {
   businesses: '/businesses',
   subscriptions: '/subscriptions',
   platformSystemConfiguration: '/platform/system-configuration',
+  platformBusinesses: '/platform/businesses',
+  platformBusinessDetail: '/platform/businesses/:businessId',
+  platformSubscriptions: '/platform/subscriptions',
+  platformInvoices: '/platform/invoices',
+  platformInvoiceDetail: '/platform/invoices/:invoiceId',
   customerMenu: '/menu/:businessId/:tableId',
 } as const
+
+/** Platform owner: Businesses section (after Dashboard). */
+export const PLATFORM_BUSINESSES_SUBNAV = [
+  {
+    name: 'business',
+    path: APP_PATHS.platformBusinesses,
+    title: 'Businesses',
+  },
+  {
+    name: 'Subscriptions',
+    path: APP_PATHS.platformSubscriptions,
+    title: 'Subscriptions',
+  },
+  {
+    name: 'invoices',
+    path: APP_PATHS.platformInvoices,
+    title: 'Invoices',
+  },
+] as const
 
 export type NavigationItem = {
   name: string
@@ -62,7 +86,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'POS / Checkout',
     path: APP_PATHS.pos,
     icon: ShoppingBag,
-    roles: ['platform_owner', 'admin', 'merchant', 'cashier'],
+    roles: ['admin', 'merchant', 'cashier'],
     title: 'Point of Sale',
     permission: 'pos.access',
   },
@@ -70,7 +94,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Products',
     path: APP_PATHS.products,
     icon: Package,
-    roles: ['platform_owner', 'admin', 'merchant', 'cashier'],
+    roles: ['admin', 'merchant', 'cashier'],
     title: 'Products',
     permission: 'products.view',
   },
@@ -78,7 +102,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Orders',
     path: APP_PATHS.orders,
     icon: ClipboardList,
-    roles: ['platform_owner', 'admin', 'merchant', 'cashier'],
+    roles: ['admin', 'merchant', 'cashier'],
     title: 'Orders',
     permission: 'orders.view',
   },
@@ -148,6 +172,26 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.platformSystemConfiguration)) {
     return 'System configuration'
+  }
+
+  if (pathname.includes('/platform/invoices/') && pathname !== APP_PATHS.platformInvoices) {
+    return 'Invoice'
+  }
+
+  if (pathname.includes(APP_PATHS.platformInvoices)) {
+    return 'Invoices'
+  }
+
+  if (pathname.includes(APP_PATHS.platformSubscriptions)) {
+    return 'Subscriptions'
+  }
+
+  if (pathname.includes('/platform/businesses/') && pathname !== APP_PATHS.platformBusinesses) {
+    return 'Business detail'
+  }
+
+  if (pathname.includes(APP_PATHS.platformBusinesses)) {
+    return 'Businesses'
   }
 
   if (pathname.includes(APP_PATHS.configuration)) {

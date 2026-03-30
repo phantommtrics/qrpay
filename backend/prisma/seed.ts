@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { PrismaClient, PlanCode, UserRole } from "@prisma/client";
 import { hashPassword } from "../src/utils/password.js";
 import {
@@ -152,18 +153,36 @@ async function main() {
 
   await seedSystemCatalog();
 
+  const platformOwnerEmailRaw = process.env.PLATFORM_OWNER_EMAIL?.trim().toLowerCase();
+  const platformOwnerEmail =
+    platformOwnerEmailRaw && platformOwnerEmailRaw.length > 0
+      ? platformOwnerEmailRaw
+      : "owner@phantommetrics.gm";
+
+  const platformOwnerPasswordRaw = process.env.PLATFORM_OWNER_PASSWORD;
+  const platformOwnerPassword =
+    platformOwnerPasswordRaw !== undefined && platformOwnerPasswordRaw.length > 0
+      ? platformOwnerPasswordRaw
+      : "Allah@12345";
+
+  const platformOwnerNameRaw = process.env.PLATFORM_OWNER_NAME?.trim();
+  const platformOwnerName =
+    platformOwnerNameRaw && platformOwnerNameRaw.length > 0
+      ? platformOwnerNameRaw
+      : "Platform Owner";
+
   await prisma.user.upsert({
-    where: { email: "owner@qrpay.com" },
+    where: { email: platformOwnerEmail },
     update: {
-      name: "Platform Owner",
-      passwordHash: hashPassword("demo123"),
+      name: platformOwnerName,
+      passwordHash: hashPassword(platformOwnerPassword),
       role: UserRole.PLATFORM_OWNER,
       isActive: true,
     },
     create: {
-      name: "Platform Owner",
-      email: "owner@qrpay.com",
-      passwordHash: hashPassword("demo123"),
+      name: platformOwnerName,
+      email: platformOwnerEmail,
+      passwordHash: hashPassword(platformOwnerPassword),
       role: UserRole.PLATFORM_OWNER,
       isActive: true,
     },

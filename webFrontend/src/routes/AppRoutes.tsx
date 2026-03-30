@@ -108,6 +108,31 @@ const SystemConfigurationPage = lazy(() =>
     default: module.SystemConfigurationPage,
   })),
 )
+const PlatformBusinessesPage = lazy(() =>
+  import('../screens/platform/PlatformBusinessesPage').then((module) => ({
+    default: module.PlatformBusinessesPage,
+  })),
+)
+const PlatformBusinessDetailPage = lazy(() =>
+  import('../screens/platform/PlatformBusinessDetailPage').then((module) => ({
+    default: module.PlatformBusinessDetailPage,
+  })),
+)
+const PlatformSubscriptionsPage = lazy(() =>
+  import('../screens/platform/PlatformSubscriptionsPage').then((module) => ({
+    default: module.PlatformSubscriptionsPage,
+  })),
+)
+const PlatformInvoicesPage = lazy(() =>
+  import('../screens/platform/PlatformInvoicesPage').then((module) => ({
+    default: module.PlatformInvoicesPage,
+  })),
+)
+const PlatformInvoiceDetailPage = lazy(() =>
+  import('../screens/platform/PlatformInvoiceDetailPage').then((module) => ({
+    default: module.PlatformInvoiceDetailPage,
+  })),
+)
 const BusinessConfigurationPage = lazy(() =>
   import('../screens/BusinessConfigurationPage').then((module) => ({
     default: module.BusinessConfigurationPage,
@@ -137,6 +162,36 @@ export function AppRoutes() {
       element: <DashboardPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.dashboard)!.roles,
       permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.dashboard)!.permission,
+    },
+    {
+      path: APP_PATHS.platformBusinesses,
+      element: <PlatformBusinessesPage />,
+      roles: ['platform_owner'] as UserRole[],
+      permission: 'platform.businesses.manage' as const,
+    },
+    {
+      path: APP_PATHS.platformBusinessDetail,
+      element: <PlatformBusinessDetailPage />,
+      roles: ['platform_owner'] as UserRole[],
+      permission: 'platform.businesses.manage' as const,
+    },
+    {
+      path: APP_PATHS.platformSubscriptions,
+      element: <PlatformSubscriptionsPage />,
+      roles: ['platform_owner'] as UserRole[],
+      permission: 'platform.businesses.manage' as const,
+    },
+    {
+      path: APP_PATHS.platformInvoices,
+      element: <PlatformInvoicesPage />,
+      roles: ['platform_owner'] as UserRole[],
+      permission: 'platform.businesses.manage' as const,
+    },
+    {
+      path: APP_PATHS.platformInvoiceDetail,
+      element: <PlatformInvoiceDetailPage />,
+      roles: ['platform_owner'] as UserRole[],
+      permission: 'platform.businesses.manage' as const,
     },
     {
       path: APP_PATHS.products,

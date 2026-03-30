@@ -3,7 +3,14 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BusinessMembershipStatus, PlanCode, Prisma, UserRole } from "@prisma/client";
+import {
+  BusinessMembershipStatus,
+  InvoiceStatus,
+  PlanCode,
+  Prisma,
+  SubscriptionStatus,
+  UserRole,
+} from "@prisma/client";
 import multer from "multer";
 import { z } from "zod";
 import { prisma } from "./lib/prisma.js";
@@ -54,6 +61,18 @@ import {
   updateSystemProduct,
   updateSystemService,
 } from "./services/system-catalog.service.js";
+import {
+  clampPage,
+  clampPageSize,
+  getPlatformBusinessDetail,
+  getPlatformInvoiceDetail,
+  listPlatformBusinessesPaginated,
+  listPlatformInvoices,
+  listPlatformSubscriptions,
+  parseDateFilterDayEnd,
+  parseDateFilterDayStart,
+  utcTodayIsoDate,
+} from "./services/platform-admin.service.js";
 import { HttpError } from "./lib/http-error.js";
 import { authenticateToken, requirePlatformOwner, generateToken } from "./middleware/jwt.js";
 import {
@@ -190,23 +209,277 @@ const membershipStatusPatchSchema = z.object({
   status: z.nativeEnum(BusinessMembershipStatus),
 });
 
-// Platform Owner Routes
-app.get("/api/platform/businesses", authenticateToken, requirePlatformOwner, async (req, res) => {
-  const businesses = await prisma.business.findMany({
-    include: {
-      subscriptions: {
-        include: { plan: true },
-        orderBy: { createdAt: "desc" },
-        take: 1
-      },
-      _count: {
-        select: { memberships: true }
-      }
-    }
-  });
-
-  res.json(businesses);
+const platformPaginationQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(10),
 });
+
+const platformSubscriptionsQuerySchema = z.object({
+  status: z.nativeEnum(SubscriptionStatus).optional(),
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(10),
+});
+
+const platformInvoicesQuerySchema = z.object({
+  status: z.nativeEnum(InvoiceStatus).optional(),
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(10),
+});
+
+const platformBusinessDetailQuerySchema = z.object({
+  membershipsPage: z.coerce.number().int().min(1).default(1),
+  membershipsPageSize: z.coerce.number().int().min(1).max(100).default(10),
+  subscriptionsPage: z.coerce.number().int().min(1).default(1),
+  subscriptionsPageSize: z.coerce.number().int().min(1).max(100).default(10),
+});
+
+// Platform Owner Routes
+app.get("/api/platform/businesses", authenticateToken, requirePlatformOwner, async (req, res, next) => {
+  try {
+    const query = platformPaginationQuerySchema.parse(req.query);
+    const page = clampPage(query.page);
+    const pageSize = clampPageSize(query.pageSize);
+    const { rows, total } = await listPlatformBusinessesPaginated({ page, pageSize });
+    res.json({
+      data: rows,
+      total,
+      page,
+      pageSize,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get(
+  "/api/platform/businesses/:businessId",
+  authenticateToken,
+  requirePlatformOwner,
+  async (req, res, next) => {
+    try {
+      const q = platformBusinessDetailQuerySchema.parse(req.query);
+      const business = await getPlatformBusinessDetail(req.params.businessId as string, {
+        membershipsPage: clampPage(q.membershipsPage),
+        membershipsPageSize: clampPageSize(q.membershipsPageSize),
+        subscriptionsPage: clampPage(q.subscriptionsPage),
+        subscriptionsPageSize: clampPageSize(q.subscriptionsPageSize),
+      });
+      const { subscriptions, memberships, membershipsTotal, subscriptionsTotal, ...rest } =
+        business;
+      res.json({
+        data: {
+          ...rest,
+          createdAt: rest.createdAt.toISOString(),
+          updatedAt: rest.updatedAt.toISOString(),
+          membershipsTotal,
+          subscriptionsTotal,
+          membershipsPage: clampPage(q.membershipsPage),
+          membershipsPageSize: clampPageSize(q.membershipsPageSize),
+          subscriptionsPage: clampPage(q.subscriptionsPage),
+          subscriptionsPageSize: clampPageSize(q.subscriptionsPageSize),
+          memberships: memberships.map((m) => ({
+            id: m.id,
+            userId: m.userId,
+            businessId: m.businessId,
+            isOwner: m.isOwner,
+            status: m.status,
+            createdAt: m.createdAt.toISOString(),
+            updatedAt: m.updatedAt.toISOString(),
+            user: {
+              ...m.user,
+              createdAt: m.user.createdAt.toISOString(),
+            },
+          })),
+          subscriptions: subscriptions.map((s) => formatSubscriptionResponse(s)),
+          _count: business._count,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/subscriptions",
+  authenticateToken,
+  requirePlatformOwner,
+  async (req, res, next) => {
+    try {
+      const query = platformSubscriptionsQuerySchema.parse(req.query);
+      const fromRaw = query.createdFrom?.trim();
+      const toRaw = query.createdTo?.trim();
+      let createdFrom = parseDateFilterDayStart(fromRaw);
+      let createdTo = parseDateFilterDayEnd(toRaw);
+      if (!fromRaw && !toRaw) {
+        const t = utcTodayIsoDate();
+        createdFrom = parseDateFilterDayStart(t);
+        createdTo = parseDateFilterDayEnd(t);
+      }
+      const page = clampPage(query.page);
+      const pageSize = clampPageSize(query.pageSize);
+      const { rows, total } = await listPlatformSubscriptions(
+        {
+          status: query.status,
+          createdFrom,
+          createdTo,
+        },
+        { page, pageSize },
+      );
+      res.json({
+        data: rows.map((row) => {
+          const { business, ...subWithPlan } = row;
+          const formatted = formatSubscriptionResponse(subWithPlan);
+          return {
+            ...formatted,
+            createdAt: row.createdAt.toISOString(),
+            startDate: row.startDate.toISOString(),
+            currentPeriodStart: row.currentPeriodStart.toISOString(),
+            currentPeriodEnd: row.currentPeriodEnd.toISOString(),
+            cancelledAt: row.cancelledAt?.toISOString() ?? null,
+            endedAt: row.endedAt?.toISOString() ?? null,
+            updatedAt: row.updatedAt.toISOString(),
+            business: {
+              id: business.id,
+              name: business.name,
+              slug: business.slug,
+              ownerName: business.ownerName,
+              ownerEmail: business.ownerEmail,
+            },
+          };
+        }),
+        total,
+        page,
+        pageSize,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get("/api/platform/invoices", authenticateToken, requirePlatformOwner, async (req, res, next) => {
+  try {
+    const query = platformInvoicesQuerySchema.parse(req.query);
+    const fromRaw = query.createdFrom?.trim();
+    const toRaw = query.createdTo?.trim();
+    let createdFrom = parseDateFilterDayStart(fromRaw);
+    let createdTo = parseDateFilterDayEnd(toRaw);
+    if (!fromRaw && !toRaw) {
+      const t = utcTodayIsoDate();
+      createdFrom = parseDateFilterDayStart(t);
+      createdTo = parseDateFilterDayEnd(t);
+    }
+    const page = clampPage(query.page);
+    const pageSize = clampPageSize(query.pageSize);
+    const { rows, total } = await listPlatformInvoices(
+      {
+        status: query.status,
+        createdFrom,
+        createdTo,
+      },
+      { page, pageSize },
+    );
+    res.json({
+      data: rows.map((inv) => ({
+        id: inv.id,
+        businessId: inv.businessId,
+        subscriptionId: inv.subscriptionId,
+        planId: inv.planId,
+        amount: formatMoney(inv.amount),
+        currency: inv.currency,
+        status: inv.status,
+        billingPeriodStart: inv.billingPeriodStart.toISOString(),
+        billingPeriodEnd: inv.billingPeriodEnd.toISOString(),
+        dueDate: inv.dueDate.toISOString(),
+        paidAt: inv.paidAt?.toISOString() ?? null,
+        externalReference: inv.externalReference,
+        createdAt: inv.createdAt.toISOString(),
+        updatedAt: inv.updatedAt.toISOString(),
+        business: {
+          id: inv.business.id,
+          name: inv.business.name,
+          slug: inv.business.slug,
+          ownerName: inv.business.ownerName,
+          ownerEmail: inv.business.ownerEmail,
+        },
+        plan: {
+          id: inv.plan.id,
+          code: inv.plan.code,
+          name: inv.plan.name,
+          monthlyPrice: formatMoney(inv.plan.monthlyPrice),
+          currency: inv.plan.currency,
+        },
+      })),
+      total,
+      page,
+      pageSize,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get(
+  "/api/platform/invoices/:invoiceId",
+  authenticateToken,
+  requirePlatformOwner,
+  async (req, res, next) => {
+    try {
+      const inv = await getPlatformInvoiceDetail(req.params.invoiceId as string);
+      res.json({
+        data: {
+          id: inv.id,
+          businessId: inv.businessId,
+          subscriptionId: inv.subscriptionId,
+          planId: inv.planId,
+          amount: formatMoney(inv.amount),
+          currency: inv.currency,
+          status: inv.status,
+          billingPeriodStart: inv.billingPeriodStart.toISOString(),
+          billingPeriodEnd: inv.billingPeriodEnd.toISOString(),
+          dueDate: inv.dueDate.toISOString(),
+          paidAt: inv.paidAt?.toISOString() ?? null,
+          externalReference: inv.externalReference,
+          createdAt: inv.createdAt.toISOString(),
+          updatedAt: inv.updatedAt.toISOString(),
+          business: {
+            id: inv.business.id,
+            name: inv.business.name,
+            slug: inv.business.slug,
+            industry: inv.business.industry,
+            ownerName: inv.business.ownerName,
+            ownerEmail: inv.business.ownerEmail,
+            createdAt: inv.business.createdAt.toISOString(),
+          },
+          plan: {
+            id: inv.plan.id,
+            code: inv.plan.code,
+            name: inv.plan.name,
+            description: inv.plan.description,
+            monthlyPrice: formatMoney(inv.plan.monthlyPrice),
+            currency: inv.plan.currency,
+            staffLimit: inv.plan.staffLimit,
+          },
+          subscription: {
+            id: inv.subscription.id,
+            status: inv.subscription.status,
+            startDate: inv.subscription.startDate.toISOString(),
+            currentPeriodStart: inv.subscription.currentPeriodStart.toISOString(),
+            currentPeriodEnd: inv.subscription.currentPeriodEnd.toISOString(),
+            createdAt: inv.subscription.createdAt.toISOString(),
+          },
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 app.get("/api/platform/users", authenticateToken, requirePlatformOwner, async (_req, res) => {
   const users = await prisma.user.findMany({

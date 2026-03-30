@@ -841,3 +841,231 @@ export async function updateUserPlanAccess(
   })
   return response.data
 }
+
+export type PlatformBusinessListRow = {
+  id: string
+  name: string
+  slug: string
+  industry: string | null
+  ownerName: string
+  ownerEmail: string
+  createdAt: string
+  updatedAt: string
+  _count: { memberships: number }
+  subscriptions: Array<{
+    id: string
+    status: string
+    plan: { code: string; name: string; monthlyPrice: unknown }
+  }>
+}
+
+export type PaginatedPayload<T> = {
+  data: T[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export async function fetchPlatformBusinessesList(params?: { page?: number; pageSize?: number }) {
+  const sp = new URLSearchParams()
+  sp.set('page', String(params?.page ?? 1))
+  sp.set('pageSize', String(params?.pageSize ?? 10))
+  return apiRequest<PaginatedPayload<PlatformBusinessListRow>>(
+    `/platform/businesses?${sp.toString()}`,
+  )
+}
+
+export type PlatformBusinessMemberRow = {
+  id: string
+  userId: string
+  businessId: string
+  isOwner: boolean
+  status: string
+  createdAt: string
+  updatedAt: string
+  user: {
+    id: string
+    name: string
+    email: string
+    role: string
+    isActive: boolean
+    createdAt: string
+  }
+}
+
+export type PlatformBusinessDetail = Omit<
+  PlatformBusinessListRow,
+  'subscriptions' | '_count'
+> & {
+  memberships: PlatformBusinessMemberRow[]
+  subscriptions: BackendSubscription[]
+  _count: { memberships: number; products: number }
+  membershipsTotal: number
+  subscriptionsTotal: number
+  membershipsPage: number
+  membershipsPageSize: number
+  subscriptionsPage: number
+  subscriptionsPageSize: number
+}
+
+export async function fetchPlatformBusinessDetail(
+  businessId: string,
+  params?: {
+    membershipsPage?: number
+    membershipsPageSize?: number
+    subscriptionsPage?: number
+    subscriptionsPageSize?: number
+  },
+) {
+  const sp = new URLSearchParams()
+  if (params?.membershipsPage != null) {
+    sp.set('membershipsPage', String(params.membershipsPage))
+  }
+  if (params?.membershipsPageSize != null) {
+    sp.set('membershipsPageSize', String(params.membershipsPageSize))
+  }
+  if (params?.subscriptionsPage != null) {
+    sp.set('subscriptionsPage', String(params.subscriptionsPage))
+  }
+  if (params?.subscriptionsPageSize != null) {
+    sp.set('subscriptionsPageSize', String(params.subscriptionsPageSize))
+  }
+  const q = sp.toString()
+  const response = await apiRequest<{ data: PlatformBusinessDetail }>(
+    `/platform/businesses/${businessId}${q ? `?${q}` : ''}`,
+  )
+  return response.data
+}
+
+export type BackendSubscriptionStatus =
+  | 'TRIALING'
+  | 'ACTIVE'
+  | 'PAST_DUE'
+  | 'CANCELLED'
+  | 'EXPIRED'
+
+export type PlatformSubscriptionRow = BackendSubscription & {
+  createdAt: string
+  startDate: string
+  currentPeriodStart: string
+  currentPeriodEnd: string
+  cancelledAt: string | null
+  endedAt: string | null
+  updatedAt: string
+  business: {
+    id: string
+    name: string
+    slug: string
+    ownerName: string
+    ownerEmail: string
+  }
+}
+
+export async function fetchPlatformSubscriptions(params: {
+  status?: BackendSubscriptionStatus
+  createdFrom?: string
+  createdTo?: string
+  page?: number
+  pageSize?: number
+}) {
+  const sp = new URLSearchParams()
+  if (params.status) {
+    sp.set('status', params.status)
+  }
+  if (params.createdFrom) {
+    sp.set('createdFrom', params.createdFrom)
+  }
+  if (params.createdTo) {
+    sp.set('createdTo', params.createdTo)
+  }
+  sp.set('page', String(params.page ?? 1))
+  sp.set('pageSize', String(params.pageSize ?? 10))
+  const response = await apiRequest<PaginatedPayload<PlatformSubscriptionRow>>(
+    `/platform/subscriptions?${sp.toString()}`,
+  )
+  return response
+}
+
+export type InvoiceStatus = 'PENDING' | 'PAID' | 'FAILED' | 'VOID'
+
+export type PlatformInvoiceRow = {
+  id: string
+  businessId: string
+  subscriptionId: string
+  planId: string
+  amount: string
+  currency: string
+  status: InvoiceStatus
+  billingPeriodStart: string
+  billingPeriodEnd: string
+  dueDate: string
+  paidAt: string | null
+  externalReference: string | null
+  createdAt: string
+  updatedAt: string
+  business: {
+    id: string
+    name: string
+    slug: string
+    ownerName: string
+    ownerEmail: string
+  }
+  plan: {
+    id: string
+    code: string
+    name: string
+    monthlyPrice: string
+    currency: string
+  }
+}
+
+export async function fetchPlatformInvoices(params: {
+  status?: InvoiceStatus
+  createdFrom?: string
+  createdTo?: string
+  page?: number
+  pageSize?: number
+}) {
+  const sp = new URLSearchParams()
+  if (params.status) {
+    sp.set('status', params.status)
+  }
+  if (params.createdFrom) {
+    sp.set('createdFrom', params.createdFrom)
+  }
+  if (params.createdTo) {
+    sp.set('createdTo', params.createdTo)
+  }
+  sp.set('page', String(params.page ?? 1))
+  sp.set('pageSize', String(params.pageSize ?? 10))
+  const response = await apiRequest<PaginatedPayload<PlatformInvoiceRow>>(
+    `/platform/invoices?${sp.toString()}`,
+  )
+  return response
+}
+
+export type PlatformInvoiceDetail = PlatformInvoiceRow & {
+  business: PlatformInvoiceRow['business'] & {
+    industry: string | null
+    createdAt: string
+  }
+  plan: PlatformInvoiceRow['plan'] & {
+    description: string
+    staffLimit: number
+  }
+  subscription: {
+    id: string
+    status: BackendSubscriptionStatus
+    startDate: string
+    currentPeriodStart: string
+    currentPeriodEnd: string
+    createdAt: string
+  }
+}
+
+export async function fetchPlatformInvoiceDetail(invoiceId: string) {
+  const response = await apiRequest<{ data: PlatformInvoiceDetail }>(
+    `/platform/invoices/${invoiceId}`,
+  )
+  return response.data
+}

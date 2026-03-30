@@ -104,7 +104,7 @@ npm run dev
 
 ## Seeded account
 
-- Platform owner: `owner@qrpay.com / demo123`
+- Platform owner: defaults to `owner@qrpay.com / demo123` unless you set `PLATFORM_OWNER_EMAIL`, `PLATFORM_OWNER_PASSWORD`, and optionally `PLATFORM_OWNER_NAME` in `backend/.env` before running `npx prisma db seed` (see `backend/.env.example`). After deploying with a known seed password, change it (sign in → change password, or re-seed with a new `PLATFORM_OWNER_PASSWORD`).
 
 ## Plan entitlements and staff access
 
