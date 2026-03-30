@@ -125,7 +125,8 @@ export function POSPage() {
           </div>
         </div>
 
-        <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        {/* Manual product browse — desktop / large screens only (mobile POS is scan + cart) */}
+        <div className="hidden flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:flex">
           <div className="border-b border-slate-100 p-4">
             <div className="relative">
               <Search className="absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2 text-slate-400" />
@@ -164,7 +165,7 @@ export function POSPage() {
         </div>
       </div>
 
-      <div className="flex w-full flex-col rounded-2xl border border-slate-200 bg-white shadow-sm lg:w-96">
+      <div className="flex w-full min-h-0 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm lg:max-h-none lg:w-96 lg:shrink-0">
         <div className="flex items-center justify-between border-b border-slate-100 p-4">
           <h2 className="text-lg font-bold text-slate-800">Current Order</h2>
           <span className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
