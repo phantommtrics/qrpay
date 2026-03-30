@@ -3,7 +3,6 @@ import type {
   CashAccountBalance,
   ChartOfAccountEntry,
   DashboardStats,
-  LoginAccount,
   Order,
   Organization,
   Payment,
@@ -294,57 +293,6 @@ export const MOCK_ORGANIZATIONS: Organization[] = [
     ownerName: 'Awa Camara',
     subscriptionExpiresAt: '2026-03-12T00:00:00.000Z',
     createdAt: '2025-09-10T10:00:00.000Z',
-  },
-]
-
-export const MOCK_LOGIN_ACCOUNTS: LoginAccount[] = [
-  {
-    id: 'acct-admin',
-    email: 'owner@qrpay.com',
-    password: 'demo123',
-    name: 'Platform Owner',
-    role: 'platform_owner',
-    isPlatformOwner: true,
-  },
-  {
-    id: 'acct-b1-owner',
-    email: 'owner@sunrise.com',
-    password: 'demo123',
-    name: 'Fatou Jallow',
-    role: 'merchant',
-    organizationId: 'b1',
-  },
-  {
-    id: 'acct-b1-cashier',
-    email: 'cashier@sunrise.com',
-    password: 'demo123',
-    name: 'Musa Bah',
-    role: 'cashier',
-    organizationId: 'b1',
-  },
-  {
-    id: 'acct-b2-owner',
-    email: 'owner@baobab.com',
-    password: 'demo123',
-    name: 'Bakary Sanyang',
-    role: 'merchant',
-    organizationId: 'b2',
-  },
-  {
-    id: 'acct-b2-cashier',
-    email: 'cashier@baobab.com',
-    password: 'demo123',
-    name: 'Ndey Ceesay',
-    role: 'cashier',
-    organizationId: 'b2',
-  },
-  {
-    id: 'acct-b3-owner',
-    email: 'owner@legacy.com',
-    password: 'demo123',
-    name: 'Awa Camara',
-    role: 'merchant',
-    organizationId: 'b3',
   },
 ]
 

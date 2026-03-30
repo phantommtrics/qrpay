@@ -240,8 +240,9 @@ export async function loginUser(input: LoginInput) {
     throw new HttpError(403, "This account has been disabled.");
   }
 
+  // Platform owners operate outside tenant context; do not attach memberships as "their" businesses.
   const access =
-    user.role === UserRole.ADMIN
+    user.role === UserRole.ADMIN || user.role === UserRole.PLATFORM_OWNER
       ? { businesses: [], activeBusinessId: null }
       : await listAccessibleBusinesses(user.id);
 

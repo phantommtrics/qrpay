@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Check, ChevronDown, Cog, LockKeyhole, LogOut, Plus, QrCode } from 'lucide-react'
-import { generatePath, NavLink, useNavigate } from 'react-router-dom'
+import { Building2, Check, ChevronDown, Cog, LockKeyhole, LogOut, Plus, QrCode } from 'lucide-react'
+import { generatePath, NavLink, useLocation, useNavigate } from 'react-router-dom'
 
-import { APP_PATHS, MAIN_NAV_ITEMS, RESTAURANT_NAV_ITEM } from '../config/navigation'
+import {
+  APP_PATHS,
+  MAIN_NAV_ITEMS,
+  PLATFORM_BUSINESSES_SUBNAV,
+  RESTAURANT_NAV_ITEM,
+} from '../config/navigation'
 
 /** Plan menu service ids that start expanded so nested links (e.g. Organization) are visible. */
 const DEFAULT_EXPANDED_PLAN_SERVICE_IDS = ['svc_org'] as const
@@ -11,6 +16,7 @@ import { ApiError, fetchBusinessNavigationMenu, type NavigationMenuService } fro
 import { isRetailOrWholesaleIndustry } from '../utils/businessIndustry'
 
 const BUSINESS_SECTION_STORAGE_KEY = 'qrpay.sidebar.businesses.open.v1'
+const PLATFORM_BUSINESSES_SECTION_KEY = 'qrpay.sidebar.platform-businesses.open.v1'
 
 export function Sidebar({
   isOpen,
@@ -20,6 +26,7 @@ export function Sidebar({
   setIsOpen: (open: boolean) => void
 }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [isBusinessSectionOpen, setIsBusinessSectionOpen] = useState(() => {
     if (typeof window === 'undefined') {
       return true
@@ -27,6 +34,21 @@ export function Sidebar({
 
     const stored = window.localStorage.getItem(BUSINESS_SECTION_STORAGE_KEY)
     return stored ? stored === 'true' : true
+  })
+  const [isPlatformBusinessesOpen, setIsPlatformBusinessesOpen] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true
+    }
+    const stored = window.localStorage.getItem(PLATFORM_BUSINESSES_SECTION_KEY)
+    if (stored !== null) {
+      return stored === 'true'
+    }
+    const p = window.location.hash.replace(/^#/, '') || window.location.pathname
+    return (
+      p.startsWith('/platform/businesses') ||
+      p.startsWith('/platform/subscriptions') ||
+      p.startsWith('/platform/invoices')
+    )
   })
   const {
     user,
@@ -89,12 +111,50 @@ export function Sidebar({
     )
   }, [isBusinessSectionOpen])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.localStorage.setItem(
+      PLATFORM_BUSINESSES_SECTION_KEY,
+      String(isPlatformBusinessesOpen),
+    )
+  }, [isPlatformBusinessesOpen])
+
+  useEffect(() => {
+    const p = location.pathname
+    if (
+      p.startsWith('/platform/businesses') ||
+      p.startsWith('/platform/subscriptions') ||
+      p.startsWith('/platform/invoices')
+    ) {
+      setIsPlatformBusinessesOpen(true)
+    }
+  }, [location.pathname])
+
+  function isPlatformBusinessesSubActive(path: string) {
+    const p = location.pathname
+    if (path === APP_PATHS.platformBusinesses) {
+      return p.startsWith('/platform/businesses')
+    }
+    if (path === APP_PATHS.platformSubscriptions) {
+      return p.startsWith('/platform/subscriptions')
+    }
+    if (path === APP_PATHS.platformInvoices) {
+      return p.startsWith('/platform/invoices')
+    }
+    return false
+  }
+
   if (!user) {
     return null
   }
 
   const platformNavItems = MAIN_NAV_ITEMS.filter((item) => {
-    if (!(user.isPlatformOwner || item.roles.includes(user.role))) {
+    const allowedForRole = user.isPlatformOwner
+      ? item.roles.includes('platform_owner')
+      : item.roles.includes(user.role)
+    if (!allowedForRole) {
       return false
     }
     if (!canAccess(item.permission)) {
@@ -146,7 +206,7 @@ export function Sidebar({
       ) : null}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-slate-900 text-slate-300 transition-transform duration-300 lg:static ${
+        className={`print:hidden fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-slate-900 text-slate-300 transition-transform duration-300 lg:static ${
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
@@ -222,23 +282,84 @@ export function Sidebar({
           </div>
 
           {user.isPlatformOwner ? (
-            platformNavItems.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                onClick={() => setIsOpen(false)}
-                className={({ isActive }) =>
-                  `flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors ${
-                    isActive
-                      ? 'border-teal-500 bg-teal-500/10 text-teal-400'
-                      : 'border-transparent hover:bg-slate-800 hover:text-white'
-                  }`
-                }
-              >
-                <item.icon className="mr-3 h-5 w-5" />
-                <span className="font-medium">{item.name}</span>
-              </NavLink>
-            ))
+            <>
+              {platformNavItems
+                .filter((item) => item.path === APP_PATHS.dashboard)
+                .map((item) => (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    onClick={() => setIsOpen(false)}
+                    className={({ isActive }) =>
+                      `flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors ${
+                        isActive
+                          ? 'border-teal-500 bg-teal-500/10 text-teal-400'
+                          : 'border-transparent hover:bg-slate-800 hover:text-white'
+                      }`
+                    }
+                  >
+                    <item.icon className="mr-3 h-5 w-5" />
+                    <span className="font-medium">{item.name}</span>
+                  </NavLink>
+                ))}
+              <div className="mb-1 mt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsPlatformBusinessesOpen((o) => !o)}
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
+                >
+                  <span className="flex items-center gap-2 truncate">
+                    <Building2 className="h-4 w-4 shrink-0 text-teal-500/90" />
+                    Businesses
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 transition-transform ${
+                      isPlatformBusinessesOpen ? 'rotate-0' : '-rotate-90'
+                    }`}
+                  />
+                </button>
+                {isPlatformBusinessesOpen ? (
+                  <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
+                    {PLATFORM_BUSINESSES_SUBNAV.map((item) => {
+                      const subActive = isPlatformBusinessesSubActive(item.path)
+                      return (
+                        <NavLink
+                          key={item.path}
+                          to={item.path}
+                          onClick={() => setIsOpen(false)}
+                          className={`flex items-center rounded-lg px-2 py-2 text-sm capitalize transition-colors ${
+                            subActive
+                              ? 'bg-teal-500/10 text-teal-300'
+                              : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                          }`}
+                        >
+                          <span className="font-medium">{item.name}</span>
+                        </NavLink>
+                      )
+                    })}
+                  </div>
+                ) : null}
+              </div>
+              {platformNavItems
+                .filter((item) => item.path !== APP_PATHS.dashboard)
+                .map((item) => (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    onClick={() => setIsOpen(false)}
+                    className={({ isActive }) =>
+                      `flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors ${
+                        isActive
+                          ? 'border-teal-500 bg-teal-500/10 text-teal-400'
+                          : 'border-transparent hover:bg-slate-800 hover:text-white'
+                      }`
+                    }
+                  >
+                    <item.icon className="mr-3 h-5 w-5" />
+                    <span className="font-medium">{item.name}</span>
+                  </NavLink>
+                ))}
+            </>
           ) : planMenuLoading ? (
             <p className="px-3 text-sm text-slate-500">Loading menu…</p>
           ) : usePlanMenu ? (

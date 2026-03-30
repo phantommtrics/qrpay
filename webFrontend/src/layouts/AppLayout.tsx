@@ -71,12 +71,12 @@ export function AppLayout({
   const title = useMemo(() => getPageTitle(location.pathname), [location.pathname])
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
+    <div className="flex h-screen overflow-hidden bg-slate-50 print:min-h-0 print:h-auto print:overflow-visible print:bg-white">
       <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden print:overflow-visible">
         <Header title={title} onMenuClick={() => setIsSidebarOpen(true)} />
-        <main className="flex-1 overflow-y-auto p-4 lg:p-8">
-          <div className="mx-auto h-full max-w-7xl">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-8 print:overflow-visible print:p-6">
+          <div className="mx-auto h-full max-w-7xl print:max-w-none">
             <AppMainContent>{children}</AppMainContent>
           </div>
         </main>
