@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Banknote,
@@ -18,6 +18,7 @@ import { AddProductModal } from '../components/products/AddProductModal'
 import { ProductThumb } from '../components/products/ProductThumb'
 import { CameraBarcodeScanner } from '../components/scanner/CameraBarcodeScanner'
 import { CenteredModal } from '../components/ui/CenteredModal'
+import { FlashNotice } from '../components/ui/FlashNotice'
 import { ModalOverlay } from '../components/ui/ModalOverlay'
 import { useAuth } from '../features/auth/AuthContext'
 import { useCart } from '../features/cart/useCart'
@@ -30,6 +31,8 @@ export function POSPage() {
   const [scanMessage, setScanMessage] = useState<string | null>(null)
   const [missingBarcode, setMissingBarcode] = useState<string | null>(null)
   const [addProductOpen, setAddProductOpen] = useState(false)
+  const [productFlash, setProductFlash] = useState<string | null>(null)
+  const dismissProductFlash = useCallback(() => setProductFlash(null), [])
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentStatus, setPaymentStatus] = useState<'waiting' | 'success'>(
     'waiting',
@@ -80,7 +83,8 @@ export function POSPage() {
   }
 
   return (
-    <div className="flex h-auto flex-col gap-6 lg:h-[calc(100vh-8rem)] lg:flex-row">
+    <div className="relative flex h-auto flex-col gap-6 lg:h-[calc(100vh-8rem)] lg:flex-row">
+      <FlashNotice message={productFlash} onDismiss={dismissProductFlash} />
       <div className="flex flex-1 flex-col gap-6">
         <div className="relative flex min-h-[240px] flex-col items-center justify-center overflow-hidden rounded-2xl bg-slate-900 p-6">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(20,184,166,0.25),transparent_55%)] opacity-60" />
@@ -357,9 +361,11 @@ export function POSPage() {
       {addProductOpen && currentOrganization ? (
         <AddProductModal
           businessId={currentOrganization.id}
-          initialBarcode={missingBarcode ?? undefined}
           onClose={() => setAddProductOpen(false)}
-          onCreated={() => void refreshBusinessProducts()}
+          onCreated={() => {
+            void refreshBusinessProducts()
+            setProductFlash('Product created successfully.')
+          }}
         />
       ) : null}
     </div>

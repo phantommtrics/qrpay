@@ -584,8 +584,6 @@ export async function updateBusinessProduct(
     description?: string | null
     price?: number
     stock?: number
-    barcodeValue?: string
-    qrUrl?: string
     imageUrl?: string | null
     imageColor?: string
     imageEmoji?: string

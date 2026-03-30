@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
 import Barcode from 'react-barcode'
-import { Download, Edit, Loader2, X } from 'lucide-react'
-import QRCode from 'react-qr-code'
+import { Download, Edit, ImageIcon, Loader2, X } from 'lucide-react'
 
 import { ModalOverlay } from '../ui/ModalOverlay'
 import type { Product } from '../../types'
@@ -27,8 +26,6 @@ function syncFormFromProduct(p: Product) {
     description: p.description ?? '',
     price: String(p.price),
     stock: String(p.stock),
-    barcode: (p.barcodeValue ?? '').replace(/\s/g, ''),
-    qrUrl: p.qrUrl ?? '',
     packImageUrl: p.imageUrl ?? '',
   }
 }
@@ -46,7 +43,6 @@ export function ProductDetailsModal({
   onClose: () => void
   onUpdated?: (product: Product) => void
 }) {
-  const qrHostRef = useRef<HTMLDivElement>(null)
   const barcodeHostRef = useRef<HTMLDivElement>(null)
 
   const [editing, setEditing] = useState(false)
@@ -55,8 +51,6 @@ export function ProductDetailsModal({
   const [description, setDescription] = useState(product.description ?? '')
   const [price, setPrice] = useState(String(product.price))
   const [stock, setStock] = useState(String(product.stock))
-  const [barcode, setBarcode] = useState((product.barcodeValue ?? '').replace(/\s/g, ''))
-  const [qrUrl, setQrUrl] = useState(product.qrUrl ?? '')
   const [packImageUrl, setPackImageUrl] = useState(product.imageUrl ?? '')
 
   const [saving, setSaving] = useState(false)
@@ -64,7 +58,7 @@ export function ProductDetailsModal({
   const [uploadingImage, setUploadingImage] = useState(false)
   const [imageFieldError, setImageFieldError] = useState<string | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
-  const [downloading, setDownloading] = useState<'qr' | 'barcode' | null>(null)
+  const [downloadingBarcode, setDownloadingBarcode] = useState(false)
 
   useEffect(() => {
     setEditing(false)
@@ -74,13 +68,14 @@ export function ProductDetailsModal({
     setDescription(s.description)
     setPrice(s.price)
     setStock(s.stock)
-    setBarcode(s.barcode)
-    setQrUrl(s.qrUrl)
     setPackImageUrl(s.packImageUrl)
     setSaveError(null)
     setImageFieldError(null)
     setDownloadError(null)
   }, [product])
+
+  const barcodeVal = product.barcodeValue ?? ''
+  const barcodeFormat: RetailBarcodeFormat = inferBarcodeFormat(barcodeVal || 'x')
 
   const displayProduct: Product = editing
     ? {
@@ -90,34 +85,29 @@ export function ProductDetailsModal({
         price: Number(price) || product.price,
         stock: Number.parseInt(stock, 10) || product.stock,
         description: description.trim() || undefined,
-        barcodeValue: barcode,
-        qrUrl,
         imageUrl: packImageUrl || null,
       }
     : product
 
-  const qrTarget = displayProduct.qrUrl ?? ''
-  const barcodeVal = (editing ? barcode : product.barcodeValue) ?? ''
-  const barcodeFormat: RetailBarcodeFormat = inferBarcodeFormat(barcodeVal || 'x')
-
-  const baseName = sanitizeDownloadBasename(displayProduct.name)
-
-  const handleDownloadQr = async () => {
-    setDownloadError(null)
-    if (!qrTarget) {
-      setDownloadError('No QR URL to export.')
-      return
+  const isDirty = useMemo(() => {
+    if (!editing) {
+      return false
     }
-    setDownloading('qr')
-    try {
-      const svg = qrHostRef.current?.querySelector('svg')
-      await downloadSvgAsPng(svg ?? null, `${baseName}-qr-code`)
-    } catch (e) {
-      setDownloadError(e instanceof Error ? e.message : 'Could not download QR code.')
-    } finally {
-      setDownloading(null)
-    }
-  }
+    const d0 = (product.description ?? '').trim()
+    const d1 = description.trim()
+    const img0 = product.imageUrl ?? ''
+    const img1 = packImageUrl.trim()
+    return (
+      name.trim() !== product.name ||
+      category.trim() !== product.category ||
+      d0 !== d1 ||
+      Number(price) !== product.price ||
+      Number.parseInt(stock, 10) !== product.stock ||
+      img0 !== img1
+    )
+  }, [editing, name, category, description, price, stock, packImageUrl, product])
+
+  const baseName = sanitizeDownloadBasename(product.name)
 
   const handleDownloadBarcode = async () => {
     setDownloadError(null)
@@ -125,14 +115,14 @@ export function ProductDetailsModal({
       setDownloadError('No barcode to export.')
       return
     }
-    setDownloading('barcode')
+    setDownloadingBarcode(true)
     try {
       const svg = barcodeHostRef.current?.querySelector('svg')
       await downloadSvgAsPng(svg ?? null, `${baseName}-barcode`)
     } catch (e) {
       setDownloadError(e instanceof Error ? e.message : 'Could not download barcode.')
     } finally {
-      setDownloading(null)
+      setDownloadingBarcode(false)
     }
   }
 
@@ -174,6 +164,10 @@ export function ProductDetailsModal({
     event.preventDefault()
     setSaveError(null)
 
+    if (!isDirty) {
+      return
+    }
+
     const priceNum = Number(price)
     const stockNum = Number.parseInt(stock, 10)
 
@@ -189,26 +183,6 @@ export function ProductDetailsModal({
       setSaveError('Stock must be zero or a positive whole number.')
       return
     }
-    const b = barcode.replace(/\s/g, '')
-    if (!/^[A-Za-z0-9]{4,48}$/.test(b)) {
-      setSaveError('Barcode must be 4–48 letters or digits.')
-      return
-    }
-    const q = qrUrl.trim()
-    if (!q) {
-      setSaveError('QR URL is required.')
-      return
-    }
-    try {
-      const parsed = new URL(q)
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        setSaveError('QR URL must use http:// or https://')
-        return
-      }
-    } catch {
-      setSaveError('QR URL must be a valid URL.')
-      return
-    }
 
     setSaving(true)
     try {
@@ -218,8 +192,6 @@ export function ProductDetailsModal({
         description: description.trim() ? description.trim() : null,
         price: priceNum,
         stock: stockNum,
-        barcodeValue: b,
-        qrUrl: q,
         imageUrl: packImageUrl.trim() ? packImageUrl.trim() : null,
       })
       onUpdated?.(updated)
@@ -244,8 +216,6 @@ export function ProductDetailsModal({
     setDescription(s.description)
     setPrice(s.price)
     setStock(s.stock)
-    setBarcode(s.barcode)
-    setQrUrl(s.qrUrl)
     setPackImageUrl(s.packImageUrl)
     setSaveError(null)
     setImageFieldError(null)
@@ -301,12 +271,6 @@ export function ProductDetailsModal({
                     <span className="font-mono text-sm text-slate-800">{product.barcodeValue}</span>
                   </div>
                 ) : null}
-                {product.qrUrl ? (
-                  <div className="border-b border-slate-100 py-3">
-                    <span className="text-slate-500">QR URL</span>
-                    <p className="mt-1 break-all font-mono text-xs text-teal-700">{product.qrUrl}</p>
-                  </div>
-                ) : null}
               </div>
 
               {canEdit ? (
@@ -327,6 +291,10 @@ export function ProductDetailsModal({
           ) : (
             <form className="flex flex-1 flex-col" onSubmit={handleSave}>
               <h2 className="mb-4 text-lg font-bold text-slate-800">Edit product</h2>
+              <p className="mb-3 text-xs text-slate-500">
+                Barcode and product link are fixed after creation. Update name, pricing, stock, or photo
+                below.
+              </p>
 
               <div className="space-y-3">
                 <label className="block">
@@ -378,66 +346,80 @@ export function ProductDetailsModal({
                     />
                   </label>
                 </div>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-slate-600">Barcode</span>
-                  <input
-                    value={barcode}
-                    onChange={(e) => setBarcode(e.target.value.replace(/\s/g, ''))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm outline-none focus:border-teal-500"
-                    aria-label="Product barcode"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-slate-600">QR URL</span>
-                  <input
-                    value={qrUrl}
-                    onChange={(e) => setQrUrl(e.target.value)}
-                    placeholder="https://…"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs outline-none focus:border-teal-500"
-                    aria-label="QR code URL"
-                  />
-                </label>
 
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div>
                   <span className="mb-2 block text-xs font-medium text-slate-600">Photo</span>
-                  <div className="flex flex-wrap gap-2">
-                    <label className="cursor-pointer rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-teal-700 ring-1 ring-slate-200 hover:bg-teal-50">
-                      {uploadingImage ? 'Uploading…' : 'Replace image'}
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp,image/gif"
-                        className="hidden"
-                        disabled={uploadingImage}
-                        aria-label="Replace product image"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0]
-                          e.currentTarget.value = ''
-                          if (file) {
-                            void processImageFile(file)
-                          }
-                        }}
-                      />
-                    </label>
+                  <div
+                    className={`relative flex h-48 w-full max-w-md items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100 ${
+                      uploadingImage ? 'opacity-70' : ''
+                    }`}
+                  >
                     {packImageUrl ? (
-                      <button
-                        type="button"
-                        onClick={() => setPackImageUrl('')}
-                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
-                      >
-                        Remove photo
-                      </button>
-                    ) : null}
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPackImageUrl('')
+                            setImageFieldError(null)
+                          }}
+                          className="absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-900/70 text-white shadow-md hover:bg-slate-900"
+                          aria-label="Remove image"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                        <img
+                          src={packImageUrl}
+                          alt=""
+                          className="max-h-full max-w-full object-contain p-3"
+                          referrerPolicy="no-referrer"
+                        />
+                      </>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
+                        <ImageIcon className="h-8 w-8 text-slate-400" />
+                        <p className="text-xs text-slate-600">Take a photo or upload</p>
+                        <div className="flex flex-wrap justify-center gap-2">
+                          <label className="cursor-pointer rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-teal-700 shadow-sm ring-1 ring-slate-200 hover:bg-teal-50">
+                            {uploadingImage ? 'Uploading…' : 'Upload'}
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp,image/gif"
+                              className="hidden"
+                              disabled={uploadingImage}
+                              aria-label="Upload product image"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                e.currentTarget.value = ''
+                                if (file) {
+                                  void processImageFile(file)
+                                }
+                              }}
+                            />
+                          </label>
+                          <label className="cursor-pointer rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
+                            Camera
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp,image/gif"
+                              capture="environment"
+                              className="hidden"
+                              disabled={uploadingImage}
+                              aria-label="Take product photo"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                e.currentTarget.value = ''
+                                if (file) {
+                                  void processImageFile(file)
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   {imageFieldError ? (
                     <p className="mt-2 text-xs text-red-600">{imageFieldError}</p>
-                  ) : null}
-                  {packImageUrl ? (
-                    <img
-                      src={packImageUrl}
-                      alt=""
-                      className="mt-2 h-20 w-20 rounded-md border border-slate-200 object-contain"
-                      referrerPolicy="no-referrer"
-                    />
                   ) : null}
                 </div>
               </div>
@@ -457,8 +439,8 @@ export function ProductDetailsModal({
                 </button>
                 <button
                   type="submit"
-                  disabled={saving || uploadingImage}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-teal-600 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+                  disabled={!isDirty || saving || uploadingImage}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-teal-600 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:opacity-80"
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   {saving ? 'Saving…' : 'Save changes'}
@@ -469,20 +451,7 @@ export function ProductDetailsModal({
         </div>
 
         <div className="flex w-full flex-col items-center justify-center bg-slate-50 p-6 text-center md:w-[min(100%,22rem)] md:shrink-0">
-          <h3 className="mb-4 font-semibold text-slate-800">Scan codes</h3>
-
-          {qrTarget ? (
-            <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div ref={qrHostRef} className="inline-block">
-                <QRCode value={qrTarget} size={160} />
-              </div>
-              <p className="mt-2 text-xs text-slate-500">Opens URL when scanned</p>
-            </div>
-          ) : (
-            <div className="mb-4 rounded-xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
-              No QR URL
-            </div>
-          )}
+          <h3 className="mb-4 font-semibold text-slate-800">Barcode</h3>
 
           {barcodeVal ? (
             <div
@@ -505,34 +474,19 @@ export function ProductDetailsModal({
             <p className="mt-3 max-w-xs text-xs text-red-600">{downloadError}</p>
           ) : null}
 
-          <div className="mt-6 flex w-full max-w-xs flex-col gap-2">
-            <button
-              type="button"
-              disabled={!qrTarget || downloading !== null}
-              onClick={() => void handleDownloadQr()}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {downloading === 'qr' ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4" />
-              )}
-              Download QR (PNG)
-            </button>
-            <button
-              type="button"
-              disabled={!barcodeVal || downloading !== null}
-              onClick={() => void handleDownloadBarcode()}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {downloading === 'barcode' ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4" />
-              )}
-              Download barcode (PNG)
-            </button>
-          </div>
+          <button
+            type="button"
+            disabled={!barcodeVal || downloadingBarcode}
+            onClick={() => void handleDownloadBarcode()}
+            className="mt-6 flex w-full max-w-xs items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {downloadingBarcode ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            Download barcode (PNG)
+          </button>
         </div>
       </motion.div>
     </div>

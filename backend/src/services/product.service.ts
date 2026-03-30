@@ -202,8 +202,6 @@ export type UpdateProductInput = {
   description?: string | null;
   price?: number;
   stock?: number;
-  barcodeValue?: string;
-  qrUrl?: string;
   imageUrl?: string | null;
   imageColor?: string | null;
   imageEmoji?: string | null;
@@ -224,46 +222,6 @@ export async function updateProduct(input: UpdateProductInput) {
       403,
       "Products are only available for Retail or Wholesale businesses in this phase.",
     );
-  }
-
-  if (input.barcodeValue !== undefined) {
-    const trimmed = input.barcodeValue.trim();
-    if (!/^[A-Za-z0-9]{4,48}$/.test(trimmed)) {
-      throw new HttpError(400, "Barcode must be 4–48 alphanumeric characters (A–Z, a–z, 0–9).");
-    }
-    if (trimmed !== product.barcodeValue) {
-      const clash = await prisma.product.findFirst({
-        where: {
-          businessId: input.businessId,
-          barcodeValue: trimmed,
-          NOT: { id: product.id },
-        },
-        select: { id: true },
-      });
-      if (clash) {
-        throw new HttpError(409, "This barcode is already used for another product in this business.");
-      }
-    }
-  }
-
-  if (input.qrUrl !== undefined) {
-    const q = input.qrUrl.trim();
-    if (!/^https?:\/\//i.test(q)) {
-      throw new HttpError(400, "QR URL must start with http:// or https://");
-    }
-    if (q !== product.qrUrl) {
-      const clash = await prisma.product.findFirst({
-        where: {
-          businessId: input.businessId,
-          qrUrl: q,
-          NOT: { id: product.id },
-        },
-        select: { id: true },
-      });
-      if (clash) {
-        throw new HttpError(409, "This QR URL is already used for another product in this business.");
-      }
-    }
   }
 
   let nextImageUrl: string | null | undefined;
@@ -291,14 +249,6 @@ export async function updateProduct(input: UpdateProductInput) {
   }
   if (input.stock !== undefined) {
     data.stock = input.stock;
-  }
-  if (input.barcodeValue !== undefined) {
-    const trimmed = input.barcodeValue.trim();
-    data.barcodeValue = trimmed;
-    data.barcodeType = inferBarcodeType(trimmed);
-  }
-  if (input.qrUrl !== undefined) {
-    data.qrUrl = input.qrUrl.trim();
   }
   if (input.imageUrl !== undefined) {
     data.imageUrl = nextImageUrl ?? null;

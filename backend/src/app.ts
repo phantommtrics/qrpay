@@ -158,8 +158,6 @@ const updateProductSchema = z
     description: z.union([z.string(), z.null()]).optional(),
     price: z.coerce.number().positive().optional(),
     stock: z.coerce.number().int().min(0).optional(),
-    barcodeValue: z.string().optional(),
-    qrUrl: z.string().url().optional(),
     imageUrl: z.union([z.string().url().max(2048), z.null()]).optional(),
     imageColor: z.string().optional(),
     imageEmoji: z.string().optional(),

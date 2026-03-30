@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Filter, Plus, Search } from 'lucide-react'
 
 import { AddProductModal } from '../components/products/AddProductModal'
 import { ProductDetailsModal } from '../components/products/ProductDetailsModal'
 import { ProductThumb } from '../components/products/ProductThumb'
+import { FlashNotice } from '../components/ui/FlashNotice'
 import { PageTransition } from '../components/ui/PageTransition'
 import { useAuth } from '../features/auth/AuthContext'
 import type { Product } from '../types'
@@ -23,6 +24,9 @@ export function ProductsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [flashMessage, setFlashMessage] = useState<string | null>(null)
+
+  const dismissFlash = useCallback(() => setFlashMessage(null), [])
 
   const businessId = currentOrganization?.id
   const industryAllowed = isRetailOrWholesaleIndustry(currentOrganization?.industry)
@@ -44,9 +48,10 @@ export function ProductsPage() {
 
   return (
     <PageTransition className="space-y-6">
+      <FlashNotice message={flashMessage} onDismiss={dismissFlash} />
       {showIndustryGate ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Product catalog with barcodes and QR is enabled for <strong>Retail</strong> and{' '}
+          Product catalog with barcodes is enabled for <strong>Retail</strong> and{' '}
           <strong>Wholesale</strong> businesses in phase 1. Your organization industry is “
           {currentOrganization?.industry ?? '—'}”. Update the business industry or register a
           retail/wholesale business to use this feature.
@@ -96,7 +101,7 @@ export function ProductsPage() {
 
       {!loading && filteredProducts.length === 0 && !loadError && industryAllowed && businessId ? (
         <p className="text-center text-sm text-slate-500">
-          No products yet. Add one to generate a barcode and product URL QR code.
+          No products yet. Add one to set a barcode and product details.
         </p>
       ) : null}
 
@@ -145,6 +150,7 @@ export function ProductsPage() {
             onUpdated={(updated) => {
               setSelectedProduct(updated)
               void refreshBusinessProducts()
+              setFlashMessage('Product updated successfully.')
             }}
           />
         ) : null}
@@ -154,7 +160,10 @@ export function ProductsPage() {
         <AddProductModal
           businessId={businessId}
           onClose={() => setAddOpen(false)}
-          onCreated={() => void refreshBusinessProducts()}
+          onCreated={() => {
+            void refreshBusinessProducts()
+            setFlashMessage('Product created successfully.')
+          }}
         />
       ) : null}
     </PageTransition>
