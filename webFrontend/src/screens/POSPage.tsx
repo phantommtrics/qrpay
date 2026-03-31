@@ -1,18 +1,19 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Banknote,
   CheckCircle2,
   CreditCard,
   ExternalLink,
+  Loader2,
   Minus,
   Plus,
-  QrCode,
   ScanLine,
   Search,
   ShoppingCart,
   Trash2,
 } from 'lucide-react'
+import QRCode from 'react-qr-code'
 
 import { AddProductModal } from '../components/products/AddProductModal'
 import { ProductThumb } from '../components/products/ProductThumb'
@@ -22,6 +23,14 @@ import { FlashNotice } from '../components/ui/FlashNotice'
 import { ModalOverlay } from '../components/ui/ModalOverlay'
 import { useAuth } from '../features/auth/AuthContext'
 import { useCart } from '../features/cart/useCart'
+import {
+  confirmCashPayment,
+  createSaleOrder,
+  fetchSaleOrder,
+  simulateWalletPayment,
+  startWalletCheckout,
+} from '../services/salesApi'
+import { ApiError } from '../services/subscriptionApi'
 import { formatMoney } from '../utils/formatMoney'
 
 export function POSPage() {
@@ -34,9 +43,13 @@ export function POSPage() {
   const [productFlash, setProductFlash] = useState<string | null>(null)
   const dismissProductFlash = useCallback(() => setProductFlash(null), [])
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
-  const [paymentStatus, setPaymentStatus] = useState<'waiting' | 'success'>(
-    'waiting',
-  )
+  const [paymentStatus, setPaymentStatus] = useState<'waiting' | 'success'>('waiting')
+  const [checkoutOrderId, setCheckoutOrderId] = useState<string | null>(null)
+  const [checkoutTotal, setCheckoutTotal] = useState(0)
+  const [qrPayload, setQrPayload] = useState<string | null>(null)
+  const [walletLoading, setWalletLoading] = useState(false)
+  const [checkoutError, setCheckoutError] = useState<string | null>(null)
+  const [receiptLabel, setReceiptLabel] = useState<string | null>(null)
   const {
     cart,
     total: subtotal,
@@ -74,12 +87,142 @@ export function POSPage() {
     setScanMessage(`${matched.name} added to cart.`)
   }
 
-  const simulatePaymentSuccess = () => {
-    setPaymentStatus('success')
-    window.setTimeout(() => {
+  const resetCheckoutUi = useCallback(() => {
+    setCheckoutOrderId(null)
+    setQrPayload(null)
+    setCheckoutError(null)
+    setWalletLoading(false)
+    setReceiptLabel(null)
+    setPaymentStatus('waiting')
+  }, [])
+
+  const closePaymentModal = useCallback(() => {
+    setPaymentModalOpen(false)
+    resetCheckoutUi()
+  }, [resetCheckoutUi])
+
+  const handleCharge = async () => {
+    if (!currentOrganization || cart.length === 0) return
+    setCheckoutError(null)
+    setReceiptLabel(null)
+    setPaymentStatus('waiting')
+    setQrPayload(null)
+    setCheckoutOrderId(null)
+    setPaymentModalOpen(true)
+    setWalletLoading(true)
+    try {
+      const lines = cart.map((item) => ({
+        productId: item.product.id,
+        quantity: item.quantity,
+      }))
+      const order = await createSaleOrder(currentOrganization.id, lines)
+      setCheckoutOrderId(order.id)
+      setCheckoutTotal(order.total)
+    } catch (e) {
+      setCheckoutError(e instanceof ApiError ? e.message : 'Could not create order.')
       setPaymentModalOpen(false)
+    } finally {
+      setWalletLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (
+      !paymentModalOpen ||
+      !checkoutOrderId ||
+      !currentOrganization ||
+      paymentStatus !== 'waiting'
+    ) {
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const { qrPayload: url } = await startWalletCheckout(
+          currentOrganization.id,
+          checkoutOrderId,
+        )
+        if (!cancelled) {
+          setQrPayload(url)
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setCheckoutError(e instanceof ApiError ? e.message : 'Could not start wallet checkout.')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [paymentModalOpen, checkoutOrderId, currentOrganization, paymentStatus])
+
+  useEffect(() => {
+    if (
+      !paymentModalOpen ||
+      !checkoutOrderId ||
+      !currentOrganization ||
+      paymentStatus !== 'waiting' ||
+      !qrPayload
+    ) {
+      return
+    }
+    const interval = window.setInterval(() => {
+      void (async () => {
+        try {
+          const order = await fetchSaleOrder(currentOrganization.id, checkoutOrderId)
+          if (order.status === 'paid') {
+            setReceiptLabel(
+              order.receipt
+                ? `Receipt #${order.receipt.receiptNumber}`
+                : 'Paid',
+            )
+            setPaymentStatus('success')
+            clearCart()
+          }
+        } catch {
+          /* ignore transient poll errors */
+        }
+      })()
+    }, 2000)
+    return () => window.clearInterval(interval)
+  }, [
+    paymentModalOpen,
+    checkoutOrderId,
+    currentOrganization,
+    paymentStatus,
+    qrPayload,
+    clearCart,
+  ])
+
+  const handleCashPay = async () => {
+    if (!currentOrganization || !checkoutOrderId) return
+    setCheckoutError(null)
+    try {
+      const result = await confirmCashPayment(currentOrganization.id, checkoutOrderId)
+      setReceiptLabel(`Receipt #${result.receipt.receiptNumber}`)
+      setPaymentStatus('success')
       clearCart()
-    }, 1800)
+    } catch (e) {
+      setCheckoutError(e instanceof ApiError ? e.message : 'Cash payment failed.')
+    }
+  }
+
+  const handleSimulateWallet = async () => {
+    if (!currentOrganization || !checkoutOrderId) return
+    setCheckoutError(null)
+    try {
+      await simulateWalletPayment(currentOrganization.id, checkoutOrderId)
+      const order = await fetchSaleOrder(currentOrganization.id, checkoutOrderId)
+      if (order.status === 'paid') {
+        setReceiptLabel(
+          order.receipt ? `Receipt #${order.receipt.receiptNumber}` : 'Paid',
+        )
+        setPaymentStatus('success')
+        clearCart()
+      }
+    } catch (e) {
+      setCheckoutError(e instanceof ApiError ? e.message : 'Could not complete wallet payment.')
+    }
   }
 
   return (
@@ -105,8 +248,9 @@ export function POSPage() {
               )}
             </div>
             <button
+              type="button"
               onClick={() => setScannerOpen(true)}
-              disabled={scannerOpen}
+              disabled={scannerOpen || paymentModalOpen}
               className="rounded-full bg-teal-600 px-6 py-2 font-medium text-white shadow-lg shadow-teal-900/50 transition-colors hover:bg-teal-500 disabled:opacity-70"
             >
               {scannerOpen ? 'Scanning...' : 'Scan barcode'}
@@ -148,8 +292,10 @@ export function POSPage() {
                 .map((product) => (
                   <button
                     key={product.id}
+                    type="button"
+                    disabled={paymentModalOpen}
                     onClick={() => addToCart(product)}
-                    className="flex flex-col items-center rounded-xl border border-slate-100 p-3 text-center transition-all hover:border-teal-500 hover:bg-teal-50"
+                    className="flex flex-col items-center rounded-xl border border-slate-100 p-3 text-center transition-all hover:border-teal-500 hover:bg-teal-50 disabled:opacity-50"
                   >
                     <ProductThumb product={product} size="sm" className="mb-2 rounded-full" />
                     <span className="line-clamp-1 w-full text-sm font-medium text-slate-700">
@@ -205,6 +351,8 @@ export function POSPage() {
                   <div className="flex items-center gap-3">
                     <div className="flex items-center rounded-lg border border-slate-200 bg-white">
                       <button
+                        type="button"
+                        disabled={paymentModalOpen}
                         onClick={() => updateQuantity(item.product.id, -1)}
                         aria-label={`Decrease quantity for ${item.product.name}`}
                         className="p-1.5 text-slate-500 hover:text-teal-600"
@@ -215,6 +363,8 @@ export function POSPage() {
                         {item.quantity}
                       </span>
                       <button
+                        type="button"
+                        disabled={paymentModalOpen}
                         onClick={() => updateQuantity(item.product.id, 1)}
                         aria-label={`Increase quantity for ${item.product.name}`}
                         className="p-1.5 text-slate-500 hover:text-teal-600"
@@ -223,6 +373,8 @@ export function POSPage() {
                       </button>
                     </div>
                     <button
+                      type="button"
+                      disabled={paymentModalOpen}
                       onClick={() => removeFromCart(item.product.id)}
                       aria-label={`Remove ${item.product.name} from cart`}
                       className="rounded-lg p-2 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600"
@@ -254,19 +406,17 @@ export function POSPage() {
 
           <div className="flex gap-3">
             <button
+              type="button"
               onClick={clearCart}
-              disabled={cart.length === 0}
+              disabled={cart.length === 0 || paymentModalOpen}
               className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50"
             >
               Clear
             </button>
             <button
-              onClick={() => {
-                if (cart.length === 0) return
-                setPaymentStatus('waiting')
-                setPaymentModalOpen(true)
-              }}
-              disabled={cart.length === 0}
+              type="button"
+              onClick={() => void handleCharge()}
+              disabled={cart.length === 0 || paymentModalOpen}
               className="flex flex-1 items-center justify-center rounded-xl bg-teal-600 py-3 text-lg font-bold text-white transition-colors hover:bg-teal-700 disabled:opacity-50"
             >
               Charge {formatMoney(subtotal)}
@@ -282,45 +432,67 @@ export function POSPage() {
               className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
               onClick={() => {
                 if (paymentStatus === 'waiting') {
-                  setPaymentModalOpen(false)
+                  closePaymentModal()
                 }
               }}
             />
             <CenteredModal className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
               {paymentStatus === 'waiting' ? (
                 <div className="flex flex-col items-center p-8 text-center">
-                  <h2 className="mb-2 text-2xl font-bold text-slate-800">
-                    Scan to Pay
-                  </h2>
-                  <p className="mb-6 text-slate-500">
-                    Customer scans this QR with their wallet app
+                  <h2 className="mb-2 text-2xl font-bold text-slate-800">Scan to Pay</h2>
+                  <p className="mb-4 text-slate-500">
+                    Customer opens the link in the QR (simulator wallet). Or use Cash / Simulate below.
                   </p>
-                  <div className="relative mb-6 rounded-2xl border-2 border-slate-100 bg-white p-4 shadow-inner">
-                    <QrCode className="h-48 w-48 text-slate-800" />
-                    <div className="absolute inset-0 animate-pulse bg-gradient-to-b from-transparent to-white/20" />
-                  </div>
-                  <div className="mb-6 w-full rounded-xl bg-slate-50 p-4">
+                  {walletLoading || !checkoutOrderId ? (
+                    <div className="mb-6 flex h-52 flex-col items-center justify-center gap-2">
+                      <Loader2 className="h-10 w-10 animate-spin text-teal-600" />
+                      <span className="text-sm text-slate-500">Creating order…</span>
+                    </div>
+                  ) : (
+                    <div className="relative mb-6 rounded-2xl border-2 border-slate-100 bg-white p-4 shadow-inner">
+                      {qrPayload ? (
+                        <div className="bg-white p-2">
+                          <QRCode value={qrPayload} size={192} level="M" />
+                        </div>
+                      ) : (
+                        <div className="flex h-48 w-48 items-center justify-center text-slate-400">
+                          <Loader2 className="h-10 w-10 animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="mb-4 w-full rounded-xl bg-slate-50 p-4">
                     <p className="mb-1 text-sm text-slate-500">Amount Due</p>
                     <p className="text-3xl font-bold text-teal-600">
-                      {formatMoney(subtotal)}
+                      {formatMoney(checkoutOrderId ? checkoutTotal : subtotal)}
                     </p>
                   </div>
+                  {checkoutError ? (
+                    <p className="mb-4 w-full text-sm text-red-600">{checkoutError}</p>
+                  ) : null}
                   <div className="flex w-full gap-3">
                     <button
-                      onClick={simulatePaymentSuccess}
-                      className="flex flex-1 items-center justify-center rounded-xl bg-slate-900 py-3 font-medium text-white transition-colors hover:bg-slate-800"
+                      type="button"
+                      disabled={!checkoutOrderId || walletLoading}
+                      onClick={() => void handleSimulateWallet()}
+                      className="flex flex-1 items-center justify-center rounded-xl bg-slate-900 py-3 font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
                     >
                       <CreditCard className="mr-2 h-5 w-5" />
                       Simulate Wallet
                     </button>
                     <button
-                      onClick={simulatePaymentSuccess}
-                      className="flex flex-1 items-center justify-center rounded-xl border-2 border-slate-200 bg-white py-3 font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                      type="button"
+                      disabled={!checkoutOrderId || walletLoading}
+                      onClick={() => void handleCashPay()}
+                      className="flex flex-1 items-center justify-center rounded-xl border-2 border-slate-200 bg-white py-3 font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
                     >
                       <Banknote className="mr-2 h-5 w-5" />
                       Cash
                     </button>
                   </div>
+                  <p className="mt-4 text-xs text-slate-400">
+                    Provider: simulator · Payload encodes the customer pay URL for this attempt.
+                  </p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center bg-emerald-50 p-10 text-center">
@@ -332,17 +504,18 @@ export function POSPage() {
                   >
                     <CheckCircle2 className="h-10 w-10" />
                   </motion.div>
-                  <h2 className="mb-2 text-2xl font-bold text-emerald-800">
-                    Payment Successful!
-                  </h2>
-                  <p className="mb-8 font-medium text-emerald-600">
-                    {formatMoney(subtotal)} received
+                  <h2 className="mb-2 text-2xl font-bold text-emerald-800">Payment Successful!</h2>
+                  <p className="mb-2 font-medium text-emerald-600">
+                    {formatMoney(checkoutTotal)} received
                   </p>
+                  {receiptLabel ? (
+                    <p className="mb-8 text-sm text-emerald-700">{receiptLabel}</p>
+                  ) : (
+                    <p className="mb-8 text-sm text-emerald-700">Recorded</p>
+                  )}
                   <button
-                    onClick={() => {
-                      setPaymentModalOpen(false)
-                      clearCart()
-                    }}
+                    type="button"
+                    onClick={() => closePaymentModal()}
                     className="w-full rounded-xl bg-emerald-600 py-3 font-bold text-white transition-colors hover:bg-emerald-700"
                   >
                     New Order

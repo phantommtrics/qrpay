@@ -34,25 +34,26 @@ export function PlatformInvoiceDetailPage() {
       return
     }
     let cancelled = false
-    setLoading(true)
-    setError(null)
-    fetchPlatformInvoiceDetail(invoiceId)
-      .then((data) => {
+    void (async () => {
+      await Promise.resolve()
+      setLoading(true)
+      setError(null)
+      try {
+        const data = await fetchPlatformInvoiceDetail(invoiceId)
         if (!cancelled) {
           setInv(data)
         }
-      })
-      .catch((e) => {
+      } catch (e) {
         if (!cancelled) {
           setInv(null)
           setError(e instanceof ApiError ? e.message : 'Could not load invoice.')
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) {
           setLoading(false)
         }
-      })
+      }
+    })()
     return () => {
       cancelled = true
     }

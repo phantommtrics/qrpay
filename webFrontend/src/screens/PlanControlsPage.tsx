@@ -26,29 +26,29 @@ export function PlanControlsPage() {
     }
 
     let cancelled = false
-    setLoading(true)
-    setError(null)
-
-    Promise.all(
-      BACKEND_PLAN_CODES.map((code) =>
-        fetchPlanEntitlements(code).then((data) => [code, data] as const),
-      ),
-    )
-      .then((rows) => {
+    void (async () => {
+      await Promise.resolve()
+      setLoading(true)
+      setError(null)
+      try {
+        const rows = await Promise.all(
+          BACKEND_PLAN_CODES.map((code) =>
+            fetchPlanEntitlements(code).then((data) => [code, data] as const),
+          ),
+        )
         if (!cancelled) {
           setSnapshots(Object.fromEntries(rows))
         }
-      })
-      .catch((e) => {
+      } catch (e) {
         if (!cancelled) {
           setError(e instanceof ApiError ? e.message : 'Could not load plan entitlements.')
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) {
           setLoading(false)
         }
-      })
+      }
+    })()
 
     return () => {
       cancelled = true

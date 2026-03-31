@@ -44,14 +44,14 @@ export function StaffPage() {
     cashier: 'Cashier',
   }
 
-  if (user && !user.isPlatformOwner && !currentOrganization?.isOwner) {
-    return <Navigate to={APP_PATHS.dashboard} replace />
-  }
-
   const ownerSummary = useMemo(
     () => organizationMembers.find((member) => member.role === 'merchant'),
     [organizationMembers],
   )
+
+  if (user && !user.isPlatformOwner && !currentOrganization?.isOwner) {
+    return <Navigate to={APP_PATHS.dashboard} replace />
+  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()

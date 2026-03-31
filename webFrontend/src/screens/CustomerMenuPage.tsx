@@ -35,31 +35,30 @@ export function CustomerMenuPage() {
 
   const [menuItems, setMenuItems] = useState<Product[]>([])
   const [businessName, setBusinessName] = useState('')
-  const [menuLoading, setMenuLoading] = useState(true)
+  const [menuLoading, setMenuLoading] = useState(false)
   const [menuError, setMenuError] = useState<string | null>(null)
 
+  const missingBusinessId = !businessId
+  const displayMenuLoading = missingBusinessId ? false : menuLoading
+  const displayMenuError = missingBusinessId
+    ? 'This menu link is missing a business ID.'
+    : menuError
+  const displayMenuItems = missingBusinessId ? [] : menuItems
+
   useEffect(() => {
-    if (!businessId) {
-      setMenuItems([])
-      setBusinessName('')
-      setMenuError('This menu link is missing a business ID.')
-      setMenuLoading(false)
-      return
-    }
-
+    if (!businessId) return
     let cancelled = false
-
-    setMenuLoading(true)
-    setMenuError(null)
-
-    fetchPublicBusinessMenu(businessId)
-      .then(({ business, products }) => {
+    void (async () => {
+      await Promise.resolve()
+      setMenuLoading(true)
+      setMenuError(null)
+      try {
+        const { business, products } = await fetchPublicBusinessMenu(businessId)
         if (!cancelled) {
           setBusinessName(business.name)
           setMenuItems(products)
         }
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!cancelled) {
           setMenuItems([])
           setBusinessName('')
@@ -67,24 +66,24 @@ export function CustomerMenuPage() {
             error instanceof ApiError ? error.message : 'Could not load this menu.',
           )
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) {
           setMenuLoading(false)
         }
-      })
-
+      }
+    })()
     return () => {
       cancelled = true
     }
   }, [businessId])
-  const categories = ['All', ...new Set(menuItems.map((item) => item.category))]
+
+  const categories = ['All', ...new Set(displayMenuItems.map((item) => item.category))]
   const filteredItems =
     activeCategory === 'All'
-      ? menuItems
-      : menuItems.filter((item) => item.category === activeCategory)
+      ? displayMenuItems
+      : displayMenuItems.filter((item) => item.category === activeCategory)
 
-  if (menuLoading) {
+  if (displayMenuLoading) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6 text-slate-600">
         Loading menu…
@@ -92,10 +91,10 @@ export function CustomerMenuPage() {
     )
   }
 
-  if (menuError) {
+  if (displayMenuError) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6 text-center">
-        <p className="max-w-md text-slate-700">{menuError}</p>
+        <p className="max-w-md text-slate-700">{displayMenuError}</p>
         <p className="mt-2 text-sm text-slate-500">
           Menus are only available for retail and wholesale businesses with a public catalog.
         </p>

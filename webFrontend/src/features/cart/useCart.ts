@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import type { CartItem, Product } from '../../types'
 
@@ -59,9 +59,9 @@ export function useCart(options?: {
     setCart((current) => current.filter((item) => item.product.id !== productId))
   }
 
-  const clearCart = () => {
+  const clearCart = useCallback(() => {
     setCart([])
-  }
+  }, [])
 
   return {
     cart,

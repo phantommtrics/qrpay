@@ -47,6 +47,28 @@ enum StaffCreationNotificationStatus {
   FAILED
 }
 
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  QR_WALLET
+  CASH
+}
+
+enum PaymentProvider {
+  SIMULATOR
+}
+
 enum BusinessMembershipStatus {
   ACTIVE
   BLOCKED
@@ -69,6 +91,9 @@ model Business {
   staffCreationNotificationLogs StaffCreationNotificationLog[]
   products                      Product[]
   userSystemProducts            BusinessUserSystemProduct[]
+  orders                        Order[]
+  payments                      Payment[]
+  receipts                      Receipt[]
 }
 
 model Product {
@@ -88,6 +113,7 @@ model Product {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   business     Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  orderLines   OrderLine[]
 
   @@unique([businessId, barcodeValue])
   @@unique([businessId, qrUrl])
@@ -108,6 +134,7 @@ model User {
   memberships                   BusinessMembership[]
   staffCreationNotificationLogs StaffCreationNotificationLog[]
   businessSystemProducts        BusinessUserSystemProduct[]
+  ordersCreated                 Order[]                        @relation("OrderCreatedBy")
 }
 
 model BusinessMembership {
@@ -272,4 +299,88 @@ model StaffCreationNotificationLog {
   @@index([userId])
   @@index([createdAt])
   @@map("staffCreationNotificationLogs")
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  businessId      String
+  status          OrderStatus @default(PENDING_PAYMENT)
+  subtotal        Decimal     @db.Decimal(10, 2)
+  taxAmount       Decimal     @default(0) @db.Decimal(10, 2)
+  total           Decimal     @db.Decimal(10, 2)
+  currency        String      @default("GMD")
+  createdByUserId String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  business        Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdBy       User?       @relation("OrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  lines           OrderLine[]
+  payments        Payment[]
+  receipt         Receipt?
+
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
+}
+
+model OrderLine {
+  id          String   @id @default(cuid())
+  orderId     String
+  productId   String
+  productName String
+  quantity    Int
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  lineTotal   Decimal  @db.Decimal(10, 2)
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+}
+
+model Payment {
+  id              String          @id @default(cuid())
+  businessId      String
+  orderId         String
+  method          PaymentMethod
+  provider        PaymentProvider @default(SIMULATOR)
+  status          PaymentStatus   @default(PENDING)
+  amount          Decimal         @db.Decimal(10, 2)
+  currency        String          @default("GMD")
+  providerRef     String          @unique
+  publicToken     String          @unique
+  completedAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  business        Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([businessId, status])
+  @@index([publicToken])
+}
+
+model Receipt {
+  id            String   @id @default(cuid())
+  businessId  String
+  orderId       String   @unique
+  receiptNumber Int
+  total         Decimal  @db.Decimal(10, 2)
+  currency      String   @default("GMD")
+  linesSnapshot Json
+  paymentMethod String
+  provider      String   @default("SIMULATOR")
+  providerRef   String?
+  createdAt     DateTime @default(now())
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  business      Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, receiptNumber])
+}
+
+model WebhookEventLog {
+  id          String   @id @default(cuid())
+  provider    String
+  eventKey    String
+  createdAt   DateTime @default(now())
+
+  @@unique([provider, eventKey])
 }
