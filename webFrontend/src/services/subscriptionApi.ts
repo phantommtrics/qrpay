@@ -4,6 +4,7 @@ import type {
   LoginAccount,
   Organization,
   PlanId,
+  PlatformPermissionMatrix,
   Product,
   SubscriptionPlan,
   User,
@@ -61,6 +62,7 @@ export type BackendUser = {
   createdAt: string
   isOwner?: boolean
   membershipStatus?: BusinessMembershipStatus
+  platformPermissions?: PlatformPermissionMatrix
 }
 
 export type BackendAccessibleBusiness = {
@@ -166,6 +168,10 @@ function isPlatformOwnerRole(role: BackendUser['role']): boolean {
   return role === 'platform_owner'
 }
 
+function isPlatformAdminRole(role: BackendUser['role']): boolean {
+  return role === 'platform_admin'
+}
+
 export function mapBackendUserToUser(user: BackendUser): User {
   return {
     id: user.id,
@@ -174,6 +180,8 @@ export function mapBackendUserToUser(user: BackendUser): User {
     role: user.role,
     mustChangePassword: user.mustChangePassword,
     isPlatformOwner: isPlatformOwnerRole(user.role),
+    isPlatformAdmin: isPlatformAdminRole(user.role),
+    platformPermissions: user.platformPermissions,
   }
 }
 
@@ -190,6 +198,7 @@ export function mapBackendUserToLoginAccount(
     organizationId,
     isOwner,
     isPlatformOwner: isPlatformOwnerRole(user.role),
+    isPlatformAdmin: isPlatformAdminRole(user.role),
     createdAt: user.createdAt,
     membershipStatus: user.membershipStatus ?? 'ACTIVE',
   }
@@ -335,7 +344,6 @@ export async function fetchBusinessSubscription(businessId: string) {
 export async function registerBusinessOwner(payload: {
   ownerName: string
   ownerEmail: string
-  password: string
   businessName: string
   slug: string
   industry: string
@@ -344,7 +352,7 @@ export async function registerBusinessOwner(payload: {
   const response = await apiRequest<{
     data: {
       user: BackendUser
-      token: string
+      token: string | null
       business: BackendBusiness
       subscription: BackendSubscription
       invoice: BackendInvoice
@@ -356,7 +364,6 @@ export async function registerBusinessOwner(payload: {
     body: JSON.stringify({
       ownerName: payload.ownerName,
       ownerEmail: payload.ownerEmail,
-      password: payload.password,
       businessName: payload.businessName,
       slug: payload.slug,
       industry: payload.industry,
@@ -1066,6 +1073,235 @@ export type PlatformInvoiceDetail = PlatformInvoiceRow & {
 export async function fetchPlatformInvoiceDetail(invoiceId: string) {
   const response = await apiRequest<{ data: PlatformInvoiceDetail }>(
     `/platform/invoices/${invoiceId}`,
+  )
+  return response.data
+}
+
+export type PlatformSecurityModule = {
+  id: string
+  slug: string
+  label: string
+  sortOrder: number
+}
+
+export type PlatformRoleTemplatePermissionRow = {
+  id: string
+  moduleId: string
+  moduleSlug: string
+  moduleLabel: string
+  canView: boolean
+  canCreate: boolean
+  canEdit: boolean
+  canDelete: boolean
+  canExport: boolean
+}
+
+export type PlatformRoleTemplate = {
+  id: string
+  name: string
+  description: string | null
+  createdAt: string
+  updatedAt: string
+  /** Present on list responses; omit when not loaded. */
+  assignedFunctionGroupCount?: number
+  permissions: PlatformRoleTemplatePermissionRow[]
+}
+
+export type PlatformFunctionGroupRow = {
+  id: string
+  name: string
+  description: string | null
+  createdAt: string
+  updatedAt: string
+  roleTemplates: { id: string; name: string }[]
+  userCount: number
+}
+
+export type PlatformStaffUserRow = {
+  id: string
+  name: string
+  email: string
+  isActive: boolean
+  mustChangePassword: boolean
+  createdAt: string
+  platformFunctionGroupId: string | null
+  platformFunctionGroup: { id: string; name: string } | null
+}
+
+export async function fetchPlatformSecurityModules() {
+  const response = await apiRequest<{ data: PlatformSecurityModule[] }>(
+    '/platform/security/modules',
+  )
+  return response.data
+}
+
+export async function fetchPlatformRoleTemplates(params?: { page?: number; pageSize?: number }) {
+  const sp = new URLSearchParams()
+  sp.set('page', String(params?.page ?? 1))
+  sp.set('pageSize', String(params?.pageSize ?? 10))
+  return apiRequest<PaginatedPayload<PlatformRoleTemplate>>(
+    `/platform/security/role-templates?${sp.toString()}`,
+  )
+}
+
+export async function fetchPlatformRoleTemplateSummaries() {
+  const response = await apiRequest<{ data: { id: string; name: string }[] }>(
+    '/platform/security/role-templates/summary',
+  )
+  return response.data
+}
+
+export async function createPlatformRoleTemplate(payload: { name: string; description?: string }) {
+  const response = await apiRequest<{ data: Omit<PlatformRoleTemplate, 'permissions'> }>(
+    '/platform/security/role-templates',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  )
+  return response.data
+}
+
+export async function updatePlatformRoleTemplate(
+  templateId: string,
+  payload: { name?: string; description?: string | null },
+) {
+  const response = await apiRequest<{ data: Omit<PlatformRoleTemplate, 'permissions'> }>(
+    `/platform/security/role-templates/${templateId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    },
+  )
+  return response.data
+}
+
+export async function savePlatformRoleTemplatePermissions(
+  templateId: string,
+  permissions: {
+    moduleId: string
+    canView: boolean
+    canCreate: boolean
+    canEdit: boolean
+    canDelete: boolean
+    canExport: boolean
+  }[],
+) {
+  const response = await apiRequest<{ data: Pick<PlatformRoleTemplate, 'id' | 'name' | 'description' | 'permissions'> }>(
+    `/platform/security/role-templates/${templateId}/permissions`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ permissions }),
+    },
+  )
+  return response.data
+}
+
+export async function deletePlatformRoleTemplate(templateId: string) {
+  await apiRequest(`/platform/security/role-templates/${templateId}`, { method: 'DELETE' })
+}
+
+export async function fetchPlatformFunctionGroups(params?: { page?: number; pageSize?: number }) {
+  const sp = new URLSearchParams()
+  sp.set('page', String(params?.page ?? 1))
+  sp.set('pageSize', String(params?.pageSize ?? 10))
+  return apiRequest<PaginatedPayload<PlatformFunctionGroupRow>>(
+    `/platform/security/function-groups?${sp.toString()}`,
+  )
+}
+
+/** Full list for dropdowns (e.g. system users assign group). */
+export async function fetchPlatformFunctionGroupsAll() {
+  const response = await apiRequest<{ data: PlatformFunctionGroupRow[] }>(
+    '/platform/security/function-groups/all',
+  )
+  return response.data
+}
+
+export async function createPlatformFunctionGroup(payload: { name: string; description?: string }) {
+  const response = await apiRequest<{ data: Omit<PlatformFunctionGroupRow, 'roleTemplates' | 'userCount'> }>(
+    '/platform/security/function-groups',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  )
+  return response.data
+}
+
+export async function updatePlatformFunctionGroup(
+  groupId: string,
+  payload: { name?: string; description?: string | null; roleTemplateIds?: string[] },
+) {
+  const response = await apiRequest<{ data: PlatformFunctionGroupRow }>(
+    `/platform/security/function-groups/${groupId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    },
+  )
+  return response.data
+}
+
+export async function deletePlatformFunctionGroup(groupId: string) {
+  await apiRequest(`/platform/security/function-groups/${groupId}`, { method: 'DELETE' })
+}
+
+export async function fetchPlatformStaffUsersList(params?: {
+  page?: number
+  pageSize?: number
+  /** Filter to platform admins in this function group. */
+  functionGroupId?: string
+}) {
+  const sp = new URLSearchParams()
+  sp.set('page', String(params?.page ?? 1))
+  sp.set('pageSize', String(params?.pageSize ?? 10))
+  if (params?.functionGroupId) {
+    sp.set('functionGroupId', params.functionGroupId)
+  }
+  return apiRequest<PaginatedPayload<PlatformStaffUserRow>>(
+    `/platform/staff-users?${sp.toString()}`,
+  )
+}
+
+export async function bulkMovePlatformStaffUsers(payload: {
+  fromGroupId: string
+  toGroupId: string
+  /** Omit or empty = move everyone in the source group. */
+  userIds?: string[]
+}) {
+  const response = await apiRequest<{ data: { movedCount: number } }>(
+    '/platform/security/staff-users/bulk-move',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  )
+  return response.data
+}
+
+export async function createPlatformStaffUserRequest(payload: {
+  name: string
+  email: string
+  platformFunctionGroupId: string
+}) {
+  const response = await apiRequest<{ data: PlatformStaffUserRow }>('/platform/security/staff-users', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return response.data
+}
+
+export async function updatePlatformStaffUserRequest(
+  userId: string,
+  payload: { platformFunctionGroupId?: string; isActive?: boolean },
+) {
+  const response = await apiRequest<{ data: PlatformStaffUserRow }>(
+    `/platform/security/staff-users/${userId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    },
   )
   return response.data
 }

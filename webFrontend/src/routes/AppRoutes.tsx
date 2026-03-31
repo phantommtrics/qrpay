@@ -148,6 +148,28 @@ const ProductPublicPage = lazy(() =>
     default: module.ProductPublicPage,
   })),
 )
+const PlatformSecurityRolesPage = lazy(() =>
+  import('../screens/platform/PlatformSecurityRolesPage').then((module) => ({
+    default: module.PlatformSecurityRolesPage,
+  })),
+)
+const PlatformSecurityFunctionGroupsPage = lazy(() =>
+  import('../screens/platform/PlatformSecurityFunctionGroupsPage').then((module) => ({
+    default: module.PlatformSecurityFunctionGroupsPage,
+  })),
+)
+const PlatformSecuritySystemUsersPage = lazy(() =>
+  import('../screens/platform/PlatformSecuritySystemUsersPage').then((module) => ({
+    default: module.PlatformSecuritySystemUsersPage,
+  })),
+)
+const PlatformSecurityMoveUsersPage = lazy(() =>
+  import('../screens/platform/PlatformSecurityMoveUsersPage').then((module) => ({
+    default: module.PlatformSecurityMoveUsersPage,
+  })),
+)
+
+const PLATFORM_OPERATOR_ROLES = ['platform_owner', 'platform_admin'] as UserRole[]
 
 export function AppRoutes() {
   const { user } = useAuth()
@@ -166,32 +188,32 @@ export function AppRoutes() {
     {
       path: APP_PATHS.platformBusinesses,
       element: <PlatformBusinessesPage />,
-      roles: ['platform_owner'] as UserRole[],
+      roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.businesses.manage' as const,
     },
     {
       path: APP_PATHS.platformBusinessDetail,
       element: <PlatformBusinessDetailPage />,
-      roles: ['platform_owner'] as UserRole[],
+      roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.businesses.manage' as const,
     },
     {
       path: APP_PATHS.platformSubscriptions,
       element: <PlatformSubscriptionsPage />,
-      roles: ['platform_owner'] as UserRole[],
-      permission: 'platform.businesses.manage' as const,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.subscriptions.view' as const,
     },
     {
       path: APP_PATHS.platformInvoices,
       element: <PlatformInvoicesPage />,
-      roles: ['platform_owner'] as UserRole[],
-      permission: 'platform.businesses.manage' as const,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.invoices.view' as const,
     },
     {
       path: APP_PATHS.platformInvoiceDetail,
       element: <PlatformInvoiceDetailPage />,
-      roles: ['platform_owner'] as UserRole[],
-      permission: 'platform.businesses.manage' as const,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.invoices.view' as const,
     },
     {
       path: APP_PATHS.products,
@@ -274,8 +296,32 @@ export function AppRoutes() {
     {
       path: APP_PATHS.platformSystemConfiguration,
       element: <SystemConfigurationPage />,
-      roles: ['platform_owner'] as UserRole[],
-      permission: 'dashboard.view' as const,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.system.view' as const,
+    },
+    {
+      path: APP_PATHS.platformSecurityRoles,
+      element: <PlatformSecurityRolesPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.security.roles.view' as const,
+    },
+    {
+      path: APP_PATHS.platformSecurityFunctionGroups,
+      element: <PlatformSecurityFunctionGroupsPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.security.function_groups.view' as const,
+    },
+    {
+      path: APP_PATHS.platformSecuritySystemUsers,
+      element: <PlatformSecuritySystemUsersPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.security.users.view' as const,
+    },
+    {
+      path: APP_PATHS.platformSecurityMoveUsers,
+      element: <PlatformSecurityMoveUsersPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.security.users.view' as const,
     },
     {
       path: APP_PATHS.configuration,

@@ -14,6 +14,7 @@ import {
   type PlatformInvoiceRow,
 } from '../../services/subscriptionApi'
 import { localCalendarIsoDate } from '../../utils/localCalendarDate'
+import { isPlatformOperator } from '../../utils/platformOperator'
 
 const PAGE_SIZE = 10
 
@@ -47,7 +48,7 @@ export function PlatformInvoicesPage() {
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    if (!user?.isPlatformOwner) {
+    if (!isPlatformOperator(user)) {
       return
     }
     setLoading(true)
@@ -69,13 +70,13 @@ export function PlatformInvoicesPage() {
     } finally {
       setLoading(false)
     }
-  }, [user?.isPlatformOwner, status, createdFrom, createdTo, page])
+  }, [user?.isPlatformOwner, user?.isPlatformAdmin, status, createdFrom, createdTo, page])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  if (!user?.isPlatformOwner) {
+  if (!isPlatformOperator(user)) {
     return null
   }
 

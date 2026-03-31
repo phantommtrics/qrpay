@@ -12,7 +12,6 @@ export function SignupPage() {
   const [form, setForm] = useState({
     ownerName: '',
     ownerEmail: '',
-    password: '',
     organizationName: '',
     industry: 'Retail',
     planId: 'basic' as PlanId,
@@ -36,8 +35,22 @@ export function SignupPage() {
       return
     }
 
-    setMessage(result.message ?? 'Account created. Your 7-day payment trial has started.')
     setIsSubmitting(false)
+    if (result.redirectPath) {
+      navigate(result.redirectPath, {
+        state: {
+          postSignupNotice:
+            result.message ??
+            'Account created. Check your email for a temporary password, then sign in.',
+        },
+      })
+      return
+    }
+
+    setMessage(
+      result.message ??
+        'Account created. Check your email for a temporary password. Your 7-day payment trial has started.',
+    )
     navigate(APP_PATHS.dashboard)
   }
 
@@ -124,22 +137,10 @@ export function SignupPage() {
               </label>
             </div>
 
-            <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-700">Password</span>
-              <input
-                type="password"
-                value={form.password}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, password: event.target.value }))
-                }
-                minLength={6}
-                required
-                className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500"
-              />
-              <span className="mt-2 block text-xs text-slate-500">
-                Use this password to sign in after creating the account.
-              </span>
-            </label>
+            <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              We will email a temporary password to your owner email. You can start using the app
+              right away; use that password the next time you sign in, then choose a new password.
+            </p>
 
             <div className="grid gap-5 sm:grid-cols-2">
               <label className="block">

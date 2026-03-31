@@ -1,12 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, { type SignOptions } from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
 import { HttpError } from '../lib/http-error.js';
 import { UserRole } from '@prisma/client';
 import { AuthenticatedRequest, requireEntitlement } from '../middleware/auth.js';
 import { assertBusinessMembershipAllowsApiAccess } from '../services/membership-access.service.js';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+import { getMergedPlatformPermissionsForUser } from '../services/platform-security.service.js';
+import { env } from '../config/env.js';
+import type { PlatformAccessFlags } from './auth.js';
 
 // Extend Express Request to include user
 declare global {
@@ -19,10 +20,13 @@ declare global {
         role: string;
         businessId?: string;
         isPlatformOwner?: boolean;
+        platformPermissions?: Record<string, PlatformAccessFlags>;
       };
     }
   }
 }
+
+export type PlatformAccessAction = keyof PlatformAccessFlags;
 
 // Generate JWT token
 export function generateToken(user: { id: string; email: string; name: string; role: string }) {
@@ -33,8 +37,8 @@ export function generateToken(user: { id: string; email: string; name: string; r
       name: user.name,
       role: user.role
     },
-    JWT_SECRET,
-    { expiresIn: '24h' }
+    env.JWT_SECRET,
+    { expiresIn: env.JWT_EXPIRES_IN } as SignOptions,
   );
 }
 
@@ -48,7 +52,7 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
       throw new HttpError(401, 'Access token required');
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    const decoded = jwt.verify(token, env.JWT_SECRET) as any;
 
     const businessContextId =
       (req.headers["x-business-id"] as string | undefined) ||
@@ -74,6 +78,11 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
       throw new HttpError(401, 'User not found');
     }
 
+    const platformPermissions =
+      user.role === UserRole.PLATFORM_ADMIN
+        ? await getMergedPlatformPermissionsForUser(user.id)
+        : undefined;
+
     req.user = {
       id: user.id,
       email: user.email,
@@ -81,6 +90,7 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
       role: user.role,
       businessId: businessContextId,
       isPlatformOwner: user.role === UserRole.PLATFORM_OWNER,
+      ...(platformPermissions !== undefined ? { platformPermissions } : {}),
     };
 
     if (businessContextId) {
@@ -102,12 +112,91 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
   }
 }
 
+/** If `Authorization: Bearer` is present, validate it and set `req.user`; otherwise continue without a user. */
+export async function optionalAuthenticateToken(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+      next();
+      return;
+    }
+
+    const decoded = jwt.verify(token, env.JWT_SECRET) as { id: string };
+
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+    });
+
+    if (!user) {
+      throw new HttpError(401, 'User not found');
+    }
+
+    req.user = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      businessId: undefined,
+      isPlatformOwner: user.role === UserRole.PLATFORM_OWNER,
+    };
+
+    next();
+  } catch (error) {
+    if (error instanceof jwt.JsonWebTokenError) {
+      next(new HttpError(401, 'Invalid token'));
+    } else {
+      next(error);
+    }
+  }
+}
+
 // Middleware for platform owner only
 export function requirePlatformOwner(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   if (!req.user?.isPlatformOwner) {
     throw new HttpError(403, 'Platform owner access required');
   }
   next();
+}
+
+/** PLATFORM_OWNER or PLATFORM_ADMIN (JWT must be authenticated first). */
+export function requirePlatformOperator(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  if (!req.user) {
+    throw new HttpError(401, 'Authentication required');
+  }
+  if (req.user.role !== UserRole.PLATFORM_OWNER && req.user.role !== UserRole.PLATFORM_ADMIN) {
+    throw new HttpError(403, 'Platform operator access required');
+  }
+  next();
+}
+
+/**
+ * PLATFORM_OWNER: always allowed. PLATFORM_ADMIN: must have the flag on the module.
+ * Use after authenticateToken + requirePlatformOperator.
+ */
+export function requirePlatformAccess(moduleSlug: string, action: PlatformAccessAction) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      throw new HttpError(401, 'Authentication required');
+    }
+    if (req.user.role === UserRole.PLATFORM_OWNER) {
+      next();
+      return;
+    }
+    if (req.user.role !== UserRole.PLATFORM_ADMIN) {
+      throw new HttpError(403, 'Platform access required');
+    }
+    const row = req.user.platformPermissions?.[moduleSlug];
+    if (!row?.[action]) {
+      throw new HttpError(403, 'You do not have permission for this action.');
+    }
+    next();
+  };
 }
 
 export { requireEntitlement };

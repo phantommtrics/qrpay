@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Building2, Check, ChevronDown, Cog, LockKeyhole, LogOut, Plus, QrCode } from 'lucide-react'
+import {
+  Building2,
+  Check,
+  ChevronDown,
+  Cog,
+  LockKeyhole,
+  LogOut,
+  Plus,
+  QrCode,
+  Shield,
+} from 'lucide-react'
 import { generatePath, NavLink, useLocation, useNavigate } from 'react-router-dom'
 
 import {
   APP_PATHS,
   MAIN_NAV_ITEMS,
   PLATFORM_BUSINESSES_SUBNAV,
+  PLATFORM_SECURITY_SUBNAV,
   RESTAURANT_NAV_ITEM,
 } from '../config/navigation'
 
@@ -17,6 +28,7 @@ import { isRetailOrWholesaleIndustry } from '../utils/businessIndustry'
 
 const BUSINESS_SECTION_STORAGE_KEY = 'qrpay.sidebar.businesses.open.v1'
 const PLATFORM_BUSINESSES_SECTION_KEY = 'qrpay.sidebar.platform-businesses.open.v1'
+const PLATFORM_SECURITY_SECTION_KEY = 'qrpay.sidebar.platform-security.open.v1'
 
 export function Sidebar({
   isOpen,
@@ -50,10 +62,22 @@ export function Sidebar({
       p.startsWith('/platform/invoices')
     )
   })
+  const [isPlatformSecurityOpen, setIsPlatformSecurityOpen] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true
+    }
+    const stored = window.localStorage.getItem(PLATFORM_SECURITY_SECTION_KEY)
+    if (stored !== null) {
+      return stored === 'true'
+    }
+    const p = window.location.hash.replace(/^#/, '') || window.location.pathname
+    return p.startsWith('/platform/security')
+  })
   const {
     user,
     logout,
     canAccess,
+    hasAnyPermission,
     currentOrganization,
     organizations,
     setActiveOrganization,
@@ -89,7 +113,7 @@ export function Sidebar({
   }, [refreshBusinessEntitlements])
 
   useEffect(() => {
-    if (user?.isPlatformOwner || !currentOrganization?.id) {
+    if (user?.isPlatformOwner || user?.isPlatformAdmin || !currentOrganization?.id) {
       setPlanMenu([])
       setPlanMenuFailed(false)
       return
@@ -98,7 +122,7 @@ export function Sidebar({
       Object.fromEntries(DEFAULT_EXPANDED_PLAN_SERVICE_IDS.map((id) => [id, true])),
     )
     void loadPlanMenu(currentOrganization.id)
-  }, [user?.isPlatformOwner, currentOrganization?.id, loadPlanMenu])
+  }, [user?.isPlatformOwner, user?.isPlatformAdmin, currentOrganization?.id, loadPlanMenu])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -122,6 +146,13 @@ export function Sidebar({
   }, [isPlatformBusinessesOpen])
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.localStorage.setItem(PLATFORM_SECURITY_SECTION_KEY, String(isPlatformSecurityOpen))
+  }, [isPlatformSecurityOpen])
+
+  useEffect(() => {
     const p = location.pathname
     if (
       p.startsWith('/platform/businesses') ||
@@ -129,6 +160,9 @@ export function Sidebar({
       p.startsWith('/platform/invoices')
     ) {
       setIsPlatformBusinessesOpen(true)
+    }
+    if (p.startsWith('/platform/security')) {
+      setIsPlatformSecurityOpen(true)
     }
   }, [location.pathname])
 
@@ -146,14 +180,23 @@ export function Sidebar({
     return false
   }
 
+  function isPlatformSecuritySubActive(path: string) {
+    return location.pathname === path || location.pathname.startsWith(`${path}/`)
+  }
+
   if (!user) {
     return null
   }
 
+  const isPlatformOperator = Boolean(user.isPlatformOwner || user.isPlatformAdmin)
+
   const platformNavItems = MAIN_NAV_ITEMS.filter((item) => {
-    const allowedForRole = user.isPlatformOwner
-      ? item.roles.includes('platform_owner')
-      : item.roles.includes(user.role)
+    let allowedForRole = item.roles.includes(user.role)
+    if (user.isPlatformOwner) {
+      allowedForRole = item.roles.includes('platform_owner')
+    } else if (user.isPlatformAdmin) {
+      allowedForRole = item.roles.includes('platform_admin')
+    }
     if (!allowedForRole) {
       return false
     }
@@ -187,6 +230,7 @@ export function Sidebar({
 
   const usePlanMenu =
     !user.isPlatformOwner &&
+    !user.isPlatformAdmin &&
     currentOrganization &&
     !planMenuLoading &&
     !planMenuFailed &&
@@ -281,7 +325,7 @@ export function Sidebar({
             Main Menu
           </div>
 
-          {user.isPlatformOwner ? (
+          {isPlatformOperator ? (
             <>
               {platformNavItems
                 .filter((item) => item.path === APP_PATHS.dashboard)
@@ -320,23 +364,25 @@ export function Sidebar({
                 </button>
                 {isPlatformBusinessesOpen ? (
                   <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
-                    {PLATFORM_BUSINESSES_SUBNAV.map((item) => {
-                      const subActive = isPlatformBusinessesSubActive(item.path)
-                      return (
-                        <NavLink
-                          key={item.path}
-                          to={item.path}
-                          onClick={() => setIsOpen(false)}
-                          className={`flex items-center rounded-lg px-2 py-2 text-sm capitalize transition-colors ${
-                            subActive
-                              ? 'bg-teal-500/10 text-teal-300'
-                              : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                          }`}
-                        >
-                          <span className="font-medium">{item.name}</span>
-                        </NavLink>
-                      )
-                    })}
+                    {PLATFORM_BUSINESSES_SUBNAV.filter((item) => canAccess(item.permission)).map(
+                      (item) => {
+                        const subActive = isPlatformBusinessesSubActive(item.path)
+                        return (
+                          <NavLink
+                            key={item.path}
+                            to={item.path}
+                            onClick={() => setIsOpen(false)}
+                            className={`flex items-center rounded-lg px-2 py-2 text-sm capitalize transition-colors ${
+                              subActive
+                                ? 'bg-teal-500/10 text-teal-300'
+                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                            }`}
+                          >
+                            <span className="font-medium">{item.title}</span>
+                          </NavLink>
+                        )
+                      },
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -422,7 +468,7 @@ export function Sidebar({
             ))
           )}
 
-          {user.isPlatformOwner ? (
+          {isPlatformOperator && canAccess('platform.system.view') ? (
             <>
               <div className="mt-6 mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Platform
@@ -441,6 +487,56 @@ export function Sidebar({
                 <Cog className="mr-3 h-5 w-5" />
                 <span className="font-medium">System configuration</span>
               </NavLink>
+            </>
+          ) : null}
+
+          {isPlatformOperator &&
+          hasAnyPermission([
+            'platform.security.roles.view',
+            'platform.security.function_groups.view',
+            'platform.security.users.view',
+          ]) ? (
+            <>
+              <div className="mt-4 mb-1">
+                <button
+                  type="button"
+                  onClick={() => setIsPlatformSecurityOpen((o) => !o)}
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
+                >
+                  <span className="flex items-center gap-2 truncate">
+                    <Shield className="h-4 w-4 shrink-0 text-teal-500/90" />
+                    Security
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 transition-transform ${
+                      isPlatformSecurityOpen ? 'rotate-0' : '-rotate-90'
+                    }`}
+                  />
+                </button>
+                {isPlatformSecurityOpen ? (
+                  <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
+                    {PLATFORM_SECURITY_SUBNAV.filter((item) => canAccess(item.permission)).map(
+                      (item) => {
+                        const subActive = isPlatformSecuritySubActive(item.path)
+                        return (
+                          <NavLink
+                            key={item.path}
+                            to={item.path}
+                            onClick={() => setIsOpen(false)}
+                            className={`flex items-center rounded-lg px-2 py-2 text-sm capitalize transition-colors ${
+                              subActive
+                                ? 'bg-teal-500/10 text-teal-300'
+                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                            }`}
+                          >
+                            <span className="font-medium">{item.title}</span>
+                          </NavLink>
+                        )
+                      },
+                    )}
+                  </div>
+                ) : null}
+              </div>
             </>
           ) : null}
 
@@ -476,7 +572,9 @@ export function Sidebar({
               <p className="text-xs text-slate-400">
                 {user.isPlatformOwner
                   ? 'Platform owner'
-                  : currentOrganization
+                  : user.isPlatformAdmin
+                    ? 'Platform admin'
+                    : currentOrganization
                     ? `${currentOrganization.name} · ${
                         subscriptionStatus === 'expired'
                           ? 'expired'
