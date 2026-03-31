@@ -12,6 +12,7 @@ import {
   fetchPlatformBusinessesList,
   type PlatformBusinessListRow,
 } from '../../services/subscriptionApi'
+import { isPlatformOperator } from '../../utils/platformOperator'
 
 const PAGE_SIZE = 10
 
@@ -34,7 +35,7 @@ export function PlatformBusinessesPage() {
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    if (!user?.isPlatformOwner) {
+    if (!isPlatformOperator(user)) {
       return
     }
     setLoading(true)
@@ -50,13 +51,13 @@ export function PlatformBusinessesPage() {
     } finally {
       setLoading(false)
     }
-  }, [user?.isPlatformOwner, page])
+  }, [user?.isPlatformOwner, user?.isPlatformAdmin, page])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  if (!user?.isPlatformOwner) {
+  if (!isPlatformOperator(user)) {
     return null
   }
 

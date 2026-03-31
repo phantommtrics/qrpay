@@ -4,6 +4,14 @@ import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import { userHasEntitlement } from "../services/entitlement.service.js";
 
+export type PlatformAccessFlags = {
+  view: boolean;
+  create: boolean;
+  edit: boolean;
+  delete: boolean;
+  export: boolean;
+};
+
 export interface AuthenticatedUser {
   id: string;
   email: string;
@@ -11,6 +19,8 @@ export interface AuthenticatedUser {
   role: string;
   businessId?: string;
   isPlatformOwner?: boolean;
+  /** Merged from function group role templates (PLATFORM_ADMIN only). */
+  platformPermissions?: Record<string, PlatformAccessFlags>;
 }
 
 export interface AuthenticatedRequest extends Request {

@@ -42,25 +42,59 @@ export const APP_PATHS = {
   platformSubscriptions: '/platform/subscriptions',
   platformInvoices: '/platform/invoices',
   platformInvoiceDetail: '/platform/invoices/:invoiceId',
+  platformSecurityRoles: '/platform/security/roles',
+  platformSecurityFunctionGroups: '/platform/security/function-groups',
+  platformSecuritySystemUsers: '/platform/security/system-users',
+  platformSecurityMoveUsers: '/platform/security/move-users',
   customerMenu: '/menu/:businessId/:tableId',
 } as const
 
-/** Platform owner: Businesses section (after Dashboard). */
+export const PLATFORM_SECURITY_SUBNAV = [
+  {
+    name: 'roles',
+    path: APP_PATHS.platformSecurityRoles,
+    title: 'Role',
+    permission: 'platform.security.roles.view' as const,
+  },
+  {
+    name: 'function-groups',
+    path: APP_PATHS.platformSecurityFunctionGroups,
+    title: 'Function groups',
+    permission: 'platform.security.function_groups.view' as const,
+  },
+  {
+    name: 'system-users',
+    path: APP_PATHS.platformSecuritySystemUsers,
+    title: 'System user',
+    permission: 'platform.security.users.view' as const,
+  },
+  {
+    name: 'move-users',
+    path: APP_PATHS.platformSecurityMoveUsers,
+    title: 'Move users',
+    permission: 'platform.security.users.view' as const,
+  },
+] as const
+
+/** Platform operator: Businesses section (after Dashboard). */
 export const PLATFORM_BUSINESSES_SUBNAV = [
   {
     name: 'business',
     path: APP_PATHS.platformBusinesses,
     title: 'Businesses',
+    permission: 'platform.businesses.manage' as const,
   },
   {
     name: 'Subscriptions',
     path: APP_PATHS.platformSubscriptions,
     title: 'Subscriptions',
+    permission: 'platform.subscriptions.view' as const,
   },
   {
     name: 'invoices',
     path: APP_PATHS.platformInvoices,
     title: 'Invoices',
+    permission: 'platform.invoices.view' as const,
   },
 ] as const
 
@@ -78,7 +112,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Dashboard',
     path: APP_PATHS.dashboard,
     icon: LayoutDashboard,
-    roles: ['platform_owner', 'admin', 'merchant', 'cashier'],
+    roles: ['platform_owner', 'platform_admin', 'admin', 'merchant', 'cashier'],
     title: 'Dashboard',
     permission: 'dashboard.view',
   },
@@ -110,7 +144,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Payments',
     path: APP_PATHS.payments,
     icon: CreditCard,
-    roles: ['platform_owner', 'admin', 'merchant', 'cashier'],
+    roles: ['platform_owner', 'platform_admin', 'admin', 'merchant', 'cashier'],
     title: 'Payments',
     permission: 'payments.view',
   },
@@ -118,7 +152,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Reports',
     path: APP_PATHS.reports,
     icon: BarChart3,
-    roles: ['platform_owner', 'admin', 'merchant', 'cashier'],
+    roles: ['platform_owner', 'platform_admin', 'admin', 'merchant', 'cashier'],
     title: 'Reports',
     permission: 'reports.view',
   },
@@ -150,7 +184,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Plan Controls',
     path: APP_PATHS.subscriptions,
     icon: Settings2,
-    roles: ['admin', 'platform_owner'],
+    roles: ['admin', 'platform_owner', 'platform_admin'],
     title: 'Plan Controls',
     permission: 'organization.manage',
   },
@@ -172,6 +206,18 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.platformSystemConfiguration)) {
     return 'System configuration'
+  }
+
+  if (pathname.includes(APP_PATHS.platformSecurityRoles)) {
+    return 'Role templates'
+  }
+
+  if (pathname.includes(APP_PATHS.platformSecurityFunctionGroups)) {
+    return 'Function groups'
+  }
+
+  if (pathname.includes(APP_PATHS.platformSecuritySystemUsers)) {
+    return 'System users'
   }
 
   if (pathname.includes('/platform/invoices/') && pathname !== APP_PATHS.platformInvoices) {
@@ -205,5 +251,11 @@ export function getPageTitle(pathname: string) {
 }
 
 export function getDefaultProtectedPath(role: User['role']) {
-  return role === 'cashier' ? APP_PATHS.pos : APP_PATHS.dashboard
+  if (role === 'cashier') {
+    return APP_PATHS.pos
+  }
+  if (role === 'platform_admin') {
+    return APP_PATHS.dashboard
+  }
+  return APP_PATHS.dashboard
 }

@@ -23,16 +23,22 @@ import {
   buildStaffInviteEmailContent,
   sendStaffInviteEmail,
 } from "./staff-invite.service.js";
-import { sendPasswordResetEmail } from "./password-reset.service.js";
+import {
+  buildSignUpTemporaryPasswordEmailContent,
+  sendPasswordResetEmail,
+  sendSignUpTemporaryPasswordEmailContent,
+} from "./password-reset.service.js";
+import { getMergedPlatformPermissionsForUser } from "./platform-security.service.js";
 
 type RegisterBusinessOwnerInput = {
   ownerName: string;
   ownerEmail: string;
-  password: string;
   businessName: string;
   slug?: string;
   industry?: string;
   planCode: PlanCode;
+  /** When set, create another business for this logged-in user (no password email). */
+  authenticatedUserId?: string;
 };
 
 type LoginInput = {
@@ -83,6 +89,26 @@ async function allocateUniqueBusinessSlug(
     candidate = `${root}-${randomBytes(3).toString("hex")}`;
   }
   return `${root}-${randomBytes(8).toString("hex")}`;
+}
+
+async function rollbackNewOwnerRegistration(ids: {
+  invoiceId: string;
+  subscriptionId: string;
+  userId: string;
+  businessId: string;
+}) {
+  await prisma.$transaction(async (tx) => {
+    await tx.staffCreationNotificationLog.deleteMany({
+      where: { businessId: ids.businessId },
+    });
+    await tx.subscriptionInvoice.delete({ where: { id: ids.invoiceId } });
+    await tx.subscription.delete({ where: { id: ids.subscriptionId } });
+    await tx.businessMembership.deleteMany({
+      where: { userId: ids.userId, businessId: ids.businessId },
+    });
+    await tx.business.delete({ where: { id: ids.businessId } });
+    await tx.user.delete({ where: { id: ids.userId } });
+  });
 }
 
 function sanitizeUser(user: {
@@ -151,30 +177,71 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
   const requestedOwnerName = input.ownerName.trim();
   const industry = input.industry?.trim() || null;
 
+  const temporaryPassword = input.authenticatedUserId
+    ? null
+    : generateTemporaryPassword();
+
   const existingUser = await prisma.user.findUnique({
     where: { email: ownerEmail },
   });
 
-  if (
-    existingUser &&
-    (!existingUser.isActive ||
-      !verifyPassword(input.password, existingUser.passwordHash))
-  ) {
-    throw new HttpError(401, "Existing account credentials are invalid.");
+  if (input.authenticatedUserId) {
+    const sessionUser = await prisma.user.findUnique({
+      where: { id: input.authenticatedUserId },
+    });
+    if (!sessionUser || !sessionUser.isActive) {
+      throw new HttpError(401, "Session is invalid. Please sign in again.");
+    }
+    if (sessionUser.email.toLowerCase() !== ownerEmail) {
+      throw new HttpError(403, "Email must match your signed-in account.");
+    }
+    if (
+      sessionUser.role !== UserRole.MERCHANT &&
+      sessionUser.role !== UserRole.ADMIN
+    ) {
+      throw new HttpError(400, "Only merchant accounts can create businesses.");
+    }
+    if (!existingUser || existingUser.id !== sessionUser.id) {
+      throw new HttpError(403, "Email must match your signed-in account.");
+    }
+  } else if (existingUser) {
+    throw new HttpError(
+      409,
+      "An account with this email already exists. Sign in to add another business, or use Forgot password.",
+    );
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    const user =
-      existingUser ??
-      (await tx.user.create({
+    let user: User;
+
+    if (input.authenticatedUserId) {
+      const session = await tx.user.findUnique({
+        where: { id: input.authenticatedUserId },
+      });
+      if (!session || !session.isActive) {
+        throw new HttpError(401, "Session is invalid. Please sign in again.");
+      }
+      if (session.email.toLowerCase() !== ownerEmail) {
+        throw new HttpError(403, "Email must match your signed-in account.");
+      }
+      if (
+        session.role !== UserRole.MERCHANT &&
+        session.role !== UserRole.ADMIN
+      ) {
+        throw new HttpError(400, "Only merchant accounts can create businesses.");
+      }
+      user = session;
+    } else {
+      user = await tx.user.create({
         data: {
           name: requestedOwnerName,
           email: ownerEmail,
-          passwordHash: hashPassword(input.password),
+          passwordHash: hashPassword(temporaryPassword!),
           role: UserRole.MERCHANT,
-          mustChangePassword: false,
+          mustChangePassword: true,
         },
-      }));
+      });
+    }
 
     if (user.role !== UserRole.MERCHANT && user.role !== UserRole.ADMIN) {
       throw new HttpError(
@@ -217,6 +284,70 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
     };
   });
 
+  if (!input.authenticatedUserId && temporaryPassword) {
+    const signupEmailInput = {
+      userName: result.user.name,
+      userEmail: result.user.email,
+      temporaryPassword,
+    };
+    const emailContent = buildSignUpTemporaryPasswordEmailContent(signupEmailInput);
+
+    const notificationLog = await prisma.staffCreationNotificationLog.create({
+      data: {
+        businessId: result.business.id,
+        userId: result.user.id,
+        recipientName: result.user.name,
+        recipientEmail: result.user.email,
+        staffRole: UserRole.MERCHANT,
+        notificationType: StaffCreationNotificationType.OWNER_SIGNUP,
+        deliveryStatus: StaffCreationNotificationStatus.PENDING,
+        provider: "resend",
+        subject: emailContent.subject,
+        htmlBody: emailContent.htmlBody,
+        textBody: emailContent.textBody,
+      },
+    });
+
+    try {
+      const emailResult = await sendSignUpTemporaryPasswordEmailContent(
+        result.user.email,
+        emailContent,
+      );
+
+      await prisma.staffCreationNotificationLog.update({
+        where: { id: notificationLog.id },
+        data: {
+          deliveryStatus: StaffCreationNotificationStatus.SENT,
+          resendEmailId: emailResult.resendEmailId,
+          sentAt: new Date(),
+        },
+      });
+    } catch (error) {
+      await prisma.staffCreationNotificationLog.update({
+        where: { id: notificationLog.id },
+        data: {
+          deliveryStatus: StaffCreationNotificationStatus.FAILED,
+          failureReason:
+            error instanceof Error ? error.message : "Unknown error",
+        },
+      });
+
+      await rollbackNewOwnerRegistration({
+        invoiceId: result.invoice.id,
+        subscriptionId: result.subscription.id,
+        userId: result.user.id,
+        businessId: result.business.id,
+      });
+      if (error instanceof HttpError) {
+        throw error;
+      }
+      throw new HttpError(
+        502,
+        "We could not send your sign-up email. Please try again.",
+      );
+    }
+  }
+
   const access = await listAccessibleBusinesses(result.user.id);
 
   return {
@@ -240,24 +371,33 @@ export async function loginUser(input: LoginInput) {
     throw new HttpError(403, "This account has been disabled.");
   }
 
-  // Platform owners operate outside tenant context; do not attach memberships as "their" businesses.
+  // Platform operators operate outside tenant context; do not attach memberships as "their" businesses.
   const access =
-    user.role === UserRole.ADMIN || user.role === UserRole.PLATFORM_OWNER
+    user.role === UserRole.ADMIN ||
+    user.role === UserRole.PLATFORM_OWNER ||
+    user.role === UserRole.PLATFORM_ADMIN
       ? { businesses: [], activeBusinessId: null }
       : await listAccessibleBusinesses(user.id);
 
   if (
     user.role !== UserRole.PLATFORM_OWNER &&
+    user.role !== UserRole.PLATFORM_ADMIN &&
     user.role !== UserRole.ADMIN &&
     access.businesses.length === 0
   ) {
     throw new HttpError(404, "User not found.");
   }
 
+  const platformPermissions =
+    user.role === UserRole.PLATFORM_ADMIN
+      ? await getMergedPlatformPermissionsForUser(user.id)
+      : undefined;
+
   return {
     user: sanitizeUser(user),
     accessibleBusinesses: access.businesses,
     activeBusinessId: access.activeBusinessId,
+    platformPermissions,
   };
 }
 

@@ -65,9 +65,45 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     category: 'Administration',
   },
   {
+    key: 'platform.subscriptions.view',
+    label: 'Platform subscriptions list',
+    description: 'View subscription rows across businesses',
+    category: 'Administration',
+  },
+  {
+    key: 'platform.invoices.view',
+    label: 'Platform invoices',
+    description: 'View platform billing invoices',
+    category: 'Administration',
+  },
+  {
     key: 'platform.billing.manage',
     label: 'Platform Billing',
     description: 'Manage platform billing and subscriptions',
+    category: 'Administration',
+  },
+  {
+    key: 'platform.system.view',
+    label: 'System configuration',
+    description: 'View platform catalog, services, products, and plan entitlements',
+    category: 'Administration',
+  },
+  {
+    key: 'platform.security.roles.view',
+    label: 'Security — Role templates',
+    description: 'Define access templates per platform module',
+    category: 'Administration',
+  },
+  {
+    key: 'platform.security.function_groups.view',
+    label: 'Security — Function groups',
+    description: 'Bundle role templates into assignable permission sets',
+    category: 'Administration',
+  },
+  {
+    key: 'platform.security.users.view',
+    label: 'Security — System users',
+    description: 'Create and assign platform staff accounts',
     category: 'Administration',
   },
 

@@ -14,6 +14,7 @@ import {
   SUBSCRIPTION_PLANS,
 } from '../../data/mockData'
 import { APP_PATHS, getDefaultProtectedPath } from '../../config/navigation'
+import { PLATFORM_ADMIN_ROUTE_ACCESS } from '../../config/platformAdminRouteAccess'
 import {
   ApiError,
   changePassword as changePasswordRequest,
@@ -50,7 +51,6 @@ import type {
 type RegisterOrganizationPayload = {
   ownerName: string
   ownerEmail: string
-  password: string
   organizationName: string
   industry: string
   planId: PlanId
@@ -340,13 +340,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const organizationMembers = useMemo(
     () => {
-      if (!currentOrganization || user?.isPlatformOwner) {
+      if (!currentOrganization || user?.isPlatformOwner || user?.isPlatformAdmin) {
         return []
       }
 
       return accounts.filter((account) => account.organizationId === currentOrganization.id)
     },
-    [accounts, currentOrganization, user?.isPlatformOwner],
+    [accounts, currentOrganization, user?.isPlatformOwner, user?.isPlatformAdmin],
   )
 
   const subscriptionMeta = useMemo<{
@@ -354,7 +354,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     daysLeft: number | null
   }>(
     () => {
-      if (user?.isPlatformOwner) {
+      if (user?.isPlatformOwner || user?.isPlatformAdmin) {
         return { status: 'active', daysLeft: null }
       }
 
@@ -378,7 +378,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       return getSubscriptionMeta(currentOrganization.subscriptionExpiresAt)
     },
-    [currentOrganization, user?.isPlatformOwner],
+    [currentOrganization, user?.isPlatformOwner, user?.isPlatformAdmin],
   )
 
   const businessIdForApi = currentOrganization?.id
@@ -419,7 +419,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshOrganizationMembers = useCallback(async () => {
-    if (!businessIdForApi || user?.isPlatformOwner) {
+    if (!businessIdForApi || user?.isPlatformOwner || user?.isPlatformAdmin) {
       return
     }
 
@@ -439,14 +439,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Keep prior members on failure.
     }
-  }, [businessIdForApi, user?.isPlatformOwner])
+  }, [businessIdForApi, user?.isPlatformOwner, user?.isPlatformAdmin])
 
   useEffect(() => {
     void refreshBusinessProducts()
   }, [refreshBusinessProducts])
 
   useEffect(() => {
-    if (!businessIdForApi || user?.isPlatformOwner) {
+    if (!businessIdForApi || user?.isPlatformOwner || user?.isPlatformAdmin) {
       return
     }
 
@@ -489,10 +489,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [businessIdForApi, user?.isPlatformOwner])
+  }, [businessIdForApi, user?.isPlatformOwner, user?.isPlatformAdmin])
 
   useEffect(() => {
-    if (!businessIdForApi || user?.isPlatformOwner) {
+    if (!businessIdForApi || user?.isPlatformOwner || user?.isPlatformAdmin) {
       return
     }
 
@@ -523,10 +523,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [businessIdForApi, user?.isPlatformOwner])
+  }, [businessIdForApi, user?.isPlatformOwner, user?.isPlatformAdmin])
 
   useEffect(() => {
-    if (!businessIdForApi || user?.isPlatformOwner) {
+    if (!businessIdForApi || user?.isPlatformOwner || user?.isPlatformAdmin) {
       return
     }
 
@@ -548,10 +548,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [businessIdForApi, user?.isPlatformOwner])
+  }, [businessIdForApi, user?.isPlatformOwner, user?.isPlatformAdmin])
 
   useEffect(() => {
-    if (!businessIdForApi || user?.isPlatformOwner) {
+    if (!businessIdForApi || user?.isPlatformOwner || user?.isPlatformAdmin) {
       return
     }
 
@@ -563,7 +563,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [businessIdForApi, user?.isPlatformOwner, refreshBusinessEntitlements])
+  }, [businessIdForApi, user?.isPlatformOwner, user?.isPlatformAdmin, refreshBusinessEntitlements])
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -644,7 +644,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             newPassword,
           })
 
-          setUser(mapBackendUserToUser(payload.user))
+          setUser((prev) => {
+            const next = mapBackendUserToUser(payload.user)
+            if (next.isPlatformAdmin && prev?.platformPermissions && !next.platformPermissions) {
+              return { ...next, platformPermissions: prev.platformPermissions }
+            }
+            return next
+          })
 
           return {
             ok: true,
@@ -691,7 +697,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       registerOrganization: async ({
         ownerName,
         ownerEmail,
-        password,
         organizationName,
         industry,
         planId,
@@ -712,15 +717,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         try {
+          const wasAlreadySignedIn = hasStoredToken()
           const payload = await registerBusinessOwner({
             ownerName: ownerName.trim(),
             ownerEmail: normalizedEmail,
-            password: password.trim(),
             businessName: organizationName.trim(),
             slug: slugify(organizationName),
             industry: industry.trim(),
             planId,
           })
+
+          if (!wasAlreadySignedIn) {
+            return {
+              ok: true,
+              message:
+                'Account created and your trial has started. Check your email for a temporary password, then sign in.',
+              redirectPath: APP_PATHS.login,
+            }
+          }
+
           const nextOrganizations = payload.accessibleBusinesses.map(
             mapAccessibleBusinessToOrganization,
           )
@@ -745,7 +760,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ),
           }))
 
-          return { ok: true, message: 'Account created and trial started.' }
+          return {
+            ok: true,
+            message: 'Business created and trial started.',
+          }
         } catch (error) {
           if (error instanceof ApiError) {
             return {
@@ -830,6 +848,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return true
         }
 
+        if (user.isPlatformAdmin) {
+          const gate = PLATFORM_ADMIN_ROUTE_ACCESS[permission]
+          if (!gate) {
+            return false
+          }
+          return Boolean(user.platformPermissions?.[gate.module]?.[gate.action])
+        }
+
         if (!currentOrganization) {
           return false
         }
@@ -855,6 +881,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (user.isPlatformOwner) {
           return true
+        }
+
+        if (user.isPlatformAdmin) {
+          return permissions.some((permission) => {
+            const gate = PLATFORM_ADMIN_ROUTE_ACCESS[permission]
+            if (!gate) {
+              return false
+            }
+            return Boolean(user.platformPermissions?.[gate.module]?.[gate.action])
+          })
         }
 
         if (!currentOrganization) {
@@ -891,6 +927,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (user.isPlatformOwner) {
           return roles.includes('platform_owner')
+        }
+
+        if (user.isPlatformAdmin) {
+          return roles.includes('platform_admin')
         }
 
         return roles.includes(user.role)

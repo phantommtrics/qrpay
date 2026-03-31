@@ -1,4 +1,10 @@
-export type UserRole = 'platform_owner' | 'admin' | 'merchant' | 'cashier' | 'customer'
+export type UserRole =
+  | 'platform_owner'
+  | 'platform_admin'
+  | 'admin'
+  | 'merchant'
+  | 'cashier'
+  | 'customer'
 
 export type PlanId = 'basic' | 'pro' | 'business_pro'
 
@@ -10,7 +16,13 @@ export type PermissionKey =
   | 'platform.manage'
   | 'platform.users.manage'
   | 'platform.businesses.manage'
+  | 'platform.subscriptions.view'
+  | 'platform.invoices.view'
   | 'platform.billing.manage'
+  | 'platform.system.view'
+  | 'platform.security.roles.view'
+  | 'platform.security.function_groups.view'
+  | 'platform.security.users.view'
   | 'business.manage'
   | 'staff.manage'
   | 'status.change.view'
@@ -40,6 +52,9 @@ export interface User {
   role: UserRole
   mustChangePassword: boolean
   isPlatformOwner?: boolean
+  isPlatformAdmin?: boolean
+  /** Effective platform RBAC (merged templates via function group). */
+  platformPermissions?: PlatformPermissionMatrix
 }
 
 export interface SubscriptionPlan {
@@ -79,6 +94,7 @@ export interface LoginAccount {
   organizationId?: string
   isOwner?: boolean
   isPlatformOwner?: boolean
+  isPlatformAdmin?: boolean
   createdAt?: string
   membershipStatus?: BusinessMembershipStatus
 }
@@ -97,6 +113,11 @@ export interface PermissionDefinition {
 }
 
 export type PlanPermissions = Record<PlanId, Partial<Record<PermissionKey, boolean>>>
+
+export type PlatformPermissionMatrix = Record<
+  string,
+  Partial<Record<'view' | 'create' | 'edit' | 'delete' | 'export', boolean>>
+>
 
 export interface Product {
   id: string

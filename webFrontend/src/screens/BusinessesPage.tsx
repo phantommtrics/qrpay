@@ -18,7 +18,6 @@ export function BusinessesPage() {
   const [form, setForm] = useState({
     ownerName: user?.name ?? '',
     ownerEmail: user?.email ?? '',
-    password: '',
     organizationName: '',
     industry: 'Retail',
     planId: 'basic' as PlanId,
@@ -45,7 +44,6 @@ export function BusinessesPage() {
     setMessage(result.message ?? 'Business created and switched successfully.')
     setForm((current) => ({
       ...current,
-      password: '',
       organizationName: '',
       industry: 'Retail',
       planId: 'basic',
@@ -173,25 +171,6 @@ export function BusinessesPage() {
                 />
               </label>
             </div>
-
-            <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-700">
-                Account password
-              </span>
-              <input
-                type="password"
-                value={form.password}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, password: event.target.value }))
-                }
-                minLength={6}
-                required
-                className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500"
-              />
-              <span className="mt-2 block text-xs text-slate-500">
-                We verify your existing login before attaching another business.
-              </span>
-            </label>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block">

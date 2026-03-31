@@ -15,6 +15,8 @@ enum PlanCode {
 
 enum UserRole {
   PLATFORM_OWNER
+  /** Delegated platform operator; permissions come from PlatformFunctionGroup + role templates. */
+  PLATFORM_ADMIN
   ADMIN
   MERCHANT
   CASHIER
@@ -39,6 +41,9 @@ enum InvoiceStatus {
 enum StaffCreationNotificationType {
   EXISTING_USER
   NEW_USER
+  OWNER_SIGNUP
+  /** Platform staff invite email (no business context; businessId on log is null). */
+  PLATFORM_ADMIN_INVITE
 }
 
 enum StaffCreationNotificationStatus {
@@ -131,10 +136,63 @@ model User {
   passwordResetIssuedAt         DateTime?
   createdAt                     DateTime                       @default(now())
   updatedAt                     DateTime                       @updatedAt
+  platformFunctionGroupId       String?
   memberships                   BusinessMembership[]
   staffCreationNotificationLogs StaffCreationNotificationLog[]
   businessSystemProducts        BusinessUserSystemProduct[]
   ordersCreated                 Order[]                        @relation("OrderCreatedBy")
+  platformFunctionGroup         PlatformFunctionGroup?         @relation(fields: [platformFunctionGroupId], references: [id], onDelete: SetNull)
+
+  @@index([platformFunctionGroupId])
+}
+
+/** Sidebar / platform feature identifiers for RBAC templates (seeded). */
+model PlatformModule {
+  id           String                           @id @default(cuid())
+  slug         String                           @unique
+  label        String
+  sortOrder    Int                              @default(0)
+  createdAt    DateTime                         @default(now())
+  updatedAt    DateTime                         @updatedAt
+  templateRows PlatformRoleTemplatePermission[]
+}
+
+/** Named permission matrix (one row per module: view/create/edit/delete/export). */
+model PlatformRoleTemplate {
+  id            String                           @id @default(cuid())
+  name          String
+  description   String?
+  createdAt     DateTime                         @default(now())
+  updatedAt     DateTime                         @updatedAt
+  permissions   PlatformRoleTemplatePermission[]
+  functionGroups PlatformFunctionGroup[]
+}
+
+model PlatformRoleTemplatePermission {
+  id         String               @id @default(cuid())
+  templateId String
+  moduleId   String
+  canView    Boolean              @default(false)
+  canCreate  Boolean              @default(false)
+  canEdit    Boolean              @default(false)
+  canDelete  Boolean              @default(false)
+  canExport  Boolean              @default(false)
+  template   PlatformRoleTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  module     PlatformModule       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, moduleId])
+  @@index([moduleId])
+}
+
+/** Bundles one or more role templates; assigned to platform staff users. */
+model PlatformFunctionGroup {
+  id            String                 @id @default(cuid())
+  name          String
+  description   String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  roleTemplates PlatformRoleTemplate[]
+  users         User[]
 }
 
 model BusinessMembership {
@@ -276,7 +334,8 @@ model SubscriptionInvoice {
 
 model StaffCreationNotificationLog {
   id               String                          @id @default(cuid())
-  businessId       String
+  /** Null when the notification is platform-scoped (e.g. platform admin invite). */
+  businessId       String?
   userId           String?
   recipientName    String
   recipientEmail   String
@@ -292,7 +351,7 @@ model StaffCreationNotificationLog {
   sentAt           DateTime?
   createdAt        DateTime                        @default(now())
   updatedAt        DateTime                        @updatedAt
-  business         Business                        @relation(fields: [businessId], references: [id])
+  business         Business?                       @relation(fields: [businessId], references: [id])
   user             User?                           @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([businessId])

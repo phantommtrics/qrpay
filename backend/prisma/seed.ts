@@ -6,6 +6,7 @@ import {
   SYSTEM_CATALOG_PRODUCTS,
   SYSTEM_CATALOG_SERVICES,
 } from "../src/config/plan-entitlement-matrix.js";
+import { PLATFORM_MODULES_SEED } from "../src/config/platform-modules.js";
 
 const prisma = new PrismaClient();
 
@@ -152,6 +153,18 @@ async function main() {
   }
 
   await seedSystemCatalog();
+
+  for (const m of PLATFORM_MODULES_SEED) {
+    await prisma.platformModule.upsert({
+      where: { slug: m.slug },
+      create: {
+        slug: m.slug,
+        label: m.label,
+        sortOrder: m.sortOrder,
+      },
+      update: { label: m.label, sortOrder: m.sortOrder },
+    });
+  }
 
   const platformOwnerEmailRaw = process.env.PLATFORM_OWNER_EMAIL?.trim().toLowerCase();
   const platformOwnerEmail =

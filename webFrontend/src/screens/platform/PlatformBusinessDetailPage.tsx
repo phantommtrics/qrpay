@@ -12,6 +12,7 @@ import {
   fetchPlatformBusinessDetail,
   type PlatformBusinessDetail,
 } from '../../services/subscriptionApi'
+import { isPlatformOperator } from '../../utils/platformOperator'
 
 const PAGE_SIZE = 10
 
@@ -44,7 +45,7 @@ export function PlatformBusinessDetailPage() {
   }, [businessId])
 
   useEffect(() => {
-    if (!user?.isPlatformOwner || !businessId) {
+    if (!isPlatformOperator(user) || !businessId) {
       return
     }
     let cancelled = false
@@ -76,9 +77,9 @@ export function PlatformBusinessDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [user?.isPlatformOwner, businessId, membershipsPage, subscriptionsPage])
+  }, [user?.isPlatformOwner, user?.isPlatformAdmin, businessId, membershipsPage, subscriptionsPage])
 
-  if (!user?.isPlatformOwner) {
+  if (!isPlatformOperator(user)) {
     return null
   }
 

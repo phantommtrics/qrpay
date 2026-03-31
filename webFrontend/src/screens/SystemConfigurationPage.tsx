@@ -27,7 +27,7 @@ type TabId = 'services' | 'products' | 'plans'
 const PLAN_CODES = ['BASIC', 'PRO', 'BUSINESS_PRO'] as const
 
 export function SystemConfigurationPage() {
-  const { user } = useAuth()
+  const { user, canAccess } = useAuth()
   const [tab, setTab] = useState<TabId>('services')
   const [services, setServices] = useState<PlatformSystemService[]>([])
   const [products, setProducts] = useState<PlatformSystemProduct[]>([])
@@ -84,10 +84,10 @@ export function SystemConfigurationPage() {
   }, [loadPlans, loadProducts, loadServices])
 
   useEffect(() => {
-    if (user?.isPlatformOwner) {
+    if (user && (user.isPlatformOwner || (user.isPlatformAdmin && canAccess('platform.system.view')))) {
       void refresh()
     }
-  }, [user?.isPlatformOwner, refresh])
+  }, [user, user?.isPlatformOwner, user?.isPlatformAdmin, canAccess, refresh])
 
   useEffect(() => {
     if (services.length === 0) {
@@ -99,13 +99,16 @@ export function SystemConfigurationPage() {
   }, [services, newProductServiceId])
 
   useEffect(() => {
-    if (!user?.isPlatformOwner || tab !== 'products') {
+    const allowed =
+      user &&
+      (user.isPlatformOwner || (user.isPlatformAdmin && canAccess('platform.system.view')))
+    if (!allowed || tab !== 'products') {
       return
     }
     void loadProducts().catch(() => {
       setError('Failed to load products.')
     })
-  }, [user?.isPlatformOwner, tab, loadProducts])
+  }, [user, user?.isPlatformOwner, user?.isPlatformAdmin, canAccess, tab, loadProducts])
 
   const productsByService = useMemo(() => {
     const map = new Map<string, PlatformSystemProduct[]>()
@@ -264,7 +267,11 @@ export function SystemConfigurationPage() {
     }
   }
 
-  if (!user?.isPlatformOwner) {
+  const canViewSystemConfig =
+    user?.isPlatformOwner ||
+    (user?.isPlatformAdmin && canAccess('platform.system.view'))
+
+  if (!canViewSystemConfig) {
     return null
   }
 

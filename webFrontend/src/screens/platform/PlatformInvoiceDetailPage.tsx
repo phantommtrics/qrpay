@@ -11,6 +11,7 @@ import {
   fetchPlatformInvoiceDetail,
   type PlatformInvoiceDetail,
 } from '../../services/subscriptionApi'
+import { isPlatformOperator } from '../../utils/platformOperator'
 
 function formatLongDate(iso: string) {
   try {
@@ -30,7 +31,7 @@ export function PlatformInvoiceDetailPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!user?.isPlatformOwner || !invoiceId) {
+    if (!isPlatformOperator(user) || !invoiceId) {
       return
     }
     let cancelled = false
@@ -57,9 +58,9 @@ export function PlatformInvoiceDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [user?.isPlatformOwner, invoiceId])
+  }, [user?.isPlatformOwner, user?.isPlatformAdmin, invoiceId])
 
-  if (!user?.isPlatformOwner) {
+  if (!isPlatformOperator(user)) {
     return null
   }
 

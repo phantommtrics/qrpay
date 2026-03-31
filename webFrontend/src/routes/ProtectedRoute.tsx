@@ -35,6 +35,7 @@ export function ProtectedRoute({
 
   if (
     !user.isPlatformOwner &&
+    !user.isPlatformAdmin &&
     (subscriptionStatus === 'expired' || subscriptionStatus === 'past_due')
   ) {
     return (

@@ -1,18 +1,26 @@
 import { useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowRight, LockKeyhole, QrCode } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
 
+type LoginLocationState = {
+  postSignupNotice?: string
+}
+
 export function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { loginWithCredentials } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const postSignupNotice =
+    (location.state as LoginLocationState | null)?.postSignupNotice ?? null
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -77,6 +85,12 @@ export function LoginPage() {
                 className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500"
               />
             </label>
+
+            {postSignupNotice ? (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                {postSignupNotice}
+              </div>
+            ) : null}
 
             {error ? (
               <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

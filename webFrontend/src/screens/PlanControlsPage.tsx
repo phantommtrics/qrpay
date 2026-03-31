@@ -8,6 +8,7 @@ import { PageTransition } from '../components/ui/PageTransition'
 import { useAuth } from '../features/auth/AuthContext'
 import { ApiError, type PlanEntitlementsPayload } from '../services/subscriptionApi'
 import { fetchPlanEntitlements } from '../services/subscriptionApi'
+import { isPlatformOperator } from '../utils/platformOperator'
 
 const BACKEND_PLAN_CODES = ['BASIC', 'PRO', 'BUSINESS_PRO'] as const
 
@@ -21,7 +22,7 @@ export function PlanControlsPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!user?.isPlatformOwner) {
+    if (!isPlatformOperator(user)) {
       return
     }
 
@@ -53,7 +54,7 @@ export function PlanControlsPage() {
     return () => {
       cancelled = true
     }
-  }, [user?.isPlatformOwner])
+  }, [user?.isPlatformOwner, user?.isPlatformAdmin])
 
   const planIdToCode = useMemo(() => {
     const map = new Map<string, (typeof BACKEND_PLAN_CODES)[number]>()
