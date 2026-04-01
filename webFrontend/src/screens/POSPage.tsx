@@ -173,7 +173,7 @@ export function POSPage() {
           if (order.status === 'paid') {
             setReceiptLabel(
               order.receipt
-                ? `Receipt #${order.receipt.receiptNumber}`
+                ? `Receipt ${order.receipt.publicCode}`
                 : 'Paid',
             )
             setPaymentStatus('success')
@@ -199,7 +199,7 @@ export function POSPage() {
     setCheckoutError(null)
     try {
       const result = await confirmCashPayment(currentOrganization.id, checkoutOrderId)
-      setReceiptLabel(`Receipt #${result.receipt.receiptNumber}`)
+      setReceiptLabel(`Receipt ${result.receipt.publicCode}`)
       setPaymentStatus('success')
       clearCart()
     } catch (e) {
@@ -215,7 +215,7 @@ export function POSPage() {
       const order = await fetchSaleOrder(currentOrganization.id, checkoutOrderId)
       if (order.status === 'paid') {
         setReceiptLabel(
-          order.receipt ? `Receipt #${order.receipt.receiptNumber}` : 'Paid',
+          order.receipt ? `Receipt ${order.receipt.publicCode}` : 'Paid',
         )
         setPaymentStatus('success')
         clearCart()

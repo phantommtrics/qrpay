@@ -142,7 +142,7 @@ export function PaymentsPage() {
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-sm text-slate-500">
                 <th className="p-4 font-medium">Reference</th>
-                <th className="p-4 font-medium">Order ID</th>
+                <th className="p-4 font-medium">Order Ref</th>
                 <th className="p-4 font-medium">Method</th>
                 <th className="p-4 font-medium">Provider</th>
                 <th className="p-4 font-medium">Amount</th>
@@ -168,7 +168,7 @@ export function PaymentsPage() {
                   <tr key={payment.id} className="transition-colors hover:bg-slate-50">
                     <td className="p-4 font-mono text-sm text-slate-600">{payment.reference}</td>
                     <td className="p-4 font-mono text-sm font-medium text-slate-800">
-                      {payment.orderId}
+                      {payment.orderPublicCode ?? payment.orderId}
                     </td>
                     <td className="p-4">
                       <div className="flex items-center text-sm text-slate-700">

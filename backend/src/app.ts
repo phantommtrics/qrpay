@@ -1777,6 +1777,7 @@ function mapPaymentStatusToApi(
 function formatSalePaymentRow(p: {
   id: string;
   orderId: string;
+  publicCode: string;
   businessId: string;
   method: PaymentMethodType;
   status: PaymentStatusType;
@@ -1786,15 +1787,19 @@ function formatSalePaymentRow(p: {
   providerRef: string;
   createdAt: Date;
   completedAt: Date | null;
+  order?: { id: string; publicCode: string };
 }) {
   return {
     id: p.id,
     orderId: p.orderId,
+    orderPublicCode: p.order?.publicCode ?? null,
+    publicCode: p.publicCode,
     businessId: p.businessId,
     amount: Number(p.amount),
     currency: p.currency,
     status: mapPaymentStatusToApi(p.status),
-    reference: p.providerRef,
+    reference: p.publicCode,
+    providerReference: p.providerRef,
     method: p.method === PaymentMethod.QR_WALLET ? "qr_wallet" : "cash",
     provider:
       p.provider === PaymentProvider.SIMULATOR ? "simulator" : String(p.provider).toLowerCase(),
@@ -1806,6 +1811,7 @@ function formatSalePaymentRow(p: {
 function formatSaleOrder(order: {
   id: string;
   businessId: string;
+  publicCode: string;
   status: OrderStatusType;
   subtotal: Prisma.Decimal;
   taxAmount: Prisma.Decimal;
@@ -1821,11 +1827,12 @@ function formatSaleOrder(order: {
     lineTotal: Prisma.Decimal;
   }>;
   payments?: Array<Parameters<typeof formatSalePaymentRow>[0]>;
-  receipt?: { id: string; receiptNumber: number } | null;
+  receipt?: { id: string; publicCode: string; receiptNumber: number } | null;
 }) {
   return {
     id: order.id,
     businessId: order.businessId,
+    publicCode: order.publicCode,
     status: order.status.toLowerCase(),
     subtotal: Number(order.subtotal),
     taxAmount: Number(order.taxAmount),
@@ -1842,13 +1849,18 @@ function formatSaleOrder(order: {
     })),
     payments: order.payments?.map(formatSalePaymentRow),
     receipt: order.receipt
-      ? { id: order.receipt.id, receiptNumber: order.receipt.receiptNumber }
+      ? {
+          id: order.receipt.id,
+          publicCode: order.receipt.publicCode,
+          receiptNumber: order.receipt.receiptNumber,
+        }
       : null,
   };
 }
 
 function formatReceiptDetail(receipt: {
   id: string;
+  publicCode: string;
   receiptNumber: number;
   total: Prisma.Decimal;
   currency: string;
@@ -1869,6 +1881,7 @@ function formatReceiptDetail(receipt: {
 }) {
   return {
     id: receipt.id,
+    publicCode: receipt.publicCode,
     receiptNumber: receipt.receiptNumber,
     businessName: receipt.business.name,
     total: Number(receipt.total),
@@ -2303,6 +2316,7 @@ app.post(
           payment: formatSalePaymentRow(result.payment),
           receipt: {
             id: result.receipt.id,
+            publicCode: result.receipt.publicCode,
             receiptNumber: result.receipt.receiptNumber,
             total: Number(result.receipt.total),
             currency: result.receipt.currency,

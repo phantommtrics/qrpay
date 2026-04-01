@@ -30,6 +30,55 @@ function genWalletProviderRef(): string {
   return `SIM-W-${randomBytes(8).toString("hex")}`;
 }
 
+function buildBusinessCodePrefix(name: string): string {
+  const sanitized = name.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return (sanitized.slice(0, 3) || "BUS").padEnd(3, "X");
+}
+
+function buildPublicCode(
+  businessName: string,
+  kind: "ORD" | "PAY" | "RCT",
+  sequence: number,
+): string {
+  return `${buildBusinessCodePrefix(businessName)}-${kind}-${String(sequence).padStart(5, "0")}`;
+}
+
+function parsePublicCodeSequence(code: string | null | undefined): number {
+  if (!code) {
+    return 0;
+  }
+  const match = code.match(/(\d{5})$/);
+  return match ? Number(match[1]) : 0;
+}
+
+async function nextOrderPublicCode(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  businessName: string,
+): Promise<string> {
+  const prefix = `${buildBusinessCodePrefix(businessName)}-ORD-`;
+  const last = await tx.order.findFirst({
+    where: { businessId, publicCode: { startsWith: prefix } },
+    orderBy: { publicCode: "desc" },
+    select: { publicCode: true },
+  });
+  return buildPublicCode(businessName, "ORD", parsePublicCodeSequence(last?.publicCode) + 1);
+}
+
+async function nextPaymentPublicCode(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  businessName: string,
+): Promise<string> {
+  const prefix = `${buildBusinessCodePrefix(businessName)}-PAY-`;
+  const last = await tx.payment.findFirst({
+    where: { businessId, publicCode: { startsWith: prefix } },
+    orderBy: { publicCode: "desc" },
+    select: { publicCode: true },
+  });
+  return buildPublicCode(businessName, "PAY", parsePublicCodeSequence(last?.publicCode) + 1);
+}
+
 /** Order with line items (shape of `include: { lines: true }`). */
 type OrderWithLines = {
   id: string;
@@ -56,13 +105,29 @@ async function nextReceiptNumber(
   return (last?.receiptNumber ?? 0) + 1;
 }
 
+async function nextReceiptPublicCode(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  businessName: string,
+): Promise<string> {
+  const prefix = `${buildBusinessCodePrefix(businessName)}-RCT-`;
+  const last = await tx.receipt.findFirst({
+    where: { businessId, publicCode: { startsWith: prefix } },
+    orderBy: { publicCode: "desc" },
+    select: { publicCode: true },
+  });
+  return buildPublicCode(businessName, "RCT", parsePublicCodeSequence(last?.publicCode) + 1);
+}
+
 async function createReceiptRecord(
   tx: Prisma.TransactionClient,
   order: OrderWithLines,
   payment: { provider: string; providerRef: string | null },
+  businessName: string,
   paymentMethodLabel: string,
 ) {
   const receiptNumber = await nextReceiptNumber(tx, order.businessId);
+  const publicCode = await nextReceiptPublicCode(tx, order.businessId, businessName);
   const linesSnapshot = order.lines.map((line) => ({
     productName: line.productName,
     quantity: line.quantity,
@@ -74,6 +139,7 @@ async function createReceiptRecord(
     data: {
       businessId: order.businessId,
       orderId: order.id,
+      publicCode,
       receiptNumber,
       total: order.total,
       currency: order.currency,
@@ -95,6 +161,13 @@ export async function createOrder(input: {
   }
 
   const productIds = [...new Set(input.lines.map((l) => l.productId))];
+  const business = await prisma.business.findUnique({
+    where: { id: input.businessId },
+    select: { name: true },
+  });
+  if (!business) {
+    throw new HttpError(404, "Business not found.");
+  }
   const products = await prisma.product.findMany({
     where: { businessId: input.businessId, id: { in: productIds } },
   });
@@ -135,20 +208,25 @@ export async function createOrder(input: {
     });
   }
 
-  return prisma.order.create({
-    data: {
-      businessId: input.businessId,
-      status: OrderStatus.PENDING_PAYMENT,
-      subtotal,
-      taxAmount: new Prisma.Decimal(0),
-      total: subtotal,
-      currency: "GMD",
-      createdByUserId: input.userId ?? undefined,
-      lines: {
-        create: lineCreates,
+  return prisma.$transaction(async (tx) => {
+    const publicCode = await nextOrderPublicCode(tx, input.businessId, business.name);
+
+    return tx.order.create({
+      data: {
+        businessId: input.businessId,
+        publicCode,
+        status: OrderStatus.PENDING_PAYMENT,
+        subtotal,
+        taxAmount: new Prisma.Decimal(0),
+        total: subtotal,
+        currency: "GMD",
+        createdByUserId: input.userId ?? undefined,
+        lines: {
+          create: lineCreates,
+        },
       },
-    },
-    include: { lines: true },
+      include: { lines: true },
+    });
   });
 }
 
@@ -168,6 +246,9 @@ export async function getOrderForBusiness(orderId: string, businessId: string) {
 export async function startWalletPayment(orderId: string, businessId: string) {
   const order = await prisma.order.findFirst({
     where: { id: orderId, businessId },
+    include: {
+      business: { select: { name: true } },
+    },
   });
 
   if (!order) {
@@ -199,6 +280,7 @@ export async function startWalletPayment(orderId: string, businessId: string) {
     data: {
       businessId,
       orderId,
+      publicCode: await nextPaymentPublicCode(prisma, businessId, order.business.name),
       method: PaymentMethod.QR_WALLET,
       provider: PaymentProvider.SIMULATOR,
       status: PaymentStatus.PENDING,
@@ -218,7 +300,7 @@ export async function startWalletPayment(orderId: string, businessId: string) {
 export async function completeCashPayment(orderId: string, businessId: string) {
   const order = await prisma.order.findFirst({
     where: { id: orderId, businessId },
-    include: { lines: true, receipt: true },
+    include: { lines: true, receipt: true, business: { select: { name: true } } },
   });
 
   if (!order) {
@@ -247,6 +329,7 @@ export async function completeCashPayment(orderId: string, businessId: string) {
       data: {
         businessId,
         orderId,
+        publicCode: await nextPaymentPublicCode(tx, businessId, order.business.name),
         method: PaymentMethod.CASH,
         provider: PaymentProvider.SIMULATOR,
         status: PaymentStatus.COMPLETED,
@@ -268,7 +351,13 @@ export async function completeCashPayment(orderId: string, businessId: string) {
       include: { lines: true },
     });
 
-    const receipt = await createReceiptRecord(tx, orderWithLines, payment, "Cash");
+    const receipt = await createReceiptRecord(
+      tx,
+      orderWithLines,
+      payment,
+      order.business.name,
+      "Cash",
+    );
 
     return { payment, receipt };
   });
@@ -281,7 +370,13 @@ export async function completeWalletPaymentByPublicToken(
   const payment = await prisma.payment.findUnique({
     where: { publicToken },
     include: {
-      order: { include: { lines: true, receipt: true } },
+      order: {
+        include: {
+          lines: true,
+          receipt: true,
+          business: { select: { name: true } },
+        },
+      },
     },
   });
 
@@ -360,6 +455,7 @@ export async function completeWalletPaymentByPublicToken(
       tx,
       orderWithLines,
       updatedPayment,
+      payment.order.business.name,
       "QR Wallet",
     );
 
@@ -429,7 +525,7 @@ export async function listPaymentsForBusiness(
       skip,
       take: pageSize,
       include: {
-        order: { select: { id: true } },
+        order: { select: { id: true, publicCode: true } },
       },
     }),
   ]);

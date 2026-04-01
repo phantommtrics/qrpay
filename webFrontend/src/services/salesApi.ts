@@ -62,6 +62,7 @@ export type SaleOrderLine = {
 export type SaleOrder = {
   id: string
   businessId: string
+  publicCode: string
   status: string
   subtotal: number
   taxAmount: number
@@ -70,17 +71,20 @@ export type SaleOrder = {
   createdAt: string
   lines: SaleOrderLine[]
   payments?: SalePayment[]
-  receipt?: { id: string; receiptNumber: number } | null
+  receipt?: { id: string; publicCode: string; receiptNumber: number } | null
 }
 
 export type SalePayment = {
   id: string
   orderId: string
+  orderPublicCode: string | null
   businessId: string
+  publicCode: string
   amount: number
   currency: string
   status: 'pending' | 'completed' | 'failed'
   reference: string
+  providerReference: string
   method: 'qr_wallet' | 'cash'
   provider: string
   createdAt: string
@@ -125,12 +129,12 @@ export async function confirmCashPayment(
   orderId: string,
 ): Promise<{
   payment: SalePayment
-  receipt: { id: string; receiptNumber: number; total: number; currency: string }
+  receipt: { id: string; publicCode: string; receiptNumber: number; total: number; currency: string }
 }> {
   const res = await apiRequest<{
     data: {
       payment: SalePayment
-      receipt: { id: string; receiptNumber: number; total: number; currency: string }
+      receipt: { id: string; publicCode: string; receiptNumber: number; total: number; currency: string }
     }
   }>(`/businesses/${businessId}/orders/${orderId}/payments/cash`, {
     method: 'POST',
@@ -174,6 +178,7 @@ export async function fetchBusinessPayments(
 
 export type ReceiptDetail = {
   id: string
+  publicCode: string
   receiptNumber: number
   businessName: string
   total: number
