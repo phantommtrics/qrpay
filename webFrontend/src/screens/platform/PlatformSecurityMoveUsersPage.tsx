@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRightLeft } from 'lucide-react'
 
+import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { PageCard } from '../../components/ui/PageCard'
 import { PageSectionHeader } from '../../components/ui/PageSectionHeader'
 import { PageTransition } from '../../components/ui/PageTransition'
@@ -52,11 +53,7 @@ export function PlatformSecurityMoveUsersPage() {
   const [moving, setMoving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  const groupsWithTemplates = useMemo(
-    () => groups.filter((g) => g.roleTemplates.length > 0),
-    [groups],
-  )
+  const [moveConfirmKind, setMoveConfirmKind] = useState<null | 'selected' | 'everyone'>(null)
 
   const fromGroupOptions = useMemo(
     () =>
@@ -73,11 +70,7 @@ export function PlatformSecurityMoveUsersPage() {
       groups.map((g) => ({
         value: g.id,
         label: g.name,
-        disabled: g.roleTemplates.length === 0,
-        hint:
-          g.roleTemplates.length === 0
-            ? 'Add role templates first'
-            : `${g.roleTemplates.length} template${g.roleTemplates.length === 1 ? '' : 's'}`,
+        hint: g.roleTemplate.name,
       })),
     [groups],
   )
@@ -143,7 +136,7 @@ export function PlatformSecurityMoveUsersPage() {
   const selectNone = () => setSelectedIds(new Set())
 
   const sameGroup = Boolean(fromGroupId && toGroupId && fromGroupId === toGroupId)
-  const targetReady = groupsWithTemplates.some((g) => g.id === toGroupId)
+  const targetReady = Boolean(toGroupId && groups.some((g) => g.id === toGroupId))
   const selectedCount = selectedIds.size
   const fromName = groups.find((g) => g.id === fromGroupId)?.name ?? 'source'
   const toName = groups.find((g) => g.id === toGroupId)?.name ?? 'target'
@@ -172,43 +165,44 @@ export function PlatformSecurityMoveUsersPage() {
     await loadGroups()
   }
 
-  async function handleMoveSelected() {
+  function openMoveSelectedModal() {
     if (!canMoveSelected) return
-    if (!window.confirm(`Move ${selectedCount} selected user(s) to “${toName}”?`)) return
-    setMoving(true)
-    setError(null)
-    try {
-      const { movedCount } = await bulkMovePlatformStaffUsers({
-        fromGroupId,
-        toGroupId,
-        userIds: [...selectedIds],
-      })
-      setMessage(`Moved ${movedCount} user(s).`)
-      await afterMoveSuccess()
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Move failed.')
-    } finally {
-      setMoving(false)
-    }
+    setMoveConfirmKind('selected')
   }
 
-  async function handleMoveEveryone() {
+  function openMoveEveryoneModal() {
     if (!canMoveEveryone) return
-    if (
-      !window.confirm(
-        `Move all ${sourceUsers.length} user(s) from “${fromName}” to “${toName}”? This ignores checkboxes.`,
-      )
-    ) {
+    setMoveConfirmKind('everyone')
+  }
+
+  async function confirmMove() {
+    if (!moveConfirmKind) return
+    if (moveConfirmKind === 'selected' && !canMoveSelected) {
+      setMoveConfirmKind(null)
+      return
+    }
+    if (moveConfirmKind === 'everyone' && !canMoveEveryone) {
+      setMoveConfirmKind(null)
       return
     }
     setMoving(true)
     setError(null)
     try {
-      const { movedCount } = await bulkMovePlatformStaffUsers({
-        fromGroupId,
-        toGroupId,
-      })
-      setMessage(`Moved ${movedCount} user(s).`)
+      if (moveConfirmKind === 'selected') {
+        const { movedCount } = await bulkMovePlatformStaffUsers({
+          fromGroupId,
+          toGroupId,
+          userIds: [...selectedIds],
+        })
+        setMessage(`Moved ${movedCount} user(s).`)
+      } else {
+        const { movedCount } = await bulkMovePlatformStaffUsers({
+          fromGroupId,
+          toGroupId,
+        })
+        setMessage(`Moved ${movedCount} user(s).`)
+      }
+      setMoveConfirmKind(null)
       await afterMoveSuccess()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Move failed.')
@@ -337,7 +331,7 @@ export function PlatformSecurityMoveUsersPage() {
                 <button
                   type="button"
                   disabled={!canMoveSelected || moving}
-                  onClick={() => void handleMoveSelected()}
+                  onClick={() => openMoveSelectedModal()}
                   className="inline-flex items-center justify-center rounded-xl bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {moving ? 'Working…' : `Move ${selectedCount} selected`}
@@ -345,7 +339,7 @@ export function PlatformSecurityMoveUsersPage() {
                 <button
                   type="button"
                   disabled={!canMoveEveryone || moving}
-                  onClick={() => void handleMoveEveryone()}
+                  onClick={() => openMoveEveryoneModal()}
                   className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Move everyone in source group
@@ -361,6 +355,30 @@ export function PlatformSecurityMoveUsersPage() {
         {error ? (
           <p className="rounded-lg bg-red-50 px-4 py-2 text-sm font-medium text-red-800">{error}</p>
         ) : null}
+
+        <ConfirmModal
+          open={moveConfirmKind != null}
+          title={moveConfirmKind === 'everyone' ? 'Move everyone in this group?' : 'Move selected users?'}
+          confirmLabel="Move"
+          loading={moving}
+          onCancel={() => {
+            if (!moving) setMoveConfirmKind(null)
+          }}
+          onConfirm={() => void confirmMove()}
+        >
+          {moveConfirmKind === 'everyone' ? (
+            <p>
+              Move all {sourceUsers.length} user{sourceUsers.length === 1 ? '' : 's'} from{' '}
+              <span className="font-medium text-slate-800">“{fromName}”</span> to{' '}
+              <span className="font-medium text-slate-800">“{toName}”</span>. Checkbox selection is ignored.
+            </p>
+          ) : moveConfirmKind === 'selected' ? (
+            <p>
+              Move {selectedCount} selected user{selectedCount === 1 ? '' : 's'} to{' '}
+              <span className="font-medium text-slate-800">“{toName}”</span>?
+            </p>
+          ) : null}
+        </ConfirmModal>
       </div>
     </PageTransition>
   )

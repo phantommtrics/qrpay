@@ -263,12 +263,13 @@ const platformRoleTemplatePermissionsBodySchema = z.object({
 const platformFunctionGroupBodySchema = z.object({
   name: z.string().min(1),
   description: z.string().optional().nullable(),
+  roleTemplateId: z.string().min(1),
 });
 
 const platformFunctionGroupPatchSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
-  roleTemplateIds: z.array(z.string().min(1)).optional(),
+  roleTemplateId: z.string().min(1).optional(),
 });
 
 const platformStaffUserBodySchema = z.object({
@@ -1046,7 +1047,7 @@ app.get(
           description: g.description,
           createdAt: g.createdAt.toISOString(),
           updatedAt: g.updatedAt.toISOString(),
-          roleTemplates: g.roleTemplates,
+          roleTemplate: g.roleTemplate,
           userCount: g._count.users,
         })),
       });
@@ -1073,7 +1074,7 @@ app.get(
           description: g.description,
           createdAt: g.createdAt.toISOString(),
           updatedAt: g.updatedAt.toISOString(),
-          roleTemplates: g.roleTemplates,
+          roleTemplate: g.roleTemplate,
           userCount: g._count.users,
         })),
         total,
@@ -1102,6 +1103,8 @@ app.post(
           description: created.description,
           createdAt: created.createdAt.toISOString(),
           updatedAt: created.updatedAt.toISOString(),
+          roleTemplate: created.roleTemplate,
+          userCount: created._count.users,
         },
       });
     } catch (e) {
@@ -1126,7 +1129,7 @@ app.patch(
           description: updated.description,
           createdAt: updated.createdAt.toISOString(),
           updatedAt: updated.updatedAt.toISOString(),
-          roleTemplates: updated.roleTemplates,
+          roleTemplate: updated.roleTemplate,
           userCount: updated._count.users,
         },
       });

@@ -40,18 +40,33 @@ export function PlatformSecuritySystemUsersPage() {
   const [newEmail, setNewEmail] = useState('')
   const [newGroupId, setNewGroupId] = useState('')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (pageOverride?: number) => {
     setLoading(true)
     setError(null)
     try {
+      let page = pageOverride !== undefined ? pageOverride : listPage
       const [uPayload, g] = await Promise.all([
-        fetchPlatformStaffUsersList({ page: listPage, pageSize: PAGE_SIZE }),
+        fetchPlatformStaffUsersList({ page, pageSize: PAGE_SIZE }),
         fetchPlatformFunctionGroupsAll(),
       ])
       const totalPages = Math.max(1, Math.ceil(uPayload.total / uPayload.pageSize))
-      if (listPage > totalPages && uPayload.total > 0) {
-        setListPage(totalPages)
+      if (page > totalPages && uPayload.total > 0) {
+        page = totalPages
+        setListPage(page)
+        const retry = await fetchPlatformStaffUsersList({ page, pageSize: PAGE_SIZE })
+        setRows(retry.data)
+        setUsersTotal(retry.total)
+        setGroups(g)
+        setNewGroupId((prev) => {
+          if (prev && g.some((x) => x.id === prev)) {
+            return prev
+          }
+          return g[0]?.id ?? ''
+        })
         return
+      }
+      if (pageOverride !== undefined) {
+        setListPage(page)
       }
       setRows(uPayload.data)
       setUsersTotal(uPayload.total)
@@ -60,8 +75,7 @@ export function PlatformSecuritySystemUsersPage() {
         if (prev && g.some((x) => x.id === prev)) {
           return prev
         }
-        const withTemplates = g.find((x) => x.roleTemplates.length > 0)
-        return withTemplates?.id ?? g[0]?.id ?? ''
+        return g[0]?.id ?? ''
       })
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Failed to load.')
@@ -74,18 +88,12 @@ export function PlatformSecuritySystemUsersPage() {
     void load()
   }, [load])
 
-  const groupsReadyForUsers = groups.filter((g) => g.roleTemplates.length > 0)
-
   const inviteGroupOptions = useMemo(
     () =>
       groups.map((g) => ({
         value: g.id,
         label: g.name,
-        disabled: g.roleTemplates.length === 0,
-        hint:
-          g.roleTemplates.length === 0
-            ? 'Add role templates before assigning users'
-            : `${g.roleTemplates.length} template${g.roleTemplates.length === 1 ? '' : 's'}`,
+        hint: g.roleTemplate.name,
       })),
     [groups],
   )
@@ -95,20 +103,15 @@ export function PlatformSecuritySystemUsersPage() {
       groups.map((g) => ({
         value: g.id,
         label: g.name,
-        hint:
-          g.roleTemplates.length === 0
-            ? 'No templates — assign may fail until linked'
-            : undefined,
+        hint: g.roleTemplate.name,
       })),
     [groups],
   )
 
   const createBlockedReason =
     groups.length === 0
-      ? 'Create a function group first (and attach at least one role template to it).'
-      : groupsReadyForUsers.length === 0
-        ? 'Each function group needs at least one role template. Open Function groups, link templates, then return here.'
-        : null
+      ? 'Create a function group first (name + role template).'
+      : null
 
   async function handleCreate() {
     const name = newName.trim()
@@ -124,7 +127,7 @@ export function PlatformSecuritySystemUsersPage() {
       })
       setNewName('')
       setNewEmail('')
-      setListPage(1)
+      await load(1)
       setMessage('User created. They will receive an email with a temporary password.')
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not create user.')
@@ -145,13 +148,8 @@ export function PlatformSecuritySystemUsersPage() {
     }
   }
 
-  const selectedGroupHasTemplates = groupsReadyForUsers.some((g) => g.id === newGroupId)
-
   const canSubmitCreate =
-    canCreate &&
-    Boolean(newName.trim() && newEmail.trim() && newGroupId) &&
-    !createBlockedReason &&
-    selectedGroupHasTemplates
+    canCreate && Boolean(newName.trim() && newEmail.trim() && newGroupId) && !createBlockedReason
 
   return (
     <PageTransition>

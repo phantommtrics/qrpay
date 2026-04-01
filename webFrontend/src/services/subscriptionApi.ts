@@ -1113,7 +1113,7 @@ export type PlatformFunctionGroupRow = {
   description: string | null
   createdAt: string
   updatedAt: string
-  roleTemplates: { id: string; name: string }[]
+  roleTemplate: { id: string; name: string }
   userCount: number
 }
 
@@ -1218,8 +1218,12 @@ export async function fetchPlatformFunctionGroupsAll() {
   return response.data
 }
 
-export async function createPlatformFunctionGroup(payload: { name: string; description?: string }) {
-  const response = await apiRequest<{ data: Omit<PlatformFunctionGroupRow, 'roleTemplates' | 'userCount'> }>(
+export async function createPlatformFunctionGroup(payload: {
+  name: string
+  description?: string
+  roleTemplateId: string
+}) {
+  const response = await apiRequest<{ data: PlatformFunctionGroupRow }>(
     '/platform/security/function-groups',
     {
       method: 'POST',
@@ -1231,7 +1235,7 @@ export async function createPlatformFunctionGroup(payload: { name: string; descr
 
 export async function updatePlatformFunctionGroup(
   groupId: string,
-  payload: { name?: string; description?: string | null; roleTemplateIds?: string[] },
+  payload: { name?: string; description?: string | null; roleTemplateId?: string },
 ) {
   const response = await apiRequest<{ data: PlatformFunctionGroupRow }>(
     `/platform/security/function-groups/${groupId}`,

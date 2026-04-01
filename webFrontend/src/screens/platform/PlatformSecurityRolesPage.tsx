@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Layers, Plus, Save, Trash2 } from 'lucide-react'
 
+import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { PageCard } from '../../components/ui/PageCard'
 import { PageSectionHeader } from '../../components/ui/PageSectionHeader'
 import { PageTransition } from '../../components/ui/PageTransition'
@@ -55,6 +56,31 @@ const actionLabels: { key: keyof Omit<MatrixRow, 'moduleId'>; short: string; hin
   { key: 'canExport', short: 'Export', hint: 'Download / export data' },
 ]
 
+const PMATRIX_CELL = 'data-pmatrix-cell'
+
+function applyRectToSnapshot(
+  snapshot: MatrixRow[],
+  r0: number,
+  c0: number,
+  r1: number,
+  c1: number,
+  paint: boolean,
+): MatrixRow[] {
+  const rLo = Math.min(r0, r1)
+  const rHi = Math.max(r0, r1)
+  const cLo = Math.min(c0, c1)
+  const cHi = Math.max(c0, c1)
+  return snapshot.map((row, ri) => {
+    if (ri < rLo || ri > rHi) return row
+    const next = { ...row }
+    for (let ci = cLo; ci <= cHi; ci++) {
+      const k = actionLabels[ci]?.key
+      if (k) next[k] = paint
+    }
+    return next
+  })
+}
+
 export function PlatformSecurityRolesPage() {
   const { user } = useAuth()
   const canCreateTpl = Boolean(user?.isPlatformOwner || user?.platformPermissions?.[SEC_MODULE]?.create)
@@ -73,23 +99,48 @@ export function PlatformSecurityRolesPage() {
   const [creating, setCreating] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const pendingSelectAfterLoadRef = useRef<string | null>(null)
 
   const selected = templates.find((t) => t.id === selectedId) ?? null
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (pageOverride?: number) => {
     setLoading(true)
     setError(null)
     try {
+      let page = pageOverride !== undefined ? pageOverride : listPage
       const [modList, tplPayload] = await Promise.all([
         fetchPlatformSecurityModules(),
-        fetchPlatformRoleTemplates({ page: listPage, pageSize: PAGE_SIZE }),
+        fetchPlatformRoleTemplates({ page, pageSize: PAGE_SIZE }),
       ])
       setModules(modList)
       const totalPages = Math.max(1, Math.ceil(tplPayload.total / tplPayload.pageSize))
-      if (listPage > totalPages && tplPayload.total > 0) {
-        setListPage(totalPages)
+      if (page > totalPages && tplPayload.total > 0) {
+        page = totalPages
+        setListPage(page)
+        const retry = await fetchPlatformRoleTemplates({ page, pageSize: PAGE_SIZE })
+        setTemplates(retry.data)
+        setTemplatesTotal(retry.total)
+        setSelectedId((current) => {
+          const pending = pendingSelectAfterLoadRef.current
+          const data = retry.data
+          if (pending && data.some((t) => t.id === pending)) {
+            pendingSelectAfterLoadRef.current = null
+            return pending
+          }
+          if (pending) {
+            pendingSelectAfterLoadRef.current = null
+          }
+          if (current && data.some((t) => t.id === current)) {
+            return current
+          }
+          return data[0]?.id ?? null
+        })
         return
+      }
+      if (pageOverride !== undefined) {
+        setListPage(page)
       }
       setTemplates(tplPayload.data)
       setTemplatesTotal(tplPayload.total)
@@ -147,7 +198,7 @@ export function PlatformSecurityRolesPage() {
       const row = await createPlatformRoleTemplate({ name })
       setNewName('')
       pendingSelectAfterLoadRef.current = row.id
-      setListPage(1)
+      await load(1)
       setMessage('Role template created. Set permissions below, then save.')
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Create failed.')
@@ -156,17 +207,26 @@ export function PlatformSecurityRolesPage() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!canDeleteTpl || !window.confirm('Delete this role template?')) return
+  const deleteTargetName =
+    deleteTargetId != null ? templates.find((t) => t.id === deleteTargetId)?.name : undefined
+
+  async function confirmDeleteTemplate() {
+    if (!deleteTargetId || !canDeleteTpl) return
+    setDeleting(true)
+    setError(null)
     try {
+      const id = deleteTargetId
       await deletePlatformRoleTemplate(id)
       if (selectedId === id) {
         setSelectedId(null)
       }
       await load()
       setMessage('Template deleted.')
+      setDeleteTargetId(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Delete failed.')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -176,6 +236,94 @@ export function PlatformSecurityRolesPage() {
       rows.map((r) => (r.moduleId === moduleId ? { ...r, [key]: !r[key] } : r)),
     )
   }
+
+  const paintDragRef = useRef<{
+    snapshot: MatrixRow[]
+    paint: boolean
+    r0: number
+    c0: number
+  } | null>(null)
+  const paintCleanupRef = useRef<(() => void) | null>(null)
+
+  const clearMatrixPaintListeners = useCallback(() => {
+    paintCleanupRef.current?.()
+    paintCleanupRef.current = null
+    paintDragRef.current = null
+  }, [])
+
+  useEffect(() => () => clearMatrixPaintListeners(), [clearMatrixPaintListeners])
+
+  const startMatrixPaint = useCallback(
+    (e: React.PointerEvent, rowIndex: number, colIndex: number) => {
+      if (!canEditTpl) return
+      e.preventDefault()
+      clearMatrixPaintListeners()
+      const snapshot = matrix.map((r) => ({ ...r }))
+      const key = actionLabels[colIndex]?.key
+      if (!key) return
+      const paint = !snapshot[rowIndex][key]
+      paintDragRef.current = { snapshot, paint, r0: rowIndex, c0: colIndex }
+      setMatrix(
+        applyRectToSnapshot(snapshot, rowIndex, colIndex, rowIndex, colIndex, paint),
+      )
+
+      const onMove = (ev: PointerEvent) => {
+        const d = paintDragRef.current
+        if (!d) return
+        const el = document.elementFromPoint(ev.clientX, ev.clientY)
+        const host = (el as HTMLElement | null)?.closest(`[${PMATRIX_CELL}]`)
+        const raw = host?.getAttribute(PMATRIX_CELL)
+        if (raw == null) return
+        const parts = raw.split(',').map((x) => Number.parseInt(x, 10))
+        if (parts.length !== 2 || parts.some((n) => Number.isNaN(n))) return
+        const [r1, c1] = parts
+        setMatrix(applyRectToSnapshot(d.snapshot, d.r0, d.c0, r1, c1, d.paint))
+      }
+
+      const onEnd = () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onEnd)
+        window.removeEventListener('pointercancel', onEnd)
+        paintDragRef.current = null
+        paintCleanupRef.current = null
+      }
+
+      paintCleanupRef.current = onEnd
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onEnd)
+      window.addEventListener('pointercancel', onEnd)
+    },
+    [canEditTpl, clearMatrixPaintListeners, matrix],
+  )
+
+  const toggleWholeRow = useCallback((rowIndex: number) => {
+    if (!canEditTpl) return
+    setMatrix((rows) => {
+      const row = rows[rowIndex]
+      if (!row) return rows
+      const allOn = actionLabels.every(({ key }) => row[key])
+      const nextVal = !allOn
+      return rows.map((r, i) => {
+        if (i !== rowIndex) return r
+        const next = { ...r }
+        for (const { key } of actionLabels) {
+          next[key] = nextVal
+        }
+        return next
+      })
+    })
+  }, [canEditTpl])
+
+  const toggleWholeColumn = useCallback((colIndex: number) => {
+    if (!canEditTpl) return
+    const key = actionLabels[colIndex]?.key
+    if (!key) return
+    setMatrix((rows) => {
+      const allOn = rows.every((row) => row[key])
+      const nextVal = !allOn
+      return rows.map((row) => ({ ...row, [key]: nextVal }))
+    })
+  }, [canEditTpl])
 
   const moduleById = new Map(modules.map((m) => [m.id, m]))
 
@@ -296,7 +444,7 @@ export function PlatformSecurityRolesPage() {
                                   }
                                   disabled={deleteBlocked}
                                   className="flex w-11 shrink-0 items-center justify-center border-l border-slate-100 text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
-                                  onClick={() => void handleDelete(t.id)}
+                                  onClick={() => setDeleteTargetId(t.id)}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </button>
@@ -329,7 +477,8 @@ export function PlatformSecurityRolesPage() {
                       <div>
                         <h4 className="text-lg font-semibold text-slate-900">{selected.name}</h4>
                         <p className="text-sm text-slate-600">
-                          Toggle access for each platform module. Remember to click save.
+                          Drag across the grid to paint a row, column, or block. Click a module name to
+                          toggle an entire row, or a column header to toggle that column. Then save.
                         </p>
                       </div>
                       {canEditTpl ? (
@@ -346,25 +495,36 @@ export function PlatformSecurityRolesPage() {
                     </div>
 
                     <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
-                      <table className="w-full min-w-[600px] border-collapse text-sm">
+                      <table
+                        role="grid"
+                        aria-label="Permission matrix"
+                        className="w-full min-w-[600px] border-collapse text-sm select-none"
+                      >
                         <thead>
-                          <tr className="border-b border-slate-200 bg-slate-50 text-left">
+                          <tr role="row" className="border-b border-slate-200 bg-slate-50 text-left">
                             <th className="whitespace-nowrap px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-600">
                               Module
                             </th>
-                            {actionLabels.map(({ key, short, hint }) => (
+                            {actionLabels.map(({ key, short, hint }, colIndex) => (
                               <th
                                 key={key}
-                                className="w-14 px-1 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-600"
-                                title={hint}
+                                className="w-14 px-1 py-2 text-center text-xs font-bold uppercase tracking-wide text-slate-600"
                               >
-                                <span className="block">{short}</span>
+                                <button
+                                  type="button"
+                                  disabled={!canEditTpl}
+                                  title={`${hint} — click to toggle entire column`}
+                                  onClick={() => toggleWholeColumn(colIndex)}
+                                  className="mx-auto block w-full max-w-[3.25rem] rounded-lg py-2 text-center leading-tight transition hover:bg-slate-200/80 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                                >
+                                  {short}
+                                </button>
                               </th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {matrix.map((row) => {
+                          {matrix.map((row, rowIndex) => {
                             const mod = moduleById.get(row.moduleId)
                             if (!mod) {
                               return null
@@ -372,17 +532,47 @@ export function PlatformSecurityRolesPage() {
                             return (
                               <tr
                                 key={row.moduleId}
+                                role="row"
                                 className="border-b border-slate-100 transition hover:bg-slate-50/80"
                               >
-                                <td className="px-4 py-3 font-medium text-slate-800">{mod.label}</td>
-                                {actionLabels.map(({ key }) => (
-                                  <td key={key} className="px-1 py-2 text-center">
+                                <td className="px-2 py-2">
+                                  <button
+                                    type="button"
+                                    disabled={!canEditTpl}
+                                    title="Click to toggle all permissions for this module"
+                                    onClick={() => toggleWholeRow(rowIndex)}
+                                    className="w-full rounded-lg px-2 py-2 text-left text-sm font-medium text-slate-800 transition hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+                                  >
+                                    {mod.label}
+                                  </button>
+                                </td>
+                                {actionLabels.map(({ key }, colIndex) => (
+                                  <td
+                                    key={key}
+                                    data-pmatrix-cell={`${rowIndex},${colIndex}`}
+                                    className={`px-1 py-2 text-center ${
+                                      canEditTpl ? 'cursor-pointer' : ''
+                                    }`}
+                                    onPointerDown={(e) => startMatrixPaint(e, rowIndex, colIndex)}
+                                    onKeyDown={(e) => {
+                                      if (!canEditTpl) return
+                                      if (e.key === ' ' || e.key === 'Enter') {
+                                        e.preventDefault()
+                                        toggle(row.moduleId, key)
+                                      }
+                                    }}
+                                    tabIndex={canEditTpl ? 0 : -1}
+                                    role="gridcell"
+                                    aria-checked={row[key]}
+                                    aria-label={`${mod.label} — ${actionLabels[colIndex]?.short ?? key}`}
+                                  >
                                     <input
                                       type="checkbox"
+                                      tabIndex={-1}
                                       checked={row[key]}
-                                      disabled={!canEditTpl}
-                                      onChange={() => toggle(row.moduleId, key)}
-                                      className="h-4 w-4 cursor-pointer rounded border-slate-300 text-teal-600 focus:ring-teal-500 disabled:cursor-not-allowed"
+                                      readOnly
+                                      aria-hidden
+                                      className="pointer-events-none h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-0"
                                     />
                                   </td>
                                 ))}
@@ -419,6 +609,27 @@ export function PlatformSecurityRolesPage() {
         {error ? (
           <p className="rounded-lg bg-red-50 px-4 py-2 text-sm font-medium text-red-800">{error}</p>
         ) : null}
+
+        <ConfirmModal
+          open={deleteTargetId != null}
+          title="Delete role template?"
+          variant="danger"
+          confirmLabel="Delete"
+          loading={deleting}
+          onCancel={() => {
+            if (!deleting) setDeleteTargetId(null)
+          }}
+          onConfirm={() => void confirmDeleteTemplate()}
+        >
+          {deleteTargetName ? (
+            <p>
+              <span className="font-medium text-slate-800">{deleteTargetName}</span> will be removed.
+              This cannot be undone.
+            </p>
+          ) : (
+            <p>This template will be removed. This cannot be undone.</p>
+          )}
+        </ConfirmModal>
       </div>
     </PageTransition>
   )
