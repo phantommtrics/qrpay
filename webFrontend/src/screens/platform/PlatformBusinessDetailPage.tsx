@@ -36,8 +36,12 @@ export function PlatformBusinessDetailPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setMembershipsPage(1)
-    setSubscriptionsPage(1)
+    if (!businessId) return
+    void (async () => {
+      await Promise.resolve()
+      setMembershipsPage(1)
+      setSubscriptionsPage(1)
+    })()
   }, [businessId])
 
   useEffect(() => {
@@ -45,30 +49,31 @@ export function PlatformBusinessDetailPage() {
       return
     }
     let cancelled = false
-    setLoading(true)
-    setError(null)
-    fetchPlatformBusinessDetail(businessId, {
-      membershipsPage,
-      membershipsPageSize: PAGE_SIZE,
-      subscriptionsPage,
-      subscriptionsPageSize: PAGE_SIZE,
-    })
-      .then((data) => {
+    void (async () => {
+      await Promise.resolve()
+      setLoading(true)
+      setError(null)
+      try {
+        const data = await fetchPlatformBusinessDetail(businessId, {
+          membershipsPage,
+          membershipsPageSize: PAGE_SIZE,
+          subscriptionsPage,
+          subscriptionsPageSize: PAGE_SIZE,
+        })
         if (!cancelled) {
           setDetail(data)
         }
-      })
-      .catch((e) => {
+      } catch (e) {
         if (!cancelled) {
           setDetail(null)
           setError(e instanceof ApiError ? e.message : 'Could not load business.')
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) {
           setLoading(false)
         }
-      })
+      }
+    })()
     return () => {
       cancelled = true
     }

@@ -166,6 +166,10 @@ export interface Payment {
   method: 'qr_wallet' | 'cash'
   businessId: string
   createdAt: string
+  /** Present for API-backed payments (e.g. simulator). */
+  provider?: string
+  currency?: string
+  completedAt?: string | null
 }
 
 export interface CartItem {

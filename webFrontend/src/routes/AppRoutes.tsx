@@ -148,6 +148,11 @@ const ProductPublicPage = lazy(() =>
     default: module.ProductPublicPage,
   })),
 )
+const PublicPayPage = lazy(() =>
+  import('../screens/PublicPayPage').then((module) => ({
+    default: module.PublicPayPage,
+  })),
+)
 const PlatformSecurityRolesPage = lazy(() =>
   import('../screens/platform/PlatformSecurityRolesPage').then((module) => ({
     default: module.PlatformSecurityRolesPage,
@@ -355,6 +360,7 @@ export function AppRoutes() {
         />
         <Route path={APP_PATHS.customerMenu} element={<CustomerMenuPage />} />
         <Route path="/p/:productId" element={<ProductPublicPage />} />
+        <Route path="/pay/:publicToken" element={<PublicPayPage />} />
         <Route
           path={APP_PATHS.changePassword}
           element={

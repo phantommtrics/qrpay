@@ -74,6 +74,29 @@ import {
   utcTodayIsoDate,
 } from "./services/platform-admin.service.js";
 import {
+  completeCashPayment,
+  completeWalletPaymentByPublicToken,
+  completeWalletPaymentForOrder,
+  createOrder,
+  getOrderForBusiness,
+  getPublicPayInfo,
+  getReceiptForBusiness,
+  isSimulatorPublicPayEnabled,
+  listPaymentsForBusiness,
+  startWalletPayment,
+  verifySimulatorWebhookSecret,
+} from "./services/sale.service.js";
+import {
+  OrderStatus,
+  PaymentMethod,
+  PaymentProvider,
+  PaymentStatus,
+  type OrderStatusType,
+  type PaymentMethodType,
+  type PaymentProviderType,
+  type PaymentStatusType,
+} from "./lib/prisma-sales-enums.js";
+import {
   createFunctionGroup,
   createPlatformStaffUser,
   createRoleTemplate,
@@ -191,6 +214,22 @@ const createBusinessUserSchema = z.object({
 
 const createSubscriptionSchema = z.object({
   planCode: z.nativeEnum(PlanCode),
+});
+
+const createOrderBodySchema = z.object({
+  lines: z
+    .array(
+      z.object({
+        productId: z.string().min(1),
+        quantity: z.coerce.number().int().positive(),
+      }),
+    )
+    .min(1),
+});
+
+const simulatorWebhookBodySchema = z.object({
+  publicToken: z.string().min(1),
+  externalEventId: z.string().min(1).optional(),
 });
 
 const createProductSchema = z.object({
@@ -1722,6 +1761,148 @@ function formatProductResponse(product: {
   };
 }
 
+function mapPaymentStatusToApi(
+  status: PaymentStatusType,
+): "pending" | "completed" | "failed" {
+  switch (status) {
+    case PaymentStatus.COMPLETED:
+      return "completed";
+    case PaymentStatus.PENDING:
+      return "pending";
+    case PaymentStatus.FAILED:
+    case PaymentStatus.CANCELLED:
+      return "failed";
+    default:
+      return "pending";
+  }
+}
+
+function formatSalePaymentRow(p: {
+  id: string;
+  orderId: string;
+  publicCode: string;
+  businessId: string;
+  method: PaymentMethodType;
+  status: PaymentStatusType;
+  amount: Prisma.Decimal;
+  currency: string;
+  provider: PaymentProviderType;
+  providerRef: string;
+  createdAt: Date;
+  completedAt: Date | null;
+  order?: { id: string; publicCode: string };
+}) {
+  return {
+    id: p.id,
+    orderId: p.orderId,
+    orderPublicCode: p.order?.publicCode ?? null,
+    publicCode: p.publicCode,
+    businessId: p.businessId,
+    amount: Number(p.amount),
+    currency: p.currency,
+    status: mapPaymentStatusToApi(p.status),
+    reference: p.publicCode,
+    providerReference: p.providerRef,
+    method: p.method === PaymentMethod.QR_WALLET ? "qr_wallet" : "cash",
+    provider:
+      p.provider === PaymentProvider.SIMULATOR ? "simulator" : String(p.provider).toLowerCase(),
+    createdAt: p.createdAt.toISOString(),
+    completedAt: p.completedAt?.toISOString() ?? null,
+  };
+}
+
+function formatSaleOrder(order: {
+  id: string;
+  businessId: string;
+  publicCode: string;
+  status: OrderStatusType;
+  subtotal: Prisma.Decimal;
+  taxAmount: Prisma.Decimal;
+  total: Prisma.Decimal;
+  currency: string;
+  createdAt: Date;
+  lines: Array<{
+    id: string;
+    productId: string;
+    productName: string;
+    quantity: number;
+    unitPrice: Prisma.Decimal;
+    lineTotal: Prisma.Decimal;
+  }>;
+  payments?: Array<Parameters<typeof formatSalePaymentRow>[0]>;
+  receipt?: { id: string; publicCode: string; receiptNumber: number } | null;
+}) {
+  return {
+    id: order.id,
+    businessId: order.businessId,
+    publicCode: order.publicCode,
+    status: order.status.toLowerCase(),
+    subtotal: Number(order.subtotal),
+    taxAmount: Number(order.taxAmount),
+    total: Number(order.total),
+    currency: order.currency,
+    createdAt: order.createdAt.toISOString(),
+    lines: order.lines.map((line) => ({
+      id: line.id,
+      productId: line.productId,
+      productName: line.productName,
+      quantity: line.quantity,
+      unitPrice: Number(line.unitPrice),
+      lineTotal: Number(line.lineTotal),
+    })),
+    payments: order.payments?.map(formatSalePaymentRow),
+    receipt: order.receipt
+      ? {
+          id: order.receipt.id,
+          publicCode: order.receipt.publicCode,
+          receiptNumber: order.receipt.receiptNumber,
+        }
+      : null,
+  };
+}
+
+function formatReceiptDetail(receipt: {
+  id: string;
+  publicCode: string;
+  receiptNumber: number;
+  total: Prisma.Decimal;
+  currency: string;
+  linesSnapshot: Prisma.JsonValue;
+  paymentMethod: string;
+  provider: string;
+  providerRef: string | null;
+  createdAt: Date;
+  business: { name: string };
+  order: {
+    lines: Array<{
+      productName: string;
+      quantity: number;
+      unitPrice: Prisma.Decimal;
+      lineTotal: Prisma.Decimal;
+    }>;
+  };
+}) {
+  return {
+    id: receipt.id,
+    publicCode: receipt.publicCode,
+    receiptNumber: receipt.receiptNumber,
+    businessName: receipt.business.name,
+    total: Number(receipt.total),
+    currency: receipt.currency,
+    lines: receipt.linesSnapshot,
+    linesFromOrder: receipt.order.lines.map((line) => ({
+      productName: line.productName,
+      quantity: line.quantity,
+      unitPrice: Number(line.unitPrice),
+      lineTotal: Number(line.lineTotal),
+    })),
+    paymentMethod: receipt.paymentMethod,
+    provider: receipt.provider,
+    providerRef: receipt.providerRef,
+    createdAt: receipt.createdAt.toISOString(),
+  };
+}
+
 function formatAccessibleBusinessResponse(entry: {
   business: {
     id: string;
@@ -1953,6 +2134,303 @@ app.post("/api/subscriptions/:subscriptionId/renew", async (request, response, n
     next(error);
   }
 });
+
+app.get("/api/public/pay/:publicToken", async (request, response, next) => {
+  try {
+    const info = await getPublicPayInfo(request.params.publicToken as string);
+    response.json({
+      data: {
+        businessName: info.businessName,
+        amount: info.amount,
+        currency: info.currency,
+        orderStatus: info.orderStatus.toLowerCase(),
+        paymentStatus: info.paymentStatus.toLowerCase(),
+        method: info.method.toLowerCase(),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/public/pay/:publicToken/simulate", async (request, response, next) => {
+  try {
+    if (!isSimulatorPublicPayEnabled()) {
+      throw new HttpError(403, "Public pay simulation is disabled.");
+    }
+    const result = await completeWalletPaymentByPublicToken(request.params.publicToken as string, {
+      externalEventId: `sim-public-${Date.now()}`,
+    });
+    response.json({ data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/webhooks/payments/simulator", async (request, response, next) => {
+  try {
+    const headerSecret = request.headers["x-simulator-secret"];
+    const secret =
+      typeof headerSecret === "string"
+        ? headerSecret
+        : Array.isArray(headerSecret)
+          ? headerSecret[0]
+          : undefined;
+    if (!verifySimulatorWebhookSecret(secret)) {
+      throw new HttpError(401, "Invalid simulator webhook secret.");
+    }
+    const body = simulatorWebhookBodySchema.parse(request.body);
+    const result = await completeWalletPaymentByPublicToken(body.publicToken, {
+      externalEventId: body.externalEventId ?? `wh-${Date.now()}`,
+    });
+    response.json({ data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post(
+  "/api/businesses/:businessId/orders",
+  authenticateToken,
+  requireEntitlement("pos.access"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const body = createOrderBodySchema.parse(request.body);
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const order = await createOrder({
+        businessId: businessId as string,
+        userId: request.user!.id,
+        lines: body.lines,
+      });
+
+      response.status(201).json({
+        data: formatSaleOrder(order),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/orders/:orderId",
+  authenticateToken,
+  requireEntitlement("pos.access"),
+  async (request, response, next) => {
+    try {
+      const { businessId, orderId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const order = await getOrderForBusiness(orderId as string, businessId as string);
+      if (!order) {
+        throw new HttpError(404, "Order not found.");
+      }
+
+      response.json({
+        data: formatSaleOrder({
+          ...order,
+          receipt: order.receipt,
+        }),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/orders/:orderId/payments/wallet",
+  authenticateToken,
+  requireEntitlement("pos.access"),
+  async (request, response, next) => {
+    try {
+      const { businessId, orderId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const result = await startWalletPayment(orderId as string, businessId as string);
+
+      response.json({
+        data: {
+          payment: formatSalePaymentRow(result.payment),
+          qrPayload: result.qrPayload,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/orders/:orderId/payments/cash",
+  authenticateToken,
+  requireEntitlement("pos.access"),
+  async (request, response, next) => {
+    try {
+      const { businessId, orderId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const result = await completeCashPayment(orderId as string, businessId as string);
+
+      response.json({
+        data: {
+          payment: formatSalePaymentRow(result.payment),
+          receipt: {
+            id: result.receipt.id,
+            publicCode: result.receipt.publicCode,
+            receiptNumber: result.receipt.receiptNumber,
+            total: Number(result.receipt.total),
+            currency: result.receipt.currency,
+          },
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/orders/:orderId/payments/wallet/simulate",
+  authenticateToken,
+  requireEntitlement("pos.access"),
+  async (request, response, next) => {
+    try {
+      const { businessId, orderId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const result = await completeWalletPaymentForOrder(orderId as string, businessId as string);
+
+      response.json({ data: result });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/payments",
+  authenticateToken,
+  requireEntitlement("payments.view"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const page = clampPage(Number(request.query.page ?? 1));
+      const pageSize = clampPageSize(Number(request.query.pageSize ?? 20));
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const result = await listPaymentsForBusiness(businessId as string, { page, pageSize });
+
+      response.json({
+        data: {
+          total: result.total,
+          page: result.page,
+          pageSize: result.pageSize,
+          payments: result.payments.map((p: (typeof result.payments)[number]) =>
+            formatSalePaymentRow({
+              ...p,
+              completedAt: p.completedAt,
+            }),
+          ),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/receipts/:receiptId",
+  authenticateToken,
+  requireEntitlement("payments.view"),
+  async (request, response, next) => {
+    try {
+      const { businessId, receiptId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const receipt = await getReceiptForBusiness(receiptId as string, businessId as string);
+
+      response.json({
+        data: formatReceiptDetail(receipt),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 app.post("/api/invoices/:invoiceId/pay", async (request, response, next) => {
   try {
