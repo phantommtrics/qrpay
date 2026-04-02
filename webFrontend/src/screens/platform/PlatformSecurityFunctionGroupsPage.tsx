@@ -54,7 +54,7 @@ export function PlatformSecurityFunctionGroupsPage() {
   )
 
   const mappingDirty = Boolean(
-    selected && editRoleTemplateId !== selected.roleTemplate.id,
+    selected && editRoleTemplateId !== (selected.roleTemplates[0]?.id ?? ''),
   )
 
   const load = useCallback(async (pageOverride?: number) => {
@@ -123,7 +123,7 @@ export function PlatformSecurityFunctionGroupsPage() {
       setEditRoleTemplateId('')
       return
     }
-    setEditRoleTemplateId(selected.roleTemplate.id)
+    setEditRoleTemplateId(selected.roleTemplates[0]?.id ?? '')
   }, [selected])
 
   useEffect(() => {
@@ -139,7 +139,7 @@ export function PlatformSecurityFunctionGroupsPage() {
     try {
       const row = await createPlatformFunctionGroup({
         name,
-        roleTemplateId: newRoleTemplateId,
+        roleTemplateIds: [newRoleTemplateId],
       })
       setNewName('')
       pendingSelectAfterLoadRef.current = row.id
@@ -160,7 +160,7 @@ export function PlatformSecurityFunctionGroupsPage() {
     setError(null)
     try {
       await updatePlatformFunctionGroup(selectedId, {
-        roleTemplateId: editRoleTemplateId,
+        roleTemplateIds: [editRoleTemplateId],
       })
       setMessage('Role template updated.')
       await load()
@@ -322,7 +322,7 @@ export function PlatformSecurityFunctionGroupsPage() {
                               >
                                 <span className="block truncate font-semibold text-slate-900">{g.name}</span>
                                 <span className="mt-0.5 block truncate text-xs text-slate-500">
-                                  {g.roleTemplate.name}
+                                  {g.roleTemplates.map((t) => t.name).join(', ') || '—'}
                                 </span>
                                 <span className="mt-0.5 block truncate text-xs text-slate-400">
                                   {g.userCount} user{g.userCount === 1 ? '' : 's'}

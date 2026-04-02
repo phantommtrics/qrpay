@@ -1218,7 +1218,13 @@ export async function fetchPlatformFunctionGroupsAll() {
   return response.data
 }
 
-export async function createPlatformFunctionGroup(payload: { name: string; description?: string }) {
+export async function createPlatformFunctionGroup(payload: {
+  name: string
+  description?: string
+  /** Single template (convenience); backend also accepts `roleTemplateIds`. */
+  roleTemplateId?: string
+  roleTemplateIds?: string[]
+}) {
   const response = await apiRequest<{ data: Omit<PlatformFunctionGroupRow, 'roleTemplates' | 'userCount'> }>(
     '/platform/security/function-groups',
     {

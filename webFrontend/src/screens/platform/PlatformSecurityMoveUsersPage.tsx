@@ -70,7 +70,7 @@ export function PlatformSecurityMoveUsersPage() {
       groups.map((g) => ({
         value: g.id,
         label: g.name,
-        hint: g.roleTemplate.name,
+        hint: g.roleTemplates.map((t) => t.name).join(', ') || '—',
       })),
     [groups],
   )

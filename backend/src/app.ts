@@ -301,10 +301,29 @@ const platformRoleTemplatePermissionsBodySchema = z.object({
   permissions: z.array(platformSecurityPermissionRowSchema),
 });
 
-const platformFunctionGroupBodySchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional().nullable(),
-});
+const platformFunctionGroupBodySchema = z
+  .object({
+    name: z.string().min(1),
+    description: z.string().optional().nullable(),
+    roleTemplateId: z.string().min(1).optional(),
+    roleTemplateIds: z.array(z.string().min(1)).optional(),
+  })
+  .transform((data) => {
+    const roleTemplateIds =
+      data.roleTemplateIds && data.roleTemplateIds.length > 0
+        ? data.roleTemplateIds
+        : data.roleTemplateId
+          ? [data.roleTemplateId]
+          : [];
+    return {
+      name: data.name,
+      description: data.description,
+      roleTemplateIds,
+    };
+  })
+  .refine((data) => data.roleTemplateIds.length > 0, {
+    message: "At least one role template is required.",
+  });
 
 const platformFunctionGroupPatchSchema = z.object({
   name: z.string().min(1).optional(),
