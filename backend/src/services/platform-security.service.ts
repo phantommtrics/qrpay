@@ -44,23 +44,15 @@ async function assertRoleTemplateHasPermissions(roleTemplateId: string): Promise
   }
 }
 
-async function assertFunctionGroupRoleTemplatesHavePermissions(groupId: string): Promise<void> {
+async function assertFunctionGroupRoleTemplateHasPermissions(groupId: string): Promise<void> {
   const group = await prisma.platformFunctionGroup.findUnique({
     where: { id: groupId },
-    include: { roleTemplates: { select: { id: true } } },
+    select: { id: true, roleTemplateId: true },
   });
   if (!group) {
     throw new HttpError(404, "Function group not found.");
   }
-  if (group.roleTemplates.length === 0) {
-    throw new HttpError(
-      400,
-      "This function group has no role templates assigned. Assign at least one role template before adding users.",
-    );
-  }
-  for (const rt of group.roleTemplates) {
-    await assertRoleTemplateHasPermissions(rt.id);
-  }
+  await assertRoleTemplateHasPermissions(group.roleTemplateId);
 }
 
 export async function getMergedPlatformPermissionsForUser(
@@ -71,7 +63,7 @@ export async function getMergedPlatformPermissionsForUser(
     include: {
       platformFunctionGroup: {
         include: {
-          roleTemplates: {
+          roleTemplate: {
             include: {
               permissions: { include: { module: true } },
             },
@@ -86,17 +78,15 @@ export async function getMergedPlatformPermissionsForUser(
   }
 
   const merged: PlatformAccessMap = {};
-  for (const template of user.platformFunctionGroup.roleTemplates) {
-    for (const row of template.permissions) {
-      const slug = row.module.slug;
-      const cur = merged[slug] ?? emptyFlags();
-      cur.view ||= row.canView;
-      cur.create ||= row.canCreate;
-      cur.edit ||= row.canEdit;
-      cur.delete ||= row.canDelete;
-      cur.export ||= row.canExport;
-      merged[slug] = cur;
-    }
+  for (const row of user.platformFunctionGroup.roleTemplate.permissions) {
+    const slug = row.module.slug;
+    const cur = merged[slug] ?? emptyFlags();
+    cur.view ||= row.canView;
+    cur.create ||= row.canCreate;
+    cur.edit ||= row.canEdit;
+    cur.delete ||= row.canDelete;
+    cur.export ||= row.canExport;
+    merged[slug] = cur;
   }
   return merged;
 }
@@ -240,7 +230,7 @@ export async function listFunctionGroups() {
   return prisma.platformFunctionGroup.findMany({
     orderBy: { name: "asc" },
     include: {
-      roleTemplates: { select: { id: true, name: true } },
+      roleTemplate: { select: { id: true, name: true } },
       _count: { select: { users: true } },
     },
   });
@@ -256,7 +246,7 @@ export async function listFunctionGroupsPaginated(rawPage: number, rawPageSize: 
       take: pageSize,
       orderBy: { name: "asc" },
       include: {
-        roleTemplates: { select: { id: true, name: true } },
+        roleTemplate: { select: { id: true, name: true } },
         _count: { select: { users: true } },
       },
     }),
@@ -279,27 +269,26 @@ export async function createFunctionGroup(input: {
     throw new HttpError(400, "At least one role template is required.");
   }
 
-  const found = await prisma.platformRoleTemplate.findMany({
-    where: { id: { in: roleTemplateIds } },
+  /** DB stores one template per group; API accepts an array — use the first entry. */
+  const roleTemplateId = roleTemplateIds[0]!;
+
+  const tpl = await prisma.platformRoleTemplate.findUnique({
+    where: { id: roleTemplateId },
     select: { id: true },
   });
-  if (found.length !== roleTemplateIds.length) {
-    throw new HttpError(400, "One or more role templates are invalid.");
+  if (!tpl) {
+    throw new HttpError(400, "Invalid role template.");
   }
-  for (const id of roleTemplateIds) {
-    await assertRoleTemplateHasPermissions(id);
-  }
+  await assertRoleTemplateHasPermissions(roleTemplateId);
 
   return prisma.platformFunctionGroup.create({
     data: {
       name,
       description: input.description?.trim() || null,
-      roleTemplates: {
-        connect: roleTemplateIds.map((id) => ({ id })),
-      },
+      roleTemplateId,
     },
     include: {
-      roleTemplates: { select: { id: true, name: true } },
+      roleTemplate: { select: { id: true, name: true } },
       _count: { select: { users: true } },
     },
   });
@@ -338,26 +327,23 @@ export async function updateFunctionGroup(
     if (roleTemplateIds.length === 0) {
       throw new HttpError(400, "At least one role template is required.");
     }
-    const found = await prisma.platformRoleTemplate.findMany({
-      where: { id: { in: roleTemplateIds } },
+    const nextTemplateId = roleTemplateIds[0]!;
+    const tpl = await prisma.platformRoleTemplate.findUnique({
+      where: { id: nextTemplateId },
       select: { id: true },
     });
-    if (found.length !== roleTemplateIds.length) {
-      throw new HttpError(400, "One or more role templates are invalid.");
+    if (!tpl) {
+      throw new HttpError(400, "Invalid role template.");
     }
-    for (const tid of roleTemplateIds) {
-      await assertRoleTemplateHasPermissions(tid);
-    }
-    data.roleTemplates = {
-      set: roleTemplateIds.map((tid) => ({ id: tid })),
-    };
+    await assertRoleTemplateHasPermissions(nextTemplateId);
+    data.roleTemplate = { connect: { id: nextTemplateId } };
   }
 
   return prisma.platformFunctionGroup.update({
     where: { id },
     data,
     include: {
-      roleTemplates: { select: { id: true, name: true } },
+      roleTemplate: { select: { id: true, name: true } },
       _count: { select: { users: true } },
     },
   });
@@ -451,12 +437,12 @@ export async function createPlatformStaffUser(input: {
     throw new HttpError(404, "Function group not found.");
   }
   try {
-    await assertFunctionGroupRoleTemplatesHavePermissions(group.id);
+    await assertFunctionGroupRoleTemplateHasPermissions(group.id);
   } catch (e) {
     if (e instanceof HttpError) {
       throw new HttpError(
         400,
-        "This function group’s role templates are not ready. Configure permissions on each assigned role template before adding users.",
+        "This function group’s role template has no permissions yet. Configure the role before adding users.",
       );
     }
     throw e;
@@ -558,12 +544,12 @@ export async function updatePlatformStaffUser(
       throw new HttpError(404, "Function group not found.");
     }
     try {
-      await assertFunctionGroupRoleTemplatesHavePermissions(group.id);
+      await assertFunctionGroupRoleTemplateHasPermissions(group.id);
     } catch (e) {
       if (e instanceof HttpError) {
         throw new HttpError(
           400,
-          "This function group’s role templates are not ready. Configure permissions on each assigned role template before assigning users.",
+          "This function group’s role template has no permissions yet. Configure the role before assigning users.",
         );
       }
       throw e;
@@ -614,12 +600,12 @@ export async function bulkMovePlatformStaffUsers(input: {
     throw new HttpError(404, "Target function group not found.");
   }
   try {
-    await assertFunctionGroupRoleTemplatesHavePermissions(toGroup.id);
+    await assertFunctionGroupRoleTemplateHasPermissions(toGroup.id);
   } catch (e) {
     if (e instanceof HttpError) {
       throw new HttpError(
         400,
-        "The target group’s role templates are not ready. Configure permissions on each assigned role template before moving users here.",
+        "The target group’s role template has no permissions yet. Configure the role before moving users here.",
       );
     }
     throw e;

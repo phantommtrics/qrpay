@@ -1106,7 +1106,7 @@ app.get(
           description: g.description,
           createdAt: g.createdAt.toISOString(),
           updatedAt: g.updatedAt.toISOString(),
-          roleTemplates: g.roleTemplates,
+          roleTemplates: g.roleTemplate ? [g.roleTemplate] : [],
           userCount: g._count.users,
         })),
       });
@@ -1133,7 +1133,7 @@ app.get(
           description: g.description,
           createdAt: g.createdAt.toISOString(),
           updatedAt: g.updatedAt.toISOString(),
-          roleTemplates: g.roleTemplates,
+          roleTemplates: g.roleTemplate ? [g.roleTemplate] : [],
           userCount: g._count.users,
         })),
         total,
@@ -1186,7 +1186,7 @@ app.patch(
           description: updated.description,
           createdAt: updated.createdAt.toISOString(),
           updatedAt: updated.updatedAt.toISOString(),
-          roleTemplates: updated.roleTemplates,
+          roleTemplates: updated.roleTemplate ? [updated.roleTemplate] : [],
           userCount: updated._count.users,
         },
       });

@@ -184,15 +184,18 @@ model PlatformRoleTemplatePermission {
   @@index([moduleId])
 }
 
-/** Bundles one or more role templates; assigned to platform staff users. */
+/** Bundles a role template; assigned to platform staff users. */
 model PlatformFunctionGroup {
-  id            String                 @id @default(cuid())
-  name          String
-  description   String?
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
-  roleTemplates PlatformRoleTemplate[]
-  users         User[]
+  id             String               @id @default(cuid())
+  name           String
+  description    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  roleTemplateId String
+  roleTemplate   PlatformRoleTemplate @relation(fields: [roleTemplateId], references: [id])
+  users          User[]
+
+  @@index([roleTemplateId])
 }
 
 model BusinessMembership {
