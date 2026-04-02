@@ -129,6 +129,7 @@ import {
   requireBusinessOwnerOrPlatform,
   requireEntitlement,
 } from "./middleware/auth.js";
+import { httpRequestLogger } from "./middleware/http-logger.js";
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
@@ -172,6 +173,7 @@ app.use(
   }),
 );
 app.use(express.json());
+app.use(httpRequestLogger);
 app.use("/uploads", express.static(uploadsRoot));
 
 const createBusinessSchema = z.object({
@@ -302,13 +304,12 @@ const platformRoleTemplatePermissionsBodySchema = z.object({
 const platformFunctionGroupBodySchema = z.object({
   name: z.string().min(1),
   description: z.string().optional().nullable(),
-  roleTemplateId: z.string().min(1),
 });
 
 const platformFunctionGroupPatchSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
-  roleTemplateId: z.string().min(1).optional(),
+  roleTemplateIds: z.array(z.string().min(1)).optional(),
 });
 
 const platformStaffUserBodySchema = z.object({
@@ -1086,7 +1087,7 @@ app.get(
           description: g.description,
           createdAt: g.createdAt.toISOString(),
           updatedAt: g.updatedAt.toISOString(),
-          roleTemplate: g.roleTemplate,
+          roleTemplates: g.roleTemplates,
           userCount: g._count.users,
         })),
       });
@@ -1113,7 +1114,7 @@ app.get(
           description: g.description,
           createdAt: g.createdAt.toISOString(),
           updatedAt: g.updatedAt.toISOString(),
-          roleTemplate: g.roleTemplate,
+          roleTemplates: g.roleTemplates,
           userCount: g._count.users,
         })),
         total,
@@ -1142,8 +1143,6 @@ app.post(
           description: created.description,
           createdAt: created.createdAt.toISOString(),
           updatedAt: created.updatedAt.toISOString(),
-          roleTemplate: created.roleTemplate,
-          userCount: created._count.users,
         },
       });
     } catch (e) {
@@ -1168,7 +1167,7 @@ app.patch(
           description: updated.description,
           createdAt: updated.createdAt.toISOString(),
           updatedAt: updated.updatedAt.toISOString(),
-          roleTemplate: updated.roleTemplate,
+          roleTemplates: updated.roleTemplates,
           userCount: updated._count.users,
         },
       });

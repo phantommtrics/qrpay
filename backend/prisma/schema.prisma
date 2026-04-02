@@ -15,7 +15,7 @@ enum PlanCode {
 
 enum UserRole {
   PLATFORM_OWNER
-  /** Delegated platform operator; permissions come from their function group’s role template. */
+  /** Delegated platform operator; permissions come from PlatformFunctionGroup + role templates. */
   PLATFORM_ADMIN
   ADMIN
   MERCHANT
@@ -148,23 +148,23 @@ model User {
 
 /** Sidebar / platform feature identifiers for RBAC templates (seeded). */
 model PlatformModule {
-  id             String                           @id @default(cuid())
-  slug           String                           @unique
-  label          String
-  sortOrder      Int                              @default(0)
-  createdAt      DateTime                         @default(now())
-  updatedAt      DateTime                         @updatedAt
+  id           String                           @id @default(cuid())
+  slug         String                           @unique
+  label        String
+  sortOrder    Int                              @default(0)
+  createdAt    DateTime                         @default(now())
+  updatedAt    DateTime                         @updatedAt
   templateRows PlatformRoleTemplatePermission[]
 }
 
 /** Named permission matrix (one row per module: view/create/edit/delete/export). */
 model PlatformRoleTemplate {
-  id             String                           @id @default(cuid())
-  name           String
-  description    String?
-  createdAt      DateTime                         @default(now())
-  updatedAt      DateTime                         @updatedAt
-  permissions    PlatformRoleTemplatePermission[]
+  id            String                           @id @default(cuid())
+  name          String
+  description   String?
+  createdAt     DateTime                         @default(now())
+  updatedAt     DateTime                         @updatedAt
+  permissions   PlatformRoleTemplatePermission[]
   functionGroups PlatformFunctionGroup[]
 }
 
@@ -184,18 +184,15 @@ model PlatformRoleTemplatePermission {
   @@index([moduleId])
 }
 
-/** Named bundle: one role template; staff get that template’s full permission matrix. */
+/** Bundles one or more role templates; assigned to platform staff users. */
 model PlatformFunctionGroup {
-  id             String               @id @default(cuid())
-  name           String
-  description    String?
-  roleTemplateId String
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-  roleTemplate   PlatformRoleTemplate @relation(fields: [roleTemplateId], references: [id], onDelete: Restrict)
-  users          User[]
-
-  @@index([roleTemplateId])
+  id            String                 @id @default(cuid())
+  name          String
+  description   String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  roleTemplates PlatformRoleTemplate[]
+  users         User[]
 }
 
 model BusinessMembership {
