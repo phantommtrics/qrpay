@@ -497,6 +497,8 @@ export type BackendProduct = {
   description: string | null
   price: number
   stock: number
+  reservedStock?: number
+  availableStock?: number
   barcodeType: string
   barcodeValue: string
   qrUrl: string
@@ -508,6 +510,9 @@ export type BackendProduct = {
 }
 
 export function mapBackendProductToProduct(p: BackendProduct): Product {
+  const reserved = p.reservedStock ?? 0
+  const available =
+    p.availableStock ?? Math.max(0, p.stock - reserved)
   return {
     id: p.id,
     businessId: p.businessId,
@@ -515,6 +520,8 @@ export function mapBackendProductToProduct(p: BackendProduct): Product {
     price: p.price,
     category: p.category,
     stock: p.stock,
+    reservedStock: reserved,
+    availableStock: available,
     imageColor: p.imageColor,
     imageEmoji: p.imageEmoji,
     description: p.description ?? undefined,

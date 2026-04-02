@@ -108,7 +108,10 @@ model Product {
   category     String
   description  String?
   price        Decimal  @db.Decimal(10, 2)
+  /** Physical units on hand (not yet sold). */
   stock        Int      @default(0)
+  /** Units held for unpaid orders; released on cancel or applied on payment. */
+  reservedStock Int     @default(0)
   barcodeType  String   @default("CODE128")
   barcodeValue String
   qrUrl        String

@@ -74,6 +74,7 @@ import {
   utcTodayIsoDate,
 } from "./services/platform-admin.service.js";
 import {
+  cancelPendingOrder,
   completeCashPayment,
   completeWalletPaymentByPublicToken,
   completeWalletPaymentForOrder,
@@ -1754,6 +1755,7 @@ function formatProductResponse(product: {
   description: string | null;
   price: Prisma.Decimal;
   stock: number;
+  reservedStock?: number;
   barcodeType: string;
   barcodeValue: string;
   qrUrl: string;
@@ -1763,6 +1765,8 @@ function formatProductResponse(product: {
   createdAt: Date;
   updatedAt: Date;
 }) {
+  const reserved = product.reservedStock ?? 0;
+  const availableStock = Math.max(0, product.stock - reserved);
   return {
     id: product.id,
     businessId: product.businessId,
@@ -1771,6 +1775,8 @@ function formatProductResponse(product: {
     description: product.description,
     price: Number(product.price),
     stock: product.stock,
+    reservedStock: reserved,
+    availableStock,
     barcodeType: product.barcodeType,
     barcodeValue: product.barcodeValue,
     qrUrl: product.qrUrl,
@@ -2275,6 +2281,33 @@ app.get(
           receipt: order.receipt,
         }),
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/orders/:orderId/cancel",
+  authenticateToken,
+  requireEntitlement("pos.access"),
+  async (request, response, next) => {
+    try {
+      const { businessId, orderId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      await cancelPendingOrder(orderId as string, businessId as string);
+      response.status(204).end();
     } catch (error) {
       next(error);
     }

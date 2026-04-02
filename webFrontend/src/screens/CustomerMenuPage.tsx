@@ -37,6 +37,7 @@ export function CustomerMenuPage() {
   const [businessName, setBusinessName] = useState('')
   const [menuLoading, setMenuLoading] = useState(false)
   const [menuError, setMenuError] = useState<string | null>(null)
+  const [menuHint, setMenuHint] = useState<string | null>(null)
 
   const missingBusinessId = !businessId
   const displayMenuLoading = missingBusinessId ? false : menuLoading
@@ -76,6 +77,12 @@ export function CustomerMenuPage() {
       cancelled = true
     }
   }, [businessId])
+
+  useEffect(() => {
+    if (!menuHint) return
+    const t = window.setTimeout(() => setMenuHint(null), 3500)
+    return () => window.clearTimeout(t)
+  }, [menuHint])
 
   const categories = ['All', ...new Set(displayMenuItems.map((item) => item.category))]
   const filteredItems =
@@ -208,6 +215,14 @@ export function CustomerMenuPage() {
       </header>
 
       <main className="mx-auto max-w-3xl p-4">
+        {menuHint ? (
+          <p
+            role="status"
+            className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-900"
+          >
+            {menuHint}
+          </p>
+        ) : null}
         {filteredItems.length === 0 ? (
           <p className="py-12 text-center text-sm text-slate-500">
             No items in this menu yet. Add products in the merchant dashboard.
@@ -234,13 +249,27 @@ export function CustomerMenuPage() {
                 </div>
                 <div className="mt-3 flex items-center justify-between">
                   <span className="font-bold text-teal-600">D{item.price}</span>
-                  <button
-                    onClick={() => addToCart(item)}
-                    aria-label={`Add ${item.name} to cart`}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-50 text-teal-600 transition-colors hover:bg-teal-100"
-                  >
-                    <Plus className="h-5 w-5" />
-                  </button>
+                  {(item.availableStock ?? item.stock) <= 0 ? (
+                    <span className="text-xs font-medium text-red-600">Sold out</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const r = addToCart(item)
+                        if (!r.ok) {
+                          setMenuHint(
+                            r.reason === 'out_of_stock'
+                              ? `${item.name} is out of stock.`
+                              : `Maximum quantity for ${item.name} is already in your cart.`,
+                          )
+                        }
+                      }}
+                      aria-label={`Add ${item.name} to cart`}
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-50 text-teal-600 transition-colors hover:bg-teal-100"
+                    >
+                      <Plus className="h-5 w-5" />
+                    </button>
+                  )}
                 </div>
               </div>
             </motion.div>
@@ -314,9 +343,14 @@ export function CustomerMenuPage() {
                         {item.quantity}
                       </span>
                       <button
+                        type="button"
+                        disabled={
+                          item.quantity >=
+                          (item.product.availableStock ?? item.product.stock)
+                        }
                         onClick={() => updateQuantity(item.product.id, 1)}
                         aria-label={`Increase quantity for ${item.product.name}`}
-                        className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm"
+                        className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         <Plus className="h-4 w-4" />
                       </button>

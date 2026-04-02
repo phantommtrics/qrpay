@@ -24,6 +24,7 @@ import { ModalOverlay } from '../components/ui/ModalOverlay'
 import { useAuth } from '../features/auth/AuthContext'
 import { useCart } from '../features/cart/useCart'
 import {
+  cancelSaleOrder,
   confirmCashPayment,
   createSaleOrder,
   fetchSaleOrder,
@@ -32,12 +33,15 @@ import {
 } from '../services/salesApi'
 import { ApiError } from '../services/subscriptionApi'
 import { formatMoney } from '../utils/formatMoney'
+import { playPosScanError, playPosScanSuccess } from '../utils/posSounds'
+
+type ScanFeedback = { text: string; variant: 'success' | 'error' }
 
 export function POSPage() {
   const { businessProducts, currentOrganization, refreshBusinessProducts } = useAuth()
   const [searchTerm, setSearchTerm] = useState('')
   const [scannerOpen, setScannerOpen] = useState(false)
-  const [scanMessage, setScanMessage] = useState<string | null>(null)
+  const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null)
   const [missingBarcode, setMissingBarcode] = useState<string | null>(null)
   const [addProductOpen, setAddProductOpen] = useState(false)
   const [productFlash, setProductFlash] = useState<string | null>(null)
@@ -62,11 +66,36 @@ export function POSPage() {
 
   const products = businessProducts
 
+  const handleProductAdd = useCallback(
+    (product: (typeof products)[number]) => {
+      const result = addToCart(product)
+      if (result.ok) {
+        void playPosScanSuccess()
+        setScanFeedback({ variant: 'success', text: `${product.name} added to cart.` })
+        return
+      }
+      void playPosScanError()
+      if (result.reason === 'out_of_stock') {
+        setScanFeedback({
+          variant: 'error',
+          text: `Out of stock — ${product.name} cannot be added.`,
+        })
+      } else {
+        setScanFeedback({
+          variant: 'error',
+          text: `No more stock — maximum quantity for ${product.name} is already in the cart.`,
+        })
+      }
+    },
+    [addToCart],
+  )
+
   const handleDetectedBarcode = (rawValue: string) => {
     setScannerOpen(false)
     setMissingBarcode(null)
     if (products.length === 0) {
-      setScanMessage('No products available to scan.')
+      void playPosScanError()
+      setScanFeedback({ variant: 'error', text: 'No products available to scan.' })
       return
     }
 
@@ -76,15 +105,16 @@ export function POSPage() {
     )
 
     if (!matched) {
+      void playPosScanError()
       setMissingBarcode(rawValue)
-      setScanMessage(
-        `Barcode ${rawValue} is not in this catalog yet.`,
-      )
+      setScanFeedback({
+        variant: 'error',
+        text: `Barcode ${rawValue} is not in this catalog yet.`,
+      })
       return
     }
 
-    addToCart(matched)
-    setScanMessage(`${matched.name} added to cart.`)
+    handleProductAdd(matched)
   }
 
   const resetCheckoutUi = useCallback(() => {
@@ -97,9 +127,22 @@ export function POSPage() {
   }, [])
 
   const closePaymentModal = useCallback(() => {
+    const orderId = checkoutOrderId
+    const orgId = currentOrganization?.id
+    const shouldReleaseStock = paymentStatus === 'waiting' && orderId && orgId
     setPaymentModalOpen(false)
     resetCheckoutUi()
-  }, [resetCheckoutUi])
+    if (shouldReleaseStock) {
+      void cancelSaleOrder(orgId, orderId).catch(() => {
+        /* release is best-effort; order may already be paid */
+      })
+    }
+  }, [
+    checkoutOrderId,
+    currentOrganization?.id,
+    paymentStatus,
+    resetCheckoutUi,
+  ])
 
   const handleCharge = async () => {
     if (!currentOrganization || cart.length === 0) return
@@ -178,6 +221,7 @@ export function POSPage() {
             )
             setPaymentStatus('success')
             clearCart()
+            void refreshBusinessProducts()
           }
         } catch {
           /* ignore transient poll errors */
@@ -192,6 +236,7 @@ export function POSPage() {
     paymentStatus,
     qrPayload,
     clearCart,
+    refreshBusinessProducts,
   ])
 
   const handleCashPay = async () => {
@@ -202,6 +247,7 @@ export function POSPage() {
       setReceiptLabel(`Receipt ${result.receipt.publicCode}`)
       setPaymentStatus('success')
       clearCart()
+      void refreshBusinessProducts()
     } catch (e) {
       setCheckoutError(e instanceof ApiError ? e.message : 'Cash payment failed.')
     }
@@ -219,6 +265,7 @@ export function POSPage() {
         )
         setPaymentStatus('success')
         clearCart()
+        void refreshBusinessProducts()
       }
     } catch (e) {
       setCheckoutError(e instanceof ApiError ? e.message : 'Could not complete wallet payment.')
@@ -255,7 +302,17 @@ export function POSPage() {
             >
               {scannerOpen ? 'Scanning...' : 'Scan barcode'}
             </button>
-            {scanMessage ? <p className="mt-3 text-sm text-teal-200">{scanMessage}</p> : null}
+            {scanFeedback ? (
+              <p
+                role="status"
+                aria-live="polite"
+                className={`mt-3 text-sm ${
+                  scanFeedback.variant === 'success' ? 'text-teal-200' : 'text-amber-300'
+                }`}
+              >
+                {scanFeedback.text}
+              </p>
+            ) : null}
             {missingBarcode ? (
               <button
                 type="button"
@@ -294,7 +351,7 @@ export function POSPage() {
                     key={product.id}
                     type="button"
                     disabled={paymentModalOpen}
-                    onClick={() => addToCart(product)}
+                    onClick={() => handleProductAdd(product)}
                     className="flex flex-col items-center rounded-xl border border-slate-100 p-3 text-center transition-all hover:border-teal-500 hover:bg-teal-50 disabled:opacity-50"
                   >
                     <ProductThumb product={product} size="sm" className="mb-2 rounded-full" />
@@ -364,10 +421,14 @@ export function POSPage() {
                       </span>
                       <button
                         type="button"
-                        disabled={paymentModalOpen}
+                        disabled={
+                          paymentModalOpen ||
+                          item.quantity >=
+                            (item.product.availableStock ?? item.product.stock)
+                        }
                         onClick={() => updateQuantity(item.product.id, 1)}
                         aria-label={`Increase quantity for ${item.product.name}`}
-                        className="p-1.5 text-slate-500 hover:text-teal-600"
+                        className="p-1.5 text-slate-500 hover:text-teal-600 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         <Plus className="h-4 w-4" />
                       </button>

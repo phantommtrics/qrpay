@@ -91,6 +91,13 @@ export type SalePayment = {
   completedAt: string | null
 }
 
+export async function cancelSaleOrder(businessId: string, orderId: string): Promise<void> {
+  await apiRequest<unknown>(`/businesses/${businessId}/orders/${orderId}/cancel`, {
+    method: 'POST',
+    businessId,
+  })
+}
+
 export async function createSaleOrder(
   businessId: string,
   lines: { productId: string; quantity: number }[],

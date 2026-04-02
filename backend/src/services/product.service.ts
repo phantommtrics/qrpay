@@ -248,6 +248,12 @@ export async function updateProduct(input: UpdateProductInput) {
     data.price = new Prisma.Decimal(input.price);
   }
   if (input.stock !== undefined) {
+    if (input.stock < product.reservedStock) {
+      throw new HttpError(
+        400,
+        `Stock cannot be less than reserved quantity (${product.reservedStock} units held for unpaid orders).`,
+      );
+    }
     data.stock = input.stock;
   }
   if (input.imageUrl !== undefined) {

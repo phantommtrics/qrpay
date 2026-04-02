@@ -124,7 +124,11 @@ export interface Product {
   name: string
   price: number
   category: string
+  /** On-hand units (physical count from server). */
   stock: number
+  /** Units available to sell now (on hand minus reservations). Same as stock if omitted. */
+  availableStock?: number
+  reservedStock?: number
   imageColor: string
   imageEmoji: string
   businessId: string

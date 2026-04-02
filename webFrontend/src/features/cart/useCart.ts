@@ -2,6 +2,14 @@ import { useCallback, useMemo, useState } from 'react'
 
 import type { CartItem, Product } from '../../types'
 
+function sellableUnits(product: Product): number {
+  return product.availableStock ?? product.stock
+}
+
+export type AddToCartResult =
+  | { ok: true }
+  | { ok: false; reason: 'out_of_stock' | 'max_in_cart' }
+
 export function useCart(options?: {
   minQuantity?: number
   removeWhenZero?: boolean
@@ -20,10 +28,23 @@ export function useCart(options?: {
     [cart],
   )
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product): AddToCartResult => {
+    let result: AddToCartResult = { ok: false, reason: 'out_of_stock' }
     setCart((current) => {
-      const existing = current.find((item) => item.product.id === product.id)
+      const cap = sellableUnits(product)
+      if (cap <= 0) {
+        result = { ok: false, reason: 'out_of_stock' }
+        return current
+      }
 
+      const existing = current.find((item) => item.product.id === product.id)
+      const currentQty = existing?.quantity ?? 0
+      if (currentQty >= cap) {
+        result = { ok: false, reason: 'max_in_cart' }
+        return current
+      }
+
+      result = { ok: true }
       if (existing) {
         return current.map((item) =>
           item.product.id === product.id
@@ -34,6 +55,7 @@ export function useCart(options?: {
 
       return [...current, { product, quantity: 1 }]
     })
+    return result
   }
 
   const updateQuantity = (productId: string, delta: number) => {
@@ -43,9 +65,16 @@ export function useCart(options?: {
           return item
         }
 
+        const maxQ = sellableUnits(item.product)
+        const raw = item.quantity + delta
+        const next =
+          delta > 0
+            ? Math.max(minQuantity, Math.min(raw, maxQ))
+            : Math.max(minQuantity, raw)
+
         return {
           ...item,
-          quantity: Math.max(minQuantity, item.quantity + delta),
+          quantity: next,
         }
       })
 

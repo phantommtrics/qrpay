@@ -12,6 +12,120 @@ import { prisma } from "../lib/prisma.js";
 
 const SIMULATOR_WEBHOOK_PROVIDER = "simulator";
 
+/** Sum quantities per product (order lines may repeat the same SKU). */
+function quantitiesByProductId(lines: { productId: string; quantity: number }[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const line of lines) {
+    map.set(line.productId, (map.get(line.productId) ?? 0) + line.quantity);
+  }
+  return map;
+}
+
+/** Lock product rows in a fixed order to avoid deadlocks under concurrent checkouts. */
+async function lockProductRows(tx: Prisma.TransactionClient, productIds: string[]): Promise<void> {
+  const sorted = [...new Set(productIds)].sort();
+  for (const id of sorted) {
+    await tx.$executeRaw`SELECT id FROM "Product" WHERE id = ${id} FOR UPDATE`;
+  }
+}
+
+async function reserveStockForOrder(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  neededByProduct: Map<string, number>,
+): Promise<void> {
+  const sortedIds = [...neededByProduct.keys()].sort();
+  await lockProductRows(tx, sortedIds);
+
+  const rows = await tx.product.findMany({
+    where: { id: { in: sortedIds }, businessId },
+    select: { id: true, name: true, stock: true, reservedStock: true },
+  });
+
+  if (rows.length !== sortedIds.length) {
+    throw new HttpError(400, "One or more products are invalid for this business.");
+  }
+
+  const rowById = new Map(rows.map((r) => [r.id, r]));
+
+  for (const id of sortedIds) {
+    const row = rowById.get(id)!;
+    const need = neededByProduct.get(id)!;
+    const available = row.stock - row.reservedStock;
+    if (available < need) {
+      throw new HttpError(
+        400,
+        `Insufficient stock for ${row.name}. Available: ${available}, requested: ${need}.`,
+      );
+    }
+  }
+
+  for (const id of sortedIds) {
+    const need = neededByProduct.get(id)!;
+    await tx.product.update({
+      where: { id },
+      data: { reservedStock: { increment: need } },
+    });
+  }
+}
+
+async function commitReservedStockForPaidOrder(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  lines: { productId: string; quantity: number }[],
+): Promise<void> {
+  const needed = quantitiesByProductId(lines);
+  const sortedIds = [...needed.keys()].sort();
+  await lockProductRows(tx, sortedIds);
+
+  for (const id of sortedIds) {
+    const qty = needed.get(id)!;
+    const updated = await tx.$executeRaw(
+      Prisma.sql`
+        UPDATE "Product"
+        SET stock = stock - ${qty},
+            "reservedStock" = "reservedStock" - ${qty}
+        WHERE id = ${id}
+          AND "businessId" = ${businessId}
+          AND stock >= ${qty}
+          AND "reservedStock" >= ${qty}
+      `,
+    );
+    if (updated !== 1) {
+      throw new HttpError(
+        409,
+        "Stock changed while completing payment. Void this order and try again.",
+      );
+    }
+  }
+}
+
+async function releaseReservedStockForCancelledOrder(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  lines: { productId: string; quantity: number }[],
+): Promise<void> {
+  const needed = quantitiesByProductId(lines);
+  const sortedIds = [...needed.keys()].sort();
+  await lockProductRows(tx, sortedIds);
+
+  for (const id of sortedIds) {
+    const qty = needed.get(id)!;
+    const updated = await tx.$executeRaw(
+      Prisma.sql`
+        UPDATE "Product"
+        SET "reservedStock" = "reservedStock" - ${qty}
+        WHERE id = ${id}
+          AND "businessId" = ${businessId}
+          AND "reservedStock" >= ${qty}
+      `,
+    );
+    if (updated !== 1) {
+      throw new HttpError(500, "Could not release stock reservation.");
+    }
+  }
+}
+
 export function getPublicWebAppBaseUrl(): string {
   const raw =
     process.env.PUBLIC_WEB_APP_URL || process.env.FRONTEND_URL || "http://localhost:5173";
@@ -161,73 +275,81 @@ export async function createOrder(input: {
   }
 
   const productIds = [...new Set(input.lines.map((l) => l.productId))];
-  const business = await prisma.business.findUnique({
-    where: { id: input.businessId },
-    select: { name: true },
-  });
-  if (!business) {
-    throw new HttpError(404, "Business not found.");
-  }
-  const products = await prisma.product.findMany({
-    where: { businessId: input.businessId, id: { in: productIds } },
-  });
+  const neededByProduct = quantitiesByProductId(input.lines);
 
-  if (products.length !== productIds.length) {
-    throw new HttpError(400, "One or more products are invalid for this business.");
-  }
+  return prisma.$transaction(
+    async (tx) => {
+      const business = await tx.business.findUnique({
+        where: { id: input.businessId },
+        select: { name: true },
+      });
+      if (!business) {
+        throw new HttpError(404, "Business not found.");
+      }
 
-  const byId = new Map(products.map((p) => [p.id, p]));
-  let subtotal = new Prisma.Decimal(0);
-  const lineCreates: Array<{
-    product: { connect: { id: string } };
-    productName: string;
-    quantity: number;
-    unitPrice: Prisma.Decimal;
-    lineTotal: Prisma.Decimal;
-  }> = [];
+      const products = await tx.product.findMany({
+        where: { businessId: input.businessId, id: { in: productIds } },
+      });
 
-  for (const line of input.lines) {
-    const product = byId.get(line.productId);
-    if (!product) {
-      throw new HttpError(400, "Invalid product in cart.");
-    }
-    if (line.quantity < 1) {
-      throw new HttpError(400, "Each line must have quantity at least 1.");
-    }
+      if (products.length !== productIds.length) {
+        throw new HttpError(400, "One or more products are invalid for this business.");
+      }
 
-    const unitPrice = product.price;
-    const lineTotal = unitPrice.mul(line.quantity);
-    subtotal = subtotal.add(lineTotal);
+      const byId = new Map(products.map((p) => [p.id, p]));
+      let subtotal = new Prisma.Decimal(0);
+      const lineCreates: Array<{
+        product: { connect: { id: string } };
+        productName: string;
+        quantity: number;
+        unitPrice: Prisma.Decimal;
+        lineTotal: Prisma.Decimal;
+      }> = [];
 
-    lineCreates.push({
-      product: { connect: { id: product.id } },
-      productName: product.name,
-      quantity: line.quantity,
-      unitPrice,
-      lineTotal,
-    });
-  }
+      for (const line of input.lines) {
+        const product = byId.get(line.productId);
+        if (!product) {
+          throw new HttpError(400, "Invalid product in cart.");
+        }
+        if (line.quantity < 1) {
+          throw new HttpError(400, "Each line must have quantity at least 1.");
+        }
 
-  return prisma.$transaction(async (tx) => {
-    const publicCode = await nextOrderPublicCode(tx, input.businessId, business.name);
+        const unitPrice = product.price;
+        const lineTotal = unitPrice.mul(line.quantity);
+        subtotal = subtotal.add(lineTotal);
 
-    return tx.order.create({
-      data: {
-        businessId: input.businessId,
-        publicCode,
-        status: OrderStatus.PENDING_PAYMENT,
-        subtotal,
-        taxAmount: new Prisma.Decimal(0),
-        total: subtotal,
-        currency: "GMD",
-        createdByUserId: input.userId ?? undefined,
-        lines: {
-          create: lineCreates,
+        lineCreates.push({
+          product: { connect: { id: product.id } },
+          productName: product.name,
+          quantity: line.quantity,
+          unitPrice,
+          lineTotal,
+        });
+      }
+
+      await reserveStockForOrder(tx, input.businessId, neededByProduct);
+
+      const publicCode = await nextOrderPublicCode(tx, input.businessId, business.name);
+
+      return tx.order.create({
+        data: {
+          businessId: input.businessId,
+          publicCode,
+          status: OrderStatus.PENDING_PAYMENT,
+          subtotal,
+          taxAmount: new Prisma.Decimal(0),
+          total: subtotal,
+          currency: "GMD",
+          createdByUserId: input.userId ?? undefined,
+          lines: {
+            create: lineCreates,
+          },
         },
-      },
-      include: { lines: true },
-    });
-  });
+        include: { lines: true },
+      });
+    },
+    { maxWait: 10_000, timeout: 15_000 },
+  );
 }
 
 export async function getOrderForBusiness(orderId: string, businessId: string) {
@@ -298,69 +420,81 @@ export async function startWalletPayment(orderId: string, businessId: string) {
 }
 
 export async function completeCashPayment(orderId: string, businessId: string) {
-  const order = await prisma.order.findFirst({
-    where: { id: orderId, businessId },
-    include: { lines: true, receipt: true, business: { select: { name: true } } },
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      const order = await tx.order.findFirst({
+        where: { id: orderId, businessId },
+        include: { lines: true, receipt: true, business: { select: { name: true } } },
+      });
 
-  if (!order) {
-    throw new HttpError(404, "Order not found.");
-  }
-  if (order.receipt) {
-    throw new HttpError(400, "Order already settled.");
-  }
-  if (order.status === OrderStatus.PAID) {
-    throw new HttpError(400, "Order is already paid.");
-  }
+      if (!order) {
+        throw new HttpError(404, "Order not found.");
+      }
+      if (order.receipt) {
+        throw new HttpError(400, "Order already settled.");
+      }
+      if (order.status === OrderStatus.PAID) {
+        throw new HttpError(400, "Order is already paid.");
+      }
+      if (order.status !== OrderStatus.PENDING_PAYMENT) {
+        throw new HttpError(400, "Order cannot accept payment.");
+      }
 
-  return prisma.$transaction(async (tx) => {
-    await tx.payment.updateMany({
-      where: {
-        orderId,
-        status: PaymentStatus.PENDING,
-        method: PaymentMethod.QR_WALLET,
-      },
-      data: { status: PaymentStatus.CANCELLED },
-    });
-
-    const providerRef = `SIM-CASH-${orderId}`;
-
-    const payment = await tx.payment.create({
-      data: {
+      await commitReservedStockForPaidOrder(
+        tx,
         businessId,
-        orderId,
-        publicCode: await nextPaymentPublicCode(tx, businessId, order.business.name),
-        method: PaymentMethod.CASH,
-        provider: PaymentProvider.SIMULATOR,
-        status: PaymentStatus.COMPLETED,
-        amount: order.total,
-        currency: order.currency,
-        providerRef,
-        publicToken: genPublicToken(),
-        completedAt: new Date(),
-      },
-    });
+        order.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+      );
 
-    await tx.order.update({
-      where: { id: orderId },
-      data: { status: OrderStatus.PAID },
-    });
+      await tx.payment.updateMany({
+        where: {
+          orderId,
+          status: PaymentStatus.PENDING,
+          method: PaymentMethod.QR_WALLET,
+        },
+        data: { status: PaymentStatus.CANCELLED },
+      });
 
-    const orderWithLines = await tx.order.findUniqueOrThrow({
-      where: { id: orderId },
-      include: { lines: true },
-    });
+      const providerRef = `SIM-CASH-${orderId}`;
 
-    const receipt = await createReceiptRecord(
-      tx,
-      orderWithLines,
-      payment,
-      order.business.name,
-      "Cash",
-    );
+      const payment = await tx.payment.create({
+        data: {
+          businessId,
+          orderId,
+          publicCode: await nextPaymentPublicCode(tx, businessId, order.business.name),
+          method: PaymentMethod.CASH,
+          provider: PaymentProvider.SIMULATOR,
+          status: PaymentStatus.COMPLETED,
+          amount: order.total,
+          currency: order.currency,
+          providerRef,
+          publicToken: genPublicToken(),
+          completedAt: new Date(),
+        },
+      });
 
-    return { payment, receipt };
-  });
+      await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.PAID },
+      });
+
+      const orderWithLines = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
+        include: { lines: true },
+      });
+
+      const receipt = await createReceiptRecord(
+        tx,
+        orderWithLines,
+        payment,
+        order.business.name,
+        "Cash",
+      );
+
+      return { payment, receipt };
+    },
+    { maxWait: 10_000, timeout: 15_000 },
+  );
 }
 
 export async function completeWalletPaymentByPublicToken(
@@ -419,53 +553,115 @@ export async function completeWalletPaymentByPublicToken(
     throw new HttpError(400, "Payment cannot be completed.");
   }
 
-  return prisma.$transaction(async (tx) => {
-    if (options?.externalEventId) {
-      await tx.webhookEventLog.create({
-        data: {
-          provider: SIMULATOR_WEBHOOK_PROVIDER,
-          eventKey: options.externalEventId,
+  return prisma.$transaction(
+    async (tx) => {
+      if (options?.externalEventId) {
+        try {
+          await tx.webhookEventLog.create({
+            data: {
+              provider: SIMULATOR_WEBHOOK_PROVIDER,
+              eventKey: options.externalEventId,
+            },
+          });
+        } catch (error) {
+          if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === "P2002"
+          ) {
+            const row = await tx.payment.findUnique({
+              where: { id: payment.id },
+              include: { order: { select: { id: true, receipt: { select: { id: true } } } } },
+            });
+            return {
+              ok: true as const,
+              duplicate: true as const,
+              orderId: payment.orderId,
+              receiptId: row?.order.receipt?.id ?? null,
+            };
+          }
+          throw error;
+        }
+      }
+
+      const fresh = await tx.payment.findUnique({
+        where: { id: payment.id },
+        include: {
+          order: {
+            include: {
+              lines: true,
+              receipt: true,
+              business: { select: { name: true } },
+            },
+          },
         },
       });
-    }
 
-    await tx.payment.update({
-      where: { id: payment.id },
-      data: {
-        status: PaymentStatus.COMPLETED,
-        completedAt: new Date(),
-      },
-    });
+      if (!fresh) {
+        throw new HttpError(404, "Payment not found.");
+      }
 
-    await tx.order.update({
-      where: { id: payment.orderId },
-      data: { status: OrderStatus.PAID },
-    });
+      if (
+        fresh.status === PaymentStatus.COMPLETED ||
+        fresh.order.status === OrderStatus.PAID ||
+        fresh.order.receipt
+      ) {
+        return {
+          ok: true as const,
+          duplicate: true as const,
+          orderId: fresh.orderId,
+          receiptId: fresh.order.receipt?.id ?? null,
+        };
+      }
 
-    const orderWithLines = await tx.order.findUniqueOrThrow({
-      where: { id: payment.orderId },
-      include: { lines: true },
-    });
+      if (fresh.status !== PaymentStatus.PENDING) {
+        throw new HttpError(400, "Payment cannot be completed.");
+      }
 
-    const updatedPayment = await tx.payment.findUniqueOrThrow({
-      where: { id: payment.id },
-    });
+      await commitReservedStockForPaidOrder(
+        tx,
+        fresh.order.businessId,
+        fresh.order.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+      );
 
-    const receipt = await createReceiptRecord(
-      tx,
-      orderWithLines,
-      updatedPayment,
-      payment.order.business.name,
-      "QR Wallet",
-    );
+      await tx.payment.update({
+        where: { id: fresh.id },
+        data: {
+          status: PaymentStatus.COMPLETED,
+          completedAt: new Date(),
+        },
+      });
 
-    return {
-      ok: true as const,
-      duplicate: false as const,
-      orderId: payment.orderId,
-      receiptId: receipt.id,
-    };
-  });
+      await tx.order.update({
+        where: { id: fresh.orderId },
+        data: { status: OrderStatus.PAID },
+      });
+
+      const orderWithLines = await tx.order.findUniqueOrThrow({
+        where: { id: fresh.orderId },
+        include: { lines: true },
+      });
+
+      const updatedPayment = await tx.payment.findUniqueOrThrow({
+        where: { id: fresh.id },
+      });
+
+      const receipt = await createReceiptRecord(
+        tx,
+        orderWithLines,
+        updatedPayment,
+        fresh.order.business.name,
+        "QR Wallet",
+      );
+
+      return {
+        ok: true as const,
+        duplicate: false as const,
+        orderId: fresh.orderId,
+        receiptId: receipt.id,
+      };
+    },
+    { maxWait: 10_000, timeout: 15_000 },
+  );
 }
 
 export async function completeWalletPaymentForOrder(orderId: string, businessId: string) {
@@ -485,6 +681,51 @@ export async function completeWalletPaymentForOrder(orderId: string, businessId:
   return completeWalletPaymentByPublicToken(payment.publicToken, {
     externalEventId: `sim-staff-${payment.id}-${Date.now()}`,
   });
+}
+
+/** Releases reservations and cancels pending wallet payments. Only for unpaid orders. */
+export async function cancelPendingOrder(orderId: string, businessId: string) {
+  return prisma.$transaction(
+    async (tx) => {
+      const order = await tx.order.findFirst({
+        where: { id: orderId, businessId },
+        include: { lines: true, receipt: true },
+      });
+
+      if (!order) {
+        throw new HttpError(404, "Order not found.");
+      }
+      if (order.receipt || order.status === OrderStatus.PAID) {
+        throw new HttpError(400, "Only unpaid orders can be cancelled.");
+      }
+      if (order.status !== OrderStatus.PENDING_PAYMENT) {
+        throw new HttpError(400, "Order cannot be cancelled.");
+      }
+
+      await releaseReservedStockForCancelledOrder(
+        tx,
+        businessId,
+        order.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+      );
+
+      await tx.payment.updateMany({
+        where: {
+          orderId,
+          status: PaymentStatus.PENDING,
+          method: PaymentMethod.QR_WALLET,
+        },
+        data: { status: PaymentStatus.CANCELLED },
+      });
+
+      await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.CANCELLED },
+      });
+
+      return order;
+    },
+    { maxWait: 10_000, timeout: 15_000 },
+  );
 }
 
 export async function getPublicPayInfo(publicToken: string) {
