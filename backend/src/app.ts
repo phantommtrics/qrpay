@@ -132,6 +132,9 @@ import {
 import { httpRequestLogger } from "./middleware/http-logger.js";
 
 const app = express();
+// Behind nginx/PM2 the inbound connection is often HTTP; use X-Forwarded-Proto so
+// absolute URLs (e.g. product image uploads) use https:// on the live site.
+app.set("trust proxy", 1);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsRoot = path.resolve(__dirname, "../uploads");
