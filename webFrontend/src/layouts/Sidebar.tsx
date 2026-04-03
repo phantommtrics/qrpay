@@ -61,6 +61,7 @@ export function Sidebar({
       p.startsWith('/platform/billings') ||
       p.startsWith('/platform/subscriptions') ||
       p.startsWith('/platform/invoices') ||
+      p.startsWith('/platform/billing-review') ||
       p.startsWith('/platform/payment-gateways')
     )
   })
@@ -158,8 +159,11 @@ export function Sidebar({
     const p = location.pathname
     if (
       p.startsWith('/platform/businesses') ||
+      p.startsWith('/platform/billings') ||
       p.startsWith('/platform/subscriptions') ||
-      p.startsWith('/platform/invoices')
+      p.startsWith('/platform/invoices') ||
+      p.startsWith('/platform/billing-review') ||
+      p.startsWith('/platform/payment-gateways')
     ) {
       setIsPlatformBusinessesOpen(true)
     }
@@ -181,6 +185,12 @@ export function Sidebar({
     }
     if (path === APP_PATHS.platformInvoices) {
       return p.startsWith('/platform/invoices')
+    }
+    if (path === APP_PATHS.platformBillingReview) {
+      return p.startsWith('/platform/billing-review')
+    }
+    if (path === APP_PATHS.platformPaymentGateways) {
+      return p.startsWith('/platform/payment-gateways')
     }
     return false
   }

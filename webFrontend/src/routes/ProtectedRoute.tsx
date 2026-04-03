@@ -39,7 +39,9 @@ export function ProtectedRoute({
 
   const billingRecovery =
     requiredPermission === 'subscriptions.billings' ||
-    (requiredAnyOfPermissions?.includes('subscriptions.billings') ?? false)
+    requiredPermission === 'subscriptions.invoices' ||
+    (requiredAnyOfPermissions?.includes('subscriptions.billings') ?? false) ||
+    (requiredAnyOfPermissions?.includes('subscriptions.invoices') ?? false)
 
   if (
     !user.isPlatformOwner &&

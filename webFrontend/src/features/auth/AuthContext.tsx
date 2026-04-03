@@ -107,6 +107,8 @@ type AuthContextValue = {
   businessProductsError: string | null
   refreshBusinessProducts: () => Promise<void>
   refreshBusinessEntitlements: (businessId: string) => Promise<void>
+  /** Re-fetch subscription + merge into active organization/plan (e.g. after invoice paid). */
+  refreshBusinessSubscriptionSnapshot: (businessId: string) => Promise<void>
   refreshOrganizationMembers: () => Promise<void>
   /** Reload public plan catalog from the API (e.g. after platform billing updates). */
   refreshPlans: () => Promise<void>
@@ -430,6 +432,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Keep cached entitlements on failure.
     }
   }, [])
+
+  const refreshBusinessSubscriptionSnapshot = useCallback(
+    async (businessId: string) => {
+      await refreshBusinessEntitlements(businessId)
+      if (!businessId || user?.isPlatformOwner || user?.isPlatformAdmin) {
+        return
+      }
+      try {
+        const payload = await fetchBusinessSubscription(businessId)
+        if (payload.currentSubscription?.plan) {
+          const mappedPlan = mapBackendPlanToSubscriptionPlan(payload.currentSubscription.plan)
+          setPlans((current) => {
+            const next = current.filter((plan) => plan.id !== mappedPlan.id)
+            return [...next, mappedPlan]
+          })
+        }
+        setOrganizations((current) =>
+          current.some((o) => o.id === businessId)
+            ? current.map((organization) =>
+                organization.id === businessId
+                  ? {
+                      ...organization,
+                      ...mapAccessibleBusinessToOrganization({
+                        business: payload.business,
+                        currentSubscription: payload.currentSubscription,
+                        isOwner: organization.isOwner ?? false,
+                      }),
+                      staffCount: organization.staffCount,
+                    }
+                  : organization,
+              )
+            : current,
+        )
+      } catch {
+        // Keep cached organization; entitlements already refreshed above.
+      }
+    },
+    [refreshBusinessEntitlements, user?.isPlatformAdmin, user?.isPlatformOwner],
+  )
 
   const refreshOrganizationMembers = useCallback(async () => {
     if (!businessIdForApi || user?.isPlatformOwner || user?.isPlatformAdmin) {
@@ -879,13 +920,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return false
         }
 
-        const billingSlug: PermissionKey = 'subscriptions.billings'
-        if (permission === billingSlug && (user.role === 'merchant' || user.role === 'admin')) {
+        const billingSlugs: PermissionKey[] = ['subscriptions.billings', 'subscriptions.invoices']
+        if (
+          billingSlugs.includes(permission) &&
+          (user.role === 'merchant' || user.role === 'admin')
+        ) {
           const fromBilling = entitlementsByBusinessId[currentOrganization.id]
           if (fromBilling !== undefined) {
-            return fromBilling.includes(billingSlug)
+            return fromBilling.includes(permission)
           }
-          return Boolean(planPermissions[currentOrganization.planId]?.[billingSlug])
+          return Boolean(planPermissions[currentOrganization.planId]?.[permission])
         }
 
         if (
@@ -972,6 +1016,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       businessProductsError,
       refreshBusinessProducts,
       refreshBusinessEntitlements,
+      refreshBusinessSubscriptionSnapshot,
       refreshOrganizationMembers,
       refreshPlans,
     }),
@@ -989,6 +1034,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       planPermissions,
       refreshBusinessProducts,
       refreshBusinessEntitlements,
+      refreshBusinessSubscriptionSnapshot,
       refreshOrganizationMembers,
       refreshPlans,
       subscriptionMeta,

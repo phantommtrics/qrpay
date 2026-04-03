@@ -6,6 +6,7 @@ import { PlanCode } from "@prisma/client";
 export const PLAN_ENTITLEMENT_SLUGS: Record<PlanCode, string[]> = {
   [PlanCode.BASIC]: [
     "subscriptions.billings",
+    "subscriptions.invoices",
     "dashboard.view",
     "pos.access",
     "products.view",
@@ -20,6 +21,7 @@ export const PLAN_ENTITLEMENT_SLUGS: Record<PlanCode, string[]> = {
   ],
   [PlanCode.PRO]: [
     "subscriptions.billings",
+    "subscriptions.invoices",
     "dashboard.view",
     "pos.access",
     "products.view",
@@ -37,6 +39,7 @@ export const PLAN_ENTITLEMENT_SLUGS: Record<PlanCode, string[]> = {
   ],
   [PlanCode.BUSINESS_PRO]: [
     "subscriptions.billings",
+    "subscriptions.invoices",
     "dashboard.view",
     "pos.access",
     "products.view",
@@ -266,5 +269,15 @@ export const SYSTEM_CATALOG_PRODUCTS: Array<{
     sortOrder: 0,
     navPath: "/billing",
     navLabel: "Billing",
+  },
+  {
+    id: "sp_sub_invoices",
+    serviceId: "svc_subscriptions",
+    slug: "subscriptions.invoices",
+    name: "Invoices",
+    description: "View subscription billing history for this business",
+    sortOrder: 1,
+    navPath: "/subscriptions/invoices",
+    navLabel: "Invoices",
   },
 ];

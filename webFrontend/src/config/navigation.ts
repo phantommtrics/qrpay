@@ -39,6 +39,8 @@ export const APP_PATHS = {
   billingWaveSuccess: '/billing/wave/success',
   billingWaveCancel: '/billing/wave/cancel',
   subscriptions: '/subscriptions',
+  subscriptionsInvoices: '/subscriptions/invoices',
+  subscriptionsInvoiceDetail: '/subscriptions/invoices/:invoiceId',
   platformPaymentGateways: '/platform/payment-gateways',
   platformSystemConfiguration: '/platform/system-configuration',
   platformBusinesses: '/platform/businesses',
@@ -47,6 +49,7 @@ export const APP_PATHS = {
   platformSubscriptions: '/platform/subscriptions',
   platformInvoices: '/platform/invoices',
   platformInvoiceDetail: '/platform/invoices/:invoiceId',
+  platformBillingReview: '/platform/billing-review',
   platformSecurityRoles: '/platform/security/roles',
   platformSecurityFunctionGroups: '/platform/security/function-groups',
   platformSecuritySystemUsers: '/platform/security/system-users',
@@ -106,6 +109,12 @@ export const PLATFORM_BUSINESSES_SUBNAV = [
     path: APP_PATHS.platformInvoices,
     title: 'Invoices',
     permission: 'platform.invoices.view' as const,
+  },
+  {
+    name: 'billing-review',
+    path: APP_PATHS.platformBillingReview,
+    title: 'Billing review',
+    permission: 'platform.billing_review.view' as const,
   },
   {
     name: 'payment-gateways',
@@ -245,6 +254,10 @@ export function getPageTitle(pathname: string) {
     return 'Invoices'
   }
 
+  if (pathname.includes(APP_PATHS.platformBillingReview)) {
+    return 'Billing review'
+  }
+
   if (pathname.includes(APP_PATHS.platformSubscriptions)) {
     return 'Subscriptions'
   }
@@ -259,6 +272,17 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes('/billing/wave/')) {
     return 'Wave checkout'
+  }
+
+  if (
+    pathname.includes('/subscriptions/invoices/') &&
+    pathname !== APP_PATHS.subscriptionsInvoices
+  ) {
+    return 'Invoice'
+  }
+
+  if (pathname.includes(APP_PATHS.subscriptionsInvoices)) {
+    return 'Invoices'
   }
 
   if (pathname.includes(APP_PATHS.billing)) {

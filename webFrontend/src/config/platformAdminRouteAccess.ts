@@ -13,6 +13,8 @@ export const PLATFORM_ADMIN_ROUTE_ACCESS: Partial<
   'platform.businesses.manage': { module: 'platform.businesses', action: 'view' },
   'platform.subscriptions.view': { module: 'platform.subscriptions', action: 'view' },
   'platform.invoices.view': { module: 'platform.invoices', action: 'view' },
+  'platform.billing_review.view': { module: 'platform.billing_review', action: 'view' },
+  'platform.billing_review.edit': { module: 'platform.billing_review', action: 'edit' },
   'platform.system.view': { module: 'platform.system_configuration', action: 'view' },
   'platform.security.roles.view': { module: 'platform.security_roles', action: 'view' },
   'platform.security.function_groups.view': {

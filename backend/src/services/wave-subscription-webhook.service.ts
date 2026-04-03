@@ -4,8 +4,8 @@ import { InvoiceStatus } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 import { WavePaymentService } from "./wave-payment.service.js";
-import { payInvoice } from "./subscription.service.js";
-import { GATEWAY_CODE_WAVE_GAMBIA } from "./payment-gateway.service.js";
+import { completeSubscriptionInvoicePayment } from "./subscription.service.js";
+import { CHECKOUT_ADAPTER_WAVE_GAMBIA } from "./payment-gateway.service.js";
 
 function validateWaveSignature(waveSignature: string, rawBody: string, webhookSecret: string): boolean {
   try {
@@ -140,9 +140,16 @@ export async function processWaveSubscriptionWebhook(rawBody: string, signatureH
     return;
   }
 
-  if (invoice.checkoutProvider && invoice.checkoutProvider !== GATEWAY_CODE_WAVE_GAMBIA) {
+  if (invoice.checkoutProvider && invoice.checkoutProvider !== CHECKOUT_ADAPTER_WAVE_GAMBIA) {
     return;
   }
 
-  await payInvoice(invoice.id);
+  const sessionRef = waveSessionId || invoice.checkoutSessionId || undefined;
+
+  await completeSubscriptionInvoicePayment({
+    invoiceId: invoice.id,
+    provider: invoice.checkoutProvider || CHECKOUT_ADAPTER_WAVE_GAMBIA,
+    providerCheckoutSessionId: sessionRef,
+    metadata: { source: "wave_webhook" },
+  });
 }

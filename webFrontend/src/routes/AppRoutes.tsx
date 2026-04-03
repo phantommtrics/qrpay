@@ -138,6 +138,11 @@ const PlatformInvoiceDetailPage = lazy(() =>
     default: module.PlatformInvoiceDetailPage,
   })),
 )
+const PlatformBillingReviewPage = lazy(() =>
+  import('../screens/platform/PlatformBillingReviewPage').then((module) => ({
+    default: module.PlatformBillingReviewPage,
+  })),
+)
 const BusinessConfigurationPage = lazy(() =>
   import('../screens/BusinessConfigurationPage').then((module) => ({
     default: module.BusinessConfigurationPage,
@@ -198,6 +203,16 @@ const BillingWaveCancelPage = lazy(() =>
     default: module.BillingWaveCancelPage,
   })),
 )
+const SubscriptionInvoicesPage = lazy(() =>
+  import('../screens/SubscriptionInvoicesPage').then((module) => ({
+    default: module.SubscriptionInvoicesPage,
+  })),
+)
+const SubscriptionInvoiceDetailPage = lazy(() =>
+  import('../screens/SubscriptionInvoiceDetailPage').then((module) => ({
+    default: module.SubscriptionInvoiceDetailPage,
+  })),
+)
 
 const PLATFORM_OPERATOR_ROLES = ['platform_owner', 'platform_admin'] as UserRole[]
 const BUSINESS_BILLING_ROLES = ['admin', 'merchant'] as UserRole[]
@@ -253,6 +268,12 @@ export function AppRoutes() {
       permission: 'platform.invoices.view' as const,
     },
     {
+      path: APP_PATHS.platformBillingReview,
+      element: <PlatformBillingReviewPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.billing_review.view' as const,
+    },
+    {
       path: APP_PATHS.platformPaymentGateways,
       element: <PlatformPaymentGatewaysPage />,
       roles: PLATFORM_OPERATOR_ROLES,
@@ -275,6 +296,18 @@ export function AppRoutes() {
       element: <BillingWaveCancelPage />,
       roles: BUSINESS_BILLING_ROLES,
       permission: 'subscriptions.billings' as const,
+    },
+    {
+      path: APP_PATHS.subscriptionsInvoices,
+      element: <SubscriptionInvoicesPage />,
+      roles: BUSINESS_BILLING_ROLES,
+      permission: 'subscriptions.invoices' as const,
+    },
+    {
+      path: APP_PATHS.subscriptionsInvoiceDetail,
+      element: <SubscriptionInvoiceDetailPage />,
+      roles: BUSINESS_BILLING_ROLES,
+      permission: 'subscriptions.invoices' as const,
     },
     {
       path: APP_PATHS.products,

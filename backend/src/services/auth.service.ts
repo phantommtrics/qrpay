@@ -14,7 +14,9 @@ import { HttpError } from "../lib/http-error.js";
 import {
   createSubscriptionForBusinessTx,
   getBusinessSubscription,
+  userOwnsBusinessBlockingNewOrganization,
 } from "./subscription.service.js";
+import { queueSubscriptionInvoiceOwnerEmail } from "./subscription-invoice-email.service.js";
 import {
   generateTemporaryPassword,
   hashPassword,
@@ -206,6 +208,13 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
     if (!existingUser || existingUser.id !== sessionUser.id) {
       throw new HttpError(403, "Email must match your signed-in account.");
     }
+
+    if (await userOwnsBusinessBlockingNewOrganization(input.authenticatedUserId)) {
+      throw new HttpError(
+        403,
+        "Pay open subscription invoices or renew your expired or past-due business before creating another organization.",
+      );
+    }
   } else if (existingUser) {
     throw new HttpError(
       409,
@@ -350,6 +359,8 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
       );
     }
   }
+
+  queueSubscriptionInvoiceOwnerEmail(result.invoice.id);
 
   const access = await listAccessibleBusinesses(result.user.id);
 

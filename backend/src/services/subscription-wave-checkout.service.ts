@@ -3,6 +3,10 @@ import type { Request } from "express";
 
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
+import {
+  cancelPendingInvoicePaymentLedgers,
+  createPendingInvoicePaymentLedger,
+} from "./billing-ledger.service.js";
 import { WavePaymentService } from "./wave-payment.service.js";
 import {
   CHECKOUT_ADAPTER_WAVE_GAMBIA,
@@ -110,12 +114,25 @@ export async function createSubscriptionInvoiceCheckout(input: {
       : {}),
   });
 
-  await prisma.subscriptionInvoice.update({
-    where: { id: invoice.id },
-    data: {
-      checkoutSessionId: session.id,
-      checkoutProvider: CHECKOUT_ADAPTER_WAVE_GAMBIA,
-    },
+  await prisma.$transaction(async (tx) => {
+    await cancelPendingInvoicePaymentLedgers(tx, invoice.id);
+    await tx.subscriptionInvoice.update({
+      where: { id: invoice.id },
+      data: {
+        checkoutSessionId: session.id,
+        checkoutProvider: CHECKOUT_ADAPTER_WAVE_GAMBIA,
+      },
+    });
+    await createPendingInvoicePaymentLedger(tx, {
+      businessId: invoice.businessId,
+      subscriptionId: invoice.subscriptionId,
+      subscriptionInvoiceId: invoice.id,
+      amount: invoice.amount,
+      currency: invoice.currency || "GMD",
+      provider: CHECKOUT_ADAPTER_WAVE_GAMBIA,
+      providerCheckoutSessionId: session.id,
+      metadata: { waveCheckoutSessionId: session.id },
+    });
   });
 
   return {

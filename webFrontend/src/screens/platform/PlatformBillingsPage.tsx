@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
+import { APP_PATHS } from '../../config/navigation'
 import { PageCard } from '../../components/ui/PageCard'
 import { PageTransition } from '../../components/ui/PageTransition'
 import { useAuth } from '../../features/auth/AuthContext'
@@ -58,7 +60,7 @@ function rowDirty(baseline: RowPricing, draft: RowPricing) {
 }
 
 export function PlatformBillingsPage() {
-  const { user, refreshPlans } = useAuth()
+  const { user, refreshPlans, canAccess } = useAuth()
   const [rows, setRows] = useState<BackendPlan[]>([])
   const [baseline, setBaseline] = useState<Record<BackendPlanCode, RowPricing>>(emptyRowMap)
   const [draft, setDraft] = useState<Record<BackendPlanCode, RowPricing>>(emptyRowMap)
@@ -166,6 +168,17 @@ export function PlatformBillingsPage() {
             <span className="font-medium text-slate-800">Plan billing &amp; pricing</span> module in
             Security → Role templates.
           </p>
+          {canAccess('platform.billing_review.view') ? (
+            <p className="mt-2 text-sm">
+              <Link
+                to={APP_PATHS.platformBillingReview}
+                className="font-semibold text-teal-600 underline-offset-2 hover:text-teal-700 hover:underline"
+              >
+                Billing review & refunds
+              </Link>
+              <span className="text-slate-600"> — manual refund workflow for paid invoices.</span>
+            </p>
+          ) : null}
         </div>
         <button
           type="button"

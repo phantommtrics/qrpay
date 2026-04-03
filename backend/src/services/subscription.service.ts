@@ -1,4 +1,7 @@
 import {
+  BillingLedgerDirection,
+  BillingLedgerEntryType,
+  BillingLedgerStatus,
   BillingInterval,
   InvoiceStatus,
   PlanCode,
@@ -7,12 +10,50 @@ import {
 } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
+import { cancelPendingInvoicePaymentLedgers } from "./billing-ledger.service.js";
 import {
   addMonths,
   addYears,
   createInvoiceReference,
   dueInDays,
 } from "../utils/billing.js";
+import { queueSubscriptionInvoiceOwnerEmail } from "./subscription-invoice-email.service.js";
+
+/**
+ * True when the user owns at least one business whose latest subscription is expired or past due.
+ * Prevents creating additional organizations until the existing subscription is brought current.
+ */
+export async function userOwnsBusinessBlockingNewOrganization(userId: string): Promise<boolean> {
+  const owned = await prisma.businessMembership.findMany({
+    where: { userId, isOwner: true },
+    select: { businessId: true },
+  });
+  const now = new Date();
+  for (const { businessId } of owned) {
+    const sub = await prisma.subscription.findFirst({
+      where: { businessId },
+      orderBy: { createdAt: "desc" },
+      select: { status: true },
+    });
+    if (
+      sub &&
+      (sub.status === SubscriptionStatus.EXPIRED || sub.status === SubscriptionStatus.PAST_DUE)
+    ) {
+      return true;
+    }
+    const overduePending = await prisma.subscriptionInvoice.findFirst({
+      where: {
+        businessId,
+        status: InvoiceStatus.PENDING,
+        dueDate: { lt: now },
+      },
+    });
+    if (overduePending) {
+      return true;
+    }
+  }
+  return false;
+}
 
 type CreateBusinessInput = {
   name: string;
@@ -272,7 +313,9 @@ export async function createSubscriptionForBusinessTx(
 }
 
 export async function startSubscription(input: StartSubscriptionInput) {
-  return prisma.$transaction((tx) => createSubscriptionForBusinessTx(tx, input));
+  const out = await prisma.$transaction((tx) => createSubscriptionForBusinessTx(tx, input));
+  queueSubscriptionInvoiceOwnerEmail(out.invoice.id);
+  return out;
 }
 
 export async function changeSubscriptionPlan(input: {
@@ -295,11 +338,6 @@ export async function changeSubscriptionPlan(input: {
       orderBy: { createdAt: "desc" },
       include: {
         plan: true,
-        invoices: {
-          where: { status: InvoiceStatus.PENDING },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-        },
       },
     });
 
@@ -330,11 +368,6 @@ export async function changeSubscriptionPlan(input: {
       );
     }
 
-    const nextBillingInterval =
-      sub.status === SubscriptionStatus.TRIALING && input.billingInterval !== undefined
-        ? input.billingInterval
-        : (sub.billingInterval ?? BillingInterval.MONTHLY);
-
     await tx.subscription.update({
       where: { id: sub.id },
       data: {
@@ -348,28 +381,43 @@ export async function changeSubscriptionPlan(input: {
     const refreshed = await tx.subscription.findUniqueOrThrow({
       where: { id: sub.id },
     });
-    const effectiveInterval =
-      refreshed.billingInterval ?? BillingInterval.MONTHLY;
+    const effectiveInterval = refreshed.billingInterval ?? BillingInterval.MONTHLY;
     const amount = planAmountForInterval(newPlan, effectiveInterval);
 
-    const pendingInvoice = sub.invoices[0];
-    if (pendingInvoice) {
-      const invData: Prisma.SubscriptionInvoiceUpdateInput = {
+    /** Prior period payments are not credited toward the new plan; void pending rows and issue a fresh invoice. */
+    const pendingToVoid = await tx.subscriptionInvoice.findMany({
+      where: { subscriptionId: sub.id, status: InvoiceStatus.PENDING },
+      select: { id: true },
+    });
+    for (const row of pendingToVoid) {
+      await cancelPendingInvoicePaymentLedgers(tx, row.id);
+    }
+    await tx.subscriptionInvoice.updateMany({
+      where: {
+        subscriptionId: sub.id,
+        status: InvoiceStatus.PENDING,
+      },
+      data: {
+        status: InvoiceStatus.VOID,
+        checkoutSessionId: null,
+        checkoutProvider: null,
+      },
+    });
+
+    await tx.subscriptionInvoice.create({
+      data: {
+        businessId: refreshed.businessId,
+        subscriptionId: refreshed.id,
         planId: newPlan.id,
         amount,
         currency: newPlan.currency,
-      };
-      if (sub.status === SubscriptionStatus.TRIALING && intervalRequested) {
-        invData.billingPeriodEnd = billingPeriodEndFromStart(
-          pendingInvoice.billingPeriodStart,
-          input.billingInterval!,
-        );
-      }
-      await tx.subscriptionInvoice.update({
-        where: { id: pendingInvoice.id },
-        data: invData,
-      });
-    }
+        status: InvoiceStatus.PENDING,
+        billingPeriodStart: refreshed.currentPeriodStart,
+        billingPeriodEnd: refreshed.currentPeriodEnd,
+        dueDate: dueInDays(new Date(), 7),
+        externalReference: createInvoiceReference(),
+      },
+    });
 
     return tx.subscription.findUniqueOrThrow({
       where: { id: sub.id },
@@ -381,6 +429,12 @@ export async function changeSubscriptionPlan(input: {
         },
       },
     });
+  }).then((updated) => {
+    const newest = updated.invoices[0];
+    if (newest) {
+      queueSubscriptionInvoiceOwnerEmail(newest.id);
+    }
+    return updated;
   });
 }
 
@@ -417,7 +471,7 @@ export async function renewSubscription(subscriptionId: string) {
   const nextEnd = billingPeriodEndFromStart(nextStart, interval);
   const renewalAmount = planAmountForInterval(subscription.plan, interval);
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const updatedSubscription = await tx.subscription.update({
       where: { id: subscription.id },
       data: {
@@ -450,51 +504,223 @@ export async function renewSubscription(subscriptionId: string) {
       invoice,
     };
   });
+
+  queueSubscriptionInvoiceOwnerEmail(result.invoice.id);
+  return result;
 }
 
-export async function payInvoice(invoiceId: string) {
-  const invoice = await prisma.subscriptionInvoice.findUnique({
-    where: { id: invoiceId },
-    include: {
-      subscription: true,
-    },
-  });
-
-  if (!invoice) {
-    throw new HttpError(404, "Invoice not found.");
-  }
-
-  if (invoice.status === InvoiceStatus.PAID) {
-    throw new HttpError(400, "Invoice is already paid.");
-  }
-
-  return prisma.$transaction(async (tx) => {
-    const paidInvoice = await tx.subscriptionInvoice.update({
-      where: { id: invoiceId },
+async function applySubscriptionActivationAfterInvoicePayment(
+  tx: Prisma.TransactionClient,
+  subscription: { id: string; status: SubscriptionStatus },
+  paidInvoice: { billingPeriodStart: Date; billingPeriodEnd: Date },
+): Promise<void> {
+  if (
+    subscription.status === SubscriptionStatus.TRIALING ||
+    subscription.status === SubscriptionStatus.EXPIRED ||
+    subscription.status === SubscriptionStatus.PAST_DUE
+  ) {
+    await tx.subscription.update({
+      where: { id: subscription.id },
       data: {
-        status: InvoiceStatus.PAID,
-        paidAt: new Date(),
+        status: SubscriptionStatus.ACTIVE,
+        currentPeriodStart: paidInvoice.billingPeriodStart,
+        currentPeriodEnd: paidInvoice.billingPeriodEnd,
+        endedAt: null,
       },
     });
+  }
+}
 
-    if (
-      invoice.subscription.status === SubscriptionStatus.TRIALING ||
-      invoice.subscription.status === SubscriptionStatus.EXPIRED ||
-      invoice.subscription.status === SubscriptionStatus.PAST_DUE
-    ) {
-      await tx.subscription.update({
-        where: { id: invoice.subscriptionId },
+export type CompleteSubscriptionInvoicePaymentInput = {
+  invoiceId: string;
+  provider: string;
+  providerCheckoutSessionId?: string | null;
+  providerPaymentRef?: string | null;
+  idempotencyKey?: string | null;
+  metadata?: Prisma.InputJsonValue;
+};
+
+/**
+ * Marks the invoice paid, records a BillingLedgerEntry, and activates the subscription when applicable.
+ * Idempotent for duplicate webhooks (same session or idempotency key).
+ */
+export async function completeSubscriptionInvoicePayment(
+  input: CompleteSubscriptionInvoicePaymentInput,
+) {
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.subscriptionInvoice.findUnique({
+      where: { id: input.invoiceId },
+      include: { subscription: true },
+    });
+
+    if (!invoice) {
+      throw new HttpError(404, "Invoice not found.");
+    }
+
+    const now = new Date();
+
+    if (invoice.status === InvoiceStatus.PAID) {
+      const dupLedger =
+        (input.providerCheckoutSessionId &&
+          (await tx.billingLedgerEntry.findFirst({
+            where: {
+              subscriptionInvoiceId: invoice.id,
+              providerCheckoutSessionId: input.providerCheckoutSessionId,
+              status: BillingLedgerStatus.SUCCEEDED,
+            },
+          }))) ||
+        (input.idempotencyKey &&
+          (await tx.billingLedgerEntry.findFirst({
+            where: {
+              idempotencyKey: input.idempotencyKey,
+              status: BillingLedgerStatus.SUCCEEDED,
+            },
+          })));
+      if (dupLedger) {
+        return tx.subscriptionInvoice.findUniqueOrThrow({ where: { id: invoice.id } });
+      }
+      throw new HttpError(400, "Invoice is already paid.");
+    }
+
+    if (invoice.status !== InvoiceStatus.PENDING) {
+      throw new HttpError(400, "Only pending invoices can be completed.");
+    }
+
+    let ledger =
+      (input.providerCheckoutSessionId &&
+        (await tx.billingLedgerEntry.findFirst({
+          where: { providerCheckoutSessionId: input.providerCheckoutSessionId },
+        }))) ||
+      (input.idempotencyKey &&
+        (await tx.billingLedgerEntry.findFirst({
+          where: { idempotencyKey: input.idempotencyKey },
+        }))) ||
+      null;
+
+    if (ledger?.status === BillingLedgerStatus.SUCCEEDED) {
+      const paidInvoice = await tx.subscriptionInvoice.update({
+        where: { id: invoice.id },
+        data: { status: InvoiceStatus.PAID, paidAt: now },
+      });
+      await applySubscriptionActivationAfterInvoicePayment(
+        tx,
+        invoice.subscription,
+        paidInvoice,
+      );
+      return paidInvoice;
+    }
+
+    const metaPatch =
+      input.metadata !== undefined && input.metadata !== null
+        ? { metadata: input.metadata as object }
+        : {};
+
+    if (ledger) {
+      await tx.billingLedgerEntry.update({
+        where: { id: ledger.id },
         data: {
-          status: SubscriptionStatus.ACTIVE,
-          currentPeriodStart: paidInvoice.billingPeriodStart,
-          currentPeriodEnd: paidInvoice.billingPeriodEnd,
-          endedAt: null,
+          status: BillingLedgerStatus.SUCCEEDED,
+          succeededAt: now,
+          ...(input.providerPaymentRef ? { providerPaymentRef: input.providerPaymentRef } : {}),
+          ...metaPatch,
+        },
+      });
+    } else {
+      await tx.billingLedgerEntry.create({
+        data: {
+          businessId: invoice.businessId,
+          subscriptionId: invoice.subscriptionId,
+          subscriptionInvoiceId: invoice.id,
+          type: BillingLedgerEntryType.INVOICE_PAYMENT,
+          direction: BillingLedgerDirection.MONEY_IN,
+          status: BillingLedgerStatus.SUCCEEDED,
+          amount: invoice.amount,
+          currency: invoice.currency,
+          provider: input.provider,
+          providerCheckoutSessionId: input.providerCheckoutSessionId ?? null,
+          providerPaymentRef: input.providerPaymentRef ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
+          succeededAt: now,
+          ...metaPatch,
         },
       });
     }
 
+    const paidInvoice = await tx.subscriptionInvoice.update({
+      where: { id: invoice.id },
+      data: {
+        status: InvoiceStatus.PAID,
+        paidAt: now,
+      },
+    });
+
+    await applySubscriptionActivationAfterInvoicePayment(
+      tx,
+      invoice.subscription,
+      paidInvoice,
+    );
+
     return paidInvoice;
   });
+}
+
+/** Dev / simulator: marks paid and writes a ledger row (idempotent per invoice). */
+export async function payInvoice(invoiceId: string) {
+  return completeSubscriptionInvoicePayment({
+    invoiceId,
+    provider: "internal_dev",
+    idempotencyKey: `dev-pay:${invoiceId}`,
+  });
+}
+
+export async function listBusinessSubscriptionInvoices(
+  businessId: string,
+  filters: { status?: InvoiceStatus; createdFrom?: Date; createdTo?: Date },
+  pagination: { page: number; pageSize: number },
+) {
+  const where: Prisma.SubscriptionInvoiceWhereInput = { businessId };
+  if (filters.status) {
+    where.status = filters.status;
+  }
+  if (filters.createdFrom || filters.createdTo) {
+    where.createdAt = {};
+    if (filters.createdFrom) {
+      where.createdAt.gte = filters.createdFrom;
+    }
+    if (filters.createdTo) {
+      where.createdAt.lte = filters.createdTo;
+    }
+  }
+
+  const skip = (pagination.page - 1) * pagination.pageSize;
+
+  const [total, rows] = await prisma.$transaction([
+    prisma.subscriptionInvoice.count({ where }),
+    prisma.subscriptionInvoice.findMany({
+      where,
+      include: { plan: true },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: pagination.pageSize,
+    }),
+  ]);
+
+  return { rows, total };
+}
+
+export async function getBusinessSubscriptionInvoiceDetail(businessId: string, invoiceId: string) {
+  const invoice = await prisma.subscriptionInvoice.findFirst({
+    where: { id: invoiceId, businessId },
+    include: {
+      business: true,
+      plan: true,
+      subscription: true,
+    },
+  });
+  if (!invoice) {
+    throw new HttpError(404, "Invoice not found.");
+  }
+  return invoice;
 }
 
 export function formatMoney(value: Prisma.Decimal) {

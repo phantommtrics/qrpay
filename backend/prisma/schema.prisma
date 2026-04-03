@@ -38,6 +38,33 @@ enum InvoiceStatus {
   VOID
 }
 
+/** Admin-only workflow: no money movement in-app; tracks external refund decisions. */
+enum ManualRefundReviewStatus {
+  NONE
+  PENDING_REVIEW
+  APPROVED_FOR_REFUND
+  DECLINED
+  REFUNDED_EXTERNALLY
+}
+
+enum BillingLedgerEntryType {
+  INVOICE_PAYMENT
+  REFUND
+  ADJUSTMENT
+}
+
+enum BillingLedgerDirection {
+  MONEY_IN
+  MONEY_OUT
+}
+
+enum BillingLedgerStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
 enum BillingInterval {
   MONTHLY
   YEARLY
@@ -49,6 +76,12 @@ enum StaffCreationNotificationType {
   OWNER_SIGNUP
   /** Platform staff invite email (no business context; businessId on log is null). */
   PLATFORM_ADMIN_INVITE
+  /** Subscription invoice issued to business owner (PDF attached). */
+  SUBSCRIPTION_INVOICE
+  /** Business notified that a subscription invoice refund is under platform review (PDF attached). */
+  SUBSCRIPTION_INVOICE_REFUND_REVIEW
+  /** Business notified that a refund was approved; includes expected refund date (PDF attached). */
+  SUBSCRIPTION_INVOICE_REFUND_APPROVED
 }
 
 enum StaffCreationNotificationStatus {
@@ -105,6 +138,7 @@ model Business {
   payments                      Payment[]
   receipts                      Receipt[]
   paymentMethods                BusinessPaymentMethod[]
+  billingLedgerEntries          BillingLedgerEntry[]
 }
 
 enum BusinessPaymentMethodStatus {
@@ -187,6 +221,7 @@ model User {
   staffCreationNotificationLogs StaffCreationNotificationLog[]
   businessSystemProducts        BusinessUserSystemProduct[]
   ordersCreated                 Order[]                        @relation("OrderCreatedBy")
+  subscriptionInvoicesRefundReviewed SubscriptionInvoice[]     @relation("SubscriptionInvoiceRefundReviewedBy")
   platformFunctionGroup         PlatformFunctionGroup?         @relation(fields: [platformFunctionGroupId], references: [id], onDelete: SetNull)
 
   @@index([platformFunctionGroupId])
@@ -355,6 +390,7 @@ model Subscription {
   business            Business              @relation(fields: [businessId], references: [id])
   plan                Plan                  @relation(fields: [planId], references: [id])
   invoices            SubscriptionInvoice[]
+  billingLedgerEntries BillingLedgerEntry[]
 
   @@index([businessId, status])
   @@index([planId])
@@ -376,15 +412,54 @@ model SubscriptionInvoice {
   /** Last checkout session id (e.g. Wave) for webhook correlation. */
   checkoutSessionId   String?
   checkoutProvider    String?
+  manualRefundReviewStatus     ManualRefundReviewStatus @default(NONE)
+  manualRefundNote             String?
+  manualRefundReviewedAt       DateTime?
+  manualRefundReviewedByUserId String?
+  /** Target date by which finance aims to complete the refund (set when status is APPROVED_FOR_REFUND). */
+  manualRefundExpectedBy       DateTime?
+  /** Approved refund amount when partial; null means full invoice amount. */
+  manualRefundApprovedAmount   Decimal?           @db.Decimal(10, 2)
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   business            Business           @relation(fields: [businessId], references: [id])
   subscription        Subscription       @relation(fields: [subscriptionId], references: [id])
   plan                Plan               @relation(fields: [planId], references: [id])
+  manualRefundReviewedBy User?             @relation("SubscriptionInvoiceRefundReviewedBy", fields: [manualRefundReviewedByUserId], references: [id], onDelete: SetNull)
+  ledgerEntries       BillingLedgerEntry[]
 
   @@index([businessId, status])
   @@index([subscriptionId])
   @@index([checkoutSessionId])
+  @@index([manualRefundReviewStatus])
+}
+
+model BillingLedgerEntry {
+  id                        String                  @id @default(cuid())
+  businessId                String
+  subscriptionId            String?
+  subscriptionInvoiceId     String?
+  type                      BillingLedgerEntryType
+  direction                 BillingLedgerDirection
+  status                    BillingLedgerStatus     @default(PENDING)
+  amount                    Decimal                 @db.Decimal(10, 2)
+  currency                  String                  @default("GMD")
+  provider                  String
+  providerCheckoutSessionId String?                 @unique
+  providerPaymentRef        String?
+  idempotencyKey            String?                 @unique
+  metadata                  Json?
+  succeededAt               DateTime?
+  failedAt                  DateTime?
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+  business                  Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  subscription              Subscription?           @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  subscriptionInvoice       SubscriptionInvoice?    @relation(fields: [subscriptionInvoiceId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
+  @@index([subscriptionInvoiceId])
+  @@index([subscriptionId])
 }
 
 model StaffCreationNotificationLog {

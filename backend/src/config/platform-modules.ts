@@ -9,6 +9,8 @@ export const PLATFORM_MODULE_SLUGS = {
   BILLING: "platform.billing",
   SUBSCRIPTIONS: "platform.subscriptions",
   INVOICES: "platform.invoices",
+  /** Paid subscription invoices + ledger: refund review flags (no in-app money movement). */
+  BILLING_REVIEW: "platform.billing_review",
   SYSTEM_CONFIGURATION: "platform.system_configuration",
   SECURITY_ROLES: "platform.security_roles",
   SECURITY_FUNCTION_GROUPS: "platform.security_function_groups",
@@ -30,6 +32,11 @@ export const PLATFORM_MODULES_SEED: { slug: string; label: string; sortOrder: nu
   { slug: PLATFORM_MODULE_SLUGS.BILLING, label: "Plan billing & pricing", sortOrder: 55 },
   { slug: PLATFORM_MODULE_SLUGS.SUBSCRIPTIONS, label: "Subscriptions", sortOrder: 60 },
   { slug: PLATFORM_MODULE_SLUGS.INVOICES, label: "Invoices", sortOrder: 70 },
+  {
+    slug: PLATFORM_MODULE_SLUGS.BILLING_REVIEW,
+    label: "Billing review & refunds",
+    sortOrder: 72,
+  },
   { slug: PLATFORM_MODULE_SLUGS.SYSTEM_CONFIGURATION, label: "System configuration", sortOrder: 80 },
   { slug: PLATFORM_MODULE_SLUGS.SECURITY_ROLES, label: "Security — Role templates", sortOrder: 90 },
   {

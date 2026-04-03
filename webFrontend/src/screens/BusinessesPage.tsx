@@ -1,10 +1,22 @@
 import { useState, type FormEvent } from 'react'
-import { Building2, CheckCircle2, Plus, Sparkles } from 'lucide-react'
+import { AlertTriangle, Building2, CheckCircle2, Plus, Sparkles } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
+import { CenteredModal } from '../components/ui/CenteredModal'
+import { ModalOverlay } from '../components/ui/ModalOverlay'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
+import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
 import type { PlanId, SubscriptionBillingInterval } from '../types'
+
+/** Must stay in sync with backend `registerBusinessOwner` 403 when subscription is blocking. */
+const BLOCK_NEW_ORG_SUBSCRIPTION_MESSAGE =
+  'Pay open subscription invoices or renew your expired or past-due business before creating another organization.'
+
+function isBlockNewOrgSubscriptionError(message: string | undefined) {
+  return Boolean(message?.includes('Pay open subscription invoices'))
+}
 
 export function BusinessesPage() {
   const {
@@ -27,6 +39,7 @@ export function BusinessesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [subscriptionBlockModalOpen, setSubscriptionBlockModalOpen] = useState(false)
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -37,7 +50,11 @@ export function BusinessesPage() {
     const result = await registerOrganization(form)
 
     if (!result.ok) {
-      setError(result.error ?? 'Unable to create business.')
+      if (isBlockNewOrgSubscriptionError(result.error)) {
+        setSubscriptionBlockModalOpen(true)
+      } else {
+        setError(result.error ?? 'Unable to create business.')
+      }
       setIsSubmitting(false)
       return
     }
@@ -56,6 +73,44 @@ export function BusinessesPage() {
 
   return (
     <PageTransition className="space-y-6" withSlide>
+      {subscriptionBlockModalOpen ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <ModalOverlay
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            onClick={() => setSubscriptionBlockModalOpen(false)}
+          />
+          <CenteredModal className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="p-6" role="dialog" aria-modal="true" aria-labelledby="subscription-block-title">
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <h2 id="subscription-block-title" className="text-lg font-semibold text-slate-900">
+                Cannot add a business yet
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-slate-600">
+                {BLOCK_NEW_ORG_SUBSCRIPTION_MESSAGE}
+              </p>
+              <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSubscriptionBlockModalOpen(false)}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+                >
+                  Close
+                </button>
+                <Link
+                  to={APP_PATHS.billing}
+                  onClick={() => setSubscriptionBlockModalOpen(false)}
+                  className="inline-flex items-center justify-center rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-500"
+                >
+                  Open billing
+                </Link>
+              </div>
+            </div>
+          </CenteredModal>
+        </div>
+      ) : null}
+
       <PageCard className="p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>

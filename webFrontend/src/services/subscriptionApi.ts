@@ -55,9 +55,11 @@ export type BackendSubscription = {
   invoices?: BackendInvoice[]
 }
 
-type BackendSubscriptionEnvelope = {
+export type BackendSubscriptionEnvelope = {
   business: BackendBusiness
   currentSubscription: (BackendSubscription & { invoices: BackendInvoice[] }) | null
+  /** Server-controlled; UI may show "Dev: mark paid" when true. */
+  devSubscriptionInvoicePayAllowed?: boolean
 }
 
 export type BackendUser = {
@@ -1126,6 +1128,161 @@ export type PlatformInvoiceDetail = PlatformInvoiceRow & {
 export async function fetchPlatformInvoiceDetail(invoiceId: string) {
   const response = await apiRequest<{ data: PlatformInvoiceDetail }>(
     `/platform/invoices/${invoiceId}`,
+  )
+  return response.data
+}
+
+export type ManualRefundReviewStatus =
+  | 'NONE'
+  | 'PENDING_REVIEW'
+  | 'APPROVED_FOR_REFUND'
+  | 'DECLINED'
+  | 'REFUNDED_EXTERNALLY'
+
+export type PlatformBillingReviewRow = {
+  invoice: {
+    id: string
+    businessId: string
+    subscriptionId: string
+    planId: string
+    amount: string
+    currency: string
+    status: InvoiceStatus
+    billingPeriodStart: string
+    billingPeriodEnd: string
+    dueDate: string
+    paidAt: string | null
+    externalReference: string | null
+    createdAt: string
+  }
+  business: {
+    id: string
+    name: string
+    slug: string
+    ownerName: string
+    ownerEmail: string
+  }
+  plan: { id: string; code: string; name: string }
+  subscription: {
+    id: string
+    status: BackendSubscriptionStatus
+    currentPeriodEnd: string
+    daysRemaining: number
+  }
+  paymentTransaction: {
+    id: string
+    provider: string
+    amount: string
+    currency: string
+    providerPaymentRef: string | null
+    succeededAt: string | null
+  } | null
+  manualRefundReview: {
+    status: ManualRefundReviewStatus
+    note: string | null
+    reviewedAt: string | null
+    reviewedBy: { id: string; name: string; email: string } | null
+    /** Set when status is APPROVED_FOR_REFUND — target date for completing the refund. */
+    expectedRefundBy: string | null
+    /** Approved partial amount; null with APPROVED means full invoice total. */
+    approvedRefundAmount: string | null
+  }
+}
+
+export async function fetchPlatformBillingReview(params: {
+  invoiceStatus?: InvoiceStatus
+  refundReviewStatus?: ManualRefundReviewStatus
+  page?: number
+  pageSize?: number
+}) {
+  const sp = new URLSearchParams()
+  if (params.invoiceStatus) {
+    sp.set('invoiceStatus', params.invoiceStatus)
+  }
+  if (params.refundReviewStatus) {
+    sp.set('refundReviewStatus', params.refundReviewStatus)
+  }
+  sp.set('page', String(params.page ?? 1))
+  sp.set('pageSize', String(params.pageSize ?? 20))
+  return apiRequest<{
+    data: PlatformBillingReviewRow[]
+    total: number
+    page: number
+    pageSize: number
+  }>(`/platform/billing-review?${sp.toString()}`)
+}
+
+export async function patchPlatformBillingReviewInvoice(
+  invoiceId: string,
+  body: {
+    manualRefundReviewStatus: ManualRefundReviewStatus
+    manualRefundNote?: string | null
+    /** YYYY-MM-DD — required when status is APPROVED_FOR_REFUND */
+    refundExpectedBy?: string | null
+    refundAmountMode?: 'FULL' | 'PARTIAL'
+    refundPartialAmount?: number
+  },
+) {
+  const response = await apiRequest<{
+    data: {
+      invoice: {
+        id: string
+        status: InvoiceStatus
+        manualRefundReviewStatus: ManualRefundReviewStatus
+        manualRefundNote: string | null
+        manualRefundReviewedAt: string | null
+        manualRefundExpectedBy: string | null
+        manualRefundApprovedAmount: string | null
+      }
+      subscription: { currentPeriodEnd: string; daysRemaining: number }
+      paymentTransaction: { id: string; provider: string; amount: string; succeededAt: string | null } | null
+      reviewedBy: { id: string; name: string; email: string } | null
+    }
+  }>(`/platform/billing-review/invoices/${invoiceId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+  return response.data
+}
+
+/** Business-scoped list row (no `business` object; plan only). */
+export type BusinessSubscriptionInvoiceRow = Omit<PlatformInvoiceRow, 'business'>
+
+export async function fetchBusinessSubscriptionInvoices(
+  businessId: string,
+  params: {
+    status?: InvoiceStatus
+    createdFrom?: string
+    createdTo?: string
+    page?: number
+    pageSize?: number
+  },
+) {
+  const sp = new URLSearchParams()
+  if (params.status) {
+    sp.set('status', params.status)
+  }
+  if (params.createdFrom) {
+    sp.set('createdFrom', params.createdFrom)
+  }
+  if (params.createdTo) {
+    sp.set('createdTo', params.createdTo)
+  }
+  sp.set('page', String(params.page ?? 1))
+  sp.set('pageSize', String(params.pageSize ?? 10))
+  return apiRequest<PaginatedPayload<BusinessSubscriptionInvoiceRow>>(
+    `/businesses/${businessId}/subscription-invoices?${sp.toString()}`,
+    { headers: { 'x-business-id': businessId } },
+  )
+}
+
+export async function fetchBusinessSubscriptionInvoiceDetail(
+  businessId: string,
+  invoiceId: string,
+) {
+  const response = await apiRequest<{ data: PlatformInvoiceDetail }>(
+    `/businesses/${businessId}/subscription-invoices/${invoiceId}`,
+    { headers: { 'x-business-id': businessId } },
   )
   return response.data
 }

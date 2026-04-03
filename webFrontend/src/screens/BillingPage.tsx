@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowDownUp,
+  BadgeCheck,
   Check,
   CheckCircle2,
   Copy,
@@ -82,7 +83,7 @@ function formatCheckoutAmount(amount: number, currency: string) {
 }
 
 export function BillingPage() {
-  const { currentOrganization, user, refreshBusinessEntitlements } = useAuth()
+  const { currentOrganization, user, refreshBusinessSubscriptionSnapshot } = useAuth()
   const businessId = currentOrganization?.id ?? null
   const isOwner = Boolean(currentOrganization?.isOwner)
 
@@ -108,6 +109,7 @@ export function BillingPage() {
   const [selectedPayMethodId, setSelectedPayMethodId] = useState<string | null>(null)
   const [checkoutPaidBanner, setCheckoutPaidBanner] = useState(false)
   const [checkoutLinkCopied, setCheckoutLinkCopied] = useState(false)
+  const [devSubscriptionInvoicePayAllowed, setDevSubscriptionInvoicePayAllowed] = useState(false)
 
   const gatewaysWithCheckout = useMemo(
     () => gateways.filter((g) => Boolean(g.checkoutAdapter)),
@@ -132,12 +134,15 @@ export function BillingPage() {
     [methods],
   )
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options?: { silent?: boolean }) => {
     if (!businessId) {
       setLoading(false)
       return
     }
-    setLoading(true)
+    const silent = Boolean(options?.silent)
+    if (!silent) {
+      setLoading(true)
+    }
     setError(null)
     try {
       const [subEnv, gw, pm, plans] = await Promise.all([
@@ -147,6 +152,7 @@ export function BillingPage() {
         fetchPlansRaw(),
       ])
       setSubscription(subEnv.currentSubscription)
+      setDevSubscriptionInvoicePayAllowed(Boolean(subEnv.devSubscriptionInvoicePayAllowed))
       setGateways(gw)
       setMethods(pm)
       setPlanCatalog(
@@ -158,9 +164,13 @@ export function BillingPage() {
         })),
       )
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Could not load billing.')
+      if (!silent) {
+        setError(e instanceof ApiError ? e.message : 'Could not load billing.')
+      }
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }, [businessId])
 
@@ -240,16 +250,16 @@ export function BillingPage() {
             window.clearInterval(t)
             setWaveCheckoutModal(null)
             setCheckoutPaidBanner(true)
-            await loadRef.current()
-            await refreshBusinessEntitlements(businessId)
+            await loadRef.current({ silent: true })
+            await refreshBusinessSubscriptionSnapshot(businessId)
           }
         } catch {
           /* ignore transient poll errors */
         }
       })()
-    }, 3000)
+    }, 2000)
     return () => window.clearInterval(t)
-  }, [waveCheckoutModal, businessId, refreshBusinessEntitlements])
+  }, [waveCheckoutModal, businessId, refreshBusinessSubscriptionSnapshot])
 
   const startCheckoutForMethod = async (
     invoiceId: string,
@@ -306,7 +316,8 @@ export function BillingPage() {
     setError(null)
     try {
       await paySubscriptionInvoice(businessId, invoiceId)
-      await load()
+      await load({ silent: true })
+      await refreshBusinessSubscriptionSnapshot(businessId)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not mark invoice paid.')
     } finally {
@@ -354,7 +365,7 @@ export function BillingPage() {
     try {
       await createSubscription(businessId, startPlanId)
       await load()
-      await refreshBusinessEntitlements(businessId)
+      await refreshBusinessSubscriptionSnapshot(businessId)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not start subscription.')
     } finally {
@@ -374,7 +385,7 @@ export function BillingPage() {
         ...(subscription.status === 'TRIALING' ? { billingInterval: targetBillingInterval } : {}),
       })
       await load()
-      await refreshBusinessEntitlements(businessId)
+      await refreshBusinessSubscriptionSnapshot(businessId)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not update plan.')
     } finally {
@@ -407,10 +418,6 @@ export function BillingPage() {
           <h1 className="mt-2 text-3xl font-bold text-slate-900">
             {currentOrganization?.name ?? 'Business'}
           </h1>
-          <p className="mt-2 max-w-2xl text-slate-600">
-            Manage your subscription plan, pay open invoices through enabled gateways, and save
-            payment methods for the providers your platform offers.
-          </p>
         </div>
         <button
           type="button"
@@ -518,47 +525,93 @@ export function BillingPage() {
                 <h3 className="text-sm font-semibold">Change plan</h3>
               </div>
               <p className="mt-1 text-xs text-slate-600">
-                Upgrade or downgrade anytime. If you have an unpaid invoice, its amount updates to
-                match the new plan. Billing cycle can only be changed during trial.
+                Switching plans issues a new invoice for the full plan price; your period end date
+                stays the same until renewal. Billing cycle (monthly/yearly) can only be changed
+                during trial.
               </p>
-              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-                <label className="block text-sm">
-                  <span className="text-slate-600">Plan</span>
-                  <select
-                    value={targetPlanCode}
-                    onChange={(e) => setTargetPlanCode(e.target.value as BackendPlanCode)}
-                    className="mt-1 block rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900"
-                  >
-                    {PLAN_OPTIONS.map((code) => {
-                      const meta = planCatalog.find((p) => p.code === code)
-                      return (
-                        <option key={code} value={code}>
-                          {meta?.name ?? code}
-                        </option>
-                      )
-                    })}
-                  </select>
-                </label>
-                {subscription.status === 'TRIALING' ? (
-                  <label className="block text-sm">
-                    <span className="text-slate-600">Billing cycle</span>
-                    <select
-                      value={targetBillingInterval}
-                      onChange={(e) =>
-                        setTargetBillingInterval(e.target.value as SubscriptionBillingInterval)
-                      }
-                      className="mt-1 block rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900"
+
+              <div className="mx-auto mt-5 w-full max-w-md space-y-3">
+                <p className="text-center text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Select a plan
+                </p>
+                {PLAN_OPTIONS.map((code) => {
+                  const meta = planCatalog.find((p) => p.code === code)
+                  const name = meta?.name ?? code
+                  const isCurrent = subscription.plan.code === code
+                  const isSelected = targetPlanCode === code
+                  const showYearly =
+                    subscription.status === 'TRIALING'
+                      ? targetBillingInterval === 'YEARLY'
+                      : subscription.billingInterval === 'YEARLY'
+                  const priceLine = meta
+                    ? showYearly
+                      ? `${formatGmd(meta.yearlyPrice)} / year`
+                      : `${formatGmd(meta.monthlyPrice)} / month`
+                    : ''
+
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      disabled={isCurrent}
+                      aria-pressed={!isCurrent && isSelected}
+                      onClick={() => setTargetPlanCode(code)}
+                      className={[
+                        'relative w-full rounded-2xl border-2 p-4 text-left shadow-sm transition',
+                        isCurrent
+                          ? 'cursor-not-allowed border-emerald-200 bg-emerald-50/60'
+                          : isSelected
+                            ? 'border-teal-500 bg-teal-50/50 ring-2 ring-teal-500/30'
+                            : 'border-slate-200 bg-white hover:border-slate-300',
+                      ].join(' ')}
                     >
-                      <option value="MONTHLY">Monthly</option>
-                      <option value="YEARLY">Yearly</option>
-                    </select>
-                  </label>
-                ) : null}
+                      {isCurrent ? (
+                        <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+                          <BadgeCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                          Current plan
+                        </span>
+                      ) : null}
+                      <p className="pr-28 font-semibold text-slate-900">{name}</p>
+                      <p className="mt-1 font-mono text-xs text-slate-500">{code}</p>
+                      {priceLine ? (
+                        <p className="mt-2 text-sm font-medium text-teal-800">{priceLine}</p>
+                      ) : null}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {subscription.status === 'TRIALING' ? (
+                <div className="mx-auto mt-5 w-full max-w-md">
+                  <p className="text-center text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Billing cycle
+                  </p>
+                  <div className="mt-2 flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+                    {(['MONTHLY', 'YEARLY'] as const).map((iv) => (
+                      <button
+                        key={iv}
+                        type="button"
+                        onClick={() => setTargetBillingInterval(iv)}
+                        className={[
+                          'flex-1 rounded-lg py-2.5 text-sm font-semibold transition',
+                          targetBillingInterval === iv
+                            ? 'bg-teal-600 text-white shadow-sm'
+                            : 'text-slate-600 hover:bg-slate-50',
+                        ].join(' ')}
+                      >
+                        {iv === 'YEARLY' ? 'Yearly' : 'Monthly'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mx-auto mt-6 w-full max-w-md">
                 <button
                   type="button"
                   disabled={planChangeLoading || planChangeDisabled}
                   onClick={() => void handleChangePlan()}
-                  className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {planChangeLoading ? 'Updating…' : 'Apply change'}
                 </button>
@@ -606,7 +659,7 @@ export function BillingPage() {
                             enable providers under Platform → Payment gateways.
                           </p>
                         )}
-                        {import.meta.env.DEV ? (
+                        {devSubscriptionInvoicePayAllowed ? (
                           <button
                             type="button"
                             disabled={checkoutLoadingKey === `sim:${inv.id}`}
@@ -633,10 +686,6 @@ export function BillingPage() {
           <CreditCard className="h-5 w-5 text-teal-600" />
           <h2 className="text-lg font-semibold text-slate-900">Payment methods</h2>
         </div>
-        <p className="text-sm text-slate-600">
-          These are the payment providers your platform has made available. Add a labeled method
-          for each provider you use so your team can see how you pay.
-        </p>
 
         {gateways.length === 0 ? (
           <p className="text-sm text-amber-800">

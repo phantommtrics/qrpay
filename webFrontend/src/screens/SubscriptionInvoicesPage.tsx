@@ -2,19 +2,18 @@ import { useCallback, useEffect, useState } from 'react'
 import { ChevronRight, Filter, RefreshCw } from 'lucide-react'
 import { generatePath, Link } from 'react-router-dom'
 
-import { TablePagination } from '../../components/ui/TablePagination'
-import { PageCard } from '../../components/ui/PageCard'
-import { PageTransition } from '../../components/ui/PageTransition'
-import { APP_PATHS } from '../../config/navigation'
-import { useAuth } from '../../features/auth/AuthContext'
+import { TablePagination } from '../components/ui/TablePagination'
+import { PageCard } from '../components/ui/PageCard'
+import { PageTransition } from '../components/ui/PageTransition'
+import { APP_PATHS } from '../config/navigation'
+import { useAuth } from '../features/auth/AuthContext'
 import {
   ApiError,
-  fetchPlatformInvoices,
+  fetchBusinessSubscriptionInvoices,
+  type BusinessSubscriptionInvoiceRow,
   type InvoiceStatus,
-  type PlatformInvoiceRow,
-} from '../../services/subscriptionApi'
-import { localCalendarIsoDate } from '../../utils/localCalendarDate'
-import { isPlatformOperator } from '../../utils/platformOperator'
+} from '../services/subscriptionApi'
+import { localCalendarIsoDate } from '../utils/localCalendarDate'
 
 const PAGE_SIZE = 10
 
@@ -36,25 +35,26 @@ function formatShortDate(iso: string) {
   }
 }
 
-export function PlatformInvoicesPage() {
-  const { user, canAccess } = useAuth()
+export function SubscriptionInvoicesPage() {
+  const { currentOrganization } = useAuth()
+  const businessId = currentOrganization?.id
   const [status, setStatus] = useState<'' | InvoiceStatus>('')
   const [createdFrom, setCreatedFrom] = useState(() => localCalendarIsoDate())
   const [createdTo, setCreatedTo] = useState(() => localCalendarIsoDate())
-  const [rows, setRows] = useState<PlatformInvoiceRow[]>([])
+  const [rows, setRows] = useState<BusinessSubscriptionInvoiceRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    if (!isPlatformOperator(user)) {
+    if (!businessId) {
       return
     }
     setLoading(true)
     setError(null)
     try {
-      const payload = await fetchPlatformInvoices({
+      const payload = await fetchBusinessSubscriptionInvoices(businessId, {
         status: status || undefined,
         createdFrom: createdFrom.trim() || localCalendarIsoDate(),
         createdTo: createdTo.trim() || localCalendarIsoDate(),
@@ -70,14 +70,20 @@ export function PlatformInvoicesPage() {
     } finally {
       setLoading(false)
     }
-  }, [user?.isPlatformOwner, user?.isPlatformAdmin, status, createdFrom, createdTo, page])
+  }, [businessId, status, createdFrom, createdTo, page])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  if (!isPlatformOperator(user)) {
-    return null
+  if (!businessId) {
+    return (
+      <PageTransition className="space-y-6" withSlide>
+        <PageCard className="p-6">
+          <p className="text-slate-600">Select a business to view subscription invoices.</p>
+        </PageCard>
+      </PageTransition>
+    )
   }
 
   const resetFiltersToToday = () => {
@@ -93,27 +99,9 @@ export function PlatformInvoicesPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-600">
-            Platform
+            Subscriptions
           </p>
           <h1 className="mt-2 text-3xl font-bold text-slate-900">Invoices</h1>
-          <p className="mt-2 max-w-2xl text-slate-600">
-            Subscription billing documents. Created date range defaults to today (00:00–23:59 UTC
-            per selected calendar day).
-          </p>
-          {canAccess('platform.billing_review.view') ? (
-            <p className="mt-2 text-sm">
-              <Link
-                to={APP_PATHS.platformBillingReview}
-                className="font-semibold text-teal-600 underline-offset-2 hover:text-teal-700 hover:underline"
-              >
-                Billing review & refunds
-              </Link>
-              <span className="text-slate-600">
-                {' '}
-                — refund flags, subscription period, and payment ledger context.
-              </span>
-            </p>
-          ) : null}
         </div>
         <button
           type="button"
@@ -195,11 +183,11 @@ export function PlatformInvoicesPage() {
               {rows.length === 0 ? (
                 <p className="p-8 text-sm text-slate-500">No invoices match these filters.</p>
               ) : (
-                <table className="w-full min-w-[960px] text-left text-sm">
+                <table className="w-full min-w-[800px] text-left text-sm">
                   <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-4 py-3">Invoice</th>
-                      <th className="px-4 py-3">Business</th>
+                      <th className="px-4 py-3">Plan</th>
                       <th className="px-4 py-3">Amount</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Due</th>
@@ -210,12 +198,16 @@ export function PlatformInvoicesPage() {
                   <tbody className="divide-y divide-slate-100">
                     {rows.map((inv) => (
                       <tr key={inv.id} className="bg-white hover:bg-slate-50/80">
-                        <td className="px-4 py-3 font-mono text-xs text-slate-600">
-                          {inv.id.slice(0, 12)}…
+                        <td className="px-4 py-3">
+                          {inv.externalReference?.trim() ? (
+                            <p className="font-medium text-slate-800">{inv.externalReference.trim()}</p>
+                          ) : (
+                            <p className="break-all font-mono text-xs text-slate-600">{inv.id}</p>
+                          )}
                         </td>
                         <td className="px-4 py-3">
-                          <p className="font-medium text-slate-800">{inv.business.name}</p>
-                          <p className="text-xs text-slate-500">{inv.plan.name}</p>
+                          <p className="font-medium text-slate-800">{inv.plan.name}</p>
+                          <p className="text-xs text-slate-500">{inv.plan.code}</p>
                         </td>
                         <td className="px-4 py-3 font-semibold text-slate-900">
                           {inv.amount} {inv.currency}
@@ -243,7 +235,7 @@ export function PlatformInvoicesPage() {
                         </td>
                         <td className="px-4 py-3">
                           <Link
-                            to={generatePath(APP_PATHS.platformInvoiceDetail, {
+                            to={generatePath(APP_PATHS.subscriptionsInvoiceDetail, {
                               invoiceId: inv.id,
                             })}
                             className="inline-flex rounded-lg p-1.5 text-teal-600 hover:bg-teal-50"

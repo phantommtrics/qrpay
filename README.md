@@ -152,6 +152,76 @@ Under **`/platform/system-configuration`** (platform owner):
 
 New catalog products are **not** added to plans automatically; enable them under **Plan entitlements** after creation.
 
+## Platform billing review and manual refunds
+
+Platform operators can review subscription invoices alongside successful **payment ledger** rows, set **manual refund review flags**, and record **expected refund timing** and **full vs partial** approved amounts. **No money is moved inside the app**; flags and emails are for operations and finance.
+
+### Who can access it
+
+- **Module** (synced from `backend/src/config/platform-modules.ts`): `platform.billing_review` — label *Billing review & refunds*.
+- **Permissions** (role templates under **Security**):
+  - `platform.billing_review.view` — list the billing review table and open the review panel (read-only form if edit is missing).
+  - `platform.billing_review.edit` — change status, notes, approval date, and partial/full refund amount; triggers emails on certain transitions (see below).
+- **Platform owner** bypasses module checks (same pattern as other platform modules).
+- Sidebar: **Businesses** → **Billing review** (only if the user has **view**). Cross-links also appear on **Platform → Invoices** and **Platform → Billings** when **view** is granted.
+
+### Frontend route and UX
+
+- **Path**: `/#/platform/billing-review` (the app uses **HashRouter**; the hash segment matters).
+- **Table**: Every data cell in a row opens the same **review dialog** (keyboard: Enter/Space on cells). **Open invoice** in the invoice column uses `stopPropagation` so it navigates to the invoice detail page without opening the dialog.
+- **Dialog**: Fixed header and footer; the middle section **scrolls** (`max-height` + `overflow-y-auto`) so **Row details** (snapshot) and **Update review** (form) stay usable on small screens.
+- **Subscription context**: The list includes **subscription period end** and **days remaining** to support refund decisions.
+
+### Backend API
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/platform/billing-review` | Paginated list; query: `invoiceStatus`, `refundReviewStatus`, `page`, `pageSize`. |
+| `PATCH` | `/api/platform/billing-review/invoices/:invoiceId` | Update manual refund review. Requires **edit** permission. |
+
+**PATCH body** (JSON):
+
+- `manualRefundReviewStatus` — enum: `NONE`, `PENDING_REVIEW`, `APPROVED_FOR_REFUND`, `DECLINED`, `REFUNDED_EXTERNALLY`.
+- `manualRefundNote` — optional string.
+- When status is **`APPROVED_FOR_REFUND`** (required):
+  - `refundExpectedBy` — `YYYY-MM-DD` (communicated to the business as the target refund completion date).
+  - `refundAmountMode` — `FULL` or `PARTIAL`.
+  - `refundPartialAmount` — required if `PARTIAL`; must be `> 0` and not above the invoice amount.
+
+Implementation: `backend/src/services/platform-admin.service.ts` (`patchSubscriptionInvoiceManualRefundReview`, `listPlatformBillingReview`), routes in `backend/src/app.ts`.
+
+### Data model (Prisma)
+
+On **`SubscriptionInvoice`**:
+
+- `manualRefundReviewStatus`, `manualRefundNote`, `manualRefundReviewedAt`, `manualRefundReviewedByUserId` (FK to `User`).
+- `manualRefundExpectedBy` — set when **approved** (target completion date).
+- `manualRefundApprovedAmount` — `null` means **full invoice** when approved; otherwise stores the **partial** amount.
+
+Enum **`ManualRefundReviewStatus`** and notification enum values are in `backend/prisma/schema.prisma`. Apply migrations after pulling (e.g. `npm run prisma:migrate` in `backend`).
+
+### Emails (Resend)
+
+Uses the same Resend configuration as subscription invoice mail: **`RESEND_API_KEY`** and **`RESEND_FROM_EMAIL`** in `backend/.env` (see `backend/.env.example`). Sends are logged in **`StaffCreationNotificationLog`** (`staffCreationNotificationLogs`).
+
+| Transition | Email / type | Attachment |
+|------------|----------------|------------|
+| Into **`PENDING_REVIEW`** (first time from another status) | `SUBSCRIPTION_INVOICE_REFUND_REVIEW` | Invoice PDF |
+| Into **`APPROVED_FOR_REFUND`** (first time from another status) | `SUBSCRIPTION_INVOICE_REFUND_APPROVED` | Invoice PDF (copy includes approved amount and expected completion date) |
+
+Re-saving the **same** status (e.g. editing a note only) does **not** send again. If Resend is not configured, logs are marked failed with a clear reason.
+
+Implementation: `backend/src/services/subscription-refund-review-email.service.ts` (queues fire-and-forget after a successful PATCH).
+
+### Related frontend files
+
+- Screen: `webFrontend/src/screens/platform/PlatformBillingReviewPage.tsx`
+- API client: `webFrontend/src/services/subscriptionApi.ts` (`fetchPlatformBillingReview`, `patchPlatformBillingReviewInvoice`, types)
+- Navigation: `webFrontend/src/config/navigation.ts` (`APP_PATHS.platformBillingReview`, `PLATFORM_BUSINESSES_SUBNAV`)
+- Route guard: `webFrontend/src/routes/AppRoutes.tsx` (permission `platform.billing_review.view`)
+- Access map: `webFrontend/src/config/platformAdminRouteAccess.ts`
+- Permission labels (Security UI): `webFrontend/src/data/mockData.ts` (`PERMISSION_DEFINITIONS`)
+
 ## Frontend notes (sidebar and guards)
 
 - For **non–platform-owner** users with a selected business, the sidebar loads **`navigation-menu`** from the API and renders **collapsible sections per system service** with links from `navPath` / `navLabel`. If that request fails or returns nothing, the UI falls back to the static nav filtered by `canAccess`.

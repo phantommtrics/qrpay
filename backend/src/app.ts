@@ -7,6 +7,7 @@ import {
   BillingInterval,
   BusinessMembershipStatus,
   InvoiceStatus,
+  ManualRefundReviewStatus,
   PlanCode,
   Prisma,
   SubscriptionStatus,
@@ -15,6 +16,7 @@ import {
 import multer from "multer";
 import { z } from "zod";
 import { prisma } from "./lib/prisma.js";
+import { isDevSubscriptionInvoicePayAllowed } from "./config/dev-billing.js";
 import {
   changePassword,
   createBusinessUser,
@@ -29,6 +31,8 @@ import {
   createBusiness,
   formatMoney,
   getBusinessSubscription,
+  getBusinessSubscriptionInvoiceDetail,
+  listBusinessSubscriptionInvoices,
   listPlans,
   payInvoice,
   renewSubscription,
@@ -83,11 +87,14 @@ import {
   clampPageSize,
   getPlatformBusinessDetail,
   getPlatformInvoiceDetail,
+  listPlatformBillingReview,
   listPlatformBusinessesPaginated,
   listPlatformInvoices,
   listPlatformSubscriptions,
   parseDateFilterDayEnd,
   parseDateFilterDayStart,
+  patchSubscriptionInvoiceManualRefundReview,
+  subscriptionDaysRemaining,
   utcTodayIsoDate,
 } from "./services/platform-admin.service.js";
 import {
@@ -148,6 +155,7 @@ import {
   requireBusinessOwnerOrPlatform,
   requireEntitlement,
   requireSubscriptionsBillingOrPlatform,
+  requireSubscriptionsInvoicesOrPlatform,
 } from "./middleware/auth.js";
 import { httpRequestLogger } from "./middleware/http-logger.js";
 
@@ -479,6 +487,26 @@ const platformInvoicesQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
 });
 
+const platformBillingReviewQuerySchema = z.object({
+  invoiceStatus: z.nativeEnum(InvoiceStatus).optional(),
+  refundReviewStatus: z.nativeEnum(ManualRefundReviewStatus).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+const patchManualRefundReviewBodySchema = z.object({
+  manualRefundReviewStatus: z.nativeEnum(ManualRefundReviewStatus),
+  manualRefundNote: z.string().max(4000).optional().nullable(),
+  /** Required when approving a refund (YYYY-MM-DD). */
+  refundExpectedBy: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .nullable(),
+  refundAmountMode: z.enum(["FULL", "PARTIAL"]).optional(),
+  refundPartialAmount: z.coerce.number().positive().optional(),
+});
+
 const platformBusinessDetailQuerySchema = z.object({
   membershipsPage: z.coerce.number().int().min(1).default(1),
   membershipsPageSize: z.coerce.number().int().min(1).max(100).default(10),
@@ -693,6 +721,284 @@ app.get(
   async (req, res, next) => {
     try {
       const inv = await getPlatformInvoiceDetail(req.params.invoiceId as string);
+      res.json({
+        data: {
+          id: inv.id,
+          businessId: inv.businessId,
+          subscriptionId: inv.subscriptionId,
+          planId: inv.planId,
+          amount: formatMoney(inv.amount),
+          currency: inv.currency,
+          status: inv.status,
+          billingPeriodStart: inv.billingPeriodStart.toISOString(),
+          billingPeriodEnd: inv.billingPeriodEnd.toISOString(),
+          dueDate: inv.dueDate.toISOString(),
+          paidAt: inv.paidAt?.toISOString() ?? null,
+          externalReference: inv.externalReference,
+          createdAt: inv.createdAt.toISOString(),
+          updatedAt: inv.updatedAt.toISOString(),
+          business: {
+            id: inv.business.id,
+            name: inv.business.name,
+            slug: inv.business.slug,
+            industry: inv.business.industry,
+            ownerName: inv.business.ownerName,
+            ownerEmail: inv.business.ownerEmail,
+            createdAt: inv.business.createdAt.toISOString(),
+          },
+          plan: {
+            id: inv.plan.id,
+            code: inv.plan.code,
+            name: inv.plan.name,
+            description: inv.plan.description,
+            monthlyPrice: formatMoney(inv.plan.monthlyPrice),
+            currency: inv.plan.currency,
+            staffLimit: inv.plan.staffLimit,
+          },
+          subscription: {
+            id: inv.subscription.id,
+            status: inv.subscription.status,
+            startDate: inv.subscription.startDate.toISOString(),
+            currentPeriodStart: inv.subscription.currentPeriodStart.toISOString(),
+            currentPeriodEnd: inv.subscription.currentPeriodEnd.toISOString(),
+            createdAt: inv.subscription.createdAt.toISOString(),
+          },
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/billing-review",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BILLING_REVIEW, "view"),
+  async (req, res, next) => {
+    try {
+      const query = platformBillingReviewQuerySchema.parse(req.query);
+      const page = clampPage(query.page);
+      const pageSize = clampPageSize(query.pageSize);
+      const { rows, total } = await listPlatformBillingReview(
+        {
+          invoiceStatus: query.invoiceStatus,
+          refundReviewStatus: query.refundReviewStatus,
+        },
+        { page, pageSize },
+      );
+      res.json({
+        data: rows.map((inv) => {
+          const ledger = inv.ledgerEntries[0];
+          const periodEnd = inv.subscription.currentPeriodEnd;
+          return {
+            invoice: {
+              id: inv.id,
+              businessId: inv.businessId,
+              subscriptionId: inv.subscriptionId,
+              planId: inv.planId,
+              amount: formatMoney(inv.amount),
+              currency: inv.currency,
+              status: inv.status,
+              billingPeriodStart: inv.billingPeriodStart.toISOString(),
+              billingPeriodEnd: inv.billingPeriodEnd.toISOString(),
+              dueDate: inv.dueDate.toISOString(),
+              paidAt: inv.paidAt?.toISOString() ?? null,
+              externalReference: inv.externalReference,
+              createdAt: inv.createdAt.toISOString(),
+            },
+            business: {
+              id: inv.business.id,
+              name: inv.business.name,
+              slug: inv.business.slug,
+              ownerName: inv.business.ownerName,
+              ownerEmail: inv.business.ownerEmail,
+            },
+            plan: {
+              id: inv.plan.id,
+              code: inv.plan.code,
+              name: inv.plan.name,
+            },
+            subscription: {
+              id: inv.subscription.id,
+              status: inv.subscription.status,
+              currentPeriodEnd: periodEnd.toISOString(),
+              daysRemaining: subscriptionDaysRemaining(periodEnd),
+            },
+            paymentTransaction: ledger
+              ? {
+                  id: ledger.id,
+                  provider: ledger.provider,
+                  amount: formatMoney(ledger.amount),
+                  currency: ledger.currency,
+                  providerPaymentRef: ledger.providerPaymentRef,
+                  succeededAt: ledger.succeededAt?.toISOString() ?? null,
+                }
+              : null,
+            manualRefundReview: {
+              status: inv.manualRefundReviewStatus,
+              note: inv.manualRefundNote,
+              reviewedAt: inv.manualRefundReviewedAt?.toISOString() ?? null,
+              reviewedBy: inv.manualRefundReviewedBy
+                ? {
+                    id: inv.manualRefundReviewedBy.id,
+                    name: inv.manualRefundReviewedBy.name,
+                    email: inv.manualRefundReviewedBy.email,
+                  }
+                : null,
+              expectedRefundBy: inv.manualRefundExpectedBy?.toISOString() ?? null,
+              approvedRefundAmount:
+                inv.manualRefundApprovedAmount != null ? formatMoney(inv.manualRefundApprovedAmount) : null,
+            },
+          };
+        }),
+        total,
+        page,
+        pageSize,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.patch(
+  "/api/platform/billing-review/invoices/:invoiceId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BILLING_REVIEW, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = patchManualRefundReviewBodySchema.parse(req.body ?? {});
+      const updated = await patchSubscriptionInvoiceManualRefundReview({
+        invoiceId: req.params.invoiceId as string,
+        actorUserId: req.user!.id,
+        status: body.manualRefundReviewStatus,
+        note: body.manualRefundNote,
+        refundExpectedBy: body.refundExpectedBy ?? null,
+        refundAmountMode: body.refundAmountMode,
+        refundPartialAmount: body.refundPartialAmount,
+      });
+      const ledger = updated.ledgerEntries[0];
+      const periodEnd = updated.subscription.currentPeriodEnd;
+      res.json({
+        data: {
+          invoice: {
+            id: updated.id,
+            status: updated.status,
+            manualRefundReviewStatus: updated.manualRefundReviewStatus,
+            manualRefundNote: updated.manualRefundNote,
+            manualRefundReviewedAt: updated.manualRefundReviewedAt?.toISOString() ?? null,
+            manualRefundExpectedBy: updated.manualRefundExpectedBy?.toISOString() ?? null,
+            manualRefundApprovedAmount:
+              updated.manualRefundApprovedAmount != null
+                ? formatMoney(updated.manualRefundApprovedAmount)
+                : null,
+          },
+          subscription: {
+            currentPeriodEnd: periodEnd.toISOString(),
+            daysRemaining: subscriptionDaysRemaining(periodEnd),
+          },
+          paymentTransaction: ledger
+            ? {
+                id: ledger.id,
+                provider: ledger.provider,
+                amount: formatMoney(ledger.amount),
+                succeededAt: ledger.succeededAt?.toISOString() ?? null,
+              }
+            : null,
+          reviewedBy: updated.manualRefundReviewedBy,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/subscription-invoices",
+  authenticateToken,
+  requireSubscriptionsInvoicesOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner && req.user?.role !== "PLATFORM_ADMIN") {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const query = platformInvoicesQuerySchema.parse(req.query);
+      const fromRaw = query.createdFrom?.trim();
+      const toRaw = query.createdTo?.trim();
+      let createdFrom = parseDateFilterDayStart(fromRaw);
+      let createdTo = parseDateFilterDayEnd(toRaw);
+      if (!fromRaw && !toRaw) {
+        const t = utcTodayIsoDate();
+        createdFrom = parseDateFilterDayStart(t);
+        createdTo = parseDateFilterDayEnd(t);
+      }
+      const page = clampPage(query.page);
+      const pageSize = clampPageSize(query.pageSize);
+      const { rows, total } = await listBusinessSubscriptionInvoices(
+        businessId as string,
+        {
+          status: query.status,
+          createdFrom,
+          createdTo,
+        },
+        { page, pageSize },
+      );
+      res.json({
+        data: rows.map((inv) => ({
+          id: inv.id,
+          businessId: inv.businessId,
+          subscriptionId: inv.subscriptionId,
+          planId: inv.planId,
+          amount: formatMoney(inv.amount),
+          currency: inv.currency,
+          status: inv.status,
+          billingPeriodStart: inv.billingPeriodStart.toISOString(),
+          billingPeriodEnd: inv.billingPeriodEnd.toISOString(),
+          dueDate: inv.dueDate.toISOString(),
+          paidAt: inv.paidAt?.toISOString() ?? null,
+          externalReference: inv.externalReference,
+          createdAt: inv.createdAt.toISOString(),
+          updatedAt: inv.updatedAt.toISOString(),
+          plan: {
+            id: inv.plan.id,
+            code: inv.plan.code,
+            name: inv.plan.name,
+            monthlyPrice: formatMoney(inv.plan.monthlyPrice),
+            currency: inv.plan.currency,
+          },
+        })),
+        total,
+        page,
+        pageSize,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/subscription-invoices/:invoiceId",
+  authenticateToken,
+  requireSubscriptionsInvoicesOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId, invoiceId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner && req.user?.role !== "PLATFORM_ADMIN") {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const inv = await getBusinessSubscriptionInvoiceDetail(businessId as string, invoiceId as string);
       res.json({
         data: {
           id: inv.id,
@@ -2384,6 +2690,7 @@ app.get(
           currentSubscription: result.currentSubscription
             ? formatSubscriptionResponse(result.currentSubscription)
             : null,
+          devSubscriptionInvoicePayAllowed: isDevSubscriptionInvoicePayAllowed(),
         },
       });
     } catch (error) {
@@ -2934,6 +3241,9 @@ app.post(
       });
       if (!invoiceRow) {
         throw new HttpError(404, "Invoice not found.");
+      }
+      if (!isDevSubscriptionInvoicePayAllowed()) {
+        throw new HttpError(403, "Simulated invoice pay is not enabled on this server.");
       }
       const invoice = await payInvoice(invoiceId as string);
       response.json({

@@ -80,6 +80,18 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     category: 'Administration',
   },
   {
+    key: 'platform.billing_review.view',
+    label: 'Billing review (view)',
+    description: 'List subscription invoices and payment ledger rows for refund decisions',
+    category: 'Administration',
+  },
+  {
+    key: 'platform.billing_review.edit',
+    label: 'Billing review (edit)',
+    description: 'Set manual refund review flags (no money movement in-app)',
+    category: 'Administration',
+  },
+  {
     key: 'platform.billing.manage',
     label: 'Platform plan billing',
     description: 'Set monthly and yearly subscription prices (platform billing module in role templates)',
@@ -255,6 +267,12 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     description: 'Pay subscription invoices and manage payment methods',
     category: 'Administration',
   },
+  {
+    key: 'subscriptions.invoices',
+    label: 'Subscription invoices',
+    description: 'View subscription billing history for this business',
+    category: 'Administration',
+  },
 ]
 
 export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
@@ -277,6 +295,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'organization.manage': true,
     'business.configuration': true,
     'subscriptions.billings': true,
+    'subscriptions.invoices': true,
   },
   pro: {
     'dashboard.view': true,
@@ -297,6 +316,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'organization.manage': true,
     'business.configuration': true,
     'subscriptions.billings': true,
+    'subscriptions.invoices': true,
   },
   business_pro: {
     'dashboard.view': true,
@@ -317,6 +337,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'organization.manage': true,
     'business.configuration': true,
     'subscriptions.billings': true,
+    'subscriptions.invoices': true,
   },
 }
 

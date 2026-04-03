@@ -23,6 +23,7 @@
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
+    "pdfkit": "^0.18.0",
     "resend": "^6.9.4",
     "zod": "^3.24.2"
   },
@@ -31,6 +32,7 @@
     "@types/express": "^5.0.1",
     "@types/multer": "^2.1.0",
     "@types/node": "^22.13.10",
+    "@types/pdfkit": "^0.17.5",
     "prisma": "^6.6.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
