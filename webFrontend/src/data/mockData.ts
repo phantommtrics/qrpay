@@ -18,6 +18,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     id: 'basic',
     name: 'Basic',
     priceLabel: 'D1,500 / month',
+    yearlyPriceLabel: 'D15,000 / year',
     staffLabel: '3-5 staff',
     minStaff: 3,
     maxStaff: 5,
@@ -27,6 +28,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     id: 'pro',
     name: 'Pro',
     priceLabel: 'D3,500 / month',
+    yearlyPriceLabel: 'D35,000 / year',
     staffLabel: '6-10 staff',
     minStaff: 6,
     maxStaff: 10,
@@ -37,6 +39,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     id: 'business_pro',
     name: 'Business Pro',
     priceLabel: 'Custom pricing',
+    yearlyPriceLabel: 'Custom pricing',
     staffLabel: 'Unlimited staff',
     minStaff: 11,
     maxStaff: null,
@@ -78,8 +81,14 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   },
   {
     key: 'platform.billing.manage',
-    label: 'Platform Billing',
-    description: 'Manage platform billing and subscriptions',
+    label: 'Platform plan billing',
+    description: 'Set monthly and yearly subscription prices (platform billing module in role templates)',
+    category: 'Administration',
+  },
+  {
+    key: 'platform.payment_gateways.manage',
+    label: 'Payment gateways',
+    description: 'Enable Wave and other providers for business subscription checkout',
     category: 'Administration',
   },
   {
@@ -104,6 +113,12 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     key: 'platform.security.users.view',
     label: 'Security — System users',
     description: 'Create and assign platform staff accounts',
+    category: 'Administration',
+  },
+  {
+    key: 'platform.security.move_users.view',
+    label: 'Security — Move users',
+    description: 'Open Move users; grant Edit on this module to run bulk moves between groups',
     category: 'Administration',
   },
 
@@ -234,6 +249,12 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     description: 'Assign subscription features to team members.',
     category: 'Administration',
   },
+  {
+    key: 'subscriptions.billings',
+    label: 'Billing',
+    description: 'Pay subscription invoices and manage payment methods',
+    category: 'Administration',
+  },
 ]
 
 export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
@@ -255,6 +276,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'status.change.view': true,
     'organization.manage': true,
     'business.configuration': true,
+    'subscriptions.billings': true,
   },
   pro: {
     'dashboard.view': true,
@@ -274,6 +296,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'status.change.view': true,
     'organization.manage': true,
     'business.configuration': true,
+    'subscriptions.billings': true,
   },
   business_pro: {
     'dashboard.view': true,
@@ -293,6 +316,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'status.change.view': true,
     'organization.manage': true,
     'business.configuration': true,
+    'subscriptions.billings': true,
   },
 }
 

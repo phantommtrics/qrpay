@@ -10,10 +10,14 @@ import type { PermissionKey, UserRole } from '../types'
 export function ProtectedRoute({
   children,
   requiredPermission,
+  requiredAnyOfPermissions,
   allowedRoles,
 }: {
   children: ReactNode
-  requiredPermission: PermissionKey
+  /** Use this or `requiredAnyOfPermissions` (not both required, but one should be set). */
+  requiredPermission?: PermissionKey
+  /** User passes if they satisfy any of these (e.g. move users OR legacy system users view). */
+  requiredAnyOfPermissions?: PermissionKey[]
   allowedRoles: UserRole[]
 }) {
   const {
@@ -33,10 +37,15 @@ export function ProtectedRoute({
     return <Navigate to={APP_PATHS.changePassword} replace />
   }
 
+  const billingRecovery =
+    requiredPermission === 'subscriptions.billings' ||
+    (requiredAnyOfPermissions?.includes('subscriptions.billings') ?? false)
+
   if (
     !user.isPlatformOwner &&
     !user.isPlatformAdmin &&
-    (subscriptionStatus === 'expired' || subscriptionStatus === 'past_due')
+    (subscriptionStatus === 'expired' || subscriptionStatus === 'past_due') &&
+    !billingRecovery
   ) {
     return (
       <AppLayout>
@@ -62,7 +71,14 @@ export function ProtectedRoute({
     )
   }
 
-  if (!isRoleAllowed(allowedRoles) || !canAccess(requiredPermission)) {
+  const permissionOk =
+    requiredAnyOfPermissions && requiredAnyOfPermissions.length > 0
+      ? requiredAnyOfPermissions.some((p) => canAccess(p))
+      : requiredPermission
+        ? canAccess(requiredPermission)
+        : false
+
+  if (!isRoleAllowed(allowedRoles) || !permissionOk) {
     return (
       <AppLayout>
         <div className="flex min-h-full items-center justify-center">

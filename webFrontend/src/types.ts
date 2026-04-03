@@ -8,6 +8,9 @@ export type UserRole =
 
 export type PlanId = 'basic' | 'pro' | 'business_pro'
 
+/** Matches backend `BillingInterval` enum. */
+export type SubscriptionBillingInterval = 'MONTHLY' | 'YEARLY'
+
 export type BusinessMembershipStatus = 'ACTIVE' | 'BLOCKED' | 'SUSPENDED' | 'TERMINATED'
 
 export type SubscriptionStatus = 'trialing' | 'active' | 'expiring_soon' | 'past_due' | 'expired'
@@ -19,10 +22,12 @@ export type PermissionKey =
   | 'platform.subscriptions.view'
   | 'platform.invoices.view'
   | 'platform.billing.manage'
+  | 'platform.payment_gateways.manage'
   | 'platform.system.view'
   | 'platform.security.roles.view'
   | 'platform.security.function_groups.view'
   | 'platform.security.users.view'
+  | 'platform.security.move_users.view'
   | 'business.manage'
   | 'staff.manage'
   | 'status.change.view'
@@ -44,6 +49,7 @@ export type PermissionKey =
   | 'dashboard.view'
   | 'organization.manage'
   | 'business.configuration'
+  | 'subscriptions.billings'
 
 export interface User {
   id: string
@@ -61,6 +67,7 @@ export interface SubscriptionPlan {
   id: PlanId
   name: string
   priceLabel: string
+  yearlyPriceLabel: string
   staffLabel: string
   minStaff: number
   maxStaff: number | null
@@ -79,6 +86,8 @@ export interface Organization {
   subscriptionExpiresAt: string
   subscriptionState?: SubscriptionStatus
   subscriptionInvoiceDueAt?: string | null
+  /** Present when subscription is loaded from the API. */
+  subscriptionBillingInterval?: SubscriptionBillingInterval
   isOwner?: boolean
   /** Staff access state for this login; owners are always ACTIVE in API responses. */
   membershipStatus?: BusinessMembershipStatus

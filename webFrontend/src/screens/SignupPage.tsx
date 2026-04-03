@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
-import type { PlanId } from '../types'
+import type { PlanId, SubscriptionBillingInterval } from '../types'
 
 export function SignupPage() {
   const navigate = useNavigate()
@@ -16,6 +16,7 @@ export function SignupPage() {
     industry: 'Retail',
     planId: 'basic' as PlanId,
     staffCount: 3,
+    billingInterval: 'MONTHLY' as SubscriptionBillingInterval,
   })
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -80,12 +81,31 @@ export function SignupPage() {
                     : 'border-white/10 bg-white/5'
                 }`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <div>
                     <h3 className="font-semibold">{plan.name}</h3>
                     <p className="text-sm text-slate-400">{plan.staffLabel}</p>
                   </div>
-                  <p className="text-sm font-semibold text-teal-300">{plan.priceLabel}</p>
+                  <div className="text-right text-sm">
+                    <p
+                      className={`font-semibold ${
+                        form.planId === plan.id && form.billingInterval === 'MONTHLY'
+                          ? 'text-teal-300'
+                          : 'text-slate-400'
+                      }`}
+                    >
+                      {plan.priceLabel}
+                    </p>
+                    <p
+                      className={`mt-0.5 font-semibold ${
+                        form.planId === plan.id && form.billingInterval === 'YEARLY'
+                          ? 'text-teal-300'
+                          : 'text-slate-500'
+                      }`}
+                    >
+                      {plan.yearlyPriceLabel}
+                    </p>
+                  </div>
                 </div>
                 <p className="mt-2 text-sm text-slate-300">{plan.description}</p>
               </div>
@@ -194,6 +214,22 @@ export function SignupPage() {
                 </select>
               </label>
               <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-700">Billing cycle</span>
+                <select
+                  value={form.billingInterval}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      billingInterval: event.target.value as SubscriptionBillingInterval,
+                    }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500"
+                >
+                  <option value="MONTHLY">Monthly</option>
+                  <option value="YEARLY">Yearly (renewal every 12 months)</option>
+                </select>
+              </label>
+              <label className="block sm:col-span-2">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Staff count</span>
                 <input
                   type="number"
@@ -210,6 +246,11 @@ export function SignupPage() {
                 />
               </label>
             </div>
+
+            <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              Yearly billing uses the plan&apos;s yearly rate and sets your subscription period to 12
+              months after the trial invoice is paid (monthly uses one month).
+            </p>
 
             {error ? (
               <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

@@ -150,7 +150,16 @@ export function LandingPage() {
                   </span>
                 ) : null}
               </div>
-              <p className="mt-6 text-3xl font-bold">{plan.priceLabel}</p>
+              <div className="mt-6 space-y-1">
+                <p className="text-3xl font-bold">{plan.priceLabel}</p>
+                <p
+                  className={`text-lg font-semibold ${
+                    plan.highlighted ? 'text-teal-200' : 'text-teal-700'
+                  }`}
+                >
+                  {plan.yearlyPriceLabel}
+                </p>
+              </div>
               <p className={`mt-3 text-sm ${plan.highlighted ? 'text-slate-300' : 'text-slate-600'}`}>
                 {plan.description}
               </p>

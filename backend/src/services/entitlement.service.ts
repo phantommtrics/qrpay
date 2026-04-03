@@ -29,7 +29,23 @@ export async function getCurrentSubscriptionForBusiness(businessId: string) {
 
 /** All entitlement slugs included in the business's current plan (ignores per-user assignments). */
 export async function getEntitlementSlugsForBusiness(businessId: string): Promise<string[]> {
-  const sub = await getCurrentSubscriptionForBusiness(businessId);
+  let sub = await getCurrentSubscriptionForBusiness(businessId);
+  if (!sub) {
+    sub = await prisma.subscription.findFirst({
+      where: { businessId },
+      orderBy: { createdAt: "desc" },
+      include: {
+        plan: {
+          include: {
+            planSystemProducts: {
+              include: { systemProduct: true },
+            },
+          },
+        },
+      },
+    });
+  }
+
   if (!sub) {
     return [];
   }

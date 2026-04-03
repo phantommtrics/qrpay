@@ -199,4 +199,27 @@ export function requirePlatformAccess(moduleSlug: string, action: PlatformAccess
   };
 }
 
+export type PlatformAccessGate = { moduleSlug: string; action: PlatformAccessAction };
+
+/** PLATFORM_ADMIN passes if any gate matches (owner always passes). */
+export function requirePlatformAccessAny(gates: PlatformAccessGate[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      throw new HttpError(401, 'Authentication required');
+    }
+    if (req.user.role === UserRole.PLATFORM_OWNER) {
+      next();
+      return;
+    }
+    if (req.user.role !== UserRole.PLATFORM_ADMIN) {
+      throw new HttpError(403, 'Platform access required');
+    }
+    const ok = gates.some((g) => Boolean(req.user!.platformPermissions?.[g.moduleSlug]?.[g.action]));
+    if (!ok) {
+      throw new HttpError(403, 'You do not have permission for this action.');
+    }
+    next();
+  };
+}
+
 export { requireEntitlement };

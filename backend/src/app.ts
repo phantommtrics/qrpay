@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  BillingInterval,
   BusinessMembershipStatus,
   InvoiceStatus,
   PlanCode,
@@ -24,6 +25,7 @@ import {
 } from "./services/auth.service.js";
 import { setBusinessMemberStatus } from "./services/membership-status.service.js";
 import {
+  changeSubscriptionPlan,
   createBusiness,
   formatMoney,
   getBusinessSubscription,
@@ -31,7 +33,22 @@ import {
   payInvoice,
   renewSubscription,
   startSubscription,
+  updatePlanPricing,
 } from "./services/subscription.service.js";
+import { createSubscriptionInvoiceCheckout } from "./services/subscription-wave-checkout.service.js";
+import { processWaveSubscriptionWebhook } from "./services/wave-subscription-webhook.service.js";
+import {
+  createPaymentGateway,
+  deletePaymentGateway,
+  listPaymentGatewaysForPlatform,
+  updatePaymentGateway,
+} from "./services/payment-gateway.service.js";
+import {
+  addBusinessPaymentMethod,
+  archiveBusinessPaymentMethod,
+  listAddableGatewaysForBusiness,
+  listBusinessPaymentMethods,
+} from "./services/business-payment-method.service.js";
 import {
   createProduct,
   getPublicBusinessMenu,
@@ -123,12 +140,14 @@ import {
   generateToken,
   optionalAuthenticateToken,
   requirePlatformAccess,
+  requirePlatformAccessAny,
   requirePlatformOperator,
 } from "./middleware/jwt.js";
 import {
   requireAnyEntitlement,
   requireBusinessOwnerOrPlatform,
   requireEntitlement,
+  requireSubscriptionsBillingOrPlatform,
 } from "./middleware/auth.js";
 import { httpRequestLogger } from "./middleware/http-logger.js";
 
@@ -176,6 +195,41 @@ app.use(
     credentials: true,
   }),
 );
+
+app.post(
+  "/api/webhooks/wave",
+  express.raw({ type: "application/json", limit: "512kb" }),
+  async (request, response, next) => {
+    try {
+      const signatureHeader =
+        (request.headers["wave-signature"] as string) ||
+        (request.headers["Wave-Signature"] as string) ||
+        "";
+      const raw = Buffer.isBuffer(request.body)
+        ? request.body.toString("utf8")
+        : String(request.body ?? "");
+      await processWaveSubscriptionWebhook(raw, signatureHeader);
+      response.status(200).json({ ok: true });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message === "Invalid signature" ||
+        message === "Missing signature or body" ||
+        message === "Invalid JSON body"
+      ) {
+        response.status(400).json({ error: message });
+        return;
+      }
+      if (message === "WAVE_WEBHOOK_SECRET not configured") {
+        response.status(500).json({ error: message });
+        return;
+      }
+      console.error("Wave webhook:", error);
+      next(error);
+    }
+  },
+);
+
 app.use(express.json());
 app.use(httpRequestLogger);
 app.use("/uploads", express.static(uploadsRoot));
@@ -195,6 +249,7 @@ const registerSchema = z.object({
   slug: z.string().min(2).optional(),
   industry: z.string().min(2).optional(),
   planCode: z.nativeEnum(PlanCode),
+  billingInterval: z.nativeEnum(BillingInterval).optional(),
 });
 
 const loginSchema = z.object({
@@ -220,6 +275,7 @@ const createBusinessUserSchema = z.object({
 
 const createSubscriptionSchema = z.object({
   planCode: z.nativeEnum(PlanCode),
+  billingInterval: z.nativeEnum(BillingInterval).optional(),
 });
 
 const createOrderBodySchema = z.object({
@@ -281,6 +337,15 @@ const systemProductBodySchema = z.object({
 const planEntitlementsBodySchema = z.object({
   systemProductIds: z.array(z.string().min(1)),
 });
+
+const planPricingBodySchema = z
+  .object({
+    monthlyPrice: z.coerce.number().positive().max(99_999_999.99).optional(),
+    yearlyPrice: z.coerce.number().positive().max(99_999_999.99).optional(),
+  })
+  .refine((b) => b.monthlyPrice !== undefined || b.yearlyPrice !== undefined, {
+    message: "Provide at least one of monthlyPrice or yearlyPrice.",
+  });
 
 const platformSecurityPermissionRowSchema = z.object({
   moduleId: z.string().min(1),
@@ -358,6 +423,39 @@ const userPlanAccessBodySchema = z.object({
 
 const membershipStatusPatchSchema = z.object({
   status: z.nativeEnum(BusinessMembershipStatus),
+});
+
+const paymentGatewayPatchSchema = z.object({
+  isEnabled: z.boolean().optional(),
+  name: z.string().min(1).optional(),
+  description: z.union([z.string(), z.null()]).optional(),
+  sortOrder: z.coerce.number().int().optional(),
+  checkoutAdapter: z.union([z.string().min(1), z.literal(""), z.null()]).optional(),
+});
+
+const paymentGatewayCreateSchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1),
+  description: z.union([z.string(), z.null()]).optional(),
+  sortOrder: z.coerce.number().int().optional(),
+  isEnabled: z.boolean().optional(),
+  checkoutAdapter: z.union([z.string().min(1), z.literal(""), z.null()]).optional(),
+});
+
+const changeSubscriptionPlanBodySchema = z.object({
+  planCode: z.nativeEnum(PlanCode),
+  billingInterval: z.nativeEnum(BillingInterval).optional(),
+});
+
+const subscriptionCheckoutBodySchema = z.object({
+  gatewayCode: z.string().min(1),
+  restrictPayerMobile: z.string().optional(),
+});
+
+const addBusinessPaymentMethodBodySchema = z.object({
+  gatewayCode: z.string().min(1),
+  label: z.string().min(1),
+  isDefault: z.boolean().optional(),
 });
 
 const platformPaginationQuerySchema = z.object({
@@ -649,7 +747,10 @@ app.get(
   "/api/platform/staff-users",
   authenticateToken,
   requirePlatformOperator,
-  requirePlatformAccess(PLATFORM_MODULE_SLUGS.SECURITY_SYSTEM_USERS, "view"),
+  requirePlatformAccessAny([
+    { moduleSlug: PLATFORM_MODULE_SLUGS.SECURITY_SYSTEM_USERS, action: "view" },
+    { moduleSlug: PLATFORM_MODULE_SLUGS.SECURITY_MOVE_USERS, action: "view" },
+  ]),
   async (req, res, next) => {
     try {
       const page = clampPage(Number(req.query.page));
@@ -919,6 +1020,145 @@ app.put(
   }
 });
 
+app.patch(
+  "/api/platform/plans/:planCode/pricing",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BILLING, "edit"),
+  async (req, res, next) => {
+    try {
+      const planCode = z.nativeEnum(PlanCode).parse(req.params.planCode);
+      const body = planPricingBodySchema.parse(req.body);
+      const updated = await updatePlanPricing(planCode, {
+        monthlyPrice: body.monthlyPrice,
+        yearlyPrice: body.yearlyPrice,
+      });
+      res.json({
+        data: {
+          id: updated.id,
+          code: updated.code,
+          name: updated.name,
+          monthlyPrice: formatMoney(updated.monthlyPrice),
+          yearlyPrice: formatMoney(updated.yearlyPrice),
+          description: updated.description,
+          staffLimit: updated.staffLimit,
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/payment-gateways",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.PAYMENT_GATEWAYS, "view"),
+  async (_req, res, next) => {
+    try {
+      const rows = await listPaymentGatewaysForPlatform();
+      res.json({
+        data: rows.map((g) => ({
+          id: g.id,
+          code: g.code,
+          name: g.name,
+          description: g.description,
+          isEnabled: g.isEnabled,
+          sortOrder: g.sortOrder,
+          checkoutAdapter: g.checkoutAdapter,
+          createdAt: g.createdAt.toISOString(),
+          updatedAt: g.updatedAt.toISOString(),
+        })),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/payment-gateways",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.PAYMENT_GATEWAYS, "create"),
+  async (req, res, next) => {
+    try {
+      const body = paymentGatewayCreateSchema.parse(req.body);
+      const checkoutAdapter =
+        body.checkoutAdapter === undefined || body.checkoutAdapter === null || body.checkoutAdapter === ""
+          ? null
+          : body.checkoutAdapter.trim();
+      const created = await createPaymentGateway({
+        code: body.code,
+        name: body.name,
+        description: body.description ?? undefined,
+        sortOrder: body.sortOrder,
+        isEnabled: body.isEnabled,
+        checkoutAdapter,
+      });
+      res.status(201).json({
+        data: {
+          id: created.id,
+          code: created.code,
+          name: created.name,
+          description: created.description,
+          isEnabled: created.isEnabled,
+          sortOrder: created.sortOrder,
+          checkoutAdapter: created.checkoutAdapter,
+          createdAt: created.createdAt.toISOString(),
+          updatedAt: created.updatedAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.patch(
+  "/api/platform/payment-gateways/:gatewayId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.PAYMENT_GATEWAYS, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = paymentGatewayPatchSchema.parse(req.body);
+      const updated = await updatePaymentGateway(req.params.gatewayId as string, body);
+      res.json({
+        data: {
+          id: updated.id,
+          code: updated.code,
+          name: updated.name,
+          description: updated.description,
+          isEnabled: updated.isEnabled,
+          sortOrder: updated.sortOrder,
+          checkoutAdapter: updated.checkoutAdapter,
+          createdAt: updated.createdAt.toISOString(),
+          updatedAt: updated.updatedAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.delete(
+  "/api/platform/payment-gateways/:gatewayId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.PAYMENT_GATEWAYS, "delete"),
+  async (req, res, next) => {
+    try {
+      await deletePaymentGateway(req.params.gatewayId as string);
+      res.status(204).send();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 app.get(
   "/api/platform/security/modules",
   authenticateToken,
@@ -1099,7 +1339,10 @@ app.get(
   "/api/platform/security/function-groups/all",
   authenticateToken,
   requirePlatformOperator,
-  requirePlatformAccess(PLATFORM_MODULE_SLUGS.SECURITY_FUNCTION_GROUPS, "view"),
+  requirePlatformAccessAny([
+    { moduleSlug: PLATFORM_MODULE_SLUGS.SECURITY_FUNCTION_GROUPS, action: "view" },
+    { moduleSlug: PLATFORM_MODULE_SLUGS.SECURITY_MOVE_USERS, action: "view" },
+  ]),
   async (_req, res, next) => {
     try {
       const rows = await listFunctionGroups();
@@ -1219,7 +1462,10 @@ app.post(
   "/api/platform/security/staff-users/bulk-move",
   authenticateToken,
   requirePlatformOperator,
-  requirePlatformAccess(PLATFORM_MODULE_SLUGS.SECURITY_SYSTEM_USERS, "edit"),
+  requirePlatformAccessAny([
+    { moduleSlug: PLATFORM_MODULE_SLUGS.SECURITY_MOVE_USERS, action: "edit" },
+    { moduleSlug: PLATFORM_MODULE_SLUGS.SECURITY_SYSTEM_USERS, action: "edit" },
+  ]),
   async (req, res, next) => {
     try {
       const body = platformBulkMoveStaffSchema.parse(req.body);
@@ -1666,6 +1912,7 @@ function formatSubscriptionResponse(
       code: PlanCode;
       name: string;
       monthlyPrice: Prisma.Decimal;
+      yearlyPrice: Prisma.Decimal;
       currency: string;
       description: string;
       staffLimit: number;
@@ -1696,6 +1943,7 @@ function formatSubscriptionResponse(
     plan: {
       ...subscription.plan,
       monthlyPrice: formatMoney(subscription.plan.monthlyPrice),
+      yearlyPrice: formatMoney(subscription.plan.yearlyPrice),
     },
     invoices: subscription.invoices?.map((invoice) => ({
       ...invoice,
@@ -1989,7 +2237,13 @@ app.post("/api/auth/register", optionalAuthenticateToken, async (request, respon
   try {
     const payload = registerSchema.parse(request.body);
     const result = await registerBusinessOwner({
-      ...payload,
+      ownerName: payload.ownerName,
+      ownerEmail: payload.ownerEmail,
+      businessName: payload.businessName,
+      slug: payload.slug,
+      industry: payload.industry,
+      planCode: payload.planCode,
+      billingInterval: payload.billingInterval,
       authenticatedUserId: request.user?.id,
     });
     const token = request.user?.id ? generateToken(result.user) : null;
@@ -2086,6 +2340,7 @@ app.get("/api/plans", async (_request, response, next) => {
       data: plans.map((plan) => ({
         ...plan,
         monthlyPrice: formatMoney(plan.monthlyPrice),
+        yearlyPrice: formatMoney(plan.yearlyPrice),
       })),
     });
   } catch (error) {
@@ -2106,9 +2361,21 @@ app.post("/api/businesses", async (request, response, next) => {
 
 app.get(
   "/api/businesses/:businessId/subscription",
+  authenticateToken,
   async (request, response, next) => {
     try {
-      const result = await getBusinessSubscription(request.params.businessId);
+      const businessId = request.params.businessId as string;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId },
+      });
+      if (
+        !membership &&
+        !request.user?.isPlatformOwner &&
+        request.user?.role !== "PLATFORM_ADMIN"
+      ) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const result = await getBusinessSubscription(businessId);
       const { subscriptions: _subscriptions, ...business } = result.business;
 
       response.json({
@@ -2127,12 +2394,15 @@ app.get(
 
 app.post(
   "/api/businesses/:businessId/subscription",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
   async (request, response, next) => {
     try {
       const payload = createSubscriptionSchema.parse(request.body);
       const result = await startSubscription({
-        businessId: request.params.businessId,
+        businessId: request.params.businessId as string,
         planCode: payload.planCode,
+        billingInterval: payload.billingInterval,
       });
 
       response.status(201).json({
@@ -2143,6 +2413,171 @@ app.post(
       });
     } catch (error) {
       next(error);
+    }
+  },
+);
+
+app.patch(
+  "/api/businesses/:businessId/subscription",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireSubscriptionsBillingOrPlatform(),
+  async (request, response, next) => {
+    try {
+      const businessId = request.params.businessId as string;
+      const body = changeSubscriptionPlanBodySchema.parse(request.body);
+      const updated = await changeSubscriptionPlan({
+        businessId,
+        planCode: body.planCode,
+        billingInterval: body.billingInterval,
+      });
+      response.json({
+        data: {
+          currentSubscription: formatSubscriptionResponse(updated),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/payment-gateways",
+  authenticateToken,
+  requireSubscriptionsBillingOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner && req.user?.role !== "PLATFORM_ADMIN") {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const rows = await listAddableGatewaysForBusiness();
+      res.json({
+        data: rows.map((g) => ({
+          id: g.id,
+          code: g.code,
+          name: g.name,
+          description: g.description,
+          sortOrder: g.sortOrder,
+          checkoutAdapter: g.checkoutAdapter,
+        })),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/payment-methods",
+  authenticateToken,
+  requireSubscriptionsBillingOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner && req.user?.role !== "PLATFORM_ADMIN") {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const rows = await listBusinessPaymentMethods(businessId as string);
+      res.json({
+        data: rows.map((m) => ({
+          id: m.id,
+          label: m.label,
+          isDefault: m.isDefault,
+          status: m.status,
+          createdAt: m.createdAt.toISOString(),
+          gateway: {
+            id: m.gateway.id,
+            code: m.gateway.code,
+            name: m.gateway.name,
+          },
+          metadata: m.metadata,
+        })),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/payment-methods",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireSubscriptionsBillingOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const body = addBusinessPaymentMethodBodySchema.parse(req.body);
+      const created = await addBusinessPaymentMethod({
+        businessId: businessId as string,
+        gatewayCode: body.gatewayCode,
+        label: body.label,
+        isDefault: body.isDefault,
+      });
+      res.status(201).json({
+        data: {
+          id: created.id,
+          label: created.label,
+          isDefault: created.isDefault,
+          status: created.status,
+          createdAt: created.createdAt.toISOString(),
+          gateway: {
+            id: created.gateway.id,
+            code: created.gateway.code,
+            name: created.gateway.name,
+          },
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.delete(
+  "/api/businesses/:businessId/payment-methods/:methodId",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireSubscriptionsBillingOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId, methodId } = req.params;
+      await archiveBusinessPaymentMethod(businessId as string, methodId as string);
+      res.status(204).send();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/invoices/:invoiceId/checkout",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireSubscriptionsBillingOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId, invoiceId } = req.params;
+      const body = subscriptionCheckoutBodySchema.parse(req.body ?? {});
+      const data = await createSubscriptionInvoiceCheckout({
+        gatewayCode: body.gatewayCode,
+        invoiceId: invoiceId as string,
+        businessId: businessId as string,
+        userId: req.user!.id,
+        restrictPayerMobile: body.restrictPayerMobile,
+        req,
+      });
+      res.json({ data });
+    } catch (e) {
+      next(e);
     }
   },
 );
@@ -2486,17 +2921,29 @@ app.get(
   },
 );
 
-app.post("/api/invoices/:invoiceId/pay", async (request, response, next) => {
-  try {
-    const invoice = await payInvoice(request.params.invoiceId);
-
-    response.json({
-      data: formatInvoiceResponse(invoice),
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+app.post(
+  "/api/businesses/:businessId/invoices/:invoiceId/pay",
+  authenticateToken,
+  requireSubscriptionsBillingOrPlatform(),
+  requireBusinessOwnerOrPlatform(),
+  async (request, response, next) => {
+    try {
+      const { businessId, invoiceId } = request.params;
+      const invoiceRow = await prisma.subscriptionInvoice.findFirst({
+        where: { id: invoiceId as string, businessId: businessId as string },
+      });
+      if (!invoiceRow) {
+        throw new HttpError(404, "Invoice not found.");
+      }
+      const invoice = await payInvoice(invoiceId as string);
+      response.json({
+        data: formatInvoiceResponse(invoice),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 app.use(
   (

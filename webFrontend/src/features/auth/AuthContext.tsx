@@ -42,6 +42,7 @@ import type {
   PlanId,
   PlanPermissions,
   Product,
+  SubscriptionBillingInterval,
   SubscriptionPlan,
   SubscriptionStatus,
   User,
@@ -55,6 +56,7 @@ type RegisterOrganizationPayload = {
   industry: string
   planId: PlanId
   staffCount: number
+  billingInterval: SubscriptionBillingInterval
 }
 
 type CreateStaffPayload = {
@@ -106,6 +108,8 @@ type AuthContextValue = {
   refreshBusinessProducts: () => Promise<void>
   refreshBusinessEntitlements: (businessId: string) => Promise<void>
   refreshOrganizationMembers: () => Promise<void>
+  /** Reload public plan catalog from the API (e.g. after platform billing updates). */
+  refreshPlans: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -281,6 +285,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     writeStorage(STORAGE_KEYS.planPermissions, planPermissions)
   }, [planPermissions])
+
+  const refreshPlans = useCallback(async () => {
+    try {
+      const backendPlans = await fetchPlans()
+      setPlans(backendPlans)
+    } catch {
+      // Keep current plans when the backend is unavailable.
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -701,6 +714,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         industry,
         planId,
         staffCount,
+        billingInterval,
       }) => {
         const normalizedEmail = ownerEmail.trim().toLowerCase()
         const selectedPlan = plans.find((plan) => plan.id === planId)
@@ -725,6 +739,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             slug: slugify(organizationName),
             industry: industry.trim(),
             planId,
+            billingInterval,
           })
 
           if (!wasAlreadySignedIn) {
@@ -849,6 +864,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         if (user.isPlatformAdmin) {
+          if (permission === 'platform.payment_gateways.manage') {
+            const m = user.platformPermissions?.['platform.payment_gateways']
+            return Boolean(m?.view || m?.create || m?.edit || m?.delete)
+          }
           const gate = PLATFORM_ADMIN_ROUTE_ACCESS[permission]
           if (!gate) {
             return false
@@ -858,6 +877,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (!currentOrganization) {
           return false
+        }
+
+        const billingSlug: PermissionKey = 'subscriptions.billings'
+        if (permission === billingSlug && (user.role === 'merchant' || user.role === 'admin')) {
+          const fromBilling = entitlementsByBusinessId[currentOrganization.id]
+          if (fromBilling !== undefined) {
+            return fromBilling.includes(billingSlug)
+          }
+          return Boolean(planPermissions[currentOrganization.planId]?.[billingSlug])
         }
 
         if (
@@ -885,6 +913,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (user.isPlatformAdmin) {
           return permissions.some((permission) => {
+            if (permission === 'platform.payment_gateways.manage') {
+              const m = user.platformPermissions?.['platform.payment_gateways']
+              return Boolean(m?.view || m?.create || m?.edit || m?.delete)
+            }
             const gate = PLATFORM_ADMIN_ROUTE_ACCESS[permission]
             if (!gate) {
               return false
@@ -941,6 +973,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshBusinessProducts,
       refreshBusinessEntitlements,
       refreshOrganizationMembers,
+      refreshPlans,
     }),
     [
       activeOrganizationId,
@@ -957,6 +990,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshBusinessProducts,
       refreshBusinessEntitlements,
       refreshOrganizationMembers,
+      refreshPlans,
       subscriptionMeta,
       user,
     ],

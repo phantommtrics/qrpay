@@ -20,6 +20,8 @@ export const PLATFORM_ADMIN_ROUTE_ACCESS: Partial<
     action: 'view',
   },
   'platform.security.users.view': { module: 'platform.security_system_users', action: 'view' },
+  'platform.security.move_users.view': { module: 'platform.security_move_users', action: 'view' },
   'platform.users.manage': { module: 'platform.security_system_users', action: 'view' },
-  'platform.billing.manage': { module: 'platform.invoices', action: 'view' },
+  'platform.billing.manage': { module: 'platform.billing', action: 'edit' },
+  'platform.payment_gateways.manage': { module: 'platform.payment_gateways', action: 'view' },
 }

@@ -38,6 +38,11 @@ enum InvoiceStatus {
   VOID
 }
 
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+}
+
 enum StaffCreationNotificationType {
   EXISTING_USER
   NEW_USER
@@ -99,6 +104,44 @@ model Business {
   orders                        Order[]
   payments                      Payment[]
   receipts                      Receipt[]
+  paymentMethods                BusinessPaymentMethod[]
+}
+
+enum BusinessPaymentMethodStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+/** Platform-configured payment providers businesses may attach as payment methods. */
+model PaymentGateway {
+  id          String                 @id @default(cuid())
+  code        String                 @unique
+  name        String
+  description String?
+  isEnabled   Boolean                @default(false)
+  sortOrder   Int                    @default(0)
+  /** When set (e.g. wave_gambia), subscription checkout can open a hosted payment flow. */
+  checkoutAdapter String?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  methods     BusinessPaymentMethod[]
+}
+
+model BusinessPaymentMethod {
+  id          String                      @id @default(cuid())
+  businessId  String
+  gatewayId   String
+  label       String
+  metadata    Json?
+  isDefault   Boolean                     @default(false)
+  status      BusinessPaymentMethodStatus @default(ACTIVE)
+  createdAt   DateTime                    @default(now())
+  updatedAt   DateTime                    @updatedAt
+  business    Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  gateway     PaymentGateway              @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@index([gatewayId])
 }
 
 model Product {
@@ -280,6 +323,7 @@ model Plan {
   code               PlanCode              @unique
   name               String
   monthlyPrice       Decimal               @db.Decimal(10, 2)
+  yearlyPrice        Decimal               @db.Decimal(10, 2)
   currency           String                @default("GMD")
   description        String
   staffLimit         Int
@@ -298,6 +342,7 @@ model Subscription {
   id                  String                @id @default(cuid())
   businessId          String
   planId              String
+  billingInterval     BillingInterval       @default(MONTHLY)
   status              SubscriptionStatus    @default(ACTIVE)
   startDate           DateTime
   currentPeriodStart  DateTime
@@ -328,6 +373,9 @@ model SubscriptionInvoice {
   dueDate             DateTime
   paidAt              DateTime?
   externalReference   String?            @unique
+  /** Last checkout session id (e.g. Wave) for webhook correlation. */
+  checkoutSessionId   String?
+  checkoutProvider    String?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   business            Business           @relation(fields: [businessId], references: [id])
@@ -336,6 +384,7 @@ model SubscriptionInvoice {
 
   @@index([businessId, status])
   @@index([subscriptionId])
+  @@index([checkoutSessionId])
 }
 
 model StaffCreationNotificationLog {

@@ -21,7 +21,7 @@ import {
 } from '../config/navigation'
 
 /** Plan menu service ids that start expanded so nested links (e.g. Organization) are visible. */
-const DEFAULT_EXPANDED_PLAN_SERVICE_IDS = ['svc_org'] as const
+const DEFAULT_EXPANDED_PLAN_SERVICE_IDS = ['svc_org', 'svc_subscriptions'] as const
 import { useAuth } from '../features/auth/AuthContext'
 import { ApiError, fetchBusinessNavigationMenu, type NavigationMenuService } from '../services/subscriptionApi'
 import { isRetailOrWholesaleIndustry } from '../utils/businessIndustry'
@@ -58,8 +58,10 @@ export function Sidebar({
     const p = window.location.hash.replace(/^#/, '') || window.location.pathname
     return (
       p.startsWith('/platform/businesses') ||
+      p.startsWith('/platform/billings') ||
       p.startsWith('/platform/subscriptions') ||
-      p.startsWith('/platform/invoices')
+      p.startsWith('/platform/invoices') ||
+      p.startsWith('/platform/payment-gateways')
     )
   })
   const [isPlatformSecurityOpen, setIsPlatformSecurityOpen] = useState(() => {
@@ -170,6 +172,9 @@ export function Sidebar({
     const p = location.pathname
     if (path === APP_PATHS.platformBusinesses) {
       return p.startsWith('/platform/businesses')
+    }
+    if (path === APP_PATHS.platformBillings) {
+      return p.startsWith('/platform/billings')
     }
     if (path === APP_PATHS.platformSubscriptions) {
       return p.startsWith('/platform/subscriptions')
@@ -495,6 +500,7 @@ export function Sidebar({
             'platform.security.roles.view',
             'platform.security.function_groups.view',
             'platform.security.users.view',
+            'platform.security.move_users.view',
           ]) ? (
             <>
               <div className="mt-4 mb-1">
@@ -515,25 +521,28 @@ export function Sidebar({
                 </button>
                 {isPlatformSecurityOpen ? (
                   <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
-                    {PLATFORM_SECURITY_SUBNAV.filter((item) => canAccess(item.permission)).map(
-                      (item) => {
-                        const subActive = isPlatformSecuritySubActive(item.path)
-                        return (
-                          <NavLink
-                            key={item.path}
-                            to={item.path}
-                            onClick={() => setIsOpen(false)}
-                            className={`flex items-center rounded-lg px-2 py-2 text-sm capitalize transition-colors ${
-                              subActive
-                                ? 'bg-teal-500/10 text-teal-300'
-                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                            }`}
-                          >
-                            <span className="font-medium">{item.title}</span>
-                          </NavLink>
-                        )
-                      },
-                    )}
+                    {PLATFORM_SECURITY_SUBNAV.filter((item) =>
+                      item.path === APP_PATHS.platformSecurityMoveUsers
+                        ? canAccess('platform.security.move_users.view') ||
+                          canAccess('platform.security.users.view')
+                        : canAccess(item.permission),
+                    ).map((item) => {
+                      const subActive = isPlatformSecuritySubActive(item.path)
+                      return (
+                        <NavLink
+                          key={item.path}
+                          to={item.path}
+                          onClick={() => setIsOpen(false)}
+                          className={`flex items-center rounded-lg px-2 py-2 text-sm capitalize transition-colors ${
+                            subActive
+                              ? 'bg-teal-500/10 text-teal-300'
+                              : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                          }`}
+                        >
+                          <span className="font-medium">{item.title}</span>
+                        </NavLink>
+                      )
+                    })}
                   </div>
                 ) : null}
               </div>

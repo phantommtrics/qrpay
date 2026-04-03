@@ -3,7 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { APP_PATHS, MAIN_NAV_ITEMS, getDefaultProtectedPath } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
-import type { UserRole } from '../types'
+import type { PermissionKey, UserRole } from '../types'
 import { AuthOnlyRoute } from './AuthOnlyRoute'
 import { ProtectedRoute } from './ProtectedRoute'
 import { RouteFallback } from './RouteFallback'
@@ -118,6 +118,11 @@ const PlatformBusinessDetailPage = lazy(() =>
     default: module.PlatformBusinessDetailPage,
   })),
 )
+const PlatformBillingsPage = lazy(() =>
+  import('../screens/platform/PlatformBillingsPage').then((module) => ({
+    default: module.PlatformBillingsPage,
+  })),
+)
 const PlatformSubscriptionsPage = lazy(() =>
   import('../screens/platform/PlatformSubscriptionsPage').then((module) => ({
     default: module.PlatformSubscriptionsPage,
@@ -173,8 +178,29 @@ const PlatformSecurityMoveUsersPage = lazy(() =>
     default: module.PlatformSecurityMoveUsersPage,
   })),
 )
+const PlatformPaymentGatewaysPage = lazy(() =>
+  import('../screens/platform/PlatformPaymentGatewaysPage').then((module) => ({
+    default: module.PlatformPaymentGatewaysPage,
+  })),
+)
+const BillingPage = lazy(() =>
+  import('../screens/BillingPage').then((module) => ({
+    default: module.BillingPage,
+  })),
+)
+const BillingWaveSuccessPage = lazy(() =>
+  import('../screens/BillingWaveResultPage').then((module) => ({
+    default: module.BillingWaveSuccessPage,
+  })),
+)
+const BillingWaveCancelPage = lazy(() =>
+  import('../screens/BillingWaveResultPage').then((module) => ({
+    default: module.BillingWaveCancelPage,
+  })),
+)
 
 const PLATFORM_OPERATOR_ROLES = ['platform_owner', 'platform_admin'] as UserRole[]
+const BUSINESS_BILLING_ROLES = ['admin', 'merchant'] as UserRole[]
 
 export function AppRoutes() {
   const { user } = useAuth()
@@ -203,6 +229,12 @@ export function AppRoutes() {
       permission: 'platform.businesses.manage' as const,
     },
     {
+      path: APP_PATHS.platformBillings,
+      element: <PlatformBillingsPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.billing.manage' as const,
+    },
+    {
       path: APP_PATHS.platformSubscriptions,
       element: <PlatformSubscriptionsPage />,
       roles: PLATFORM_OPERATOR_ROLES,
@@ -219,6 +251,30 @@ export function AppRoutes() {
       element: <PlatformInvoiceDetailPage />,
       roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.invoices.view' as const,
+    },
+    {
+      path: APP_PATHS.platformPaymentGateways,
+      element: <PlatformPaymentGatewaysPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.payment_gateways.manage' as const,
+    },
+    {
+      path: APP_PATHS.billing,
+      element: <BillingPage />,
+      roles: BUSINESS_BILLING_ROLES,
+      permission: 'subscriptions.billings' as const,
+    },
+    {
+      path: APP_PATHS.billingWaveSuccess,
+      element: <BillingWaveSuccessPage />,
+      roles: BUSINESS_BILLING_ROLES,
+      permission: 'subscriptions.billings' as const,
+    },
+    {
+      path: APP_PATHS.billingWaveCancel,
+      element: <BillingWaveCancelPage />,
+      roles: BUSINESS_BILLING_ROLES,
+      permission: 'subscriptions.billings' as const,
     },
     {
       path: APP_PATHS.products,
@@ -326,7 +382,10 @@ export function AppRoutes() {
       path: APP_PATHS.platformSecurityMoveUsers,
       element: <PlatformSecurityMoveUsersPage />,
       roles: PLATFORM_OPERATOR_ROLES,
-      permission: 'platform.security.users.view' as const,
+      anyOfPermissions: [
+        'platform.security.move_users.view',
+        'platform.security.users.view',
+      ] satisfies PermissionKey[],
     },
     {
       path: APP_PATHS.configuration,
@@ -375,7 +434,10 @@ export function AppRoutes() {
             path={route.path}
             element={
               <ProtectedRoute
-                requiredPermission={route.permission}
+                requiredPermission={'permission' in route ? route.permission : undefined}
+                requiredAnyOfPermissions={
+                  'anyOfPermissions' in route ? route.anyOfPermissions : undefined
+                }
                 allowedRoles={route.roles}
               >
                 {route.element}

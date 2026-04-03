@@ -4,7 +4,7 @@ import { Building2, CheckCircle2, Plus, Sparkles } from 'lucide-react'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { useAuth } from '../features/auth/AuthContext'
-import type { PlanId } from '../types'
+import type { PlanId, SubscriptionBillingInterval } from '../types'
 
 export function BusinessesPage() {
   const {
@@ -22,6 +22,7 @@ export function BusinessesPage() {
     industry: 'Retail',
     planId: 'basic' as PlanId,
     staffCount: 3,
+    billingInterval: 'MONTHLY' as SubscriptionBillingInterval,
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -48,6 +49,7 @@ export function BusinessesPage() {
       industry: 'Retail',
       planId: 'basic',
       staffCount: 3,
+      billingInterval: 'MONTHLY',
     }))
     setIsSubmitting(false)
   }
@@ -132,6 +134,13 @@ export function BusinessesPage() {
                     <span className="rounded-full bg-slate-100 px-2.5 py-1">
                       {organization.subscriptionState ?? 'active'}
                     </span>
+                    {organization.subscriptionBillingInterval === 'YEARLY' ? (
+                      <span className="rounded-full bg-indigo-50 px-2.5 py-1 font-medium text-indigo-800">
+                        Yearly billing
+                      </span>
+                    ) : organization.subscriptionBillingInterval === 'MONTHLY' ? (
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1">Monthly billing</span>
+                    ) : null}
                   </div>
                 </button>
               )
@@ -222,6 +231,22 @@ export function BusinessesPage() {
                 </select>
               </label>
               <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-700">Billing cycle</span>
+                <select
+                  value={form.billingInterval}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      billingInterval: event.target.value as SubscriptionBillingInterval,
+                    }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500"
+                >
+                  <option value="MONTHLY">Monthly</option>
+                  <option value="YEARLY">Yearly</option>
+                </select>
+              </label>
+              <label className="block sm:col-span-2">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Staff count</span>
                 <input
                   type="number"

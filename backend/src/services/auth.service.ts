@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import {
+  BillingInterval,
   BusinessMembershipStatus,
   PlanCode,
   StaffCreationNotificationStatus,
@@ -37,6 +38,7 @@ type RegisterBusinessOwnerInput = {
   slug?: string;
   industry?: string;
   planCode: PlanCode;
+  billingInterval?: BillingInterval;
   /** When set, create another business for this logged-in user (no password email). */
   authenticatedUserId?: string;
 };
@@ -274,6 +276,7 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
     const { subscription, invoice } = await createSubscriptionForBusinessTx(tx, {
       businessId: business.id,
       planCode: input.planCode,
+      billingInterval: input.billingInterval ?? BillingInterval.MONTHLY,
     });
 
     return {

@@ -4,6 +4,12 @@ export function addMonths(date: Date, months: number) {
   return next;
 }
 
+export function addYears(date: Date, years: number) {
+  const next = new Date(date);
+  next.setFullYear(next.getFullYear() + years);
+  return next;
+}
+
 export function dueInDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);

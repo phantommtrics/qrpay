@@ -6,7 +6,7 @@ import {
   SYSTEM_CATALOG_PRODUCTS,
   SYSTEM_CATALOG_SERVICES,
 } from "../src/config/plan-entitlement-matrix.js";
-import { PLATFORM_MODULES_SEED } from "../src/config/platform-modules.js";
+import { ensurePlatformModulesSeeded } from "../src/services/platform-module-sync.service.js";
 
 const prisma = new PrismaClient();
 
@@ -99,6 +99,7 @@ async function main() {
       code: PlanCode.BASIC,
       name: "Basic",
       monthlyPrice: "499.00",
+      yearlyPrice: "4990.00",
       description: "Starter plan for small merchants getting started with QRPay.",
       staffLimit: 3,
       outletLimit: 1,
@@ -114,6 +115,7 @@ async function main() {
       code: PlanCode.PRO,
       name: "Pro",
       monthlyPrice: "1299.00",
+      yearlyPrice: "12990.00",
       description: "Growth plan for active merchants that need better controls and reporting.",
       staffLimit: 10,
       outletLimit: 3,
@@ -130,6 +132,7 @@ async function main() {
       code: PlanCode.BUSINESS_PRO,
       name: "Business Pro",
       monthlyPrice: "2999.00",
+      yearlyPrice: "29990.00",
       description: "Best for multi-branch businesses with higher throughput and admin needs.",
       staffLimit: 50,
       outletLimit: 15,
@@ -154,17 +157,24 @@ async function main() {
 
   await seedSystemCatalog();
 
-  for (const m of PLATFORM_MODULES_SEED) {
-    await prisma.platformModule.upsert({
-      where: { slug: m.slug },
-      create: {
-        slug: m.slug,
-        label: m.label,
-        sortOrder: m.sortOrder,
-      },
-      update: { label: m.label, sortOrder: m.sortOrder },
-    });
-  }
+  await ensurePlatformModulesSeeded();
+
+  await prisma.paymentGateway.upsert({
+    where: { code: "wave_gambia" },
+    create: {
+      code: "wave_gambia",
+      name: "Wave (Gambia)",
+      description: "Wave mobile money checkout for subscription invoices",
+      isEnabled: false,
+      sortOrder: 10,
+      checkoutAdapter: "wave_gambia",
+    },
+    update: {
+      name: "Wave (Gambia)",
+      description: "Wave mobile money checkout for subscription invoices",
+      checkoutAdapter: "wave_gambia",
+    },
+  });
 
   const platformOwnerEmailRaw = process.env.PLATFORM_OWNER_EMAIL?.trim().toLowerCase();
   const platformOwnerEmail =

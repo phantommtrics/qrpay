@@ -6,18 +6,20 @@ import type {
   PlanId,
   PlatformPermissionMatrix,
   Product,
+  SubscriptionBillingInterval,
   SubscriptionPlan,
   User,
   UserRole,
 } from '../types'
 
-type BackendPlanCode = 'BASIC' | 'PRO' | 'BUSINESS_PRO'
+export type BackendPlanCode = 'BASIC' | 'PRO' | 'BUSINESS_PRO'
 
-type BackendPlan = {
+export type BackendPlan = {
   id: string
   code: BackendPlanCode
   name: string
   monthlyPrice: string
+  yearlyPrice: string
   description: string
   staffLimit: number
 }
@@ -37,11 +39,17 @@ export type BackendInvoice = {
   amount: string
   status: 'PENDING' | 'PAID' | 'FAILED' | 'VOID'
   dueDate: string
+  currency?: string
+  billingPeriodStart?: string
+  billingPeriodEnd?: string
+  paidAt?: string | null
+  externalReference?: string | null
 }
 
 export type BackendSubscription = {
   id: string
   status: 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'EXPIRED'
+  billingInterval?: SubscriptionBillingInterval
   currentPeriodEnd: string
   plan: BackendPlan
   invoices?: BackendInvoice[]
@@ -102,15 +110,25 @@ function formatPriceLabel(monthlyPrice: string) {
   return Number.isNaN(amount) ? `${monthlyPrice} / month` : `D${amount.toLocaleString()} / month`
 }
 
+function formatYearlyPriceLabel(yearlyPrice: string) {
+  const amount = Number(yearlyPrice)
+  return Number.isNaN(amount) ? `${yearlyPrice} / year` : `D${amount.toLocaleString()} / year`
+}
+
 function formatStaffLabel(staffLimit: number) {
   return `Up to ${staffLimit} staff`
 }
 
 export function mapBackendPlanToSubscriptionPlan(plan: BackendPlan): SubscriptionPlan {
+  const yearly =
+    plan.yearlyPrice !== undefined && plan.yearlyPrice !== ''
+      ? plan.yearlyPrice
+      : String(Number(plan.monthlyPrice) * 12)
   return {
     id: toPlanId(plan.code),
     name: plan.name,
     priceLabel: formatPriceLabel(plan.monthlyPrice),
+    yearlyPriceLabel: formatYearlyPriceLabel(yearly),
     staffLabel: formatStaffLabel(plan.staffLimit),
     minStaff: 1,
     maxStaff: plan.staffLimit,
@@ -223,6 +241,7 @@ export function mapAccessibleBusinessToOrganization(entry: BackendAccessibleBusi
         )
       : 'expired',
     subscriptionInvoiceDueAt: currentSubscription?.invoices?.[0]?.dueDate ?? null,
+    subscriptionBillingInterval: currentSubscription?.billingInterval,
     isOwner: entry.isOwner,
     membershipStatus: entry.membershipStatus,
     createdAt: entry.business.createdAt,
@@ -295,6 +314,26 @@ export async function fetchPlans() {
   return payload.data.map(mapBackendPlanToSubscriptionPlan)
 }
 
+/** Raw plan rows from `GET /plans` (numeric monthly prices as strings). */
+export async function fetchPlansRaw() {
+  const payload = await apiRequest<{ data: BackendPlan[] }>('/plans')
+  return payload.data
+}
+
+export async function updatePlatformPlanPricing(
+  planCode: BackendPlanCode,
+  body: { monthlyPrice?: number; yearlyPrice?: number },
+) {
+  const response = await apiRequest<{ data: BackendPlan }>(
+    `/platform/plans/${planCode}/pricing`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    },
+  )
+  return mapBackendPlanToSubscriptionPlan(response.data)
+}
+
 export async function createBusiness(payload: {
   name: string
   slug: string
@@ -309,7 +348,11 @@ export async function createBusiness(payload: {
   return response.data
 }
 
-export async function createSubscription(businessId: string, planId: PlanId) {
+export async function createSubscription(
+  businessId: string,
+  planId: PlanId,
+  billingInterval?: SubscriptionBillingInterval,
+) {
   const response = await apiRequest<{
     data: {
       subscription: BackendSubscription
@@ -322,6 +365,7 @@ export async function createSubscription(businessId: string, planId: PlanId) {
     },
     body: JSON.stringify({
       planCode: toPlanCode(planId),
+      ...(billingInterval ? { billingInterval } : {}),
     }),
   })
 
@@ -348,6 +392,7 @@ export async function registerBusinessOwner(payload: {
   slug: string
   industry: string
   planId: PlanId
+  billingInterval?: SubscriptionBillingInterval
 }) {
   const response = await apiRequest<{
     data: {
@@ -368,6 +413,7 @@ export async function registerBusinessOwner(payload: {
       slug: payload.slug,
       industry: payload.industry,
       planCode: toPlanCode(payload.planId),
+      ...(payload.billingInterval ? { billingInterval: payload.billingInterval } : {}),
     }),
   })
 
@@ -1316,5 +1362,165 @@ export async function updatePlatformStaffUserRequest(
       body: JSON.stringify(payload),
     },
   )
+  return response.data
+}
+
+export type PlatformPaymentGatewayRow = {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  isEnabled: boolean
+  sortOrder: number
+  checkoutAdapter: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export async function fetchPlatformPaymentGateways() {
+  const response = await apiRequest<{ data: PlatformPaymentGatewayRow[] }>(
+    '/platform/payment-gateways',
+  )
+  return response.data
+}
+
+export async function patchPlatformPaymentGateway(
+  gatewayId: string,
+  body: {
+    isEnabled?: boolean
+    name?: string
+    description?: string | null
+    sortOrder?: number
+    checkoutAdapter?: string | null
+  },
+) {
+  const response = await apiRequest<{ data: PlatformPaymentGatewayRow }>(
+    `/platform/payment-gateways/${gatewayId}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  )
+  return response.data
+}
+
+export async function createPlatformPaymentGateway(body: {
+  code: string
+  name: string
+  description?: string | null
+  sortOrder?: number
+  isEnabled?: boolean
+  checkoutAdapter?: string | null
+}) {
+  const response = await apiRequest<{ data: PlatformPaymentGatewayRow }>(
+    '/platform/payment-gateways',
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+  return response.data
+}
+
+export async function deletePlatformPaymentGateway(gatewayId: string) {
+  await apiRequest<unknown>(`/platform/payment-gateways/${gatewayId}`, { method: 'DELETE' })
+}
+
+export type BusinessPaymentGatewayRow = {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  sortOrder: number
+  checkoutAdapter: string | null
+}
+
+export async function fetchBusinessPaymentGateways(businessId: string) {
+  const response = await apiRequest<{ data: BusinessPaymentGatewayRow[] }>(
+    `/businesses/${businessId}/payment-gateways`,
+    { headers: { 'x-business-id': businessId } },
+  )
+  return response.data
+}
+
+export type BusinessPaymentMethodRow = {
+  id: string
+  label: string
+  isDefault: boolean
+  status: string
+  createdAt: string
+  gateway: { id: string; code: string; name: string }
+  metadata: unknown
+}
+
+export async function fetchBusinessPaymentMethods(businessId: string) {
+  const response = await apiRequest<{ data: BusinessPaymentMethodRow[] }>(
+    `/businesses/${businessId}/payment-methods`,
+    { headers: { 'x-business-id': businessId } },
+  )
+  return response.data
+}
+
+export async function addBusinessPaymentMethodRequest(
+  businessId: string,
+  body: { gatewayCode: string; label: string; isDefault?: boolean },
+) {
+  const response = await apiRequest<{ data: BusinessPaymentMethodRow }>(
+    `/businesses/${businessId}/payment-methods`,
+    {
+      method: 'POST',
+      headers: { 'x-business-id': businessId },
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export async function archiveBusinessPaymentMethodRequest(businessId: string, methodId: string) {
+  await apiRequest<unknown>(`/businesses/${businessId}/payment-methods/${methodId}`, {
+    method: 'DELETE',
+    headers: { 'x-business-id': businessId },
+  })
+}
+
+export async function paySubscriptionInvoice(businessId: string, invoiceId: string) {
+  const response = await apiRequest<{ data: BackendInvoice }>(
+    `/businesses/${businessId}/invoices/${invoiceId}/pay`,
+    {
+      method: 'POST',
+      headers: { 'x-business-id': businessId },
+    },
+  )
+  return response.data
+}
+
+export async function startSubscriptionInvoiceCheckout(
+  businessId: string,
+  invoiceId: string,
+  body: { gatewayCode: string; restrictPayerMobile?: string },
+) {
+  const response = await apiRequest<{
+    data: {
+      sessionId: string
+      launchUrl: string
+      amount: number
+      currency: string
+      paymentStatus: string
+      checkoutStatus: string
+      gatewayCode: string
+    }
+  }>(`/businesses/${businessId}/invoices/${invoiceId}/checkout`, {
+    method: 'POST',
+    headers: { 'x-business-id': businessId },
+    body: JSON.stringify(body),
+  })
+  return response.data
+}
+
+export async function changeBusinessSubscriptionPlan(
+  businessId: string,
+  body: { planCode: BackendPlanCode; billingInterval?: SubscriptionBillingInterval },
+) {
+  const response = await apiRequest<{
+    data: { currentSubscription: BackendSubscription & { invoices: BackendInvoice[] } }
+  }>(`/businesses/${businessId}/subscription`, {
+    method: 'PATCH',
+    headers: { 'x-business-id': businessId },
+    body: JSON.stringify(body),
+  })
   return response.data
 }

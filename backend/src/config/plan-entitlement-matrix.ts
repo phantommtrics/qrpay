@@ -5,6 +5,7 @@ import { PlanCode } from "@prisma/client";
  */
 export const PLAN_ENTITLEMENT_SLUGS: Record<PlanCode, string[]> = {
   [PlanCode.BASIC]: [
+    "subscriptions.billings",
     "dashboard.view",
     "pos.access",
     "products.view",
@@ -18,6 +19,7 @@ export const PLAN_ENTITLEMENT_SLUGS: Record<PlanCode, string[]> = {
     "business.configuration",
   ],
   [PlanCode.PRO]: [
+    "subscriptions.billings",
     "dashboard.view",
     "pos.access",
     "products.view",
@@ -34,6 +36,7 @@ export const PLAN_ENTITLEMENT_SLUGS: Record<PlanCode, string[]> = {
     "business.configuration",
   ],
   [PlanCode.BUSINESS_PRO]: [
+    "subscriptions.billings",
     "dashboard.view",
     "pos.access",
     "products.view",
@@ -66,6 +69,12 @@ export const SYSTEM_CATALOG_SERVICES: Array<{
   { id: "svc_insights", name: "Insights", description: "Reporting", sortOrder: 3 },
   { id: "svc_finance", name: "Finance", description: "Accounting", sortOrder: 4 },
   { id: "svc_org", name: "Organization", description: "Staff and organization", sortOrder: 5 },
+  {
+    id: "svc_subscriptions",
+    name: "Subscriptions",
+    description: "Plan billing and payment methods",
+    sortOrder: 6,
+  },
 ];
 
 export const SYSTEM_CATALOG_PRODUCTS: Array<{
@@ -247,5 +256,15 @@ export const SYSTEM_CATALOG_PRODUCTS: Array<{
     sortOrder: 3,
     navPath: "/staff/status",
     navLabel: "Staff access status",
+  },
+  {
+    id: "sp_sub_billings",
+    serviceId: "svc_subscriptions",
+    slug: "subscriptions.billings",
+    name: "Billings",
+    description: "Pay subscription invoices and manage payment methods",
+    sortOrder: 0,
+    navPath: "/billing",
+    navLabel: "Billing",
   },
 ];

@@ -35,10 +35,15 @@ export const APP_PATHS = {
   staffStatus: '/staff/status',
   configuration: '/configuration',
   businesses: '/businesses',
+  billing: '/billing',
+  billingWaveSuccess: '/billing/wave/success',
+  billingWaveCancel: '/billing/wave/cancel',
   subscriptions: '/subscriptions',
+  platformPaymentGateways: '/platform/payment-gateways',
   platformSystemConfiguration: '/platform/system-configuration',
   platformBusinesses: '/platform/businesses',
   platformBusinessDetail: '/platform/businesses/:businessId',
+  platformBillings: '/platform/billings',
   platformSubscriptions: '/platform/subscriptions',
   platformInvoices: '/platform/invoices',
   platformInvoiceDetail: '/platform/invoices/:invoiceId',
@@ -72,7 +77,7 @@ export const PLATFORM_SECURITY_SUBNAV = [
     name: 'move-users',
     path: APP_PATHS.platformSecurityMoveUsers,
     title: 'Move users',
-    permission: 'platform.security.users.view' as const,
+    permission: 'platform.security.move_users.view' as const,
   },
 ] as const
 
@@ -85,6 +90,12 @@ export const PLATFORM_BUSINESSES_SUBNAV = [
     permission: 'platform.businesses.manage' as const,
   },
   {
+    name: 'billings',
+    path: APP_PATHS.platformBillings,
+    title: 'Billings',
+    permission: 'platform.billing.manage' as const,
+  },
+  {
     name: 'Subscriptions',
     path: APP_PATHS.platformSubscriptions,
     title: 'Subscriptions',
@@ -95,6 +106,12 @@ export const PLATFORM_BUSINESSES_SUBNAV = [
     path: APP_PATHS.platformInvoices,
     title: 'Invoices',
     permission: 'platform.invoices.view' as const,
+  },
+  {
+    name: 'payment-gateways',
+    path: APP_PATHS.platformPaymentGateways,
+    title: 'Payment gateways',
+    permission: 'platform.payment_gateways.manage' as const,
   },
 ] as const
 
@@ -230,6 +247,22 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.platformSubscriptions)) {
     return 'Subscriptions'
+  }
+
+  if (pathname.includes(APP_PATHS.platformBillings)) {
+    return 'Billings'
+  }
+
+  if (pathname.includes(APP_PATHS.platformPaymentGateways)) {
+    return 'Payment gateways'
+  }
+
+  if (pathname.includes('/billing/wave/')) {
+    return 'Wave checkout'
+  }
+
+  if (pathname.includes(APP_PATHS.billing)) {
+    return 'Billing'
   }
 
   if (pathname.includes('/platform/businesses/') && pathname !== APP_PATHS.platformBusinesses) {

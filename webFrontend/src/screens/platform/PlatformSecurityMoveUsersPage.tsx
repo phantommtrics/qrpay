@@ -18,6 +18,7 @@ import {
   type PlatformStaffUserRow,
 } from '../../services/subscriptionApi'
 
+const MOVE_USERS_MODULE = 'platform.security_move_users'
 const SU_MODULE = 'platform.security_system_users'
 const PAGE_SIZE = 100
 
@@ -41,7 +42,11 @@ async function loadAllUsersInGroup(groupId: string): Promise<PlatformStaffUserRo
 
 export function PlatformSecurityMoveUsersPage() {
   const { user } = useAuth()
-  const canEdit = Boolean(user?.isPlatformOwner || user?.platformPermissions?.[SU_MODULE]?.edit)
+  const canEdit = Boolean(
+    user?.isPlatformOwner ||
+      user?.platformPermissions?.[MOVE_USERS_MODULE]?.edit ||
+      user?.platformPermissions?.[SU_MODULE]?.edit,
+  )
 
   const [groups, setGroups] = useState<PlatformFunctionGroupRow[]>([])
   const [fromGroupId, setFromGroupId] = useState('')
