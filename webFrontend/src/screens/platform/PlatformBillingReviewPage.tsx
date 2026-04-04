@@ -237,10 +237,6 @@ export function PlatformBillingReviewPage() {
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-600">Platform</p>
           <h1 className="mt-2 text-3xl font-bold text-slate-900">Billing review & refunds</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-600">
-            Click any cell in a row to open the review panel. Use <strong className="font-semibold text-slate-800">Open invoice</strong>{' '}
-            when you need the full invoice page (it does not open the panel). Scroll the table horizontally for all columns.
-          </p>
         </div>
         <button
           type="button"

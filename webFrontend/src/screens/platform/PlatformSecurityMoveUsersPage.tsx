@@ -221,7 +221,6 @@ export function PlatformSecurityMoveUsersPage() {
       <div className="space-y-6">
         <PageSectionHeader
           title="Move users between groups"
-          subtitle="Reassign platform admins from one function group to another. Use this before removing a group or changing access in bulk."
         />
 
         {!canEdit && user?.isPlatformAdmin ? (
