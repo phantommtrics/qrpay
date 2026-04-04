@@ -1,4 +1,4 @@
-import { CheckCircle2, ChefHat, Clock3, Utensils } from 'lucide-react'
+import { CheckCircle2, ChefHat, Clock3, Utensils, XCircle } from 'lucide-react'
 
 import type { Order } from '../../types'
 
@@ -12,6 +12,8 @@ function getStatusColor(status: Order['status']) {
       return 'bg-teal-100 text-teal-700 border-teal-200'
     case 'completed':
       return 'bg-emerald-100 text-emerald-700 border-emerald-200'
+    case 'cancelled':
+      return 'bg-slate-200 text-slate-700 border-slate-300'
     default:
       return 'bg-slate-100 text-slate-700 border-slate-200'
   }
@@ -27,9 +29,19 @@ function getStatusIcon(status: Order['status']) {
       return <Utensils className="h-4 w-4" />
     case 'completed':
       return <CheckCircle2 className="h-4 w-4" />
+    case 'cancelled':
+      return <XCircle className="h-4 w-4" />
     default:
       return null
   }
+}
+
+const STATUS_LABEL: Record<Order['status'], string> = {
+  pending: 'Awaiting payment',
+  preparing: 'Preparing',
+  served: 'Served',
+  completed: 'Paid',
+  cancelled: 'Cancelled',
 }
 
 export function OrderStatusBadge({
@@ -50,7 +62,7 @@ export function OrderStatusBadge({
       )}`}
     >
       {showIcon ? getStatusIcon(status) : null}
-      {status}
+      {STATUS_LABEL[status] ?? status}
     </span>
   )
 }

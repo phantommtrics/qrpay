@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
 import { inferBarcodeType } from "./barcode-type.service.js";
+import { assertMenuCategoryIsLeafForBusiness } from "./menu-category.service.js";
 
 const BARCODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -76,7 +77,9 @@ async function assertWithinProductLimit(businessId: string): Promise<void> {
 export type CreateProductInput = {
   businessId: string;
   name: string;
+  /** Required for retail/wholesale; for restaurant, derived from menu category when menuCategoryId is set. */
   category: string;
+  menuCategoryId?: string | null;
   description?: string | null;
   price: number;
   stock: number;
@@ -131,21 +134,46 @@ export async function createProduct(input: CreateProductInput) {
     throw new HttpError(404, "Business not found.");
   }
 
-  if (!isRetailOrWholesaleIndustry(business.industry)) {
+  const isRetailWholesale = isRetailOrWholesaleIndustry(business.industry);
+  const isRestaurant = isRestaurantIndustry(business.industry);
+  if (!isRetailWholesale && !isRestaurant) {
     throw new HttpError(
       403,
-      "Products with barcodes are only available for Retail or Wholesale businesses in this phase.",
+      "Products are only available for Retail, Wholesale, or Restaurant businesses.",
     );
   }
 
   await assertWithinProductLimit(input.businessId);
 
-  const trimmedBarcode = input.barcodeValue?.trim();
-  if (trimmedBarcode && !/^[A-Za-z0-9]{4,48}$/.test(trimmedBarcode)) {
-    throw new HttpError(400, "Barcode must be 4–48 alphanumeric characters (A–Z, a–z, 0–9).");
+  let categoryName: string;
+  let menuCategoryId: string | null = null;
+
+  if (isRestaurant) {
+    const mcId = input.menuCategoryId?.trim();
+    if (!mcId) {
+      throw new HttpError(400, "menuCategoryId is required for restaurant menu items.");
+    }
+    const leaf = await assertMenuCategoryIsLeafForBusiness(input.businessId, mcId);
+    categoryName = leaf.name;
+    menuCategoryId = leaf.id;
+  } else {
+    categoryName = input.category.trim();
+    if (categoryName.length < 1) {
+      throw new HttpError(400, "Category is required.");
+    }
   }
 
-  const barcodeValue = trimmedBarcode || (await generateUniqueBarcode(input.businessId));
+  const trimmedBarcode = input.barcodeValue?.trim();
+  if (isRetailWholesale) {
+    if (trimmedBarcode && !/^[A-Za-z0-9]{4,48}$/.test(trimmedBarcode)) {
+      throw new HttpError(400, "Barcode must be 4–48 alphanumeric characters (A–Z, a–z, 0–9).");
+    }
+  } else if (trimmedBarcode) {
+    throw new HttpError(400, "Custom barcodes are not used for restaurant menu items.");
+  }
+
+  const barcodeValue =
+    trimmedBarcode || (await generateUniqueBarcode(input.businessId));
 
   const existingBarcode = await prisma.product.findFirst({
     where: { businessId: input.businessId, barcodeValue },
@@ -182,7 +210,8 @@ export async function createProduct(input: CreateProductInput) {
       id: productId,
       businessId: input.businessId,
       name: input.name.trim(),
-      category: input.category.trim(),
+      category: categoryName,
+      menuCategoryId,
       description: input.description?.trim() || null,
       price: new Prisma.Decimal(input.price),
       stock: input.stock,
@@ -203,6 +232,7 @@ export type UpdateProductInput = {
   productId: string;
   name?: string;
   category?: string;
+  menuCategoryId?: string | null;
   description?: string | null;
   price?: number;
   stock?: number;
@@ -221,10 +251,12 @@ export async function updateProduct(input: UpdateProductInput) {
     throw new HttpError(404, "Product not found.");
   }
 
-  if (!isRetailOrWholesaleIndustry(product.business.industry)) {
+  const isRetailWholesale = isRetailOrWholesaleIndustry(product.business.industry);
+  const isRestaurant = isRestaurantIndustry(product.business.industry);
+  if (!isRetailWholesale && !isRestaurant) {
     throw new HttpError(
       403,
-      "Products are only available for Retail or Wholesale businesses in this phase.",
+      "Products are only available for Retail, Wholesale, or Restaurant businesses.",
     );
   }
 
@@ -242,7 +274,20 @@ export async function updateProduct(input: UpdateProductInput) {
   if (input.name !== undefined) {
     data.name = input.name.trim();
   }
-  if (input.category !== undefined) {
+  if (input.menuCategoryId !== undefined && isRestaurant) {
+    if (input.menuCategoryId === null) {
+      throw new HttpError(400, "menuCategoryId cannot be cleared for restaurant items.");
+    }
+    const leaf = await assertMenuCategoryIsLeafForBusiness(
+      input.businessId,
+      input.menuCategoryId.trim(),
+    );
+    data.menuCategory = { connect: { id: leaf.id } };
+    data.category = leaf.name;
+  } else if (input.category !== undefined) {
+    if (isRestaurant) {
+      throw new HttpError(400, "Use menuCategoryId to change category for restaurant items.");
+    }
     data.category = input.category.trim();
   }
   if (input.description !== undefined) {
@@ -318,7 +363,10 @@ export async function getPublicProductById(productId: string) {
     throw new HttpError(404, "Product not found.");
   }
 
-  if (!isRetailOrWholesaleIndustry(product.business.industry)) {
+  if (
+    !isRetailOrWholesaleIndustry(product.business.industry) &&
+    !isRestaurantIndustry(product.business.industry)
+  ) {
     throw new HttpError(404, "Product not found.");
   }
 

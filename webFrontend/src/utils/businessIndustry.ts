@@ -10,3 +10,7 @@ export function isRetailOrWholesaleIndustry(industry: string | null | undefined)
 export function isRestaurantIndustry(industry: string | null | undefined): boolean {
   return normalizeIndustryLabel(industry) === 'restaurant'
 }
+
+export function isProductCatalogIndustry(industry: string | null | undefined): boolean {
+  return isRetailOrWholesaleIndustry(industry) || isRestaurantIndustry(industry)
+}

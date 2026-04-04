@@ -28,9 +28,14 @@ const ForgotPasswordPage = lazy(() =>
     default: module.ForgotPasswordPage,
   })),
 )
-const CustomerMenuPage = lazy(() =>
-  import('../screens/CustomerMenuPage').then((module) => ({
-    default: module.CustomerMenuPage,
+const RestaurantGuestMenuPage = lazy(() =>
+  import('../screens/RestaurantGuestMenuPage').then((module) => ({
+    default: module.RestaurantGuestMenuPage,
+  })),
+)
+const RestaurantSetupPage = lazy(() =>
+  import('../screens/RestaurantSetupPage').then((module) => ({
+    default: module.RestaurantSetupPage,
   })),
 )
 const DashboardPage = lazy(() =>
@@ -326,6 +331,12 @@ export function AppRoutes() {
       permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.permission,
     },
     {
+      path: APP_PATHS.restaurantSetup,
+      element: <RestaurantSetupPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.roles,
+      permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.permission,
+    },
+    {
       path: APP_PATHS.pos,
       element: <POSPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.pos)!.roles,
@@ -335,7 +346,8 @@ export function AppRoutes() {
       path: APP_PATHS.orders,
       element: <OrdersPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.orders)!.roles,
-      permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.orders)!.permission,
+      /** Match API: list orders allowed with orders.view or pos.access */
+      anyOfPermissions: ['orders.view', 'pos.access'] satisfies PermissionKey[],
     },
     {
       path: APP_PATHS.payments,
@@ -475,7 +487,7 @@ export function AppRoutes() {
             user ? <Navigate to={authRedirectPath!} replace /> : <ForgotPasswordPage />
           }
         />
-        <Route path={APP_PATHS.customerMenu} element={<CustomerMenuPage />} />
+        <Route path={APP_PATHS.restaurantGuestMenu} element={<RestaurantGuestMenuPage />} />
         <Route path="/p/:productId" element={<ProductPublicPage />} />
         <Route path="/pay/:publicToken" element={<PublicPayPage />} />
         <Route

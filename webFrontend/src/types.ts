@@ -140,6 +140,8 @@ export interface Product {
   name: string
   price: number
   category: string
+  /** Restaurant menu leaf category (when set). */
+  menuCategoryId?: string | null
   /** On-hand units (physical count from server). */
   stock: number
   /** Units available to sell now (on hand minus reservations). Same as stock if omitted. */

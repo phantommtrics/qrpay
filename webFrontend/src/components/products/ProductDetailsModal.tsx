@@ -74,6 +74,8 @@ export function ProductDetailsModal({
     setDownloadError(null)
   }, [product])
 
+  const isRestaurantMenuItem = Boolean(product.menuCategoryId)
+
   const barcodeVal = product.barcodeValue ?? ''
   const barcodeFormat: RetailBarcodeFormat = inferBarcodeFormat(barcodeVal || 'x')
 
@@ -99,13 +101,13 @@ export function ProductDetailsModal({
     const img1 = packImageUrl.trim()
     return (
       name.trim() !== product.name ||
-      category.trim() !== product.category ||
+      (!isRestaurantMenuItem && category.trim() !== product.category) ||
       d0 !== d1 ||
       Number(price) !== product.price ||
       Number.parseInt(stock, 10) !== product.stock ||
       img0 !== img1
     )
-  }, [editing, name, category, description, price, stock, packImageUrl, product])
+  }, [editing, name, category, description, price, stock, packImageUrl, product, isRestaurantMenuItem])
 
   const baseName = sanitizeDownloadBasename(product.name)
 
@@ -171,7 +173,7 @@ export function ProductDetailsModal({
     const priceNum = Number(price)
     const stockNum = Number.parseInt(stock, 10)
 
-    if (!name.trim() || !category.trim()) {
+    if (!name.trim() || (!isRestaurantMenuItem && !category.trim())) {
       setSaveError('Name and category are required.')
       return
     }
@@ -188,7 +190,9 @@ export function ProductDetailsModal({
     try {
       const updated = await updateBusinessProduct(businessId, product.id, {
         name: name.trim(),
-        category: category.trim(),
+        ...(isRestaurantMenuItem
+          ? {}
+          : { category: category.trim() }),
         description: description.trim() ? description.trim() : null,
         price: priceNum,
         stock: stockNum,
@@ -305,14 +309,26 @@ export function ProductDetailsModal({
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
                   />
                 </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-slate-600">Category</span>
-                  <input
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
-                  />
-                </label>
+                {isRestaurantMenuItem ? (
+                  <div>
+                    <span className="mb-1 block text-xs font-medium text-slate-600">Menu category</span>
+                    <p className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                      {product.category}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      To use a different leaf category, create a new menu item and remove this one.
+                    </p>
+                  </div>
+                ) : (
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-600">Category</span>
+                    <input
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                    />
+                  </label>
+                )}
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-slate-600">Description</span>
                   <textarea

@@ -542,6 +542,7 @@ export type BackendProduct = {
   businessId: string
   name: string
   category: string
+  menuCategoryId?: string | null
   description: string | null
   price: number
   stock: number
@@ -567,6 +568,7 @@ export function mapBackendProductToProduct(p: BackendProduct): Product {
     name: p.name,
     price: p.price,
     category: p.category,
+    menuCategoryId: p.menuCategoryId ?? null,
     stock: p.stock,
     reservedStock: reserved,
     availableStock: available,
@@ -609,11 +611,70 @@ export async function fetchPublicBusinessMenu(businessId: string) {
   }
 }
 
+export type MenuTreeNodePayload = {
+  id: string
+  name: string
+  sortOrder: number
+  children: MenuTreeNodePayload[]
+  products: BackendProduct[]
+}
+
+export type RestaurantGuestMenuPayload = {
+  business: { id: string; name: string; slug: string }
+  table: { id: string; label: string; publicToken: string }
+  menu: {
+    categories: MenuTreeNodePayload[]
+    uncategorizedProducts: BackendProduct[]
+  }
+}
+
+export type GuestMenuTreeNode = {
+  id: string
+  name: string
+  sortOrder: number
+  children: GuestMenuTreeNode[]
+  products: Product[]
+}
+
+function mapGuestMenuTreeNode(node: MenuTreeNodePayload): GuestMenuTreeNode {
+  return {
+    id: node.id,
+    name: node.name,
+    sortOrder: node.sortOrder,
+    children: node.children.map(mapGuestMenuTreeNode),
+    products: node.products.map(mapBackendProductToProduct),
+  }
+}
+
+export async function fetchRestaurantGuestMenu(
+  businessSlug: string,
+  tableToken: string,
+): Promise<{
+  business: { id: string; name: string; slug: string }
+  table: { id: string; label: string; publicToken: string }
+  menu: {
+    categories: GuestMenuTreeNode[]
+    uncategorizedProducts: Product[]
+  }
+}> {
+  const path = `/public/restaurant/${encodeURIComponent(businessSlug)}/t/${encodeURIComponent(tableToken)}`
+  const response = await apiRequest<{ data: RestaurantGuestMenuPayload }>(path)
+  return {
+    business: response.data.business,
+    table: response.data.table,
+    menu: {
+      categories: response.data.menu.categories.map(mapGuestMenuTreeNode),
+      uncategorizedProducts: response.data.menu.uncategorizedProducts.map(mapBackendProductToProduct),
+    },
+  }
+}
+
 export async function createBusinessProduct(
   businessId: string,
   payload: {
     name: string
-    category: string
+    category?: string
+    menuCategoryId?: string
     description?: string
     price: number
     stock: number
@@ -643,6 +704,7 @@ export async function updateBusinessProduct(
   payload: {
     name?: string
     category?: string
+    menuCategoryId?: string
     description?: string | null
     price?: number
     stock?: number
@@ -680,6 +742,117 @@ export async function uploadBusinessProductImage(businessId: string, file: File)
   )
 
   return response.data.imageUrl
+}
+
+export type DiningTableRow = {
+  id: string
+  label: string
+  publicToken: string
+  isActive: boolean
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export async function fetchDiningTables(businessId: string): Promise<DiningTableRow[]> {
+  const response = await apiRequest<{ data: DiningTableRow[] }>(
+    `/businesses/${businessId}/dining-tables`,
+    { headers: { 'x-business-id': businessId } },
+  )
+  return response.data
+}
+
+export async function createDiningTable(
+  businessId: string,
+  body: { label: string; publicToken?: string; sortOrder?: number },
+): Promise<DiningTableRow> {
+  const response = await apiRequest<{ data: DiningTableRow }>(
+    `/businesses/${businessId}/dining-tables`,
+    {
+      method: 'POST',
+      headers: { 'x-business-id': businessId },
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export async function updateDiningTable(
+  businessId: string,
+  tableId: string,
+  body: { label?: string; publicToken?: string; isActive?: boolean; sortOrder?: number },
+): Promise<DiningTableRow> {
+  const response = await apiRequest<{ data: DiningTableRow }>(
+    `/businesses/${businessId}/dining-tables/${tableId}`,
+    {
+      method: 'PATCH',
+      headers: { 'x-business-id': businessId },
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export async function deleteDiningTable(businessId: string, tableId: string): Promise<void> {
+  await apiRequest<unknown>(`/businesses/${businessId}/dining-tables/${tableId}`, {
+    method: 'DELETE',
+    headers: { 'x-business-id': businessId },
+  })
+}
+
+export type MenuCategoryRow = {
+  id: string
+  name: string
+  parentId: string | null
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export async function fetchMenuCategories(businessId: string): Promise<MenuCategoryRow[]> {
+  const response = await apiRequest<{ data: MenuCategoryRow[] }>(
+    `/businesses/${businessId}/menu-categories`,
+    { headers: { 'x-business-id': businessId } },
+  )
+  return response.data
+}
+
+export async function createMenuCategory(
+  businessId: string,
+  body: { name: string; parentId?: string | null; sortOrder?: number },
+): Promise<MenuCategoryRow> {
+  const response = await apiRequest<{ data: MenuCategoryRow }>(
+    `/businesses/${businessId}/menu-categories`,
+    {
+      method: 'POST',
+      headers: { 'x-business-id': businessId },
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export async function updateMenuCategory(
+  businessId: string,
+  categoryId: string,
+  body: { name?: string; parentId?: string | null; sortOrder?: number },
+): Promise<MenuCategoryRow> {
+  const response = await apiRequest<{ data: MenuCategoryRow }>(
+    `/businesses/${businessId}/menu-categories/${categoryId}`,
+    {
+      method: 'PATCH',
+      headers: { 'x-business-id': businessId },
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export async function deleteMenuCategory(businessId: string, categoryId: string): Promise<void> {
+  await apiRequest<unknown>(`/businesses/${businessId}/menu-categories/${categoryId}`, {
+    method: 'DELETE',
+    headers: { 'x-business-id': businessId },
+  })
 }
 
 export type PublicProductPayload = {

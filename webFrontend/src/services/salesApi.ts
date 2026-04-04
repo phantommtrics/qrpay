@@ -69,6 +69,8 @@ export type SaleOrder = {
   total: number
   currency: string
   createdAt: string
+  diningTableId?: string | null
+  tableLabel?: string | null
   lines: SaleOrderLine[]
   payments?: SalePayment[]
   receipt?: { id: string; publicCode: string; receiptNumber: number } | null
@@ -91,11 +93,48 @@ export type SalePayment = {
   completedAt: string | null
 }
 
+export async function fetchSaleOrders(businessId: string): Promise<SaleOrder[]> {
+  const res = await apiRequest<{ data?: SaleOrder[] }>(`/businesses/${businessId}/orders`, {
+    method: 'GET',
+    businessId,
+  })
+  return Array.isArray(res?.data) ? res.data : []
+}
+
 export async function cancelSaleOrder(businessId: string, orderId: string): Promise<void> {
   await apiRequest<unknown>(`/businesses/${businessId}/orders/${orderId}/cancel`, {
     method: 'POST',
     businessId,
   })
+}
+
+/** Anonymous guest order from table QR (no auth). */
+export async function postPublicRestaurantOrder(
+  businessSlug: string,
+  tableToken: string,
+  lines: { productId: string; quantity: number }[],
+): Promise<SaleOrder> {
+  const path = `/public/restaurant/${encodeURIComponent(businessSlug)}/t/${encodeURIComponent(tableToken)}/orders`
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lines }),
+  })
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  const data = payload as { data: SaleOrder }
+  return data.data
 }
 
 export async function createSaleOrder(
