@@ -154,7 +154,7 @@ model PaymentGateway {
   description String?
   isEnabled   Boolean                @default(false)
   sortOrder   Int                    @default(0)
-  /** When set (e.g. wave_gambia), subscription checkout can open a hosted payment flow. */
+  /** When set (e.g. wave_gambia, yonna_wallet), subscription checkout can open a hosted payment flow. */
   checkoutAdapter String?
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt

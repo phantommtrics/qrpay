@@ -1819,12 +1819,13 @@ export async function paySubscriptionInvoice(businessId: string, invoiceId: stri
 export async function startSubscriptionInvoiceCheckout(
   businessId: string,
   invoiceId: string,
-  body: { gatewayCode: string; restrictPayerMobile?: string },
+  body: { gatewayCode: string; restrictPayerMobile?: string; payerPhone?: string },
 ) {
   const response = await apiRequest<{
     data: {
       sessionId: string
       launchUrl: string
+      paymentHtml?: string
       amount: number
       currency: string
       paymentStatus: string

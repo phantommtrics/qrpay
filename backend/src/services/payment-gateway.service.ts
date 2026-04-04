@@ -2,9 +2,11 @@ import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
 
 export const GATEWAY_CODE_WAVE_GAMBIA = "wave_gambia";
+export const GATEWAY_CODE_YONNA_WALLET = "yonna_wallet";
 
 /** Subscription checkout integrations (gateway.checkoutAdapter). */
 export const CHECKOUT_ADAPTER_WAVE_GAMBIA = "wave_gambia";
+export const CHECKOUT_ADAPTER_YONNA_WALLET = "yonna_wallet";
 
 const GATEWAY_CODE_PATTERN = /^[a-z][a-z0-9_]{0,62}$/;
 

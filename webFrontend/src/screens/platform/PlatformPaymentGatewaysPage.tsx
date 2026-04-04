@@ -20,6 +20,7 @@ const PAYMENT_GATEWAYS_MODULE = 'platform.payment_gateways'
 const CHECKOUT_ADAPTER_PRESETS: { value: string; label: string }[] = [
   { value: '', label: 'None — saved payment methods only' },
   { value: 'wave_gambia', label: 'Wave hosted checkout (Gambia)' },
+  { value: 'yonna_wallet', label: 'Yonna Wallet / Yonna Forex checkout' },
 ]
 
 function checkoutAdapterLabel(adapter: string | null) {
@@ -218,7 +219,14 @@ export function PlatformPaymentGatewaysPage() {
                 this UI). For example, the Wave Gambia adapter expects{' '}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">WAVE_CHECKOUT_BEARER</code>,{' '}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">WAVE_WEBHOOK_SECRET</code>, and{' '}
-                <code className="rounded bg-white px-1 py-0.5 text-xs">APP_PUBLIC_BASE_URL</code>.
+                <code className="rounded bg-white px-1 py-0.5 text-xs">APP_PUBLIC_BASE_URL</code>. The
+                Yonna Wallet adapter expects{' '}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">YONNA_FOREX_API_URL</code>,{' '}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">YONNA_FOREX_SECRET_KEY</code>,{' '}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">YONNA_FOREX_CLIENT_ID</code>, and
+                optionally{' '}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">YONNA_FOREX_WEBHOOK_SECRET</code>{' '}
+                for <code className="rounded bg-white px-1 py-0.5 text-xs">/api/webhooks/yonna-forex</code>.
               </p>
             </div>
           ) : null}

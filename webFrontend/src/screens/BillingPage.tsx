@@ -61,8 +61,11 @@ function planIdFromCode(code: BackendPlanCode): PlanId {
 
 const PLAN_OPTIONS: BackendPlanCode[] = ['BASIC', 'PRO', 'BUSINESS_PRO']
 
-type WaveCheckoutModalState = {
+const DEFAULT_YONNA_PHONE_PREFIX = '+220'
+
+type HostedCheckoutModalState = {
   launchUrl: string
+  paymentHtml?: string
   amount: number
   currency: string
   invoiceId: string
@@ -104,7 +107,10 @@ export function BillingPage() {
   const [targetPlanCode, setTargetPlanCode] = useState<BackendPlanCode>('BASIC')
   const [targetBillingInterval, setTargetBillingInterval] =
     useState<SubscriptionBillingInterval>('MONTHLY')
-  const [waveCheckoutModal, setWaveCheckoutModal] = useState<WaveCheckoutModalState | null>(null)
+  const [hostedCheckoutModal, setHostedCheckoutModal] = useState<HostedCheckoutModalState | null>(
+    null,
+  )
+  const [yonnaPayerPhone, setYonnaPayerPhone] = useState(DEFAULT_YONNA_PHONE_PREFIX)
   const [payInvoicePicker, setPayInvoicePicker] = useState<PayInvoicePickerState | null>(null)
   const [selectedPayMethodId, setSelectedPayMethodId] = useState<string | null>(null)
   const [checkoutPaidBanner, setCheckoutPaidBanner] = useState(false)
@@ -178,9 +184,29 @@ export function BillingPage() {
     void load()
   }, [load])
 
+  const selectedPayMethodCheckoutAdapter = useMemo(() => {
+    if (!selectedPayMethodId) {
+      return null
+    }
+    const m = methods.find((x) => x.id === selectedPayMethodId)
+    if (!m) {
+      return null
+    }
+    return gateways.find((g) => g.code === m.gateway.code)?.checkoutAdapter ?? null
+  }, [selectedPayMethodId, methods, gateways])
+
+  const needsYonnaPayerPhone = selectedPayMethodCheckoutAdapter === 'yonna_wallet'
+  const yonnaPhoneOk = !needsYonnaPayerPhone || yonnaPayerPhone.replace(/\s/g, '').length >= 8
+
   useEffect(() => {
     setCheckoutLinkCopied(false)
-  }, [waveCheckoutModal?.invoiceId])
+  }, [hostedCheckoutModal?.invoiceId])
+
+  useEffect(() => {
+    if (!payInvoicePicker) {
+      setYonnaPayerPhone(DEFAULT_YONNA_PHONE_PREFIX)
+    }
+  }, [payInvoicePicker])
 
   useEffect(() => {
     if (!payInvoicePicker) {
@@ -237,10 +263,10 @@ export function BillingPage() {
   loadRef.current = load
 
   useEffect(() => {
-    if (!waveCheckoutModal || !businessId) {
+    if (!hostedCheckoutModal || !businessId) {
       return
     }
-    const invoiceId = waveCheckoutModal.invoiceId
+    const invoiceId = hostedCheckoutModal.invoiceId
     const t = window.setInterval(() => {
       void (async () => {
         try {
@@ -248,7 +274,7 @@ export function BillingPage() {
           const inv = env.currentSubscription?.invoices?.find((i) => i.id === invoiceId)
           if (inv?.status === 'PAID') {
             window.clearInterval(t)
-            setWaveCheckoutModal(null)
+            setHostedCheckoutModal(null)
             setCheckoutPaidBanner(true)
             await loadRef.current({ silent: true })
             await refreshBusinessSubscriptionSnapshot(businessId)
@@ -259,13 +285,14 @@ export function BillingPage() {
       })()
     }, 2000)
     return () => window.clearInterval(t)
-  }, [waveCheckoutModal, businessId, refreshBusinessSubscriptionSnapshot])
+  }, [hostedCheckoutModal, businessId, refreshBusinessSubscriptionSnapshot])
 
   const startCheckoutForMethod = async (
     invoiceId: string,
     gatewayCode: string,
     gatewayName: string,
     paymentMethodLabel?: string,
+    payerPhone?: string,
   ) => {
     if (!businessId) {
       return
@@ -275,10 +302,12 @@ export function BillingPage() {
     try {
       const data = await startSubscriptionInvoiceCheckout(businessId, invoiceId, {
         gatewayCode,
+        ...(payerPhone?.trim() ? { payerPhone: payerPhone.trim() } : {}),
       })
       setPayInvoicePicker(null)
-      setWaveCheckoutModal({
-        launchUrl: data.launchUrl,
+      setHostedCheckoutModal({
+        launchUrl: data.launchUrl ?? '',
+        paymentHtml: data.paymentHtml,
         amount: data.amount,
         currency: data.currency,
         invoiceId,
@@ -305,6 +334,7 @@ export function BillingPage() {
       method.gateway.code,
       method.gateway.name,
       method.label,
+      needsYonnaPayerPhone ? yonnaPayerPhone : undefined,
     )
   }
 
@@ -882,6 +912,24 @@ export function BillingPage() {
                     })}
                   </div>
                 )}
+                {needsYonnaPayerPhone ? (
+                  <div className="mt-4">
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Yonna wallet phone
+                    </label>
+                    <input
+                      type="tel"
+                      autoComplete="tel"
+                      placeholder="e.g. +2207XXXXXXX"
+                      value={yonnaPayerPhone}
+                      onChange={(e) => setYonnaPayerPhone(e.target.value)}
+                      className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none ring-teal-500 focus:ring-2"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      The number registered on the Yonna wallet that will pay this invoice.
+                    </p>
+                  </div>
+                ) : null}
                 <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                   <button
                     type="button"
@@ -895,6 +943,7 @@ export function BillingPage() {
                     disabled={
                       !selectedPayMethodId ||
                       methodsEligibleForInvoicePay.length === 0 ||
+                      !yonnaPhoneOk ||
                       checkoutLoadingKey === `pay:${payInvoicePicker.invoiceId}`
                     }
                     onClick={() => void handleProceedPayInvoice()}
@@ -914,108 +963,192 @@ export function BillingPage() {
             </CenteredModal>
           </div>
         ) : null}
-        {waveCheckoutModal ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        {hostedCheckoutModal ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
             <ModalOverlay
               className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
-              onClick={() => setWaveCheckoutModal(null)}
+              onClick={() => setHostedCheckoutModal(null)}
             />
-            <CenteredModal className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
-              <div className="relative flex flex-col items-center p-8 text-center">
+            <CenteredModal
+              className={`relative z-10 w-full overflow-hidden rounded-2xl bg-white shadow-2xl ${
+                hostedCheckoutModal.paymentHtml ? 'max-w-xl' : 'max-w-md'
+              }`}
+            >
+              <div
+                className={`relative flex max-h-[92vh] flex-col overflow-y-auto ${
+                  hostedCheckoutModal.paymentHtml
+                    ? 'p-5 sm:p-6'
+                    : 'items-center p-8 text-center'
+                }`}
+              >
                 <button
                   type="button"
-                  onClick={() => setWaveCheckoutModal(null)}
-                  className="absolute right-4 top-4 rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  onClick={() => setHostedCheckoutModal(null)}
+                  className="absolute right-3 top-3 z-10 rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 sm:right-4 sm:top-4"
                   aria-label="Close"
                 >
                   <X className="h-5 w-5" />
                 </button>
-                <h2 className="mb-1 text-2xl font-bold text-slate-900">
-                  Pay with {waveCheckoutModal.gatewayName}
-                </h2>
-                {waveCheckoutModal.paymentMethodLabel ? (
-                  <p className="mb-2 text-sm font-medium text-slate-600">
-                    {waveCheckoutModal.paymentMethodLabel}
-                  </p>
-                ) : null}
-                <p className="mb-6 max-w-sm text-sm text-slate-500">
-                  Scan the QR with the Wave app, or use the payment link below if you prefer. This
-                  page stays open—we refresh automatically when payment succeeds.
-                </p>
-                <div className="relative mb-6 rounded-2xl border-2 border-slate-100 bg-white p-4 shadow-inner">
-                  <div className="bg-white p-2">
-                    <QRCode value={waveCheckoutModal.launchUrl} size={220} level="M" />
-                  </div>
-                </div>
-                <div className="mb-6 w-full text-left">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Payment link
-                  </p>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                    <input
-                      readOnly
-                      value={waveCheckoutModal.launchUrl}
-                      onFocus={(e) => e.currentTarget.select()}
-                      onClick={(e) => e.currentTarget.select()}
-                      className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-800 outline-none ring-teal-500 focus:ring-2"
-                      aria-label="Payment URL"
-                    />
-                    <div className="flex shrink-0 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void (async () => {
-                            try {
-                              await navigator.clipboard.writeText(waveCheckoutModal.launchUrl)
-                              setCheckoutLinkCopied(true)
-                              window.setTimeout(() => setCheckoutLinkCopied(false), 2000)
-                            } catch {
-                              setError('Could not copy link. Select the field and copy manually.')
-                            }
-                          })()
-                        }}
-                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 sm:flex-none"
-                      >
-                        {checkoutLinkCopied ? (
-                          <>
-                            <Check className="h-4 w-4 text-emerald-600" />
-                            Copied
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="h-4 w-4" />
-                            Copy
-                          </>
-                        )}
-                      </button>
-                      <a
-                        href={waveCheckoutModal.launchUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500 sm:flex-none"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                        Open
-                      </a>
+
+                {hostedCheckoutModal.paymentHtml ? (
+                  <>
+                    <div className="mb-4 w-full pr-10 text-center sm:pr-12">
+                      <h2 className="text-xl font-bold text-slate-900 sm:text-2xl">
+                        Pay with {hostedCheckoutModal.gatewayName}
+                      </h2>
+                      {hostedCheckoutModal.paymentMethodLabel ? (
+                        <p className="mt-1 text-sm font-medium text-slate-600">
+                          {hostedCheckoutModal.paymentMethodLabel}
+                        </p>
+                      ) : null}
                     </div>
-                  </div>
-                </div>
-                <div className="mb-6 w-full rounded-xl bg-slate-50 p-4">
-                  <p className="mb-1 text-sm text-slate-500">Amount due</p>
-                  <p className="text-2xl font-bold text-teal-600">
-                    {formatCheckoutAmount(waveCheckoutModal.amount, waveCheckoutModal.currency)}
-                  </p>
-                </div>
-                <p className="text-xs text-slate-400">
-                  The QR and link both open the same Wave checkout for this invoice only.
-                </p>
+
+                    <div className="mb-4 w-full rounded-xl border border-teal-100 bg-gradient-to-br from-teal-50/90 to-white px-4 py-3 text-center shadow-sm">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-800/70">
+                        Amount due
+                      </p>
+                      <p className="text-2xl font-bold text-teal-700">
+                        {formatCheckoutAmount(
+                          hostedCheckoutModal.amount,
+                          hostedCheckoutModal.currency,
+                        )}
+                      </p>
+                    </div>
+
+                    <p className="mb-3 text-center text-sm leading-relaxed text-slate-600">
+                      Use the Yonna checkout below. Leave this window open—we refresh automatically
+                      when payment succeeds.
+                    </p>
+
+                    <div className="w-full overflow-hidden rounded-2xl border border-slate-200/90 bg-slate-100 shadow-[0_12px_40px_-12px_rgba(15,23,42,0.35)] ring-1 ring-slate-900/[0.06]">
+                      <div className="flex items-center gap-2.5 border-b border-slate-200/80 bg-white px-4 py-2.5">
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.25)]"
+                          aria-hidden
+                        />
+                        <span className="text-xs font-semibold text-slate-700">Yonna wallet</span>
+                        <span className="ml-auto text-[11px] font-medium text-slate-400">
+                          Secure checkout
+                        </span>
+                      </div>
+                      <iframe
+                        title="Yonna wallet checkout"
+                        className="block h-[min(640px,70vh)] min-h-[440px] w-full border-0 bg-white"
+                        sandbox="allow-scripts allow-forms allow-same-origin allow-popups"
+                        srcDoc={hostedCheckoutModal.paymentHtml}
+                      />
+                    </div>
+
+                    <p className="mt-4 text-center text-xs leading-relaxed text-slate-400">
+                      No separate payment link is needed—the embedded page is your checkout. You can
+                      close this dialog after paying; we still record the payment when Yonna
+                      confirms it.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="mb-1 text-2xl font-bold text-slate-900">
+                      Pay with {hostedCheckoutModal.gatewayName}
+                    </h2>
+                    {hostedCheckoutModal.paymentMethodLabel ? (
+                      <p className="mb-2 text-sm font-medium text-slate-600">
+                        {hostedCheckoutModal.paymentMethodLabel}
+                      </p>
+                    ) : null}
+                    <p className="mb-6 max-w-sm text-sm text-slate-500">
+                      {hostedCheckoutModal.launchUrl
+                        ? 'Scan the QR with your wallet app, or use the payment link below. This page stays open—we refresh automatically when payment succeeds.'
+                        : 'Follow your wallet instructions. This page stays open—we refresh automatically when payment succeeds.'}
+                    </p>
+                    {hostedCheckoutModal.launchUrl ? (
+                      <div className="relative mb-6 rounded-2xl border-2 border-slate-100 bg-white p-4 shadow-inner">
+                        <div className="bg-white p-2">
+                          <QRCode value={hostedCheckoutModal.launchUrl} size={220} level="M" />
+                        </div>
+                      </div>
+                    ) : null}
+                    {hostedCheckoutModal.launchUrl ? (
+                      <div className="mb-6 w-full text-left">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Payment link
+                        </p>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+                          <input
+                            readOnly
+                            value={hostedCheckoutModal.launchUrl}
+                            onFocus={(e) => e.currentTarget.select()}
+                            onClick={(e) => e.currentTarget.select()}
+                            className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-800 outline-none ring-teal-500 focus:ring-2"
+                            aria-label="Payment URL"
+                          />
+                          <div className="flex shrink-0 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void (async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(hostedCheckoutModal.launchUrl)
+                                    setCheckoutLinkCopied(true)
+                                    window.setTimeout(() => setCheckoutLinkCopied(false), 2000)
+                                  } catch {
+                                    setError(
+                                      'Could not copy link. Select the field and copy manually.',
+                                    )
+                                  }
+                                })()
+                              }}
+                              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 sm:flex-none"
+                            >
+                              {checkoutLinkCopied ? (
+                                <>
+                                  <Check className="h-4 w-4 text-emerald-600" />
+                                  Copied
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="h-4 w-4" />
+                                  Copy
+                                </>
+                              )}
+                            </button>
+                            <a
+                              href={hostedCheckoutModal.launchUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500 sm:flex-none"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                              Open
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="mb-6 w-full rounded-xl bg-slate-50 p-4">
+                      <p className="mb-1 text-sm text-slate-500">Amount due</p>
+                      <p className="text-2xl font-bold text-teal-600">
+                        {formatCheckoutAmount(
+                          hostedCheckoutModal.amount,
+                          hostedCheckoutModal.currency,
+                        )}
+                      </p>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Checkout is tied to this invoice only. You can close this dialog after paying;
+                      we still record the payment when the provider confirms it.
+                    </p>
+                  </>
+                )}
+
                 <motion.div
-                  className="mt-4 flex items-center gap-2 text-xs text-slate-500"
+                  className={`mt-4 flex items-center gap-2 text-xs text-slate-500 ${
+                    hostedCheckoutModal.paymentHtml ? 'justify-center' : ''
+                  }`}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.3 }}
                 >
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-teal-600" />
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-teal-600" />
                   Waiting for payment confirmation…
                 </motion.div>
               </div>

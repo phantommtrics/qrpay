@@ -44,8 +44,9 @@ import {
   startSubscription,
   updatePlanPricing,
 } from "./services/subscription.service.js";
-import { createSubscriptionInvoiceCheckout } from "./services/subscription-wave-checkout.service.js";
+import { createSubscriptionInvoiceCheckout } from "./services/subscription-invoice-checkout.service.js";
 import { processWaveSubscriptionWebhook } from "./services/wave-subscription-webhook.service.js";
+import { processYonnaSubscriptionWebhook } from "./services/yonna-subscription-webhook.service.js";
 import {
   createPaymentGateway,
   deletePaymentGateway,
@@ -239,6 +240,29 @@ app.post(
         return;
       }
       console.error("Wave webhook:", error);
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/webhooks/yonna-forex",
+  express.json({ type: "application/json", limit: "512kb" }),
+  async (request, response, next) => {
+    try {
+      const signatureHeader =
+        (request.headers["x-yonna-signature"] as string) ||
+        (request.headers["X-Yonna-Signature"] as string) ||
+        undefined;
+      await processYonnaSubscriptionWebhook(request.body, signatureHeader);
+      response.status(200).json({ ok: true });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "Invalid Yonna webhook signature" || message === "Missing appTransactionId or status") {
+        response.status(400).json({ error: message });
+        return;
+      }
+      console.error("Yonna Forex webhook:", error);
       next(error);
     }
   },
@@ -464,6 +488,7 @@ const changeSubscriptionPlanBodySchema = z.object({
 const subscriptionCheckoutBodySchema = z.object({
   gatewayCode: z.string().min(1),
   restrictPayerMobile: z.string().optional(),
+  payerPhone: z.string().optional(),
 });
 
 const addBusinessPaymentMethodBodySchema = z.object({
@@ -3044,6 +3069,7 @@ app.post(
         businessId: businessId as string,
         userId: req.user!.id,
         restrictPayerMobile: body.restrictPayerMobile,
+        payerPhone: body.payerPhone,
         req,
       });
       res.json({ data });

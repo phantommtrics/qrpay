@@ -178,6 +178,23 @@ async function main() {
     },
   });
 
+  await prisma.paymentGateway.upsert({
+    where: { code: "yonna_wallet" },
+    create: {
+      code: "yonna_wallet",
+      name: "Yonna Wallet",
+      description: "Yonna Forex wallet checkout for subscription invoices",
+      isEnabled: false,
+      sortOrder: 11,
+      checkoutAdapter: "yonna_wallet",
+    },
+    update: {
+      name: "Yonna Wallet",
+      description: "Yonna Forex wallet checkout for subscription invoices",
+      checkoutAdapter: "yonna_wallet",
+    },
+  });
+
   const platformOwnerEmailRaw = process.env.PLATFORM_OWNER_EMAIL?.trim().toLowerCase();
   const platformOwnerEmail =
     platformOwnerEmailRaw && platformOwnerEmailRaw.length > 0

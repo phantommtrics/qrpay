@@ -1,0 +1,224 @@
+import { InvoiceStatus } from "@prisma/client";
+import type { Request } from "express";
+
+import { prisma } from "../lib/prisma.js";
+import { HttpError } from "../lib/http-error.js";
+import {
+  cancelPendingInvoicePaymentLedgers,
+  createPendingInvoicePaymentLedger,
+} from "./billing-ledger.service.js";
+import { WavePaymentService } from "./wave-payment.service.js";
+import { YonnaForexPaymentService } from "./yonna-forex-payment.service.js";
+import {
+  CHECKOUT_ADAPTER_WAVE_GAMBIA,
+  CHECKOUT_ADAPTER_YONNA_WALLET,
+  getPaymentGatewayByCode,
+} from "./payment-gateway.service.js";
+
+function waveServiceFromEnv(): WavePaymentService {
+  const baseUrl = process.env.WAVE_API_BASE_URL || "https://api.wave.com";
+  const bearer = process.env.WAVE_CHECKOUT_BEARER;
+  if (!bearer) {
+    throw new HttpError(503, "Online checkout is not configured (WAVE_CHECKOUT_BEARER).");
+  }
+  return new WavePaymentService({ baseUrl, bearerToken: bearer });
+}
+
+function yonnaServiceFromEnv(): YonnaForexPaymentService {
+  const baseUrl = (process.env.YONNA_FOREX_API_URL || "").trim().replace(/\/+$/, "");
+  const secretKey = (process.env.YONNA_FOREX_SECRET_KEY || "").trim();
+  const clientId = (process.env.YONNA_FOREX_CLIENT_ID || "").trim();
+  if (!baseUrl || !secretKey || !clientId) {
+    throw new HttpError(
+      503,
+      "Online checkout is not configured (YONNA_FOREX_API_URL, YONNA_FOREX_SECRET_KEY, YONNA_FOREX_CLIENT_ID).",
+    );
+  }
+  return new YonnaForexPaymentService({ baseUrl, secretKey, clientId });
+}
+
+function publicAppBase(req: Request): string {
+  const rawBase =
+    process.env.APP_PUBLIC_BASE_URL ||
+    (req.headers.origin as string) ||
+    process.env.CLIENT_BASE_URL ||
+    process.env.WEB_APP_URL ||
+    process.env.FRONTEND_BASE_URL ||
+    "";
+  let appBase = rawBase ? rawBase.replace(/\/$/, "") : "";
+  if (appBase.startsWith("http://")) {
+    appBase = appBase.replace("http://", "https://");
+  }
+  if (!appBase || !appBase.startsWith("https://")) {
+    throw new HttpError(
+      500,
+      "APP_PUBLIC_BASE_URL must be set to a public HTTPS origin for payment return URLs.",
+    );
+  }
+  return appBase;
+}
+
+export async function createSubscriptionInvoiceCheckout(input: {
+  gatewayCode: string;
+  invoiceId: string;
+  businessId: string;
+  userId: string;
+  restrictPayerMobile?: string;
+  /** Required when paying with Yonna wallet (no phone on User model). */
+  payerPhone?: string;
+  req: Request;
+}) {
+  const code = input.gatewayCode.trim().toLowerCase();
+  const gateway = await getPaymentGatewayByCode(code);
+  if (!gateway || !gateway.isEnabled) {
+    throw new HttpError(400, "This payment gateway is not available.");
+  }
+
+  const adapter = gateway.checkoutAdapter?.trim() || "";
+  if (adapter !== CHECKOUT_ADAPTER_WAVE_GAMBIA && adapter !== CHECKOUT_ADAPTER_YONNA_WALLET) {
+    throw new HttpError(
+      400,
+      "Online checkout is not available for this gateway yet. Add it as a payment method or pay by arrangement.",
+    );
+  }
+
+  const membership = await prisma.businessMembership.findFirst({
+    where: { userId: input.userId, businessId: input.businessId },
+  });
+  const user = await prisma.user.findUnique({ where: { id: input.userId } });
+  const isPlatform = user?.role === "PLATFORM_OWNER" || user?.role === "PLATFORM_ADMIN";
+  if (!membership?.isOwner && !isPlatform) {
+    throw new HttpError(403, "Only the business owner can pay subscription invoices.");
+  }
+
+  const invoice = await prisma.subscriptionInvoice.findFirst({
+    where: {
+      id: input.invoiceId,
+      businessId: input.businessId,
+    },
+    include: { plan: true, subscription: true },
+  });
+
+  if (!invoice) {
+    throw new HttpError(404, "Invoice not found.");
+  }
+
+  if (invoice.status !== InvoiceStatus.PENDING) {
+    throw new HttpError(400, "Only pending invoices can be paid.");
+  }
+
+  const amount = Number(invoice.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new HttpError(400, "Invalid invoice amount.");
+  }
+
+  if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
+    const appBase = publicAppBase(input.req);
+    const successUrl = `${appBase}/billing/wave/success?invoiceId=${encodeURIComponent(invoice.id)}`;
+    const errorUrl = `${appBase}/billing/wave/cancel?invoiceId=${encodeURIComponent(invoice.id)}`;
+
+    const wave = waveServiceFromEnv();
+    const session = await wave.createCheckoutSession({
+      amount: String(Math.round(amount)),
+      currency: (invoice.currency || "GMD").toUpperCase(),
+      success_url: successUrl,
+      error_url: errorUrl,
+      client_reference: invoice.id,
+      ...(input.restrictPayerMobile
+        ? { restrict_payer_mobile: String(input.restrictPayerMobile) }
+        : {}),
+    });
+
+    await prisma.$transaction(async (tx) => {
+      await cancelPendingInvoicePaymentLedgers(tx, invoice.id);
+      await tx.subscriptionInvoice.update({
+        where: { id: invoice.id },
+        data: {
+          checkoutSessionId: session.id,
+          checkoutProvider: CHECKOUT_ADAPTER_WAVE_GAMBIA,
+        },
+      });
+      await createPendingInvoicePaymentLedger(tx, {
+        businessId: invoice.businessId,
+        subscriptionId: invoice.subscriptionId,
+        subscriptionInvoiceId: invoice.id,
+        amount: invoice.amount,
+        currency: invoice.currency || "GMD",
+        provider: CHECKOUT_ADAPTER_WAVE_GAMBIA,
+        providerCheckoutSessionId: session.id,
+        metadata: { waveCheckoutSessionId: session.id },
+      });
+    });
+
+    return {
+      sessionId: session.id,
+      launchUrl: session.wave_launch_url,
+      amount: Number(session.amount),
+      currency: session.currency,
+      paymentStatus: session.payment_status,
+      checkoutStatus: session.checkout_status,
+      gatewayCode: gateway.code,
+    };
+  }
+
+  const payerPhone = input.payerPhone?.trim();
+  if (!payerPhone) {
+    throw new HttpError(400, "Wallet phone number is required for Yonna checkout.");
+  }
+
+  const countryCode = (process.env.YONNA_FOREX_COUNTRY_CODE || "+220").trim();
+  const currencyCode = (invoice.currency || "GMD").toUpperCase();
+  const yonna = yonnaServiceFromEnv();
+  const finalTransactionId = yonna.generateTransactionId();
+
+  const result = await yonna.processPayment({
+    amount,
+    phone: payerPhone,
+    currency: currencyCode,
+    fee: 0,
+    transactionId: finalTransactionId,
+    countryCode,
+    appTransactionId: invoice.id,
+    description: `Subscription invoice ${invoice.id}`,
+  });
+
+  if (!result.success) {
+    throw new HttpError(400, result.error || result.message || "Yonna checkout failed.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await cancelPendingInvoicePaymentLedgers(tx, invoice.id);
+    await tx.subscriptionInvoice.update({
+      where: { id: invoice.id },
+      data: {
+        checkoutSessionId: finalTransactionId,
+        checkoutProvider: CHECKOUT_ADAPTER_YONNA_WALLET,
+      },
+    });
+    await createPendingInvoicePaymentLedger(tx, {
+      businessId: invoice.businessId,
+      subscriptionId: invoice.subscriptionId,
+      subscriptionInvoiceId: invoice.id,
+      amount: invoice.amount,
+      currency: invoice.currency || "GMD",
+      provider: CHECKOUT_ADAPTER_YONNA_WALLET,
+      providerCheckoutSessionId: finalTransactionId,
+      metadata: {
+        yonnaTransactionId: finalTransactionId,
+        appTransactionId: invoice.id,
+      },
+    });
+  });
+
+  return {
+    sessionId: finalTransactionId,
+    // HTML checkout is the supported UX; omit deeplink from API when embed is present.
+    launchUrl: result.paymentHtml ? "" : (result.paymentUrl ?? ""),
+    paymentHtml: result.paymentHtml,
+    amount,
+    currency: currencyCode,
+    paymentStatus: result.status,
+    checkoutStatus: "open",
+    gatewayCode: gateway.code,
+  };
+}
