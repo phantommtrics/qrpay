@@ -361,20 +361,11 @@ export async function changeSubscriptionPlan(input: {
       throw new HttpError(400, "Already on this plan and billing cycle.");
     }
 
-    if (intervalRequested && sub.status !== SubscriptionStatus.TRIALING) {
-      throw new HttpError(
-        400,
-        "Billing interval can only be changed while the subscription is in trial.",
-      );
-    }
-
     await tx.subscription.update({
       where: { id: sub.id },
       data: {
         planId: newPlan.id,
-        ...(sub.status === SubscriptionStatus.TRIALING && input.billingInterval !== undefined
-          ? { billingInterval: input.billingInterval }
-          : {}),
+        ...(input.billingInterval !== undefined ? { billingInterval: input.billingInterval } : {}),
       },
     });
 

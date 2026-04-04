@@ -248,13 +248,12 @@ export function BillingPage() {
   }, [selectedGatewayCode, gateways, newLabel])
 
   useEffect(() => {
-    if (subscription?.plan?.code) {
-      setTargetPlanCode(subscription.plan.code)
+    if (!subscription) {
+      return
     }
-    if (subscription?.billingInterval) {
-      setTargetBillingInterval(subscription.billingInterval)
-    }
-  }, [subscription?.plan?.code, subscription?.billingInterval])
+    setTargetPlanCode(subscription.plan.code)
+    setTargetBillingInterval(subscription.billingInterval ?? 'MONTHLY')
+  }, [subscription?.id, subscription?.plan?.code, subscription?.billingInterval])
 
   const pendingInvoices: BackendInvoice[] =
     subscription?.invoices?.filter((i) => i.status === 'PENDING') ?? []
@@ -412,7 +411,7 @@ export function BillingPage() {
     try {
       await changeBusinessSubscriptionPlan(businessId, {
         planCode: targetPlanCode,
-        ...(subscription.status === 'TRIALING' ? { billingInterval: targetBillingInterval } : {}),
+        billingInterval: targetBillingInterval,
       })
       await load()
       await refreshBusinessSubscriptionSnapshot(businessId)
@@ -427,8 +426,7 @@ export function BillingPage() {
     !subscription ||
     !isOwner ||
     (subscription.plan.code === targetPlanCode &&
-      (subscription.status !== 'TRIALING' ||
-        subscription.billingInterval === targetBillingInterval))
+      (subscription.billingInterval ?? 'MONTHLY') === targetBillingInterval)
 
   if (!businessId) {
     return (
@@ -555,9 +553,9 @@ export function BillingPage() {
                 <h3 className="text-sm font-semibold">Change plan</h3>
               </div>
               <p className="mt-1 text-xs text-slate-600">
-                Switching plans issues a new invoice for the full plan price; your period end date
-                stays the same until renewal. Billing cycle (monthly/yearly) can only be changed
-                during trial.
+                Upgrade or change plan anytime. You can also switch between monthly and yearly
+                billing—pending invoices are voided and a new invoice is issued for the selected
+                plan and cycle. Your current period end date stays the same until renewal.
               </p>
 
               <div className="mx-auto mt-5 w-full max-w-md space-y-3">
@@ -569,10 +567,8 @@ export function BillingPage() {
                   const name = meta?.name ?? code
                   const isCurrent = subscription.plan.code === code
                   const isSelected = targetPlanCode === code
-                  const showYearly =
-                    subscription.status === 'TRIALING'
-                      ? targetBillingInterval === 'YEARLY'
-                      : subscription.billingInterval === 'YEARLY'
+                  const effectiveBillingInterval = targetBillingInterval
+                  const showYearly = effectiveBillingInterval === 'YEARLY'
                   const priceLine = meta
                     ? showYearly
                       ? `${formatGmd(meta.yearlyPrice)} / year`
@@ -611,30 +607,28 @@ export function BillingPage() {
                 })}
               </div>
 
-              {subscription.status === 'TRIALING' ? (
-                <div className="mx-auto mt-5 w-full max-w-md">
-                  <p className="text-center text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Billing cycle
-                  </p>
-                  <div className="mt-2 flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
-                    {(['MONTHLY', 'YEARLY'] as const).map((iv) => (
-                      <button
-                        key={iv}
-                        type="button"
-                        onClick={() => setTargetBillingInterval(iv)}
-                        className={[
-                          'flex-1 rounded-lg py-2.5 text-sm font-semibold transition',
-                          targetBillingInterval === iv
-                            ? 'bg-teal-600 text-white shadow-sm'
-                            : 'text-slate-600 hover:bg-slate-50',
-                        ].join(' ')}
-                      >
-                        {iv === 'YEARLY' ? 'Yearly' : 'Monthly'}
-                      </button>
-                    ))}
-                  </div>
+              <div className="mx-auto mt-5 w-full max-w-md">
+                <p className="text-center text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Billing cycle
+                </p>
+                <div className="mt-2 flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+                  {(['MONTHLY', 'YEARLY'] as const).map((iv) => (
+                    <button
+                      key={iv}
+                      type="button"
+                      onClick={() => setTargetBillingInterval(iv)}
+                      className={[
+                        'flex-1 rounded-lg py-2.5 text-sm font-semibold transition',
+                        targetBillingInterval === iv
+                          ? 'bg-teal-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:bg-slate-50',
+                      ].join(' ')}
+                    >
+                      {iv === 'YEARLY' ? 'Yearly' : 'Monthly'}
+                    </button>
+                  ))}
                 </div>
-              ) : null}
+              </div>
 
               <div className="mx-auto mt-6 w-full max-w-md">
                 <button
