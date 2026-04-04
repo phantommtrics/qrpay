@@ -269,6 +269,8 @@ export async function createOrder(input: {
   businessId: string;
   userId: string | null;
   lines: { productId: string; quantity: number }[];
+  diningTableId?: string | null;
+  tableLabelSnapshot?: string | null;
 }) {
   if (input.lines.length === 0) {
     throw new HttpError(400, "Cart cannot be empty.");
@@ -341,6 +343,8 @@ export async function createOrder(input: {
           total: subtotal,
           currency: "GMD",
           createdByUserId: input.userId ?? undefined,
+          diningTableId: input.diningTableId ?? undefined,
+          tableLabelSnapshot: input.tableLabelSnapshot?.trim() || null,
           lines: {
             create: lineCreates,
           },
@@ -361,6 +365,22 @@ export async function getOrderForBusiness(orderId: string, businessId: string) {
         orderBy: { createdAt: "desc" },
       },
       receipt: true,
+      diningTable: { select: { id: true, label: true, publicToken: true } },
+    },
+  });
+}
+
+const LIST_ORDERS_MAX = 500;
+
+export async function listOrdersForBusiness(businessId: string, options?: { limit?: number }) {
+  const take = Math.min(Math.max(options?.limit ?? 100, 1), LIST_ORDERS_MAX);
+  return prisma.order.findMany({
+    where: { businessId },
+    orderBy: { createdAt: "desc" },
+    take,
+    include: {
+      lines: true,
+      diningTable: { select: { id: true, label: true, publicToken: true } },
     },
   });
 }

@@ -16,6 +16,7 @@ import {
 import multer from "multer";
 import { z } from "zod";
 import { prisma } from "./lib/prisma.js";
+import { allowPublicRestaurantOrder } from "./lib/public-rate-limit.js";
 import { isDevSubscriptionInvoicePayAllowed } from "./config/dev-billing.js";
 import {
   changePassword,
@@ -60,12 +61,29 @@ import {
   listBusinessPaymentMethods,
 } from "./services/business-payment-method.service.js";
 import {
+  createDiningTable,
+  deleteDiningTable,
+  listDiningTables,
+  updateDiningTable,
+} from "./services/dining-table.service.js";
+import {
+  createMenuCategory,
+  deleteMenuCategory,
+  listMenuCategoriesFlat,
+  updateMenuCategory,
+} from "./services/menu-category.service.js";
+import {
   createProduct,
   getPublicBusinessMenu,
   getPublicProductById,
   listProductsForBusiness,
   updateProduct,
 } from "./services/product.service.js";
+import {
+  createRestaurantGuestOrder,
+  getRestaurantGuestMenuPayload,
+  type MenuTreeNode,
+} from "./services/restaurant-public.service.js";
 import {
   getBusinessNavigationMenu,
   getEffectiveEntitlementSlugs,
@@ -110,6 +128,7 @@ import {
   completeWalletPaymentForOrder,
   createOrder,
   getOrderForBusiness,
+  listOrdersForBusiness,
   getPublicPayInfo,
   getReceiptForBusiness,
   isSimulatorPublicPayEnabled,
@@ -332,29 +351,72 @@ const simulatorWebhookBodySchema = z.object({
   externalEventId: z.string().min(1).optional(),
 });
 
-const createProductSchema = z.object({
-  name: z.string().min(1),
-  category: z.string().min(1),
-  description: z.string().optional(),
-  price: z.coerce.number().positive(),
-  stock: z.coerce.number().int().min(0),
-  barcodeValue: z.string().optional(),
-  qrUrl: z.string().url().optional(),
-  imageUrl: z.string().url().max(2048).optional(),
-  imageColor: z.string().optional(),
-  imageEmoji: z.string().optional(),
-});
+const createProductSchema = z
+  .object({
+    name: z.string().min(1),
+    category: z.string().min(1).optional(),
+    menuCategoryId: z.string().min(1).optional(),
+    description: z.string().optional(),
+    price: z.coerce.number().positive(),
+    stock: z.coerce.number().int().min(0),
+    barcodeValue: z.string().optional(),
+    qrUrl: z.string().url().optional(),
+    imageUrl: z.string().url().max(2048).optional(),
+    imageColor: z.string().optional(),
+    imageEmoji: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const hasMenu = Boolean(data.menuCategoryId?.trim());
+    const hasCat = Boolean(data.category?.trim());
+    if (!hasMenu && !hasCat) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide category (retail/wholesale) or menuCategoryId (restaurant).",
+        path: ["category"],
+      });
+    }
+  });
 
 const updateProductSchema = z
   .object({
     name: z.string().min(1).optional(),
     category: z.string().min(1).optional(),
+    menuCategoryId: z.string().min(1).optional(),
     description: z.union([z.string(), z.null()]).optional(),
     price: z.coerce.number().positive().optional(),
     stock: z.coerce.number().int().min(0).optional(),
     imageUrl: z.union([z.string().url().max(2048), z.null()]).optional(),
     imageColor: z.string().optional(),
     imageEmoji: z.string().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, { message: "At least one field is required." });
+
+const diningTableCreateSchema = z.object({
+  label: z.string().min(1),
+  publicToken: z.string().min(4).max(64).regex(/^[a-zA-Z0-9_-]+$/).optional(),
+  sortOrder: z.coerce.number().int().optional(),
+});
+
+const diningTablePatchSchema = z
+  .object({
+    label: z.string().min(1).optional(),
+    publicToken: z.string().min(4).max(64).regex(/^[a-zA-Z0-9_-]+$/).optional(),
+    isActive: z.boolean().optional(),
+    sortOrder: z.coerce.number().int().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, { message: "At least one field is required." });
+
+const menuCategoryCreateSchema = z.object({
+  name: z.string().min(1),
+  parentId: z.union([z.string().min(1), z.null()]).optional(),
+  sortOrder: z.coerce.number().int().optional(),
+});
+
+const menuCategoryPatchSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    parentId: z.union([z.string().min(1), z.null()]).optional(),
+    sortOrder: z.coerce.number().int().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: "At least one field is required." });
 
@@ -2168,7 +2230,8 @@ app.post(
     const product = await createProduct({
       businessId: businessId as string,
       name: payload.name,
-      category: payload.category,
+      category: payload.category ?? "",
+      menuCategoryId: payload.menuCategoryId,
       description: payload.description,
       price: payload.price,
       stock: payload.stock,
@@ -2220,6 +2283,255 @@ app.patch(
   },
 );
 
+app.get(
+  "/api/businesses/:businessId/dining-tables",
+  authenticateToken,
+  requireEntitlement("products.view"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const tables = await listDiningTables(businessId as string);
+      res.json({
+        data: tables.map((t) => ({
+          id: t.id,
+          label: t.label,
+          publicToken: t.publicToken,
+          isActive: t.isActive,
+          sortOrder: t.sortOrder,
+          createdAt: t.createdAt.toISOString(),
+          updatedAt: t.updatedAt.toISOString(),
+        })),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/dining-tables",
+  authenticateToken,
+  requireEntitlement("products.create"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const body = diningTableCreateSchema.parse(req.body);
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const created = await createDiningTable({
+        businessId: businessId as string,
+        label: body.label,
+        publicToken: body.publicToken,
+        sortOrder: body.sortOrder,
+      });
+      res.status(201).json({
+        data: {
+          id: created.id,
+          label: created.label,
+          publicToken: created.publicToken,
+          isActive: created.isActive,
+          sortOrder: created.sortOrder,
+          createdAt: created.createdAt.toISOString(),
+          updatedAt: created.updatedAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.patch(
+  "/api/businesses/:businessId/dining-tables/:tableId",
+  authenticateToken,
+  requireEntitlement("products.edit"),
+  async (req, res, next) => {
+    try {
+      const { businessId, tableId } = req.params;
+      const body = diningTablePatchSchema.parse(req.body);
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const updated = await updateDiningTable({
+        businessId: businessId as string,
+        tableId: tableId as string,
+        ...body,
+      });
+      res.json({
+        data: {
+          id: updated.id,
+          label: updated.label,
+          publicToken: updated.publicToken,
+          isActive: updated.isActive,
+          sortOrder: updated.sortOrder,
+          createdAt: updated.createdAt.toISOString(),
+          updatedAt: updated.updatedAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.delete(
+  "/api/businesses/:businessId/dining-tables/:tableId",
+  authenticateToken,
+  requireEntitlement("products.delete"),
+  async (req, res, next) => {
+    try {
+      const { businessId, tableId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      await deleteDiningTable(businessId as string, tableId as string);
+      res.status(204).end();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/menu-categories",
+  authenticateToken,
+  requireEntitlement("products.view"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const rows = await listMenuCategoriesFlat(businessId as string);
+      res.json({
+        data: rows.map((c) => ({
+          id: c.id,
+          name: c.name,
+          parentId: c.parentId,
+          sortOrder: c.sortOrder,
+          createdAt: c.createdAt.toISOString(),
+          updatedAt: c.updatedAt.toISOString(),
+        })),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/menu-categories",
+  authenticateToken,
+  requireEntitlement("products.create"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const body = menuCategoryCreateSchema.parse(req.body);
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const created = await createMenuCategory({
+        businessId: businessId as string,
+        name: body.name,
+        parentId: body.parentId === undefined ? undefined : body.parentId,
+        sortOrder: body.sortOrder,
+      });
+      res.status(201).json({
+        data: {
+          id: created.id,
+          name: created.name,
+          parentId: created.parentId,
+          sortOrder: created.sortOrder,
+          createdAt: created.createdAt.toISOString(),
+          updatedAt: created.updatedAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.patch(
+  "/api/businesses/:businessId/menu-categories/:categoryId",
+  authenticateToken,
+  requireEntitlement("products.edit"),
+  async (req, res, next) => {
+    try {
+      const { businessId, categoryId } = req.params;
+      const body = menuCategoryPatchSchema.parse(req.body);
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const updated = await updateMenuCategory({
+        businessId: businessId as string,
+        categoryId: categoryId as string,
+        name: body.name,
+        parentId: body.parentId,
+        sortOrder: body.sortOrder,
+      });
+      res.json({
+        data: {
+          id: updated.id,
+          name: updated.name,
+          parentId: updated.parentId,
+          sortOrder: updated.sortOrder,
+          createdAt: updated.createdAt.toISOString(),
+          updatedAt: updated.updatedAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.delete(
+  "/api/businesses/:businessId/menu-categories/:categoryId",
+  authenticateToken,
+  requireEntitlement("products.delete"),
+  async (req, res, next) => {
+    try {
+      const { businessId, categoryId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      await deleteMenuCategory(businessId as string, categoryId as string);
+      res.status(204).end();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 app.get("/api/public/products/:productId", async (req, res, next) => {
   try {
     const product = await getPublicProductById(req.params.productId as string);
@@ -2259,6 +2571,69 @@ app.get("/api/public/businesses/:businessId/products", async (req, res, next) =>
     next(error);
   }
 });
+
+app.get(
+  "/api/public/restaurant/:businessSlug/t/:tableToken",
+  async (req, res, next) => {
+    try {
+      const payload = await getRestaurantGuestMenuPayload(
+        req.params.businessSlug as string,
+        req.params.tableToken as string,
+      );
+      res.json({
+        data: {
+          business: {
+            id: payload.business.id,
+            name: payload.business.name,
+            slug: payload.business.slug,
+          },
+          table: {
+            id: payload.table.id,
+            label: payload.table.label,
+            publicToken: payload.table.publicToken,
+          },
+          menu: {
+            categories: payload.menu.categories.map(serializeRestaurantMenuNode),
+            uncategorizedProducts: payload.menu.uncategorizedProducts.map(formatProductResponse),
+          },
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/public/restaurant/:businessSlug/t/:tableToken/orders",
+  async (req, res, next) => {
+    try {
+      const forwarded = req.headers["x-forwarded-for"];
+      const rawIp =
+        typeof forwarded === "string"
+          ? forwarded.split(",")[0]?.trim()
+          : Array.isArray(forwarded)
+            ? forwarded[0]
+            : req.socket.remoteAddress ?? "unknown";
+      const ip = rawIp || "unknown";
+      const rlKey = `${ip}:${req.params.businessSlug}:${req.params.tableToken}`;
+      if (!allowPublicRestaurantOrder(rlKey)) {
+        throw new HttpError(429, "Too many orders from this device. Try again in a minute.");
+      }
+      const body = createOrderBodySchema.parse(req.body);
+      const order = await createRestaurantGuestOrder({
+        businessSlug: req.params.businessSlug as string,
+        tableToken: req.params.tableToken as string,
+        lines: body.lines,
+      });
+      res.status(201).json({
+        data: formatSaleOrder(order),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 app.get(
   "/api/businesses/:businessId/entitlements",
@@ -2505,6 +2880,7 @@ function formatProductResponse(product: {
   imageUrl: string | null;
   imageColor: string;
   imageEmoji: string;
+  menuCategoryId?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -2515,6 +2891,7 @@ function formatProductResponse(product: {
     businessId: product.businessId,
     name: product.name,
     category: product.category,
+    menuCategoryId: product.menuCategoryId ?? null,
     description: product.description,
     price: Number(product.price),
     stock: product.stock,
@@ -2528,6 +2905,22 @@ function formatProductResponse(product: {
     imageEmoji: product.imageEmoji,
     createdAt: product.createdAt.toISOString(),
     updatedAt: product.updatedAt.toISOString(),
+  };
+}
+
+function serializeRestaurantMenuNode(node: MenuTreeNode): {
+  id: string;
+  name: string;
+  sortOrder: number;
+  children: ReturnType<typeof serializeRestaurantMenuNode>[];
+  products: ReturnType<typeof formatProductResponse>[];
+} {
+  return {
+    id: node.id,
+    name: node.name,
+    sortOrder: node.sortOrder,
+    children: node.children.map(serializeRestaurantMenuNode),
+    products: node.products.map(formatProductResponse),
   };
 }
 
@@ -2591,6 +2984,9 @@ function formatSaleOrder(order: {
   total: Prisma.Decimal;
   currency: string;
   createdAt: Date;
+  diningTableId?: string | null;
+  tableLabelSnapshot?: string | null;
+  diningTable?: { label: string } | null;
   lines: Array<{
     id: string;
     productId: string;
@@ -2602,6 +2998,10 @@ function formatSaleOrder(order: {
   payments?: Array<Parameters<typeof formatSalePaymentRow>[0]>;
   receipt?: { id: string; publicCode: string; receiptNumber: number } | null;
 }) {
+  const tableLabel =
+    order.tableLabelSnapshot?.trim() ||
+    order.diningTable?.label?.trim() ||
+    null;
   return {
     id: order.id,
     businessId: order.businessId,
@@ -2612,6 +3012,8 @@ function formatSaleOrder(order: {
     total: Number(order.total),
     currency: order.currency,
     createdAt: order.createdAt.toISOString(),
+    diningTableId: order.diningTableId ?? null,
+    tableLabel,
     lines: order.lines.map((line) => ({
       id: line.id,
       productId: line.productId,
@@ -3176,6 +3578,39 @@ app.post(
 
       response.status(201).json({
         data: formatSaleOrder(order),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/orders",
+  authenticateToken,
+  requireAnyEntitlement(["orders.view", "pos.access"]),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (
+        !membership &&
+        !request.user?.isPlatformOwner &&
+        request.user?.role !== "PLATFORM_ADMIN"
+      ) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const orders = await listOrdersForBusiness(businessId as string, { limit: 200 });
+      response.json({
+        data: orders.map((o) => formatSaleOrder(o)),
       });
     } catch (error) {
       next(error);

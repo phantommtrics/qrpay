@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   Cog,
+  LayoutGrid,
   LockKeyhole,
   LogOut,
   Plus,
@@ -24,7 +25,12 @@ import {
 /** Plan menu service ids that start expanded so nested links (e.g. Organization) are visible. */
 const DEFAULT_EXPANDED_PLAN_SERVICE_IDS = ['svc_org', 'svc_subscriptions'] as const
 import { useAuth } from '../features/auth/AuthContext'
-import { ApiError, fetchBusinessNavigationMenu, type NavigationMenuService } from '../services/subscriptionApi'
+import {
+  ApiError,
+  fetchBusinessNavigationMenu,
+  fetchDiningTables,
+  type NavigationMenuService,
+} from '../services/subscriptionApi'
 import { isRestaurantIndustry } from '../utils/businessIndustry'
 
 const BUSINESS_SECTION_STORAGE_KEY = 'qrpay.sidebar.businesses.open.v1'
@@ -93,6 +99,7 @@ export function Sidebar({
   const [planMenu, setPlanMenu] = useState<NavigationMenuService[]>([])
   const [planMenuLoading, setPlanMenuLoading] = useState(false)
   const [planMenuFailed, setPlanMenuFailed] = useState(false)
+  const [restaurantPreviewToken, setRestaurantPreviewToken] = useState<string | null>(null)
   const [openServiceIds, setOpenServiceIds] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(DEFAULT_EXPANDED_PLAN_SERVICE_IDS.map((id) => [id, true])),
   )
@@ -116,6 +123,30 @@ export function Sidebar({
       setPlanMenuLoading(false)
     }
   }, [refreshBusinessEntitlements])
+
+  useEffect(() => {
+    if (
+      !currentOrganization?.id ||
+      !isRestaurantIndustry(currentOrganization.industry) ||
+      user?.role === 'cashier'
+    ) {
+      setRestaurantPreviewToken(null)
+      return
+    }
+    let cancelled = false
+    void fetchDiningTables(currentOrganization.id)
+      .then((rows) => {
+        if (cancelled) return
+        const first = rows.find((t) => t.isActive)
+        setRestaurantPreviewToken(first?.publicToken ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setRestaurantPreviewToken(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentOrganization?.id, currentOrganization?.industry, user?.role])
 
   useEffect(() => {
     if (user?.isPlatformOwner || user?.isPlatformAdmin || !currentOrganization?.id) {
@@ -237,7 +268,11 @@ export function Sidebar({
     if (!item.roles.includes(user.role)) {
       return false
     }
-    if (!canAccess(item.permission)) {
+    if (item.path === APP_PATHS.orders) {
+      if (!canAccess('orders.view') && !canAccess('pos.access')) {
+        return false
+      }
+    } else if (!canAccess(item.permission)) {
       return false
     }
     if (item.path === APP_PATHS.staff && !currentOrganization?.isOwner) {
@@ -574,11 +609,31 @@ export function Sidebar({
               <div className="mt-6 mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Restaurant
               </div>
+              {canAccess('products.view') ? (
+                <NavLink
+                  to={APP_PATHS.restaurantSetup}
+                  onClick={() => setIsOpen(false)}
+                  className={({ isActive }) =>
+                    `mb-0.5 flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white ${
+                      isActive
+                        ? 'border-teal-500 bg-teal-500/10 text-teal-400'
+                        : 'border-transparent'
+                    }`
+                  }
+                >
+                  <LayoutGrid className="mr-3 h-5 w-5" />
+                  <span className="font-medium">Tables &amp; menu setup</span>
+                </NavLink>
+              ) : null}
               <NavLink
-                to={generatePath(APP_PATHS.customerMenu, {
-                  businessId: currentOrganization.id,
-                  tableId: 'T-01',
-                })}
+                to={
+                  restaurantPreviewToken
+                    ? generatePath(APP_PATHS.restaurantGuestMenu, {
+                        businessSlug: currentOrganization.slug,
+                        tableToken: restaurantPreviewToken,
+                      })
+                    : APP_PATHS.restaurantSetup
+                }
                 onClick={() => setIsOpen(false)}
                 className="flex items-center rounded-lg border-l-2 border-transparent px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white"
               >

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type FormEvent, type DragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type DragEvent } from 'react'
 import Barcode from 'react-barcode'
 import { ChevronLeft, ImageIcon, Upload, X } from 'lucide-react'
 
@@ -7,6 +7,8 @@ import { ProductThumb } from './ProductThumb'
 import {
   ApiError,
   createBusinessProduct,
+  fetchMenuCategories,
+  type MenuCategoryRow,
   uploadBusinessProductImage,
 } from '../../services/subscriptionApi'
 import type { Product } from '../../types'
@@ -22,19 +24,41 @@ type Step = 1 | 2
 
 const STEP_LABELS = ['Barcode', 'Details & save'] as const
 
+function leafMenuCategories(rows: MenuCategoryRow[]): MenuCategoryRow[] {
+  return rows.filter((r) => !rows.some((c) => c.parentId === r.id))
+}
+
+function menuCategoryLabel(rows: MenuCategoryRow[], id: string): string {
+  const byId = new Map(rows.map((r) => [r.id, r]))
+  const parts: string[] = []
+  let cur: MenuCategoryRow | undefined = byId.get(id)
+  let guard = 0
+  while (cur && guard++ < 32) {
+    parts.unshift(cur.name)
+    cur = cur.parentId ? byId.get(cur.parentId) : undefined
+  }
+  return parts.join(' → ')
+}
+
 export function AddProductModal({
   businessId,
   onClose,
   onCreated,
+  mode = 'retail',
 }: {
   businessId: string
   onClose: () => void
   onCreated: () => void
+  mode?: 'retail' | 'restaurant'
 }) {
-  const [step, setStep] = useState<Step>(1)
+  const isRestaurant = mode === 'restaurant'
+  const [step, setStep] = useState<Step>(isRestaurant ? 2 : 1)
 
   const [name, setName] = useState('')
   const [category, setCategory] = useState('')
+  const [menuCategoryId, setMenuCategoryId] = useState('')
+  const [menuRows, setMenuRows] = useState<MenuCategoryRow[]>([])
+  const [menuLoadError, setMenuLoadError] = useState<string | null>(null)
   const [description, setDescription] = useState('')
   const [price, setPrice] = useState('')
   const [stock, setStock] = useState('0')
@@ -50,18 +74,50 @@ export function AddProductModal({
   const previewBarcodeValue = 'AUTOASSIGN'
   const previewBarcodeFormat = inferBarcodeFormat(previewBarcodeValue)
 
+  useEffect(() => {
+    if (!isRestaurant) {
+      setMenuRows([])
+      setMenuLoadError(null)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const rows = await fetchMenuCategories(businessId)
+        if (!cancelled) {
+          setMenuRows(rows)
+          setMenuLoadError(null)
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setMenuRows([])
+          setMenuLoadError(
+            e instanceof ApiError ? e.message : 'Could not load menu categories.',
+          )
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [businessId, isRestaurant])
+
+  const leafRows = useMemo(() => leafMenuCategories(menuRows), [menuRows])
+
   const detailsComplete = useMemo(() => {
     const priceNum = Number(price)
     const stockNum = Number.parseInt(stock, 10)
-    return (
+    const base =
       name.trim().length > 0 &&
-      category.trim().length > 0 &&
       Number.isFinite(priceNum) &&
       priceNum > 0 &&
       Number.isFinite(stockNum) &&
       stockNum >= 0
-    )
-  }, [name, category, price, stock])
+    if (isRestaurant) {
+      return base && menuCategoryId.length > 0 && !menuLoadError
+    }
+    return base && category.trim().length > 0
+  }, [name, category, price, stock, isRestaurant, menuCategoryId, menuLoadError])
 
   const canSaveProduct = detailsComplete && !uploadingImage && !submitting
 
@@ -130,7 +186,9 @@ export function AddProductModal({
     try {
       await createBusinessProduct(businessId, {
         name: name.trim(),
-        category: category.trim(),
+        ...(isRestaurant
+          ? { menuCategoryId: menuCategoryId.trim() }
+          : { category: category.trim() }),
         description: description.trim() || undefined,
         price: priceNum,
         stock: stockNum,
@@ -156,7 +214,9 @@ export function AddProductModal({
     businessId,
     name: name.trim() || 'Product name',
     price: Number(price) && Number(price) > 0 ? Number(price) : 0,
-    category: category.trim() || 'Category',
+    category: isRestaurant
+      ? (menuCategoryId ? menuCategoryLabel(menuRows, menuCategoryId) : 'Category')
+      : category.trim() || 'Category',
     stock: Number.isFinite(Number.parseInt(stock, 10)) ? Number.parseInt(stock, 10) : 0,
     imageColor: 'bg-slate-100',
     imageEmoji: '📦',
@@ -175,7 +235,9 @@ export function AddProductModal({
           <div>
             <h2 className="text-xl font-bold text-slate-900">Add product</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Step {step} of 2 — {STEP_LABELS[step - 1]}
+              {isRestaurant
+                ? 'Restaurant menu item (leaf category)'
+                : `Step ${step} of 2 — ${STEP_LABELS[step - 1]}`}
             </p>
           </div>
           <button
@@ -188,26 +250,28 @@ export function AddProductModal({
           </button>
         </div>
 
-        <ol className="mb-6 flex items-center justify-center gap-2 sm:gap-4" aria-hidden>
-          {([1, 2] as const).map((n) => (
-            <li key={n} className="flex items-center gap-2 sm:gap-4">
-              <span
-                className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
-                  step === n
-                    ? 'bg-teal-600 text-white'
-                    : step > n
-                      ? 'bg-teal-100 text-teal-800'
-                      : 'bg-slate-100 text-slate-400'
-                }`}
-              >
-                {n}
-              </span>
-              {n < 2 ? <span className="hidden w-10 border-t border-slate-200 sm:block" /> : null}
-            </li>
-          ))}
-        </ol>
+        {!isRestaurant ? (
+          <ol className="mb-6 flex items-center justify-center gap-2 sm:gap-4" aria-hidden>
+            {([1, 2] as const).map((n) => (
+              <li key={n} className="flex items-center gap-2 sm:gap-4">
+                <span
+                  className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
+                    step === n
+                      ? 'bg-teal-600 text-white'
+                      : step > n
+                        ? 'bg-teal-100 text-teal-800'
+                        : 'bg-slate-100 text-slate-400'
+                  }`}
+                >
+                  {n}
+                </span>
+                {n < 2 ? <span className="hidden w-10 border-t border-slate-200 sm:block" /> : null}
+              </li>
+            ))}
+          </ol>
+        ) : null}
 
-        {step === 1 ? (
+        {!isRestaurant && step === 1 ? (
           <div className="space-y-4">
             <p className="text-sm text-slate-600">
               Barcode is generated automatically by the system for POS and printing labels. Continue to
@@ -246,19 +310,21 @@ export function AddProductModal({
           </div>
         ) : null}
 
-        {step === 2 ? (
+        {(isRestaurant || step === 2) ? (
           <form className="space-y-4" onSubmit={handleSubmit}>
-            <button
-              type="button"
-              onClick={() => {
-                setStep(1)
-                setSubmitError(null)
-              }}
-              className="inline-flex items-center gap-1 text-sm font-medium text-teal-700 hover:text-teal-800"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Back
-            </button>
+            {!isRestaurant ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setStep(1)
+                  setSubmitError(null)
+                }}
+                className="inline-flex items-center gap-1 text-sm font-medium text-teal-700 hover:text-teal-800"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Back
+              </button>
+            ) : null}
 
             <div>
               <p className="mb-2 text-sm font-semibold text-slate-800">Product photo</p>
@@ -391,15 +457,41 @@ export function AddProductModal({
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-teal-500"
               />
             </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-slate-700">Category</span>
-              <input
-                required
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-teal-500"
-              />
-            </label>
+            {isRestaurant ? (
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">Menu category (leaf)</span>
+                <select
+                  required
+                  value={menuCategoryId}
+                  onChange={(e) => setMenuCategoryId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-teal-500"
+                >
+                  <option value="">Select a category…</option>
+                  {leafRows.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {menuCategoryLabel(menuRows, r.id)}
+                    </option>
+                  ))}
+                </select>
+                {menuLoadError ? (
+                  <p className="mt-1 text-xs text-red-600">{menuLoadError}</p>
+                ) : leafRows.length === 0 && !menuLoadError ? (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Create a leaf category under Restaurant setup first.
+                  </p>
+                ) : null}
+              </label>
+            ) : (
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">Category</span>
+                <input
+                  required
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-teal-500"
+                />
+              </label>
+            )}
             <label className="block">
               <span className="mb-1 block text-sm font-medium text-slate-700">Description (optional)</span>
               <textarea

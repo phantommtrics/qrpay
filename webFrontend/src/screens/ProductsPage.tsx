@@ -9,7 +9,7 @@ import { FlashNotice } from '../components/ui/FlashNotice'
 import { PageTransition } from '../components/ui/PageTransition'
 import { useAuth } from '../features/auth/AuthContext'
 import type { Product } from '../types'
-import { isRetailOrWholesaleIndustry } from '../utils/businessIndustry'
+import { isProductCatalogIndustry, isRestaurantIndustry } from '../utils/businessIndustry'
 
 export function ProductsPage() {
   const {
@@ -29,7 +29,8 @@ export function ProductsPage() {
   const dismissFlash = useCallback(() => setFlashMessage(null), [])
 
   const businessId = currentOrganization?.id
-  const industryAllowed = isRetailOrWholesaleIndustry(currentOrganization?.industry)
+  const industryAllowed = isProductCatalogIndustry(currentOrganization?.industry)
+  const restaurantMode = isRestaurantIndustry(currentOrganization?.industry)
   const products = businessProducts
   const loading = businessProductsLoading
   const loadError = businessProductsError
@@ -51,10 +52,10 @@ export function ProductsPage() {
       <FlashNotice message={flashMessage} onDismiss={dismissFlash} />
       {showIndustryGate ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Product catalog with barcodes is enabled for <strong>Retail</strong> and{' '}
-          <strong>Wholesale</strong> businesses in phase 1. Your organization industry is “
-          {currentOrganization?.industry ?? '—'}”. Update the business industry or register a
-          retail/wholesale business to use this feature.
+          The product catalog is enabled for <strong>Retail</strong>, <strong>Wholesale</strong>, and{' '}
+          <strong>Restaurant</strong> businesses. Your organization industry is “
+          {currentOrganization?.industry ?? '—'}”. Update the business industry or register a matching
+          business to use this feature.
         </div>
       ) : null}
 
@@ -159,6 +160,7 @@ export function ProductsPage() {
       {addOpen && businessId && industryAllowed ? (
         <AddProductModal
           businessId={businessId}
+          mode={restaurantMode ? 'restaurant' : 'retail'}
           onClose={() => setAddOpen(false)}
           onCreated={() => {
             void refreshBusinessProducts()

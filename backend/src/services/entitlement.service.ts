@@ -190,5 +190,39 @@ export async function getBusinessNavigationMenu(
     g.items.sort((a, b) => a.sortOrder - b.sortOrder || a.navLabel.localeCompare(b.navLabel));
   }
 
+  const hasOrdersNav = [...byService.values()].some((g) =>
+    g.items.some((item) => item.navPath === "/orders"),
+  );
+  if (!hasOrdersNav && effective.has("pos.access")) {
+    const ordersProduct = await prisma.systemProduct.findFirst({
+      where: { slug: "orders.view", navPath: { not: null } },
+      include: { service: true },
+    });
+    if (ordersProduct?.navPath && ordersProduct.navLabel && ordersProduct.service) {
+      const svc = ordersProduct.service;
+      let group = byService.get(svc.id);
+      if (!group) {
+        group = {
+          id: svc.id,
+          name: svc.name,
+          description: svc.description,
+          sortOrder: svc.sortOrder,
+          items: [],
+        };
+        byService.set(svc.id, group);
+      }
+      if (!group.items.some((item) => item.navPath === "/orders")) {
+        group.items.push({
+          slug: ordersProduct.slug,
+          name: ordersProduct.name,
+          navPath: ordersProduct.navPath,
+          navLabel: ordersProduct.navLabel,
+          sortOrder: ordersProduct.sortOrder,
+        });
+        group.items.sort((a, b) => a.sortOrder - b.sortOrder || a.navLabel.localeCompare(b.navLabel));
+      }
+    }
+  }
+
   return Array.from(byService.values()).sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
 }

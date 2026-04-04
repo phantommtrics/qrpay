@@ -56,7 +56,10 @@ export const APP_PATHS = {
   platformSecurityFunctionGroups: '/platform/security/function-groups',
   platformSecuritySystemUsers: '/platform/security/system-users',
   platformSecurityMoveUsers: '/platform/security/move-users',
-  customerMenu: '/menu/:businessId/:tableId',
+  /** Guest-facing menu: business slug + table public token from dining tables. */
+  restaurantGuestMenu: '/b/:businessSlug/:tableToken',
+  /** Merchant: tables, QR URLs, menu categories. */
+  restaurantSetup: '/restaurant/setup',
 } as const
 
 export const PLATFORM_SECURITY_SUBNAV = [
@@ -342,8 +345,11 @@ export function getPageTitle(pathname: string) {
     return 'Configuration'
   }
 
-  if (pathname.startsWith('/menu/')) {
+  if (pathname.startsWith('/b/')) {
     return 'Restaurant menu'
+  }
+  if (pathname.startsWith('/restaurant/setup')) {
+    return 'Restaurant setup'
   }
 
   const matchedItem = [...MAIN_NAV_ITEMS].sort((a, b) => b.path.length - a.path.length).find(

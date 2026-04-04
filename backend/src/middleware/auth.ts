@@ -38,7 +38,7 @@ export function requireEntitlement(slug: string) {
         return;
       }
       const businessId =
-        req.user.businessId || (req.params as { businessId?: string }).businessId;
+        (req.params as { businessId?: string }).businessId || req.user.businessId;
       if (!businessId) {
         throw new HttpError(400, "Business context required");
       }
@@ -65,7 +65,7 @@ export function requireAnyEntitlement(slugs: string[]) {
         return;
       }
       const businessId =
-        req.user.businessId || (req.params as { businessId?: string }).businessId;
+        (req.params as { businessId?: string }).businessId || req.user.businessId;
       if (!businessId) {
         throw new HttpError(400, "Business context required");
       }
