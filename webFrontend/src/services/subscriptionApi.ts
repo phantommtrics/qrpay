@@ -1287,6 +1287,177 @@ export async function fetchBusinessSubscriptionInvoiceDetail(
   return response.data
 }
 
+export type BillingLedgerReportInvoiceRef = {
+  id: string
+  status: string
+  billingPeriodStart: string
+  billingPeriodEnd: string
+  dueDate: string
+  paidAt: string | null
+}
+
+export type BillingLedgerReportEntry = {
+  id: string
+  createdAt: string
+  updatedAt: string
+  type: string
+  direction: string
+  status: string
+  amount: string
+  currency: string
+  provider: string
+  providerCheckoutSessionId: string | null
+  providerPaymentRef: string | null
+  idempotencyKey: string | null
+  metadata: unknown
+  succeededAt: string | null
+  failedAt: string | null
+  subscriptionId: string | null
+  subscriptionInvoiceId: string | null
+  invoice: BillingLedgerReportInvoiceRef | null
+  /** Platform-wide ledger rows only. */
+  business?: { id: string; name: string } | null
+}
+
+export type BillingLedgerProviderSummary = {
+  provider: string
+  entryCount: number
+  succeededIn: string
+  succeededOut: string
+  pendingCount: number
+  failedCount: number
+}
+
+export type BillingLedgerReportData = {
+  entries: BillingLedgerReportEntry[]
+  total: number
+  page: number
+  pageSize: number
+  netSucceeded: string
+  currency: string | null
+  netByCurrency: Array<{ currency: string; net: string }>
+  byProvider: BillingLedgerProviderSummary[]
+  byStatus: Record<string, number>
+  byType: Record<string, number>
+}
+
+export async function fetchBusinessBillingLedgerReport(
+  businessId: string,
+  params: {
+    month?: string
+    quarter?: string
+    year?: string
+    page?: number
+    pageSize?: number
+  },
+) {
+  const sp = new URLSearchParams()
+  if (params.month?.trim()) {
+    sp.set('month', params.month.trim())
+  }
+  if (params.quarter?.trim()) {
+    sp.set('quarter', params.quarter.trim())
+  }
+  if (params.year?.trim()) {
+    sp.set('year', params.year.trim())
+  }
+  sp.set('page', String(params.page ?? 1))
+  sp.set('pageSize', String(params.pageSize ?? 25))
+  const response = await apiRequest<{ data: BillingLedgerReportData }>(
+    `/businesses/${businessId}/billing-ledger-report?${sp.toString()}`,
+    { headers: { 'x-business-id': businessId } },
+  )
+  return response.data
+}
+
+export async function fetchPlatformBillingLedgerReport(params: {
+  month?: string
+  quarter?: string
+  year?: string
+  createdFrom?: string
+  createdTo?: string
+  page?: number
+  pageSize?: number
+}) {
+  const sp = new URLSearchParams()
+  if (params.month?.trim()) {
+    sp.set('month', params.month.trim())
+  }
+  if (params.quarter?.trim()) {
+    sp.set('quarter', params.quarter.trim())
+  }
+  if (params.year?.trim()) {
+    sp.set('year', params.year.trim())
+  }
+  if (params.createdFrom?.trim()) {
+    sp.set('createdFrom', params.createdFrom.trim())
+  }
+  if (params.createdTo?.trim()) {
+    sp.set('createdTo', params.createdTo.trim())
+  }
+  sp.set('page', String(params.page ?? 1))
+  sp.set('pageSize', String(params.pageSize ?? 25))
+  const response = await apiRequest<{ data: BillingLedgerReportData }>(
+    `/platform/billing-ledger-report?${sp.toString()}`,
+  )
+  return response.data
+}
+
+/** Same filters as {@link fetchPlatformBillingLedgerReport}; requires **Billing transactions → Export** or legacy Invoices → Export on the platform role. */
+export async function downloadPlatformBillingLedgerCsvExport(params: {
+  month?: string
+  quarter?: string
+  year?: string
+  createdFrom?: string
+  createdTo?: string
+}): Promise<void> {
+  const sp = new URLSearchParams()
+  if (params.month?.trim()) {
+    sp.set('month', params.month.trim())
+  }
+  if (params.quarter?.trim()) {
+    sp.set('quarter', params.quarter.trim())
+  }
+  if (params.year?.trim()) {
+    sp.set('year', params.year.trim())
+  }
+  if (params.createdFrom?.trim()) {
+    sp.set('createdFrom', params.createdFrom.trim())
+  }
+  if (params.createdTo?.trim()) {
+    sp.set('createdTo', params.createdTo.trim())
+  }
+  const token = getStoredToken()
+  const response = await fetch(
+    `${API_BASE_URL}/platform/billing-ledger-report/export?${sp.toString()}`,
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    },
+  )
+  if (!response.ok) {
+    let errorMessage = 'Export failed.'
+    try {
+      const payload = (await response.json()) as { error?: string }
+      if (payload?.error) {
+        errorMessage = payload.error
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(errorMessage, response.status)
+  }
+  const blob = await response.blob()
+  const cd = response.headers.get('Content-Disposition')
+  const filenameMatch = cd?.match(/filename="([^"]+)"/)
+  const filename = filenameMatch?.[1] ?? 'billing-transactions.csv'
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
 export type PlatformSecurityModule = {
   id: string
   slug: string

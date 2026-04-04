@@ -16,6 +16,7 @@ import {
   APP_PATHS,
   MAIN_NAV_ITEMS,
   PLATFORM_BUSINESSES_SUBNAV,
+  platformBusinessesSubnavAllowed,
   PLATFORM_SECURITY_SUBNAV,
   RESTAURANT_NAV_ITEM,
 } from '../config/navigation'
@@ -62,6 +63,7 @@ export function Sidebar({
       p.startsWith('/platform/subscriptions') ||
       p.startsWith('/platform/invoices') ||
       p.startsWith('/platform/billing-review') ||
+      p.startsWith('/platform/billing-transactions') ||
       p.startsWith('/platform/payment-gateways')
     )
   })
@@ -163,6 +165,7 @@ export function Sidebar({
       p.startsWith('/platform/subscriptions') ||
       p.startsWith('/platform/invoices') ||
       p.startsWith('/platform/billing-review') ||
+      p.startsWith('/platform/billing-transactions') ||
       p.startsWith('/platform/payment-gateways')
     ) {
       setIsPlatformBusinessesOpen(true)
@@ -188,6 +191,9 @@ export function Sidebar({
     }
     if (path === APP_PATHS.platformBillingReview) {
       return p.startsWith('/platform/billing-review')
+    }
+    if (path === APP_PATHS.platformBillingTransactions) {
+      return p.startsWith('/platform/billing-transactions')
     }
     if (path === APP_PATHS.platformPaymentGateways) {
       return p.startsWith('/platform/payment-gateways')
@@ -379,7 +385,9 @@ export function Sidebar({
                 </button>
                 {isPlatformBusinessesOpen ? (
                   <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
-                    {PLATFORM_BUSINESSES_SUBNAV.filter((item) => canAccess(item.permission)).map(
+                    {PLATFORM_BUSINESSES_SUBNAV.filter((item) =>
+                      platformBusinessesSubnavAllowed(item, canAccess),
+                    ).map(
                       (item) => {
                         const subActive = isPlatformBusinessesSubActive(item.path)
                         return (

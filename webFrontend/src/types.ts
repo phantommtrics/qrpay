@@ -21,6 +21,9 @@ export type PermissionKey =
   | 'platform.businesses.manage'
   | 'platform.subscriptions.view'
   | 'platform.invoices.view'
+  | 'platform.invoices.export'
+  | 'platform.billing_transactions.view'
+  | 'platform.billing_transactions.export'
   | 'platform.billing_review.view'
   | 'platform.billing_review.edit'
   | 'platform.billing.manage'
@@ -53,6 +56,7 @@ export type PermissionKey =
   | 'business.configuration'
   | 'subscriptions.billings'
   | 'subscriptions.invoices'
+  | 'subscriptions.billing_activity'
 
 export interface User {
   id: string
