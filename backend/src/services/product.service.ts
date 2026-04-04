@@ -17,6 +17,10 @@ export function isRetailOrWholesaleIndustry(industry: string | null | undefined)
   return normalized === "retail" || normalized === "wholesale";
 }
 
+export function isRestaurantIndustry(industry: string | null | undefined): boolean {
+  return normalizeIndustryLabel(industry) === "restaurant";
+}
+
 function productPublicPath(productId: string): string {
   return `/p/${productId}`;
 }
@@ -288,8 +292,8 @@ export async function getPublicBusinessMenu(businessId: string) {
     throw new HttpError(404, "Business not found.");
   }
 
-  if (!isRetailOrWholesaleIndustry(business.industry)) {
-    throw new HttpError(404, "Menu not available.");
+  if (!isRestaurantIndustry(business.industry)) {
+    throw new HttpError(404, "Restaurant menu is not available for this business.");
   }
 
   const products = await prisma.product.findMany({

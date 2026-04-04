@@ -6,3 +6,7 @@ export function isRetailOrWholesaleIndustry(industry: string | null | undefined)
   const n = normalizeIndustryLabel(industry)
   return n === 'retail' || n === 'wholesale'
 }
+
+export function isRestaurantIndustry(industry: string | null | undefined): boolean {
+  return normalizeIndustryLabel(industry) === 'restaurant'
+}

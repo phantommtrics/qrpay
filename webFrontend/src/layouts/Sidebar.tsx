@@ -24,7 +24,7 @@ import {
 const DEFAULT_EXPANDED_PLAN_SERVICE_IDS = ['svc_org', 'svc_subscriptions'] as const
 import { useAuth } from '../features/auth/AuthContext'
 import { ApiError, fetchBusinessNavigationMenu, type NavigationMenuService } from '../services/subscriptionApi'
-import { isRetailOrWholesaleIndustry } from '../utils/businessIndustry'
+import { isRestaurantIndustry } from '../utils/businessIndustry'
 
 const BUSINESS_SECTION_STORAGE_KEY = 'qrpay.sidebar.businesses.open.v1'
 const PLATFORM_BUSINESSES_SECTION_KEY = 'qrpay.sidebar.platform-businesses.open.v1'
@@ -561,7 +561,7 @@ export function Sidebar({
 
           {user.role !== 'cashier' &&
           currentOrganization &&
-          isRetailOrWholesaleIndustry(currentOrganization.industry) ? (
+          isRestaurantIndustry(currentOrganization.industry) ? (
             <>
               <div className="mt-6 mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Restaurant

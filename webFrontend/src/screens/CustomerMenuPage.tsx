@@ -103,7 +103,7 @@ export function CustomerMenuPage() {
       <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6 text-center">
         <p className="max-w-md text-slate-700">{displayMenuError}</p>
         <p className="mt-2 text-sm text-slate-500">
-          Menus are only available for retail and wholesale businesses with a public catalog.
+          The restaurant menu is only available for businesses with industry set to Restaurant.
         </p>
       </div>
     )
