@@ -920,7 +920,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return false
         }
 
-        const billingSlugs: PermissionKey[] = ['subscriptions.billings', 'subscriptions.invoices']
+        const billingSlugs: PermissionKey[] = [
+          'subscriptions.billings',
+          'subscriptions.invoices',
+          'subscriptions.billing_activity',
+        ]
         if (
           billingSlugs.includes(permission) &&
           (user.role === 'merchant' || user.role === 'admin')

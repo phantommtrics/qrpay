@@ -40,8 +40,10 @@ export function ProtectedRoute({
   const billingRecovery =
     requiredPermission === 'subscriptions.billings' ||
     requiredPermission === 'subscriptions.invoices' ||
+    requiredPermission === 'subscriptions.billing_activity' ||
     (requiredAnyOfPermissions?.includes('subscriptions.billings') ?? false) ||
-    (requiredAnyOfPermissions?.includes('subscriptions.invoices') ?? false)
+    (requiredAnyOfPermissions?.includes('subscriptions.invoices') ?? false) ||
+    (requiredAnyOfPermissions?.includes('subscriptions.billing_activity') ?? false)
 
   if (
     !user.isPlatformOwner &&

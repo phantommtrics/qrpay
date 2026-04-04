@@ -78,6 +78,8 @@ async function seedSystemCatalog() {
     });
   }
 
+  await prisma.systemProduct.deleteMany({ where: { id: "sp_billing_txn" } });
+
   const plans = await prisma.plan.findMany();
   for (const plan of plans) {
     const slugs = PLAN_ENTITLEMENT_SLUGS[plan.code];

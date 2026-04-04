@@ -9,6 +9,8 @@ export const PLATFORM_MODULE_SLUGS = {
   BILLING: "platform.billing",
   SUBSCRIPTIONS: "platform.subscriptions",
   INVOICES: "platform.invoices",
+  /** Cross-business subscription billing ledger (platform report + CSV export). */
+  BILLING_TRANSACTIONS: "platform.billing_transactions",
   /** Paid subscription invoices + ledger: refund review flags (no in-app money movement). */
   BILLING_REVIEW: "platform.billing_review",
   SYSTEM_CONFIGURATION: "platform.system_configuration",
@@ -32,6 +34,11 @@ export const PLATFORM_MODULES_SEED: { slug: string; label: string; sortOrder: nu
   { slug: PLATFORM_MODULE_SLUGS.BILLING, label: "Plan billing & pricing", sortOrder: 55 },
   { slug: PLATFORM_MODULE_SLUGS.SUBSCRIPTIONS, label: "Subscriptions", sortOrder: 60 },
   { slug: PLATFORM_MODULE_SLUGS.INVOICES, label: "Invoices", sortOrder: 70 },
+  {
+    slug: PLATFORM_MODULE_SLUGS.BILLING_TRANSACTIONS,
+    label: "Billing transactions",
+    sortOrder: 71,
+  },
   {
     slug: PLATFORM_MODULE_SLUGS.BILLING_REVIEW,
     label: "Billing review & refunds",

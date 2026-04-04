@@ -27,6 +27,7 @@ export const APP_PATHS = {
   orders: '/orders',
   payments: '/payments',
   reports: '/reports',
+  subscriptionsBillingActivity: '/subscriptions/billing-activity',
   accounting: '/accounting',
   accountingBalances: '/accounting/balances',
   accountingProfitLoss: '/accounting/profit-loss',
@@ -50,6 +51,7 @@ export const APP_PATHS = {
   platformInvoices: '/platform/invoices',
   platformInvoiceDetail: '/platform/invoices/:invoiceId',
   platformBillingReview: '/platform/billing-review',
+  platformBillingTransactions: '/platform/billing-transactions',
   platformSecurityRoles: '/platform/security/roles',
   platformSecurityFunctionGroups: '/platform/security/function-groups',
   platformSecuritySystemUsers: '/platform/security/system-users',
@@ -84,45 +86,76 @@ export const PLATFORM_SECURITY_SUBNAV = [
   },
 ] as const
 
+/** Single permission or any-of (e.g. legacy Invoices view still opens Billing transactions). */
+export type PlatformBusinessesSubNavItem =
+  | {
+      name: string
+      path: string
+      title: string
+      permission: PermissionKey
+    }
+  | {
+      name: string
+      path: string
+      title: string
+      anyOfPermissions: readonly PermissionKey[]
+    }
+
+export function platformBusinessesSubnavAllowed(
+  item: PlatformBusinessesSubNavItem,
+  canAccess: (p: PermissionKey) => boolean,
+): boolean {
+  if ('anyOfPermissions' in item) {
+    return item.anyOfPermissions.some((p) => canAccess(p))
+  }
+  return canAccess(item.permission)
+}
+
 /** Platform operator: Businesses section (after Dashboard). */
-export const PLATFORM_BUSINESSES_SUBNAV = [
+export const PLATFORM_BUSINESSES_SUBNAV: PlatformBusinessesSubNavItem[] = [
   {
     name: 'business',
     path: APP_PATHS.platformBusinesses,
     title: 'Businesses',
-    permission: 'platform.businesses.manage' as const,
+    permission: 'platform.businesses.manage',
   },
   {
     name: 'billings',
     path: APP_PATHS.platformBillings,
     title: 'Billings',
-    permission: 'platform.billing.manage' as const,
+    permission: 'platform.billing.manage',
   },
   {
     name: 'Subscriptions',
     path: APP_PATHS.platformSubscriptions,
     title: 'Subscriptions',
-    permission: 'platform.subscriptions.view' as const,
+    permission: 'platform.subscriptions.view',
   },
   {
     name: 'invoices',
     path: APP_PATHS.platformInvoices,
     title: 'Invoices',
-    permission: 'platform.invoices.view' as const,
+    permission: 'platform.invoices.view',
   },
   {
     name: 'billing-review',
     path: APP_PATHS.platformBillingReview,
     title: 'Billing review',
-    permission: 'platform.billing_review.view' as const,
+    permission: 'platform.billing_review.view',
+  },
+  {
+    name: 'billing-transactions',
+    path: APP_PATHS.platformBillingTransactions,
+    title: 'Billing transactions',
+    anyOfPermissions: ['platform.billing_transactions.view', 'platform.invoices.view'],
   },
   {
     name: 'payment-gateways',
     path: APP_PATHS.platformPaymentGateways,
     title: 'Payment gateways',
-    permission: 'platform.payment_gateways.manage' as const,
+    permission: 'platform.payment_gateways.manage',
   },
-] as const
+]
 
 export type NavigationItem = {
   name: string
@@ -283,6 +316,14 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.subscriptionsInvoices)) {
     return 'Invoices'
+  }
+
+  if (pathname.includes(APP_PATHS.subscriptionsBillingActivity)) {
+    return 'Subscription payments'
+  }
+
+  if (pathname.includes(APP_PATHS.platformBillingTransactions)) {
+    return 'Billing transactions'
   }
 
   if (pathname.includes(APP_PATHS.billing)) {

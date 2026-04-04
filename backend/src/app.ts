@@ -27,6 +27,11 @@ import {
 } from "./services/auth.service.js";
 import { setBusinessMemberStatus } from "./services/membership-status.service.js";
 import {
+  buildAllBillingLedgerCsv,
+  listAllBillingLedgerReport,
+  listBusinessBillingLedgerReport,
+} from "./services/billing-ledger-report.service.js";
+import {
   changeSubscriptionPlan,
   createBusiness,
   formatMoney,
@@ -142,6 +147,7 @@ import {
 import { env } from "./config/env.js";
 import { PLATFORM_MODULE_SLUGS } from "./config/platform-modules.js";
 import { HttpError } from "./lib/http-error.js";
+import { billingPeriodToUtcRange } from "./utils/billing-ledger-period.js";
 import {
   authenticateToken,
   generateToken,
@@ -486,6 +492,36 @@ const platformInvoicesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
 });
+
+const billingLedgerReportBaseSchema = z.object({
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
+  month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  quarter: z.string().regex(/^\d{4}-Q[1-4]$/i).optional(),
+  year: z.string().regex(/^\d{4}$/).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+function refineBillingLedgerPeriodExclusive(
+  val: z.infer<typeof billingLedgerReportBaseSchema>,
+  ctx: z.RefinementCtx,
+) {
+  const n = [val.month, val.quarter, val.year].filter((x) => x?.trim()).length;
+  if (n > 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Use only one of month, quarter, or year.",
+      path: ["month"],
+    });
+  }
+}
+
+const billingLedgerReportQuerySchema =
+  billingLedgerReportBaseSchema.superRefine(refineBillingLedgerPeriodExclusive);
+
+const platformBillingLedgerReportQuerySchema =
+  billingLedgerReportBaseSchema.superRefine(refineBillingLedgerPeriodExclusive);
 
 const platformBillingReviewQuerySchema = z.object({
   invoiceStatus: z.nativeEnum(InvoiceStatus).optional(),
@@ -979,6 +1015,134 @@ app.get(
         page,
         pageSize,
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/billing-ledger-report",
+  authenticateToken,
+  requireSubscriptionsInvoicesOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner && req.user?.role !== "PLATFORM_ADMIN") {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const query = billingLedgerReportQuerySchema.parse(req.query);
+      const period = billingPeriodToUtcRange({
+        month: query.month,
+        quarter: query.quarter,
+        year: query.year,
+      });
+      if (!period) {
+        throw new HttpError(
+          400,
+          "Choose a billing period: month (YYYY-MM), quarter (e.g. 2025-Q1), or year (YYYY).",
+        );
+      }
+      const page = clampPage(query.page);
+      const pageSize = clampPageSize(query.pageSize);
+      const report = await listBusinessBillingLedgerReport(businessId as string, {
+        createdFrom: period.from,
+        createdTo: period.to,
+        page,
+        pageSize,
+      });
+      res.json({ data: report });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/billing-ledger-report",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny([
+    { moduleSlug: PLATFORM_MODULE_SLUGS.BILLING_TRANSACTIONS, action: "view" },
+    { moduleSlug: PLATFORM_MODULE_SLUGS.INVOICES, action: "view" },
+  ]),
+  async (req, res, next) => {
+    try {
+      const query = platformBillingLedgerReportQuerySchema.parse(req.query);
+      const period = billingPeriodToUtcRange({
+        month: query.month,
+        quarter: query.quarter,
+        year: query.year,
+      });
+      let createdFrom: Date | null = null;
+      let createdTo: Date | null = null;
+      if (period) {
+        createdFrom = period.from;
+        createdTo = period.to;
+      } else {
+        const fromRaw = query.createdFrom?.trim();
+        const toRaw = query.createdTo?.trim();
+        createdFrom = fromRaw ? parseDateFilterDayStart(fromRaw) ?? null : null;
+        createdTo = toRaw ? parseDateFilterDayEnd(toRaw) ?? null : null;
+      }
+      const page = clampPage(query.page);
+      const pageSize = clampPageSize(query.pageSize);
+      const report = await listAllBillingLedgerReport({
+        createdFrom,
+        createdTo,
+        page,
+        pageSize,
+      });
+      res.json({ data: report });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/billing-ledger-report/export",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny([
+    { moduleSlug: PLATFORM_MODULE_SLUGS.BILLING_TRANSACTIONS, action: "export" },
+    { moduleSlug: PLATFORM_MODULE_SLUGS.INVOICES, action: "export" },
+  ]),
+  async (req, res, next) => {
+    try {
+      const query = platformBillingLedgerReportQuerySchema.parse(req.query);
+      const period = billingPeriodToUtcRange({
+        month: query.month,
+        quarter: query.quarter,
+        year: query.year,
+      });
+      let createdFrom: Date | null = null;
+      let createdTo: Date | null = null;
+      if (period) {
+        createdFrom = period.from;
+        createdTo = period.to;
+      } else {
+        const fromRaw = query.createdFrom?.trim();
+        const toRaw = query.createdTo?.trim();
+        createdFrom = fromRaw ? parseDateFilterDayStart(fromRaw) ?? null : null;
+        createdTo = toRaw ? parseDateFilterDayEnd(toRaw) ?? null : null;
+      }
+      const { csv, rowCount, truncated } = await buildAllBillingLedgerCsv({
+        createdFrom,
+        createdTo,
+      });
+      const dayStamp = new Date().toISOString().slice(0, 10);
+      const filename = `billing-transactions-${dayStamp}.csv`;
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      if (truncated) {
+        res.setHeader("X-Export-Truncated", "true");
+        res.setHeader("X-Export-Row-Count", String(rowCount));
+      }
+      res.send(csv);
     } catch (error) {
       next(error);
     }

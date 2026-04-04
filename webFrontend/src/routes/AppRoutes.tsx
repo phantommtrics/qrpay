@@ -63,6 +63,16 @@ const ReportsPage = lazy(() =>
     default: module.ReportsPage,
   })),
 )
+const SubscriptionBillingActivityPage = lazy(() =>
+  import('../screens/SubscriptionBillingActivityPage').then((module) => ({
+    default: module.SubscriptionBillingActivityPage,
+  })),
+)
+const PlatformBillingTransactionsPage = lazy(() =>
+  import('../screens/platform/PlatformBillingTransactionsPage').then((module) => ({
+    default: module.PlatformBillingTransactionsPage,
+  })),
+)
 const AccountingPage = lazy(() =>
   import('../screens/AccountingPage').then((module) => ({
     default: module.AccountingPage,
@@ -338,6 +348,21 @@ export function AppRoutes() {
       element: <ReportsPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.reports)!.roles,
       permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.reports)!.permission,
+    },
+    {
+      path: APP_PATHS.subscriptionsBillingActivity,
+      element: <SubscriptionBillingActivityPage />,
+      roles: BUSINESS_BILLING_ROLES,
+      permission: 'subscriptions.billing_activity' as const,
+    },
+    {
+      path: APP_PATHS.platformBillingTransactions,
+      element: <PlatformBillingTransactionsPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      anyOfPermissions: [
+        'platform.billing_transactions.view',
+        'platform.invoices.view',
+      ] satisfies PermissionKey[],
     },
     {
       path: APP_PATHS.accounting,
