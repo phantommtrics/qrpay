@@ -250,7 +250,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
 ]
 
 export const RESTAURANT_NAV_ITEM = {
-  name: 'Customer menu',
+  name: 'Restaurant menu',
   icon: Utensils,
 }
 
@@ -340,6 +340,10 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.configuration)) {
     return 'Configuration'
+  }
+
+  if (pathname.startsWith('/menu/')) {
+    return 'Restaurant menu'
   }
 
   const matchedItem = [...MAIN_NAV_ITEMS].sort((a, b) => b.path.length - a.path.length).find(
