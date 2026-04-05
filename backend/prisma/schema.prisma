@@ -110,6 +110,32 @@ enum PaymentMethod {
 
 enum PaymentProvider {
   SIMULATOR
+  WAVE_GAMBIA
+  YONNA_WALLET
+}
+
+enum ChartAccountCategory {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum JournalSourceType {
+  CUSTOMER_SALE_PAYMENT
+}
+
+enum SalesLedgerEntryType {
+  CUSTOMER_SALE
+}
+
+enum SalesLedgerDirection {
+  MONEY_IN
+}
+
+enum SalesLedgerStatus {
+  SUCCEEDED
 }
 
 enum BusinessMembershipStatus {
@@ -141,6 +167,10 @@ model Business {
   receipts                      Receipt[]
   paymentMethods                BusinessPaymentMethod[]
   billingLedgerEntries          BillingLedgerEntry[]
+  chartOfAccounts               ChartOfAccount[]
+  journalEntries                JournalEntry[]
+  salesLedgerEntries            SalesLedgerEntry[]
+  gatewayCredentials            BusinessGatewayCredential[]
 }
 
 enum BusinessPaymentMethodStatus {
@@ -161,6 +191,7 @@ model PaymentGateway {
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
   methods     BusinessPaymentMethod[]
+  credentials BusinessGatewayCredential[]
 }
 
 model BusinessPaymentMethod {
@@ -178,6 +209,95 @@ model BusinessPaymentMethod {
 
   @@index([businessId, status])
   @@index([gatewayId])
+}
+
+/** Per-tenant API secrets for checkout adapters (ciphertext; decrypted only server-side). */
+model BusinessGatewayCredential {
+  id          String         @id @default(cuid())
+  businessId  String
+  gatewayId   String
+  keyVersion  Int            @default(1)
+  iv          String
+  ciphertext  String         @db.Text
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  business    Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  gateway     PaymentGateway @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, gatewayId])
+  @@index([businessId])
+}
+
+model ChartOfAccount {
+  id         String               @id @default(cuid())
+  businessId String
+  code       String
+  name       String
+  category   ChartAccountCategory
+  isSystem   Boolean              @default(false)
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+  business   Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lines      JournalLine[]
+
+  @@unique([businessId, code])
+  @@index([businessId])
+}
+
+model JournalEntry {
+  id          String             @id @default(cuid())
+  businessId  String
+  postedAt    DateTime           @default(now())
+  memo        String?
+  sourceType  JournalSourceType?
+  /** e.g. Payment.id when sourceType is CUSTOMER_SALE_PAYMENT */
+  sourceId    String?
+  createdAt   DateTime           @default(now())
+  business    Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lines       JournalLine[]
+  salesLedger SalesLedgerEntry[]
+
+  @@index([businessId, postedAt])
+  @@index([businessId, sourceType, sourceId])
+}
+
+model JournalLine {
+  id               String         @id @default(cuid())
+  journalEntryId   String
+  chartOfAccountId String
+  debitAmount      Decimal        @default(0) @db.Decimal(12, 2)
+  creditAmount     Decimal        @default(0) @db.Decimal(12, 2)
+  journalEntry     JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  chartOfAccount   ChartOfAccount @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
+
+  @@index([journalEntryId])
+  @@index([chartOfAccountId])
+}
+
+model SalesLedgerEntry {
+  id                   String               @id @default(cuid())
+  businessId           String
+  orderId              String?
+  paymentId            String?              @unique
+  journalEntryId       String
+  type                 SalesLedgerEntryType
+  direction            SalesLedgerDirection
+  status               SalesLedgerStatus    @default(SUCCEEDED)
+  amount               Decimal              @db.Decimal(12, 2)
+  currency             String               @default("GMD")
+  provider             String
+  providerPaymentRef   String?
+  metadata             Json?
+  succeededAt          DateTime             @default(now())
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  business             Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  journalEntry         JournalEntry         @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  order                Order?               @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  payment              Payment?             @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
+  @@index([orderId])
 }
 
 model MenuCategory {
@@ -547,6 +667,7 @@ model Order {
   lines                OrderLine[]
   payments             Payment[]
   receipt              Receipt?
+  salesLedgerEntries   SalesLedgerEntry[]
 
   @@index([businessId, status])
   @@index([businessId, createdAt])
@@ -575,6 +696,8 @@ model Payment {
   publicCode      String
   method          PaymentMethod
   provider        PaymentProvider @default(SIMULATOR)
+  /** When set, identifies which business PaymentGateway credentials were used for QR wallet checkout. */
+  gatewayCode     String?
   status          PaymentStatus   @default(PENDING)
   amount          Decimal         @db.Decimal(10, 2)
   currency        String          @default("GMD")
@@ -583,8 +706,9 @@ model Payment {
   completedAt     DateTime?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
-  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  business        Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  order           Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  salesLedger     SalesLedgerEntry?
 
   @@index([orderId])
   @@index([businessId, status])

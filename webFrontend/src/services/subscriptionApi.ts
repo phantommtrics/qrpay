@@ -2026,3 +2026,67 @@ export async function changeBusinessSubscriptionPlan(
   })
   return response.data
 }
+
+export type GatewayCredentialFieldStatus = {
+  apiBearer?: boolean
+  webhookSecret?: boolean
+  clientId?: boolean
+  secretKey?: boolean
+  /** Yonna: default wallet phone saved for QR checkout. */
+  defaultPayerPhone?: boolean
+}
+
+export type BusinessGatewayCredentialStatusRow = {
+  gatewayId: string
+  code: string
+  name: string
+  checkoutAdapter: string | null
+  hasCredential: boolean
+  /** True when minimum secrets exist to run checkout (bearer for Wave; client + secret for Yonna). */
+  checkoutConfigured: boolean
+  /** Which secret slots are populated; never includes secret values. */
+  fieldStatus: GatewayCredentialFieldStatus | null
+  updatedAt: string | null
+}
+
+export type PaymentWebhookEndpoints = {
+  wave: string
+  yonnaForex: string
+}
+
+export type BusinessGatewayCredentialStatusResponse = {
+  credentialStatus: BusinessGatewayCredentialStatusRow[]
+  webhookEndpoints: PaymentWebhookEndpoints | null
+}
+
+export async function fetchBusinessGatewayCredentialStatus(businessId: string) {
+  const response = await apiRequest<{ data: BusinessGatewayCredentialStatusResponse }>(
+    `/businesses/${businessId}/gateway-credentials`,
+    { headers: { 'x-business-id': businessId } },
+  )
+  return response.data
+}
+
+export async function upsertBusinessGatewayCredentialRequest(
+  businessId: string,
+  body: { gatewayCode: string; secrets: Record<string, unknown>; replaceSecrets?: boolean },
+) {
+  await apiRequest<{ data: { ok: boolean } }>(`/businesses/${businessId}/gateway-credentials`, {
+    method: 'PUT',
+    headers: { 'x-business-id': businessId },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteBusinessGatewayCredentialRequest(
+  businessId: string,
+  gatewayCode: string,
+) {
+  await apiRequest<unknown>(
+    `/businesses/${businessId}/gateway-credentials/${encodeURIComponent(gatewayCode)}`,
+    {
+      method: 'DELETE',
+      headers: { 'x-business-id': businessId },
+    },
+  )
+}

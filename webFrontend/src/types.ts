@@ -57,6 +57,7 @@ export type PermissionKey =
   | 'subscriptions.billings'
   | 'subscriptions.invoices'
   | 'subscriptions.billing_activity'
+  | 'merchant.api'
 
 export interface User {
   id: string
@@ -126,6 +127,7 @@ export interface PermissionDefinition {
     | 'Administration'
     | 'Products'
     | 'Operations'
+    | 'Integrations'
 }
 
 export type PlanPermissions = Record<PlanId, Partial<Record<PermissionKey, boolean>>>

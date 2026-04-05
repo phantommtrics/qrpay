@@ -82,6 +82,39 @@ export function requireAnyEntitlement(slugs: string[]) {
   };
 }
 
+/**
+ * Business member with `subscriptions.billings` or `merchant.api`, or platform operator.
+ * Used for read-only gateway catalog shared by billing and merchant integration UIs.
+ */
+export function requireBillingOrMerchantApiOrPlatform() {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        throw new HttpError(401, "Authentication required");
+      }
+      if (req.user.isPlatformOwner || req.user.role === "PLATFORM_ADMIN") {
+        next();
+        return;
+      }
+      const businessId = (req.params as { businessId?: string }).businessId;
+      if (!businessId) {
+        throw new HttpError(400, "Business id required");
+      }
+      const billing = await userHasEntitlement(req.user.id, businessId, "subscriptions.billings");
+      const merchantApi = await userHasEntitlement(req.user.id, businessId, "merchant.api");
+      if (!billing && !merchantApi) {
+        throw new HttpError(
+          403,
+          "You do not have access to payment gateways for this business.",
+        );
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
 /** Business member with `subscriptions.billings` entitlement, or platform operator. */
 export function requireSubscriptionsBillingOrPlatform() {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

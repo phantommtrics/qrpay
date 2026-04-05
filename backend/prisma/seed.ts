@@ -7,6 +7,7 @@ import {
   SYSTEM_CATALOG_SERVICES,
 } from "../src/config/plan-entitlement-matrix.js";
 import { ensurePlatformModulesSeeded } from "../src/services/platform-module-sync.service.js";
+import { ensureDefaultChartOfAccountsForBusiness } from "../src/services/chart-of-accounts.service.js";
 
 const prisma = new PrismaClient();
 
@@ -95,6 +96,13 @@ async function seedSystemCatalog() {
   }
 }
 
+async function backfillChartOfAccountsForAllBusinesses() {
+  const businesses = await prisma.business.findMany({ select: { id: true } });
+  for (const { id } of businesses) {
+    await ensureDefaultChartOfAccountsForBusiness(prisma, id);
+  }
+}
+
 async function main() {
   const plans = [
     {
@@ -158,6 +166,8 @@ async function main() {
   }
 
   await seedSystemCatalog();
+
+  await backfillChartOfAccountsForAllBusinesses();
 
   await ensurePlatformModulesSeeded();
 

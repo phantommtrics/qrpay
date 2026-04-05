@@ -297,6 +297,12 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     description: 'Plan payment activity from the billing ledger',
     category: 'Administration',
   },
+  {
+    key: 'merchant.api',
+    label: 'Merchant API',
+    description: 'Configure encrypted Wave and Yonna credentials for customer payments',
+    category: 'Integrations',
+  },
 ]
 
 export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
@@ -325,6 +331,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'subscriptions.billings': true,
     'subscriptions.invoices': true,
     'subscriptions.billing_activity': true,
+    'merchant.api': true,
   },
   pro: {
     'dashboard.view': true,
@@ -351,6 +358,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'subscriptions.billings': true,
     'subscriptions.invoices': true,
     'subscriptions.billing_activity': true,
+    'merchant.api': true,
   },
   business_pro: {
     'dashboard.view': true,
@@ -377,6 +385,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'subscriptions.billings': true,
     'subscriptions.invoices': true,
     'subscriptions.billing_activity': true,
+    'merchant.api': true,
   },
 }
 

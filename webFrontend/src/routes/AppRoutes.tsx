@@ -228,6 +228,11 @@ const SubscriptionInvoiceDetailPage = lazy(() =>
     default: module.SubscriptionInvoiceDetailPage,
   })),
 )
+const MerchantApiPage = lazy(() =>
+  import('../screens/MerchantApiPage').then((module) => ({
+    default: module.MerchantApiPage,
+  })),
+)
 
 const PLATFORM_OPERATOR_ROLES = ['platform_owner', 'platform_admin'] as UserRole[]
 const BUSINESS_BILLING_ROLES = ['admin', 'merchant'] as UserRole[]
@@ -462,6 +467,12 @@ export function AppRoutes() {
       element: <BusinessConfigurationPage />,
       roles: ['merchant', 'platform_owner'] as UserRole[],
       permission: 'business.configuration' as const,
+    },
+    {
+      path: APP_PATHS.integrationsMerchantApi,
+      element: <MerchantApiPage />,
+      roles: ['admin', 'merchant', 'platform_owner'] as UserRole[],
+      permission: 'merchant.api' as const,
     },
   ]
 

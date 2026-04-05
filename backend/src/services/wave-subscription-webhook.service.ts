@@ -5,6 +5,7 @@ import { InvoiceStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { WavePaymentService } from "./wave-payment.service.js";
 import { completeSubscriptionInvoicePayment } from "./subscription.service.js";
+import { waveApiBaseUrl } from "../config/payment-provider-env.js";
 import { CHECKOUT_ADAPTER_WAVE_GAMBIA } from "./payment-gateway.service.js";
 
 function validateWaveSignature(waveSignature: string, rawBody: string, webhookSecret: string): boolean {
@@ -97,7 +98,7 @@ export async function processWaveSubscriptionWebhook(rawBody: string, signatureH
 
   if ((!paymentStatus && !checkoutStatus) && waveSessionId && mapped === "PENDING") {
     try {
-      const baseUrl = process.env.WAVE_API_BASE_URL || "https://api.wave.com";
+      const baseUrl = waveApiBaseUrl();
       const bearer = process.env.WAVE_CHECKOUT_BEARER;
       if (bearer) {
         const waveApi = new WavePaymentService({ baseUrl, bearerToken: bearer });

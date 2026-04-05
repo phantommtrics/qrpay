@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { Request } from "express";
 import { Prisma } from "@prisma/client";
 
 import { HttpError } from "../lib/http-error.js";
@@ -9,6 +10,11 @@ import {
   PaymentStatus,
 } from "../lib/prisma-sales-enums.js";
 import { prisma } from "../lib/prisma.js";
+import { recordCustomerSaleJournalAndLedger } from "./sale-accounting.service.js";
+import {
+  listOrderCheckoutWallets,
+  startGatewayWalletCheckout,
+} from "./order-wallet-checkout.service.js";
 
 const SIMULATOR_WEBHOOK_PROVIDER = "simulator";
 
@@ -385,7 +391,42 @@ export async function listOrdersForBusiness(businessId: string, options?: { limi
   });
 }
 
-export async function startWalletPayment(orderId: string, businessId: string) {
+export type StartWalletPaymentResult = {
+  payment: Awaited<ReturnType<typeof prisma.payment.create>>;
+  qrPayload: string;
+  launchUrl: string;
+  paymentHtml: string | null;
+  checkoutAdapter: string;
+};
+
+export async function startWalletPayment(
+  orderId: string,
+  businessId: string,
+  options?: { gatewayCode?: string; payerPhone?: string },
+  req?: Request,
+): Promise<StartWalletPaymentResult> {
+  const configuredWallets = await listOrderCheckoutWallets(businessId);
+  const gatewayCode = options?.gatewayCode?.trim();
+
+  if (configuredWallets.length > 0) {
+    if (!gatewayCode) {
+      throw new HttpError(
+        400,
+        "gatewayCode is required. Choose a wallet configured under Merchant API.",
+      );
+    }
+    if (!req) {
+      throw new HttpError(500, "Request context is required for wallet checkout.");
+    }
+    return startGatewayWalletCheckout({
+      orderId,
+      businessId,
+      gatewayCode,
+      payerPhone: options?.payerPhone,
+      req,
+    });
+  }
+
   const order = await prisma.order.findFirst({
     where: { id: orderId, businessId },
     include: {
@@ -412,10 +453,21 @@ export async function startWalletPayment(orderId: string, businessId: string) {
   });
 
   if (existing) {
-    return {
-      payment: existing,
-      qrPayload: buildPayUrl(existing.publicToken),
-    };
+    if (existing.provider !== PaymentProvider.SIMULATOR) {
+      await prisma.payment.update({
+        where: { id: existing.id },
+        data: { status: PaymentStatus.CANCELLED },
+      });
+    } else {
+      const url = buildPayUrl(existing.publicToken);
+      return {
+        payment: existing,
+        qrPayload: url,
+        launchUrl: url,
+        paymentHtml: null,
+        checkoutAdapter: "simulator",
+      };
+    }
   }
 
   const payment = await prisma.payment.create({
@@ -433,9 +485,13 @@ export async function startWalletPayment(orderId: string, businessId: string) {
     },
   });
 
+  const url = buildPayUrl(payment.publicToken);
   return {
     payment,
-    qrPayload: buildPayUrl(payment.publicToken),
+    qrPayload: url,
+    launchUrl: url,
+    paymentHtml: null,
+    checkoutAdapter: "simulator",
   };
 }
 
@@ -510,6 +566,17 @@ export async function completeCashPayment(orderId: string, businessId: string) {
         order.business.name,
         "Cash",
       );
+
+      await recordCustomerSaleJournalAndLedger(tx, {
+        businessId,
+        orderId,
+        paymentId: payment.id,
+        amount: payment.amount,
+        currency: payment.currency,
+        provider: payment.provider,
+        method: payment.method,
+        providerRef: payment.providerRef,
+      });
 
       return { payment, receipt };
     },
@@ -673,6 +740,17 @@ export async function completeWalletPaymentByPublicToken(
         "QR Wallet",
       );
 
+      await recordCustomerSaleJournalAndLedger(tx, {
+        businessId: fresh.order.businessId,
+        orderId: fresh.orderId,
+        paymentId: updatedPayment.id,
+        amount: updatedPayment.amount,
+        currency: updatedPayment.currency,
+        provider: updatedPayment.provider,
+        method: updatedPayment.method,
+        providerRef: updatedPayment.providerRef,
+      });
+
       return {
         ok: true as const,
         duplicate: false as const,
@@ -696,6 +774,13 @@ export async function completeWalletPaymentForOrder(orderId: string, businessId:
 
   if (!payment) {
     throw new HttpError(404, "No pending wallet payment for this order.");
+  }
+
+  if (payment.provider !== PaymentProvider.SIMULATOR) {
+    throw new HttpError(
+      400,
+      "Demo complete applies only to simulator checkout. Use your wallet app or provider webhooks for live payments.",
+    );
   }
 
   return completeWalletPaymentByPublicToken(payment.publicToken, {

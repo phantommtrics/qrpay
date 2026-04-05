@@ -9,14 +9,16 @@ import {
 } from "./billing-ledger.service.js";
 import { WavePaymentService } from "./wave-payment.service.js";
 import { YonnaForexPaymentService } from "./yonna-forex-payment.service.js";
+import { resolveAppPublicBaseForBrowserReturns } from "../config/app-public-url.js";
 import {
   CHECKOUT_ADAPTER_WAVE_GAMBIA,
   CHECKOUT_ADAPTER_YONNA_WALLET,
   getPaymentGatewayByCode,
 } from "./payment-gateway.service.js";
+import { waveApiBaseUrl, yonnaForexApiBaseUrl } from "../config/payment-provider-env.js";
 
 function waveServiceFromEnv(): WavePaymentService {
-  const baseUrl = process.env.WAVE_API_BASE_URL || "https://api.wave.com";
+  const baseUrl = waveApiBaseUrl();
   const bearer = process.env.WAVE_CHECKOUT_BEARER;
   if (!bearer) {
     throw new HttpError(503, "Online checkout is not configured (WAVE_CHECKOUT_BEARER).");
@@ -25,37 +27,16 @@ function waveServiceFromEnv(): WavePaymentService {
 }
 
 function yonnaServiceFromEnv(): YonnaForexPaymentService {
-  const baseUrl = (process.env.YONNA_FOREX_API_URL || "").trim().replace(/\/+$/, "");
+  const baseUrl = yonnaForexApiBaseUrl();
   const secretKey = (process.env.YONNA_FOREX_SECRET_KEY || "").trim();
   const clientId = (process.env.YONNA_FOREX_CLIENT_ID || "").trim();
-  if (!baseUrl || !secretKey || !clientId) {
+  if (!secretKey || !clientId) {
     throw new HttpError(
       503,
-      "Online checkout is not configured (YONNA_FOREX_API_URL, YONNA_FOREX_SECRET_KEY, YONNA_FOREX_CLIENT_ID).",
+      "Online checkout is not configured (YONNA_FOREX_SECRET_KEY, YONNA_FOREX_CLIENT_ID).",
     );
   }
   return new YonnaForexPaymentService({ baseUrl, secretKey, clientId });
-}
-
-function publicAppBase(req: Request): string {
-  const rawBase =
-    process.env.APP_PUBLIC_BASE_URL ||
-    (req.headers.origin as string) ||
-    process.env.CLIENT_BASE_URL ||
-    process.env.WEB_APP_URL ||
-    process.env.FRONTEND_BASE_URL ||
-    "";
-  let appBase = rawBase ? rawBase.replace(/\/$/, "") : "";
-  if (appBase.startsWith("http://")) {
-    appBase = appBase.replace("http://", "https://");
-  }
-  if (!appBase || !appBase.startsWith("https://")) {
-    throw new HttpError(
-      500,
-      "APP_PUBLIC_BASE_URL must be set to a public HTTPS origin for payment return URLs.",
-    );
-  }
-  return appBase;
 }
 
 export async function createSubscriptionInvoiceCheckout(input: {
@@ -113,7 +94,7 @@ export async function createSubscriptionInvoiceCheckout(input: {
   }
 
   if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
-    const appBase = publicAppBase(input.req);
+    const appBase = resolveAppPublicBaseForBrowserReturns(input.req);
     const successUrl = `${appBase}/billing/wave/success?invoiceId=${encodeURIComponent(invoice.id)}`;
     const errorUrl = `${appBase}/billing/wave/cancel?invoiceId=${encodeURIComponent(invoice.id)}`;
 

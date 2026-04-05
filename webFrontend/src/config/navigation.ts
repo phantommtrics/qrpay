@@ -37,6 +37,7 @@ export const APP_PATHS = {
   configuration: '/configuration',
   businesses: '/businesses',
   billing: '/billing',
+  integrationsMerchantApi: '/integrations/merchant-api',
   billingWaveSuccess: '/billing/wave/success',
   billingWaveCancel: '/billing/wave/cancel',
   subscriptions: '/subscriptions',
@@ -304,6 +305,10 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.platformPaymentGateways)) {
     return 'Payment gateways'
+  }
+
+  if (pathname.includes(APP_PATHS.integrationsMerchantApi)) {
+    return 'Merchant API'
   }
 
   if (pathname.includes('/billing/wave/')) {

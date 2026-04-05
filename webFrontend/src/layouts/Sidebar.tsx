@@ -23,7 +23,7 @@ import {
 } from '../config/navigation'
 
 /** Plan menu service ids that start expanded so nested links (e.g. Organization) are visible. */
-const DEFAULT_EXPANDED_PLAN_SERVICE_IDS = ['svc_org', 'svc_subscriptions'] as const
+const DEFAULT_EXPANDED_PLAN_SERVICE_IDS = ['svc_org', 'svc_subscriptions', 'svc_merchant'] as const
 import { useAuth } from '../features/auth/AuthContext'
 import {
   ApiError,

@@ -89,8 +89,26 @@ export type SalePayment = {
   providerReference: string
   method: 'qr_wallet' | 'cash'
   provider: string
+  gatewayCode?: string | null
   createdAt: string
   completedAt: string | null
+}
+
+export type OrderCheckoutWalletRow = {
+  gatewayId: string
+  code: string
+  name: string
+  checkoutAdapter: string
+  /** When true (Yonna), server uses phone from Merchant API credentials. */
+  hasStoredPayerPhone: boolean
+}
+
+export type StartWalletCheckoutResponse = {
+  payment: SalePayment
+  qrPayload: string
+  launchUrl: string
+  paymentHtml: string | null
+  checkoutAdapter: string
 }
 
 export async function fetchSaleOrders(businessId: string): Promise<SaleOrder[]> {
@@ -164,15 +182,30 @@ export async function fetchSaleOrder(businessId: string, orderId: string): Promi
   return res.data
 }
 
+export async function fetchOrderCheckoutWallets(
+  businessId: string,
+): Promise<OrderCheckoutWalletRow[]> {
+  const res = await apiRequest<{ data: { wallets: OrderCheckoutWalletRow[] } }>(
+    `/businesses/${businessId}/orders/checkout-wallets`,
+    {
+      method: 'GET',
+      businessId,
+    },
+  )
+  return Array.isArray(res?.data?.wallets) ? res.data.wallets : []
+}
+
 export async function startWalletCheckout(
   businessId: string,
   orderId: string,
-): Promise<{ payment: SalePayment; qrPayload: string }> {
-  const res = await apiRequest<{ data: { payment: SalePayment; qrPayload: string } }>(
+  body?: { gatewayCode?: string; payerPhone?: string },
+): Promise<StartWalletCheckoutResponse> {
+  const res = await apiRequest<{ data: StartWalletCheckoutResponse }>(
     `/businesses/${businessId}/orders/${orderId}/payments/wallet`,
     {
       method: 'POST',
       businessId,
+      body: JSON.stringify(body ?? {}),
     },
   )
   return res.data

@@ -29,6 +29,8 @@ export type PaymentMethodType = (typeof PaymentMethod)[keyof typeof PaymentMetho
 
 export const PaymentProvider = {
   SIMULATOR: "SIMULATOR",
+  WAVE_GAMBIA: "WAVE_GAMBIA",
+  YONNA_WALLET: "YONNA_WALLET",
 } as const;
 
 export type PaymentProviderType = (typeof PaymentProvider)[keyof typeof PaymentProvider];

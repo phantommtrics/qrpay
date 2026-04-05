@@ -22,6 +22,7 @@ export const PLAN_ENTITLEMENT_SLUGS: Record<PlanCode, string[]> = {
     "organization.manage",
     "business.manage",
     "business.configuration",
+    "merchant.api",
   ],
   [PlanCode.PRO]: [
     "subscriptions.billings",
@@ -44,6 +45,7 @@ export const PLAN_ENTITLEMENT_SLUGS: Record<PlanCode, string[]> = {
     "organization.manage",
     "business.manage",
     "business.configuration",
+    "merchant.api",
   ],
   [PlanCode.BUSINESS_PRO]: [
     "subscriptions.billings",
@@ -70,6 +72,7 @@ export const PLAN_ENTITLEMENT_SLUGS: Record<PlanCode, string[]> = {
     "organization.manage",
     "business.manage",
     "business.configuration",
+    "merchant.api",
   ],
 };
 
@@ -90,6 +93,12 @@ export const SYSTEM_CATALOG_SERVICES: Array<{
     name: "Subscriptions",
     description: "Plan billing and payment methods",
     sortOrder: 6,
+  },
+  {
+    id: "svc_merchant",
+    name: "Merchant",
+    description: "External wallets and APIs for customer payments",
+    sortOrder: 7,
   },
 ];
 
@@ -342,5 +351,15 @@ export const SYSTEM_CATALOG_PRODUCTS: Array<{
     sortOrder: 2,
     navPath: "/subscriptions/billing-activity",
     navLabel: "Subscription payments",
+  },
+  {
+    id: "sp_merchant_api",
+    serviceId: "svc_merchant",
+    slug: "merchant.api",
+    name: "APIs",
+    description: "Connect merchant wallets (Wave, Yonna) for customer checkout",
+    sortOrder: 0,
+    navPath: "/integrations/merchant-api",
+    navLabel: "Merchant API",
   },
 ];

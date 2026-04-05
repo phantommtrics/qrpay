@@ -18,6 +18,7 @@ import {
   dueInDays,
 } from "../utils/billing.js";
 import { queueSubscriptionInvoiceOwnerEmail } from "./subscription-invoice-email.service.js";
+import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
 
 /**
  * True when the user owns at least one business whose latest subscription is expired or past due.
@@ -156,7 +157,7 @@ function billingPeriodEndFromStart(start: Date, interval: BillingInterval) {
 export async function createBusiness(input: CreateBusinessInput) {
   const slug = normalizeSlug(input.slug || input.name);
 
-  return prisma.business.create({
+  const business = await prisma.business.create({
     data: {
       name: input.name.trim(),
       slug,
@@ -165,6 +166,8 @@ export async function createBusiness(input: CreateBusinessInput) {
       ownerEmail: input.ownerEmail.trim().toLowerCase(),
     },
   });
+  await ensureDefaultChartOfAccountsForBusiness(prisma, business.id);
+  return business;
 }
 
 async function expireTrialIfNeeded(subscription: SubscriptionWithPlanAndInvoices) {

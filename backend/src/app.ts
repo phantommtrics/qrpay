@@ -61,6 +61,11 @@ import {
   listBusinessPaymentMethods,
 } from "./services/business-payment-method.service.js";
 import {
+  deleteBusinessGatewayCredential,
+  listBusinessGatewayCredentialStatus,
+  upsertBusinessGatewayCredential,
+} from "./services/business-gateway-credential.service.js";
+import {
   createDiningTable,
   deleteDiningTable,
   listDiningTables,
@@ -121,6 +126,7 @@ import {
   subscriptionDaysRemaining,
   utcTodayIsoDate,
 } from "./services/platform-admin.service.js";
+import { listOrderCheckoutWallets } from "./services/order-wallet-checkout.service.js";
 import {
   cancelPendingOrder,
   completeCashPayment,
@@ -164,6 +170,7 @@ import {
   updatePlatformStaffUser,
   updateRoleTemplate,
 } from "./services/platform-security.service.js";
+import { getPaymentWebhookEndpoints } from "./config/app-public-url.js";
 import { env } from "./config/env.js";
 import { PLATFORM_MODULE_SLUGS } from "./config/platform-modules.js";
 import { HttpError } from "./lib/http-error.js";
@@ -180,6 +187,7 @@ import {
   requireAnyEntitlement,
   requireBusinessOwnerOrPlatform,
   requireEntitlement,
+  requireBillingOrMerchantApiOrPlatform,
   requireSubscriptionsBillingOrPlatform,
   requireSubscriptionsInvoicesOrPlatform,
 } from "./middleware/auth.js";
@@ -559,6 +567,17 @@ const addBusinessPaymentMethodBodySchema = z.object({
   gatewayCode: z.string().min(1),
   label: z.string().min(1),
   isDefault: z.boolean().optional(),
+});
+
+const putBusinessGatewayCredentialBodySchema = z.object({
+  gatewayCode: z.string().min(1),
+  secrets: z.unknown(),
+  replaceSecrets: z.boolean().optional(),
+});
+
+const orderWalletPaymentBodySchema = z.object({
+  gatewayCode: z.string().min(1).optional(),
+  payerPhone: z.string().optional(),
 });
 
 const platformPaginationQuerySchema = z.object({
@@ -2953,6 +2972,7 @@ function formatSalePaymentRow(p: {
   currency: string;
   provider: PaymentProviderType;
   providerRef: string;
+  gatewayCode?: string | null;
   createdAt: Date;
   completedAt: Date | null;
   order?: { id: string; publicCode: string };
@@ -2971,6 +2991,7 @@ function formatSalePaymentRow(p: {
     method: p.method === PaymentMethod.QR_WALLET ? "qr_wallet" : "cash",
     provider:
       p.provider === PaymentProvider.SIMULATOR ? "simulator" : String(p.provider).toLowerCase(),
+    gatewayCode: p.gatewayCode ?? null,
     createdAt: p.createdAt.toISOString(),
     completedAt: p.completedAt?.toISOString() ?? null,
   };
@@ -3345,7 +3366,7 @@ app.patch(
 app.get(
   "/api/businesses/:businessId/payment-gateways",
   authenticateToken,
-  requireSubscriptionsBillingOrPlatform(),
+  requireBillingOrMerchantApiOrPlatform(),
   async (req, res, next) => {
     try {
       const { businessId } = req.params;
@@ -3451,6 +3472,65 @@ app.delete(
     try {
       const { businessId, methodId } = req.params;
       await archiveBusinessPaymentMethod(businessId as string, methodId as string);
+      res.status(204).send();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/gateway-credentials",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireEntitlement("merchant.api"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const credentialStatus = await listBusinessGatewayCredentialStatus(businessId as string);
+      res.json({
+        data: {
+          credentialStatus,
+          webhookEndpoints: getPaymentWebhookEndpoints(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.put(
+  "/api/businesses/:businessId/gateway-credentials",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireEntitlement("merchant.api"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const body = putBusinessGatewayCredentialBodySchema.parse(req.body);
+      await upsertBusinessGatewayCredential({
+        businessId: businessId as string,
+        gatewayCode: body.gatewayCode,
+        secrets: body.secrets,
+        replaceSecrets: body.replaceSecrets,
+      });
+      res.json({ data: { ok: true } });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.delete(
+  "/api/businesses/:businessId/gateway-credentials/:gatewayCode",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireEntitlement("merchant.api"),
+  async (req, res, next) => {
+    try {
+      const { businessId, gatewayCode } = req.params;
+      await deleteBusinessGatewayCredential(businessId as string, gatewayCode as string);
       res.status(204).send();
     } catch (e) {
       next(e);
@@ -3641,6 +3721,37 @@ app.get(
 );
 
 app.get(
+  "/api/businesses/:businessId/orders/checkout-wallets",
+  authenticateToken,
+  requireAnyEntitlement(["pos.access", "orders.manage"]),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (
+        !membership &&
+        !request.user?.isPlatformOwner &&
+        request.user?.role !== "PLATFORM_ADMIN"
+      ) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const wallets = await listOrderCheckoutWallets(businessId as string);
+      response.json({ data: { wallets } });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
   "/api/businesses/:businessId/orders/:orderId",
   authenticateToken,
   requireAnyEntitlement(["orders.view", "pos.access"]),
@@ -3730,12 +3841,24 @@ app.post(
         throw new HttpError(403, "Access denied to this business");
       }
 
-      const result = await startWalletPayment(orderId as string, businessId as string);
+      const body = orderWalletPaymentBodySchema.parse(request.body ?? {});
+      const result = await startWalletPayment(
+        orderId as string,
+        businessId as string,
+        {
+          gatewayCode: body.gatewayCode,
+          payerPhone: body.payerPhone,
+        },
+        request,
+      );
 
       response.json({
         data: {
           payment: formatSalePaymentRow(result.payment),
           qrPayload: result.qrPayload,
+          launchUrl: result.launchUrl,
+          paymentHtml: result.paymentHtml,
+          checkoutAdapter: result.checkoutAdapter,
         },
       });
     } catch (error) {

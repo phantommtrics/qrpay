@@ -32,6 +32,7 @@ import {
   sendSignUpTemporaryPasswordEmailContent,
 } from "./password-reset.service.js";
 import { getMergedPlatformPermissionsForUser } from "./platform-security.service.js";
+import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
 
 type RegisterBusinessOwnerInput = {
   ownerName: string;
@@ -273,6 +274,8 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
         ownerEmail,
       },
     });
+
+    await ensureDefaultChartOfAccountsForBusiness(tx, business.id);
 
     await tx.businessMembership.create({
       data: {
