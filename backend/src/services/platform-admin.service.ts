@@ -9,6 +9,7 @@ import {
 
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
+import { recordSubscriptionRefundBillingAndJournalTx } from "./platform-subscription-journal.service.js";
 import {
   queueSubscriptionInvoiceRefundApprovedEmail,
   queueSubscriptionInvoiceRefundReviewEmail,
@@ -339,6 +340,19 @@ export async function patchSubscriptionInvoiceManualRefundReview(input: {
 
   const prevStatus = existing.manualRefundReviewStatus;
   const isApproved = input.status === ManualRefundReviewStatus.APPROVED_FOR_REFUND;
+  const isRefundedExternally = input.status === ManualRefundReviewStatus.REFUNDED_EXTERNALLY;
+
+  if (isRefundedExternally) {
+    if (existing.status !== InvoiceStatus.PAID) {
+      throw new HttpError(400, "Only paid invoices can be recorded as refunded externally.");
+    }
+    if (prevStatus !== ManualRefundReviewStatus.APPROVED_FOR_REFUND) {
+      throw new HttpError(
+        400,
+        "Approve the refund for this invoice before marking it as completed externally.",
+      );
+    }
+  }
 
   let manualRefundExpectedBy: Date | null = null;
   let manualRefundApprovedAmount: Prisma.Decimal | null = null;
@@ -366,30 +380,53 @@ export async function patchSubscriptionInvoiceManualRefundReview(input: {
     }
   }
 
-  const updated = await prisma.subscriptionInvoice.update({
-    where: { id: input.invoiceId },
-    data: {
-      manualRefundReviewStatus: input.status,
-      manualRefundNote: input.note?.trim() ? input.note.trim() : null,
-      manualRefundReviewedAt: new Date(),
-      manualRefundReviewedByUserId: input.actorUserId,
-      manualRefundExpectedBy: isApproved ? manualRefundExpectedBy : null,
-      manualRefundApprovedAmount: isApproved ? manualRefundApprovedAmount : null,
-    },
-    include: {
-      business: true,
-      plan: true,
-      subscription: true,
-      ledgerEntries: {
-        where: {
-          type: BillingLedgerEntryType.INVOICE_PAYMENT,
-          status: BillingLedgerStatus.SUCCEEDED,
-        },
-        orderBy: { succeededAt: "desc" },
-        take: 1,
+  const updated = await prisma.$transaction(async (tx) => {
+    if (isRefundedExternally) {
+      const refundAmt = existing.manualRefundApprovedAmount ?? existing.amount;
+      await recordSubscriptionRefundBillingAndJournalTx(tx, {
+        invoiceId: input.invoiceId,
+        businessId: existing.businessId,
+        subscriptionId: existing.subscriptionId,
+        amount: new Prisma.Decimal(refundAmt.toString()),
+        currency: existing.currency,
+      });
+    }
+
+    const preserveApprovedMeta = isRefundedExternally;
+
+    return tx.subscriptionInvoice.update({
+      where: { id: input.invoiceId },
+      data: {
+        manualRefundReviewStatus: input.status,
+        manualRefundNote: input.note?.trim() ? input.note.trim() : null,
+        manualRefundReviewedAt: new Date(),
+        manualRefundReviewedByUserId: input.actorUserId,
+        manualRefundExpectedBy: isApproved
+          ? manualRefundExpectedBy
+          : preserveApprovedMeta
+            ? existing.manualRefundExpectedBy
+            : null,
+        manualRefundApprovedAmount: isApproved
+          ? manualRefundApprovedAmount
+          : preserveApprovedMeta
+            ? existing.manualRefundApprovedAmount
+            : null,
       },
-      manualRefundReviewedBy: { select: { id: true, name: true, email: true } },
-    },
+      include: {
+        business: true,
+        plan: true,
+        subscription: true,
+        ledgerEntries: {
+          where: {
+            type: BillingLedgerEntryType.INVOICE_PAYMENT,
+            status: BillingLedgerStatus.SUCCEEDED,
+          },
+          orderBy: { succeededAt: "desc" },
+          take: 1,
+        },
+        manualRefundReviewedBy: { select: { id: true, name: true, email: true } },
+      },
+    });
   });
 
   if (prevStatus !== ManualRefundReviewStatus.PENDING_REVIEW && input.status === ManualRefundReviewStatus.PENDING_REVIEW) {

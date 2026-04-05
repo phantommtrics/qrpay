@@ -5,6 +5,7 @@ import { InvoiceStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { CHECKOUT_ADAPTER_YONNA_WALLET } from "./payment-gateway.service.js";
 import { completeSubscriptionInvoicePayment } from "./subscription.service.js";
+import { cancelPendingInvoicePaymentLedgers } from "./billing-ledger.service.js";
 
 export type YonnaForexWebhookPayload = {
   appTransactionId?: string;
@@ -91,14 +92,41 @@ export async function processYonnaSubscriptionWebhook(
   }
 
   const normalized = String(payload.status).toLowerCase();
-  if (normalized !== "success" && normalized !== "completed") {
-    return;
-  }
+  const successStatuses = new Set(["success", "completed"]);
+  const failureStatuses = new Set([
+    "failed",
+    "failure",
+    "cancelled",
+    "canceled",
+    "declined",
+    "error",
+    "rejected",
+    "expired",
+    "timeout",
+  ]);
 
   const providerTxn =
     (typeof payload.transactionId === "string" && payload.transactionId) ||
     (typeof payload.reference === "string" && payload.reference) ||
     undefined;
+
+  if (failureStatuses.has(normalized)) {
+    const invoice = await prisma.subscriptionInvoice.findFirst({
+      where: {
+        status: InvoiceStatus.PENDING,
+        checkoutProvider: CHECKOUT_ADAPTER_YONNA_WALLET,
+        OR: [{ id: appTransactionId }, ...(providerTxn ? [{ checkoutSessionId: providerTxn }] : [])],
+      },
+    });
+    if (invoice) {
+      await prisma.$transaction((tx) => cancelPendingInvoicePaymentLedgers(tx, invoice.id));
+    }
+    return;
+  }
+
+  if (!successStatuses.has(normalized)) {
+    return;
+  }
 
   const invoice = await prisma.subscriptionInvoice.findFirst({
     where: {

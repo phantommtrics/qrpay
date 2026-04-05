@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  BookOpenText,
   Building2,
   Check,
   ChevronDown,
@@ -18,6 +19,7 @@ import {
   APP_PATHS,
   MAIN_NAV_ITEMS,
   PLATFORM_BUSINESSES_SUBNAV,
+  PLATFORM_FINANCE_SUBNAV,
   platformBusinessesSubnavAllowed,
   PLATFORM_SECURITY_SUBNAV,
   RESTAURANT_NAV_ITEM,
@@ -36,6 +38,7 @@ import { isRestaurantIndustry } from '../utils/businessIndustry'
 
 const BUSINESS_SECTION_STORAGE_KEY = 'qrpay.sidebar.businesses.open.v1'
 const PLATFORM_BUSINESSES_SECTION_KEY = 'qrpay.sidebar.platform-businesses.open.v1'
+const PLATFORM_FINANCE_SECTION_KEY = 'qrpay.sidebar.platform-finance.open.v1'
 const PLATFORM_SECURITY_SECTION_KEY = 'qrpay.sidebar.platform-security.open.v1'
 
 export function Sidebar({
@@ -73,6 +76,17 @@ export function Sidebar({
       p.startsWith('/platform/billing-transactions') ||
       p.startsWith('/platform/payment-gateways')
     )
+  })
+  const [isPlatformFinanceOpen, setIsPlatformFinanceOpen] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true
+    }
+    const stored = window.localStorage.getItem(PLATFORM_FINANCE_SECTION_KEY)
+    if (stored !== null) {
+      return stored === 'true'
+    }
+    const p = window.location.hash.replace(/^#/, '') || window.location.pathname
+    return p.startsWith('/platform/accounting')
   })
   const [isPlatformSecurityOpen, setIsPlatformSecurityOpen] = useState(() => {
     if (typeof window === 'undefined') {
@@ -186,6 +200,13 @@ export function Sidebar({
     if (typeof window === 'undefined') {
       return
     }
+    window.localStorage.setItem(PLATFORM_FINANCE_SECTION_KEY, String(isPlatformFinanceOpen))
+  }, [isPlatformFinanceOpen])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
     window.localStorage.setItem(PLATFORM_SECURITY_SECTION_KEY, String(isPlatformSecurityOpen))
   }, [isPlatformSecurityOpen])
 
@@ -201,6 +222,9 @@ export function Sidebar({
       p.startsWith('/platform/payment-gateways')
     ) {
       setIsPlatformBusinessesOpen(true)
+    }
+    if (p.startsWith('/platform/accounting')) {
+      setIsPlatformFinanceOpen(true)
     }
     if (p.startsWith('/platform/security')) {
       setIsPlatformSecurityOpen(true)
@@ -232,6 +256,29 @@ export function Sidebar({
     }
     if (path === APP_PATHS.platformPaymentGateways) {
       return p.startsWith('/platform/payment-gateways')
+    }
+    return false
+  }
+
+  function isPlatformFinanceSubActive(path: string) {
+    const p = location.pathname
+    if (path === APP_PATHS.platformAccounting) {
+      return p === APP_PATHS.platformAccounting || p === `${APP_PATHS.platformAccounting}/`
+    }
+    if (path === APP_PATHS.platformAccountingChart) {
+      return p.startsWith('/platform/accounting/chart-of-accounts')
+    }
+    if (path === APP_PATHS.platformAccountingJournals) {
+      return p.startsWith('/platform/accounting/journals')
+    }
+    if (path === APP_PATHS.platformAccountingReportGl) {
+      return p.startsWith('/platform/accounting/reports/gl-balance')
+    }
+    if (path === APP_PATHS.platformAccountingReportPnl) {
+      return p.startsWith('/platform/accounting/reports/profit-loss')
+    }
+    if (path === APP_PATHS.platformAccountingReportStatement) {
+      return p.startsWith('/platform/accounting/reports/account-statement')
     }
     return false
   }
@@ -406,6 +453,50 @@ export function Sidebar({
                     <span className="font-medium">{item.name}</span>
                   </NavLink>
                 ))}
+              {PLATFORM_FINANCE_SUBNAV.some((item) =>
+                platformBusinessesSubnavAllowed(item, canAccess),
+              ) ? (
+                <div className="mb-1 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsPlatformFinanceOpen((o) => !o)}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
+                  >
+                    <span className="flex items-center gap-2 truncate">
+                      <BookOpenText className="h-4 w-4 shrink-0 text-teal-500/90" />
+                      Finance
+                    </span>
+                    <ChevronDown
+                      className={`h-4 w-4 shrink-0 transition-transform ${
+                        isPlatformFinanceOpen ? 'rotate-0' : '-rotate-90'
+                      }`}
+                    />
+                  </button>
+                  {isPlatformFinanceOpen ? (
+                    <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
+                      {PLATFORM_FINANCE_SUBNAV.filter((item) =>
+                        platformBusinessesSubnavAllowed(item, canAccess),
+                      ).map((item) => {
+                        const subActive = isPlatformFinanceSubActive(item.path)
+                        return (
+                          <NavLink
+                            key={item.path}
+                            to={item.path}
+                            onClick={() => setIsOpen(false)}
+                            className={`flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
+                              subActive
+                                ? 'bg-teal-500/10 text-teal-300'
+                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                            }`}
+                          >
+                            <span className="font-medium">{item.title}</span>
+                          </NavLink>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="mb-1 mt-1">
                 <button
                   type="button"

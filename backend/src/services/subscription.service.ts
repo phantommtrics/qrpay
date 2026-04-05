@@ -12,6 +12,10 @@ import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
 import { cancelPendingInvoicePaymentLedgers } from "./billing-ledger.service.js";
 import {
+  postPlatformJournalForPaidSubscriptionInvoice,
+  recordSubscriptionCheckoutWalletFeeTx,
+} from "./platform-subscription-journal.service.js";
+import {
   addMonths,
   addYears,
   createInvoiceReference,
@@ -534,9 +538,84 @@ export type CompleteSubscriptionInvoicePaymentInput = {
   metadata?: Prisma.InputJsonValue;
 };
 
+async function postPaidSubscriptionInvoicePlatformAccounting(
+  tx: Omit<
+    Prisma.TransactionClient,
+    "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
+  >,
+  invoice: {
+    id: string;
+    businessId: string;
+    subscriptionId: string | null;
+    amount: Prisma.Decimal;
+    currency: string;
+  },
+  provider: string,
+): Promise<void> {
+  await postPlatformJournalForPaidSubscriptionInvoice(tx, {
+    id: invoice.id,
+    businessId: invoice.businessId,
+    amount: invoice.amount,
+    currency: invoice.currency,
+  });
+  await recordSubscriptionCheckoutWalletFeeTx(tx, {
+    provider,
+    invoiceId: invoice.id,
+    businessId: invoice.businessId,
+    subscriptionId: invoice.subscriptionId,
+    grossAmount: invoice.amount,
+    currency: invoice.currency,
+  });
+}
+
+type SubscriptionTx = Omit<
+  Prisma.TransactionClient,
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
+>;
+
+/** Marks pending WALLET_FEE row(s) for this checkout succeeded alongside the invoice payment. */
+async function settlePendingSubscriptionWalletFeeLedger(
+  tx: SubscriptionTx,
+  invoiceId: string,
+  providerCheckoutSessionId: string | null | undefined,
+  now: Date,
+  metaPatch: { metadata?: object },
+): Promise<void> {
+  const sessionId = providerCheckoutSessionId?.trim() || undefined;
+  const baseWhere = {
+    subscriptionInvoiceId: invoiceId,
+    type: BillingLedgerEntryType.WALLET_FEE,
+    status: BillingLedgerStatus.PENDING,
+  } as const;
+
+  let wf = sessionId
+    ? await tx.billingLedgerEntry.findFirst({
+        where: { ...baseWhere, providerCheckoutSessionId: sessionId },
+      })
+    : null;
+  if (!wf) {
+    wf = await tx.billingLedgerEntry.findFirst({ where: { ...baseWhere } });
+  }
+  if (!wf) {
+    return;
+  }
+
+  const canonicalIdem = `subscription-wallet-fee:${invoiceId}`;
+  await tx.billingLedgerEntry.update({
+    where: { id: wf.id },
+    data: {
+      status: BillingLedgerStatus.SUCCEEDED,
+      succeededAt: now,
+      idempotencyKey: wf.idempotencyKey ?? canonicalIdem,
+      ...metaPatch,
+    },
+  });
+}
+
 /**
  * Marks the invoice paid, records a BillingLedgerEntry, and activates the subscription when applicable.
  * Idempotent for duplicate webhooks (same session or idempotency key).
+ * Resolves the payment row with `subscriptionInvoiceId` + `INVOICE_PAYMENT` (never WALLET_FEE, which shares `providerCheckoutSessionId`).
  */
 export async function completeSubscriptionInvoicePayment(
   input: CompleteSubscriptionInvoicePaymentInput,
@@ -553,6 +632,11 @@ export async function completeSubscriptionInvoicePayment(
 
     const now = new Date();
 
+    const metaPatch =
+      input.metadata !== undefined && input.metadata !== null
+        ? { metadata: input.metadata as object }
+        : {};
+
     if (invoice.status === InvoiceStatus.PAID) {
       const dupLedger =
         (input.providerCheckoutSessionId &&
@@ -560,6 +644,7 @@ export async function completeSubscriptionInvoicePayment(
             where: {
               subscriptionInvoiceId: invoice.id,
               providerCheckoutSessionId: input.providerCheckoutSessionId,
+              type: BillingLedgerEntryType.INVOICE_PAYMENT,
               status: BillingLedgerStatus.SUCCEEDED,
             },
           }))) ||
@@ -567,10 +652,22 @@ export async function completeSubscriptionInvoicePayment(
           (await tx.billingLedgerEntry.findFirst({
             where: {
               idempotencyKey: input.idempotencyKey,
+              type: BillingLedgerEntryType.INVOICE_PAYMENT,
               status: BillingLedgerStatus.SUCCEEDED,
             },
           })));
       if (dupLedger) {
+        await postPaidSubscriptionInvoicePlatformAccounting(
+          tx,
+          {
+            id: invoice.id,
+            businessId: invoice.businessId,
+            subscriptionId: invoice.subscriptionId,
+            amount: invoice.amount,
+            currency: invoice.currency,
+          },
+          input.provider,
+        );
         return tx.subscriptionInvoice.findUniqueOrThrow({ where: { id: invoice.id } });
       }
       throw new HttpError(400, "Invoice is already paid.");
@@ -580,18 +677,34 @@ export async function completeSubscriptionInvoicePayment(
       throw new HttpError(400, "Only pending invoices can be completed.");
     }
 
-    let ledger =
+    // Always scope by invoice id + entry type so WALLET_FEE rows (same providerCheckoutSessionId) are never selected.
+    let paymentLedger =
       (input.providerCheckoutSessionId &&
         (await tx.billingLedgerEntry.findFirst({
-          where: { providerCheckoutSessionId: input.providerCheckoutSessionId },
+          where: {
+            subscriptionInvoiceId: invoice.id,
+            providerCheckoutSessionId: input.providerCheckoutSessionId,
+            type: BillingLedgerEntryType.INVOICE_PAYMENT,
+          },
         }))) ||
       (input.idempotencyKey &&
         (await tx.billingLedgerEntry.findFirst({
-          where: { idempotencyKey: input.idempotencyKey },
+          where: {
+            subscriptionInvoiceId: invoice.id,
+            idempotencyKey: input.idempotencyKey,
+            type: BillingLedgerEntryType.INVOICE_PAYMENT,
+          },
         }))) ||
       null;
 
-    if (ledger?.status === BillingLedgerStatus.SUCCEEDED) {
+    if (paymentLedger?.status === BillingLedgerStatus.SUCCEEDED) {
+      await settlePendingSubscriptionWalletFeeLedger(
+        tx,
+        invoice.id,
+        input.providerCheckoutSessionId ?? paymentLedger.providerCheckoutSessionId,
+        now,
+        metaPatch,
+      );
       const paidInvoice = await tx.subscriptionInvoice.update({
         where: { id: invoice.id },
         data: { status: InvoiceStatus.PAID, paidAt: now },
@@ -601,17 +714,23 @@ export async function completeSubscriptionInvoicePayment(
         invoice.subscription,
         paidInvoice,
       );
+      await postPaidSubscriptionInvoicePlatformAccounting(
+        tx,
+        {
+          id: invoice.id,
+          businessId: invoice.businessId,
+          subscriptionId: invoice.subscriptionId,
+          amount: invoice.amount,
+          currency: invoice.currency,
+        },
+        input.provider,
+      );
       return paidInvoice;
     }
 
-    const metaPatch =
-      input.metadata !== undefined && input.metadata !== null
-        ? { metadata: input.metadata as object }
-        : {};
-
-    if (ledger) {
+    if (paymentLedger) {
       await tx.billingLedgerEntry.update({
-        where: { id: ledger.id },
+        where: { id: paymentLedger.id },
         data: {
           status: BillingLedgerStatus.SUCCEEDED,
           succeededAt: now,
@@ -619,6 +738,13 @@ export async function completeSubscriptionInvoicePayment(
           ...metaPatch,
         },
       });
+      await settlePendingSubscriptionWalletFeeLedger(
+        tx,
+        invoice.id,
+        input.providerCheckoutSessionId ?? paymentLedger.providerCheckoutSessionId,
+        now,
+        metaPatch,
+      );
     } else {
       await tx.billingLedgerEntry.create({
         data: {
@@ -652,6 +778,18 @@ export async function completeSubscriptionInvoicePayment(
       tx,
       invoice.subscription,
       paidInvoice,
+    );
+
+    await postPaidSubscriptionInvoicePlatformAccounting(
+      tx,
+      {
+        id: invoice.id,
+        businessId: invoice.businessId,
+        subscriptionId: invoice.subscriptionId,
+        amount: invoice.amount,
+        currency: invoice.currency,
+      },
+      input.provider,
     );
 
     return paidInvoice;

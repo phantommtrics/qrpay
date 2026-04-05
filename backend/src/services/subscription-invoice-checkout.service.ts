@@ -6,6 +6,7 @@ import { HttpError } from "../lib/http-error.js";
 import {
   cancelPendingInvoicePaymentLedgers,
   createPendingInvoicePaymentLedger,
+  createPendingWalletFeeLedgerForSubscriptionCheckout,
 } from "./billing-ledger.service.js";
 import { WavePaymentService } from "./wave-payment.service.js";
 import { YonnaForexPaymentService } from "./yonna-forex-payment.service.js";
@@ -129,6 +130,15 @@ export async function createSubscriptionInvoiceCheckout(input: {
         providerCheckoutSessionId: session.id,
         metadata: { waveCheckoutSessionId: session.id },
       });
+      await createPendingWalletFeeLedgerForSubscriptionCheckout(tx, {
+        businessId: invoice.businessId,
+        subscriptionId: invoice.subscriptionId,
+        subscriptionInvoiceId: invoice.id,
+        grossAmount: invoice.amount,
+        currency: invoice.currency || "GMD",
+        provider: CHECKOUT_ADAPTER_WAVE_GAMBIA,
+        providerCheckoutSessionId: session.id,
+      });
     });
 
     return {
@@ -188,6 +198,15 @@ export async function createSubscriptionInvoiceCheckout(input: {
         yonnaTransactionId: finalTransactionId,
         appTransactionId: invoice.id,
       },
+    });
+    await createPendingWalletFeeLedgerForSubscriptionCheckout(tx, {
+      businessId: invoice.businessId,
+      subscriptionId: invoice.subscriptionId,
+      subscriptionInvoiceId: invoice.id,
+      grossAmount: invoice.amount,
+      currency: invoice.currency || "GMD",
+      provider: CHECKOUT_ADAPTER_YONNA_WALLET,
+      providerCheckoutSessionId: finalTransactionId,
     });
   });
 

@@ -233,6 +233,36 @@ const PlatformPaymentGatewaysPage = lazy(() =>
     default: module.PlatformPaymentGatewaysPage,
   })),
 )
+const PlatformAccountingHomePage = lazy(() =>
+  import('../screens/platform/PlatformAccountingHomePage').then((module) => ({
+    default: module.PlatformAccountingHomePage,
+  })),
+)
+const PlatformAccountingChartPage = lazy(() =>
+  import('../screens/platform/PlatformAccountingChartPage').then((module) => ({
+    default: module.PlatformAccountingChartPage,
+  })),
+)
+const PlatformAccountingJournalsPage = lazy(() =>
+  import('../screens/platform/PlatformAccountingJournalsPage').then((module) => ({
+    default: module.PlatformAccountingJournalsPage,
+  })),
+)
+const PlatformAccountingGlPage = lazy(() =>
+  import('../screens/platform/PlatformAccountingGlPage').then((module) => ({
+    default: module.PlatformAccountingGlPage,
+  })),
+)
+const PlatformAccountingPnlPage = lazy(() =>
+  import('../screens/platform/PlatformAccountingPnlPage').then((module) => ({
+    default: module.PlatformAccountingPnlPage,
+  })),
+)
+const PlatformAccountingStatementPage = lazy(() =>
+  import('../screens/platform/PlatformAccountingStatementPage').then((module) => ({
+    default: module.PlatformAccountingStatementPage,
+  })),
+)
 const BillingPage = lazy(() =>
   import('../screens/BillingPage').then((module) => ({
     default: module.BillingPage,
@@ -328,6 +358,42 @@ export function AppRoutes() {
       element: <PlatformPaymentGatewaysPage />,
       roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.payment_gateways.manage' as const,
+    },
+    {
+      path: APP_PATHS.platformAccounting,
+      element: <PlatformAccountingHomePage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.accounting.view' as const,
+    },
+    {
+      path: APP_PATHS.platformAccountingChart,
+      element: <PlatformAccountingChartPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.accounting.chart.view' as const,
+    },
+    {
+      path: APP_PATHS.platformAccountingJournals,
+      element: <PlatformAccountingJournalsPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.accounting.view' as const,
+    },
+    {
+      path: APP_PATHS.platformAccountingReportGl,
+      element: <PlatformAccountingGlPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.accounting.reports.gl' as const,
+    },
+    {
+      path: APP_PATHS.platformAccountingReportPnl,
+      element: <PlatformAccountingPnlPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.accounting.reports.pnl' as const,
+    },
+    {
+      path: APP_PATHS.platformAccountingReportStatement,
+      element: <PlatformAccountingStatementPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.accounting.reports.statement' as const,
     },
     {
       path: APP_PATHS.billing,

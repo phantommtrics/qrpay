@@ -2034,6 +2034,8 @@ export async function changeBusinessSubscriptionPlan(
 export type GatewayCredentialFieldStatus = {
   apiBearer?: boolean
   webhookSecret?: boolean
+  /** Wave/Yonna: wallet fee rate (0–1) saved for POS/order accounting. */
+  customerWalletFeeRate?: boolean
   clientId?: boolean
   secretKey?: boolean
   /** Yonna: default wallet phone saved for QR checkout. */
@@ -2093,4 +2095,210 @@ export async function deleteBusinessGatewayCredentialRequest(
       headers: { 'x-business-id': businessId },
     },
   )
+}
+
+// --- Platform accounting (EasyPay operator GL; no x-business-id) ---
+
+export type PlatformGlBalanceReportData = {
+  asOf: string
+  rows: Array<{
+    chartOfAccountId: string
+    code: string
+    name: string
+    category: string
+    debitTotal: number
+    creditTotal: number
+    balance: number
+  }>
+  totalDebit: number
+  totalCredit: number
+  difference: number
+}
+
+export type PlatformProfitLossReportData = {
+  from: string
+  to: string
+  revenue: { lines: Array<{ chartOfAccountId: string; code: string; name: string; amount: number }>; total: number }
+  costOfSales: { lines: Array<{ chartOfAccountId: string; code: string; name: string; amount: number }>; total: number }
+  operatingExpenses: {
+    lines: Array<{ chartOfAccountId: string; code: string; name: string; amount: number }>
+    total: number
+  }
+  grossProfit: number
+  netProfit: number
+}
+
+export type PlatformAccountStatementReportData = {
+  account: { id: string; code: string; name: string; category: string }
+  from: string
+  to: string
+  openingBalance: number
+  closingBalance: number
+  lines: Array<{
+    id: string
+    postedAt: string
+    journalEntryId: string
+    reference: string | null
+    memo: string | null
+    lineDescription: string | null
+    debit: number
+    credit: number
+    balance: number
+  }>
+}
+
+export type PlatformChartAccountMini = {
+  id: string
+  code: string
+  name: string
+  category: string
+}
+
+export type PlatformJournalLineRow = {
+  id: string
+  chartOfAccountId: string
+  code: string
+  name: string
+  category: string
+  debit: number
+  credit: number
+  description: string | null
+}
+
+export type PlatformJournalEntryRow = {
+  id: string
+  postedAt: string
+  memo: string | null
+  reference: string | null
+  sourceType: string | null
+  sourceId: string | null
+  createdAt: string
+  lines: PlatformJournalLineRow[]
+}
+
+export async function fetchPlatformGlBalanceReport(asOf: string): Promise<PlatformGlBalanceReportData> {
+  const qs = new URLSearchParams({ asOf })
+  const res = await apiRequest<{ data: PlatformGlBalanceReportData }>(
+    `/platform/accounting/reports/gl-balance?${qs}`,
+  )
+  return res.data
+}
+
+export async function fetchPlatformProfitLossReport(
+  from: string,
+  to: string,
+): Promise<PlatformProfitLossReportData> {
+  const qs = new URLSearchParams({ from, to })
+  const res = await apiRequest<{ data: PlatformProfitLossReportData }>(
+    `/platform/accounting/reports/profit-loss?${qs}`,
+  )
+  return res.data
+}
+
+export async function fetchPlatformAccountStatementReports(
+  chartOfAccountIds: string[],
+  from: string,
+  to: string,
+): Promise<PlatformAccountStatementReportData[]> {
+  if (chartOfAccountIds.length === 0) return []
+  const qs = new URLSearchParams({
+    chartOfAccountIds: chartOfAccountIds.join(','),
+    from,
+    to,
+  })
+  const res = await apiRequest<{ data: { statements: PlatformAccountStatementReportData[] } }>(
+    `/platform/accounting/reports/account-statement?${qs}`,
+  )
+  return res.data.statements
+}
+
+export async function fetchPlatformAccountsForReports(): Promise<PlatformChartAccountMini[]> {
+  const res = await apiRequest<{ data: PlatformChartAccountMini[] }>(
+    '/platform/accounting/accounts-for-reports',
+  )
+  return res.data
+}
+
+export async function fetchPlatformJournalEntries(page: number, pageSize: number) {
+  const qs = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  })
+  return apiRequest<{
+    data: PlatformJournalEntryRow[]
+    total: number
+    page: number
+    pageSize: number
+  }>(`/platform/accounting/journal-entries?${qs}`)
+}
+
+export async function postPlatformManualJournal(body: {
+  postedAt: string
+  memo?: string | null
+  reference?: string | null
+  lines: Array<{
+    chartOfAccountId: string
+    debit: number
+    credit: number
+    description?: string | null
+  }>
+}) {
+  const res = await apiRequest<{ data: { id: string } }>('/platform/accounting/journal-entries/manual', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  return res.data
+}
+
+export type PlatformChartAccountDetail = {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  category: string
+  kind: string
+  isSystem: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export async function fetchPlatformAccountingChart(): Promise<PlatformChartAccountDetail[]> {
+  const res = await apiRequest<{ data: PlatformChartAccountDetail[] }>(
+    '/platform/accounting/chart-of-accounts',
+  )
+  return res.data
+}
+
+export async function createPlatformChartAccount(body: {
+  code: string
+  name: string
+  category: string
+  description?: string | null
+}): Promise<PlatformChartAccountDetail> {
+  const res = await apiRequest<{ data: PlatformChartAccountDetail }>(
+    '/platform/accounting/chart-of-accounts',
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
+  return res.data
+}
+
+export async function updatePlatformChartAccount(
+  accountId: string,
+  body: Partial<{ code: string; name: string; category: string; description: string | null }>,
+): Promise<PlatformChartAccountDetail> {
+  const res = await apiRequest<{ data: PlatformChartAccountDetail }>(
+    `/platform/accounting/chart-of-accounts/${accountId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    },
+  )
+  return res.data
+}
+
+export async function deletePlatformChartAccount(accountId: string) {
+  await apiRequest(`/platform/accounting/chart-of-accounts/${accountId}`, { method: 'DELETE' })
 }

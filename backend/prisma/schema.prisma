@@ -51,6 +51,8 @@ enum BillingLedgerEntryType {
   INVOICE_PAYMENT
   REFUND
   ADJUSTMENT
+  /** Platform-paid wallet rail fee (e.g. Wave) on successful subscription checkout. */
+  WALLET_FEE
 }
 
 enum BillingLedgerDirection {
@@ -132,17 +134,35 @@ enum ChartAccountKind {
 
 enum JournalSourceType {
   CUSTOMER_SALE_PAYMENT
+  /** Merchant wallet/processor fee on a completed customer QR payment (pairs with SalesLedger WALLET_FEE). */
+  CUSTOMER_SALE_WALLET_FEE
   MANUAL_MONEY_IN
   MANUAL_MONEY_OUT
   MANUAL_BANK_TRANSFER
 }
 
+/** Easypay operator GL — merchant subscription cash vs manual platform costs. */
+enum PlatformJournalSourceType {
+  MANUAL
+  SUBSCRIPTION_INVOICE_PAYMENT
+  /** Checkout started: receivable vs deferred revenue until payment succeeds. */
+  SUBSCRIPTION_CHECKOUT_PENDING
+  /** Payment captured: clear receivable, recognize revenue (pairs with pending). */
+  SUBSCRIPTION_CHECKOUT_SETTLEMENT
+  /** Refund paid to merchant (billing ledger REFUND row). */
+  SUBSCRIPTION_REFUND
+  /** Wallet/processor fee on subscription payment (billing ledger WALLET_FEE row). */
+  SUBSCRIPTION_WALLET_FEE
+}
+
 enum SalesLedgerEntryType {
   CUSTOMER_SALE
+  WALLET_FEE
 }
 
 enum SalesLedgerDirection {
   MONEY_IN
+  MONEY_OUT
 }
 
 enum SalesLedgerStatus {
@@ -321,11 +341,61 @@ model JournalLine {
   @@index([chartOfAccountId])
 }
 
+/** Platform (EasyPay) chart — one global ledger, not per merchant Business. */
+model PlatformChartOfAccount {
+  id                String                @id @default(cuid())
+  code              String                @unique
+  name              String
+  description       String?               @db.Text
+  category          ChartAccountCategory
+  kind              ChartAccountKind      @default(LEDGER)
+  bankAccountNumber String?
+  bankName          String?
+  bankDetails       String?               @db.Text
+  isSystem          Boolean               @default(false)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  lines             PlatformJournalLine[]
+
+  @@index([category])
+}
+
+model PlatformJournalEntry {
+  id         String                     @id @default(cuid())
+  postedAt   DateTime                   @default(now())
+  memo       String?
+  sourceType PlatformJournalSourceType?
+  sourceId   String?
+  reference  String?
+  createdAt  DateTime                   @default(now())
+  lines      PlatformJournalLine[]
+
+  @@index([postedAt])
+  @@index([sourceType, sourceId])
+}
+
+model PlatformJournalLine {
+  id               String                 @id @default(cuid())
+  journalEntryId   String
+  chartOfAccountId String
+  debitAmount      Decimal                @default(0) @db.Decimal(12, 2)
+  creditAmount     Decimal                @default(0) @db.Decimal(12, 2)
+  description      String?                @db.Text
+  quantity         Decimal?               @db.Decimal(18, 6)
+  unitLabel        String?
+  taxAmount        Decimal                @default(0) @db.Decimal(12, 2)
+  journalEntry     PlatformJournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  chartOfAccount   PlatformChartOfAccount @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
+
+  @@index([journalEntryId])
+  @@index([chartOfAccountId])
+}
+
 model SalesLedgerEntry {
   id                   String               @id @default(cuid())
   businessId           String
   orderId              String?
-  paymentId            String?              @unique
+  paymentId            String?
   journalEntryId       String
   type                 SalesLedgerEntryType
   direction            SalesLedgerDirection
@@ -345,6 +415,7 @@ model SalesLedgerEntry {
 
   @@index([businessId, createdAt])
   @@index([orderId])
+  @@unique([paymentId, type])
 }
 
 model MenuCategory {
@@ -649,7 +720,8 @@ model BillingLedgerEntry {
   amount                    Decimal                 @db.Decimal(10, 2)
   currency                  String                  @default("GMD")
   provider                  String
-  providerCheckoutSessionId String?                 @unique
+  /** Shared by paired rows (invoice payment + wallet fee) for the same Wave/Yonna checkout. */
+  providerCheckoutSessionId String?
   providerPaymentRef        String?
   idempotencyKey            String?                 @unique
   metadata                  Json?
@@ -664,6 +736,7 @@ model BillingLedgerEntry {
   @@index([businessId, createdAt])
   @@index([subscriptionInvoiceId])
   @@index([subscriptionId])
+  @@unique([providerCheckoutSessionId, type])
 }
 
 model StaffCreationNotificationLog {
@@ -754,8 +827,8 @@ model Payment {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   order           Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  salesLedger     SalesLedgerEntry?
+  business             Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  salesLedgerEntries   SalesLedgerEntry[]
 
   @@index([orderId])
   @@index([businessId, status])

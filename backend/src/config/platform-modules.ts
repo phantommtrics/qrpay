@@ -13,6 +13,13 @@ export const PLATFORM_MODULE_SLUGS = {
   BILLING_TRANSACTIONS: "platform.billing_transactions",
   /** Paid subscription invoices + ledger: refund review flags (no in-app money movement). */
   BILLING_REVIEW: "platform.billing_review",
+  /** EasyPay operator: overview, journals, manual entries (legacy “full finance” uses this view). */
+  ACCOUNTING: "platform.accounting",
+  /** Chart of accounts (view / create / edit / delete on template). */
+  ACCOUNTING_CHART: "platform.accounting.chart",
+  ACCOUNTING_REPORTS_GL: "platform.accounting.reports_gl",
+  ACCOUNTING_REPORTS_PNL: "platform.accounting.reports_pnl",
+  ACCOUNTING_REPORTS_STATEMENT: "platform.accounting.reports_statement",
   SYSTEM_CONFIGURATION: "platform.system_configuration",
   SECURITY_ROLES: "platform.security_roles",
   SECURITY_FUNCTION_GROUPS: "platform.security_function_groups",
@@ -43,6 +50,31 @@ export const PLATFORM_MODULES_SEED: { slug: string; label: string; sortOrder: nu
     slug: PLATFORM_MODULE_SLUGS.BILLING_REVIEW,
     label: "Billing review & refunds",
     sortOrder: 72,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.ACCOUNTING,
+    label: "Finance — Overview & journals",
+    sortOrder: 73,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.ACCOUNTING_CHART,
+    label: "Finance — Chart of accounts",
+    sortOrder: 74,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.ACCOUNTING_REPORTS_GL,
+    label: "Finance — GL balance report",
+    sortOrder: 75,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.ACCOUNTING_REPORTS_PNL,
+    label: "Finance — Profit & loss report",
+    sortOrder: 76,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.ACCOUNTING_REPORTS_STATEMENT,
+    label: "Finance — Account statement",
+    sortOrder: 77,
   },
   { slug: PLATFORM_MODULE_SLUGS.SYSTEM_CONFIGURATION, label: "System configuration", sortOrder: 80 },
   { slug: PLATFORM_MODULE_SLUGS.SECURITY_ROLES, label: "Security — Role templates", sortOrder: 90 },

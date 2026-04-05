@@ -12,9 +12,13 @@ import {
 } from "./payment-gateway.service.js";
 
 /** Partial save: omit a field to keep the previous encrypted value (when updating). */
+const walletFeeRateFieldSchema = z.union([z.number().min(0).max(1), z.null()]).optional();
+
 const waveSecretsInputSchema = z.object({
   bearerToken: z.string().optional(),
   webhookSecret: z.string().optional(),
+  /** Fraction 0–1 (e.g. 0.01 = 1%) estimated wallet fee on customer QR payments. Omit to keep; null clears. */
+  customerWalletFeeRate: walletFeeRateFieldSchema,
 });
 
 const yonnaSecretsInputSchema = z.object({
@@ -23,12 +27,15 @@ const yonnaSecretsInputSchema = z.object({
   webhookSecret: z.string().optional(),
   /** E.164-style wallet number used for in-store QR checkout (e.g. +2207XXXXXXX). */
   defaultPayerPhone: z.string().optional(),
+  customerWalletFeeRate: walletFeeRateFieldSchema,
 });
 
 export type WaveGatewaySecrets = {
   bearerToken: string;
   /** Same role as env `WAVE_WEBHOOK_SECRET` for merchant webhooks. */
   webhookSecret?: string;
+  /** Estimated provider fee on gross customer wallet takings (orders/POS), fraction 0–1. */
+  customerWalletFeeRate?: number;
 };
 
 /** Stored per business; API base URL comes from env `YONNA_FOREX_API_URL` only. */
@@ -40,6 +47,7 @@ export type YonnaGatewaySecrets = {
   webhookSecret?: string;
   /** Default customer wallet MSISDN for POS/order QR checkout when not sent per request. */
   defaultPayerPhone?: string;
+  customerWalletFeeRate?: number;
 };
 
 function loadExistingSecrets(
@@ -78,7 +86,15 @@ function mergeWaveSecrets(
       "Bearer token is required (maps to checkout API key; env name WAVE_CHECKOUT_BEARER).",
     );
   }
-  return { bearerToken, webhookSecret };
+  let customerWalletFeeRate: number | undefined;
+  if (input.customerWalletFeeRate === undefined) {
+    customerWalletFeeRate = existing?.customerWalletFeeRate;
+  } else if (input.customerWalletFeeRate === null) {
+    customerWalletFeeRate = undefined;
+  } else {
+    customerWalletFeeRate = input.customerWalletFeeRate;
+  }
+  return { bearerToken, webhookSecret, customerWalletFeeRate };
 }
 
 /** Full replace: only values from the request are stored (no merge with existing). Omitted optional fields are cleared. */
@@ -97,7 +113,13 @@ function replaceWaveSecrets(input: z.infer<typeof waveSecretsInputSchema>): Wave
   } else {
     webhookSecret = undefined;
   }
-  return { bearerToken, webhookSecret };
+  let customerWalletFeeRate: number | undefined;
+  if (input.customerWalletFeeRate === undefined || input.customerWalletFeeRate === null) {
+    customerWalletFeeRate = undefined;
+  } else {
+    customerWalletFeeRate = input.customerWalletFeeRate;
+  }
+  return { bearerToken, webhookSecret, customerWalletFeeRate };
 }
 
 function replaceYonnaSecrets(input: z.infer<typeof yonnaSecretsInputSchema>): YonnaGatewaySecrets {
@@ -123,7 +145,13 @@ function replaceYonnaSecrets(input: z.infer<typeof yonnaSecretsInputSchema>): Yo
   } else {
     defaultPayerPhone = undefined;
   }
-  return { secretKey, clientId, webhookSecret, defaultPayerPhone };
+  let customerWalletFeeRate: number | undefined;
+  if (input.customerWalletFeeRate === undefined || input.customerWalletFeeRate === null) {
+    customerWalletFeeRate = undefined;
+  } else {
+    customerWalletFeeRate = input.customerWalletFeeRate;
+  }
+  return { secretKey, clientId, webhookSecret, defaultPayerPhone, customerWalletFeeRate };
 }
 
 function mergeYonnaSecrets(
@@ -158,7 +186,26 @@ function mergeYonnaSecrets(
   if (!clientId) {
     throw new HttpError(400, "Client ID is required (env name YONNA_FOREX_CLIENT_ID).");
   }
-  return { secretKey, clientId, webhookSecret, defaultPayerPhone };
+  let customerWalletFeeRate: number | undefined;
+  if (input.customerWalletFeeRate === undefined) {
+    customerWalletFeeRate = existing?.customerWalletFeeRate;
+  } else if (input.customerWalletFeeRate === null) {
+    customerWalletFeeRate = undefined;
+  } else {
+    customerWalletFeeRate = input.customerWalletFeeRate;
+  }
+  return { secretKey, clientId, webhookSecret, defaultPayerPhone, customerWalletFeeRate };
+}
+
+function parseWalletFeeRate(raw: unknown): number | undefined {
+  if (raw === null || raw === undefined) {
+    return undefined;
+  }
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+  if (!Number.isFinite(n) || n < 0 || n > 1) {
+    return undefined;
+  }
+  return n;
 }
 
 function parseExistingWave(raw: Record<string, unknown> | null): WaveGatewaySecrets | null {
@@ -168,6 +215,7 @@ function parseExistingWave(raw: Record<string, unknown> | null): WaveGatewaySecr
   return {
     bearerToken: raw.bearerToken,
     webhookSecret: typeof raw.webhookSecret === "string" ? raw.webhookSecret : undefined,
+    customerWalletFeeRate: parseWalletFeeRate(raw.customerWalletFeeRate),
   };
 }
 
@@ -181,6 +229,7 @@ function parseExistingYonna(raw: Record<string, unknown> | null): YonnaGatewaySe
     webhookSecret: typeof raw.webhookSecret === "string" ? raw.webhookSecret : undefined,
     defaultPayerPhone:
       typeof raw.defaultPayerPhone === "string" ? raw.defaultPayerPhone : undefined,
+    customerWalletFeeRate: parseWalletFeeRate(raw.customerWalletFeeRate),
   };
 }
 
@@ -188,6 +237,8 @@ export type GatewayCredentialFieldStatus = {
   /** Wave: checkout bearer on file. */
   apiBearer?: boolean;
   webhookSecret?: boolean;
+  /** Wave/Yonna: estimated customer wallet fee rate (0–1) configured for accounting. */
+  customerWalletFeeRate?: boolean;
   /** Yonna: client ID on file. */
   clientId?: boolean;
   /** Yonna: API secret key on file. */
@@ -206,8 +257,10 @@ function fieldStatusFromDecrypted(
   if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
     const apiBearer = nonEmptyString(raw.bearerToken);
     const webhookSecret = nonEmptyString(raw.webhookSecret);
+    const rate = parseWalletFeeRate(raw.customerWalletFeeRate);
+    const customerWalletFeeRate = rate !== undefined && rate > 0;
     return {
-      fieldStatus: { apiBearer, webhookSecret },
+      fieldStatus: { apiBearer, webhookSecret, customerWalletFeeRate },
       checkoutConfigured: apiBearer,
     };
   }
@@ -216,8 +269,10 @@ function fieldStatusFromDecrypted(
     const secretKey = nonEmptyString(raw.secretKey);
     const webhookSecret = nonEmptyString(raw.webhookSecret);
     const defaultPayerPhone = nonEmptyString(raw.defaultPayerPhone);
+    const rate = parseWalletFeeRate(raw.customerWalletFeeRate);
+    const customerWalletFeeRate = rate !== undefined && rate > 0;
     return {
-      fieldStatus: { clientId, secretKey, webhookSecret, defaultPayerPhone },
+      fieldStatus: { clientId, secretKey, webhookSecret, defaultPayerPhone, customerWalletFeeRate },
       checkoutConfigured: clientId && secretKey,
     };
   }
