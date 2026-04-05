@@ -1,183 +1,143 @@
-import {
-  ArrowLeft,
-  ArrowRight,
-  Calculator,
-  TrendingDown,
-  TrendingUp,
-} from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { PageCard } from '../components/ui/PageCard'
-import { PageSectionHeader } from '../components/ui/PageSectionHeader'
 import { PageTransition } from '../components/ui/PageTransition'
 import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
-import { formatMoney } from '../utils/formatMoney'
 import {
-  calculateProfitLoss,
-  getProfitLossAccountsForBusiness,
-  getProfitLossSnapshotForBusiness,
-  getProfitLossTrendForBusiness,
-  summarizeTrend,
-} from '../utils/accounting'
+  fetchAccountingSummary,
+  trendWithGrossProfit,
+  type AccountingSummary,
+} from '../services/accountingApi'
+import { ApiError } from '../services/subscriptionApi'
+import { formatMoney } from '../utils/formatMoney'
 
 export function AccountingProfitLossPage() {
   const { currentOrganization } = useAuth()
   const businessId = currentOrganization?.id
-  const snapshot = getProfitLossSnapshotForBusiness(businessId)
-  const trend = summarizeTrend(getProfitLossTrendForBusiness(businessId))
-  const profitLossAccounts = getProfitLossAccountsForBusiness(businessId)
+  const [data, setData] = useState<AccountingSummary | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  if (!snapshot) {
+  useEffect(() => {
+    if (!businessId) return
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    void fetchAccountingSummary(businessId)
+      .then((d) => {
+        if (!cancelled) setData(d)
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(e instanceof ApiError ? e.message : 'Could not load P&L.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [businessId])
+
+  if (!businessId) {
     return (
-      <PageTransition className="space-y-6">
-        <PageCard className="p-8">
-          <h2 className="text-2xl font-bold text-slate-900">Profit and loss</h2>
-          <p className="mt-3 text-slate-600">No profit and loss data is available.</p>
+      <PageTransition>
+        <PageCard variant="plain" className="py-16">
+          <p className="text-slate-500">Select a business.</p>
         </PageCard>
       </PageTransition>
     )
   }
 
-  const profitLoss = calculateProfitLoss(snapshot)
+  const pnl = data?.pnl
+  const trend = data ? trendWithGrossProfit(data.trend) : []
 
   return (
-    <PageTransition className="space-y-6">
-      <PageCard className="p-6">
-        <Link
-          to={APP_PATHS.accounting}
-          className="inline-flex items-center text-sm font-medium text-teal-600 hover:text-teal-700"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to accounting dashboard
-        </Link>
-        <h2 className="mt-4 text-2xl font-bold text-slate-900">Profit and loss</h2>
-        <p className="mt-2 max-w-3xl text-slate-600">
-          Formula view: total income minus cost of goods sold equals gross profit, then operating
-          expenses are removed to arrive at profit or loss.
-        </p>
-      </PageCard>
+    <PageTransition>
+      <div className="space-y-16 py-4">
+        <PageCard variant="plain">
+          <Link
+            to={APP_PATHS.accounting}
+            className="inline-flex items-center text-sm text-slate-500 hover:text-slate-800"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back
+          </Link>
+          <h1 className="mt-8 text-xl font-semibold text-slate-900">Profit &amp; loss</h1>
+          {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+        </PageCard>
 
-      <PageCard className="p-6">
-        <PageSectionHeader title="P&L Formula" className="mb-6" />
-        <div className="space-y-4">
-          <div className="rounded-2xl bg-emerald-50 p-5">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-emerald-800">Income</span>
-              <TrendingUp className="h-5 w-5 text-emerald-600" />
-            </div>
-            <p className="mt-3 text-3xl font-bold text-emerald-900">
-              {formatMoney(profitLoss.income, { decimals: 0 })}
-            </p>
-            <div className="mt-4 space-y-2">
-              {profitLossAccounts.income.map((account) => (
-                <div
-                  key={account.id}
-                  className="flex items-center justify-between rounded-xl bg-white/70 px-3 py-2 text-sm"
-                >
-                  <span className="font-medium text-emerald-900">{account.name}</span>
-                  <span className="font-semibold text-emerald-900">
-                    {formatMoney(account.balance, { decimals: 0 })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+        <PageCard variant="plain">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Summary</p>
+          <dl className="mt-10 space-y-8">
+            {[
+              ['Income', pnl?.income],
+              ['Cost of sales', pnl?.costOfSales],
+              ['Gross profit', pnl?.grossProfit],
+              ['Operating expenses', pnl?.operatingExpenses],
+              ['Net profit', pnl?.netProfit],
+            ].map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-8">
+                <dt className="text-sm text-slate-500">{label}</dt>
+                <dd className="tabular-nums text-sm font-medium text-slate-900">
+                  {loading || value === undefined ? '…' : formatMoney(value, { decimals: 0 })}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </PageCard>
 
-          <div className="flex items-center justify-center text-slate-400">
-            <ArrowRight className="h-5 w-5" />
-          </div>
-
-          <div className="rounded-2xl bg-amber-50 p-5">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-amber-800">Cost of goods sold</span>
-              <TrendingDown className="h-5 w-5 text-amber-600" />
-            </div>
-            <p className="mt-3 text-3xl font-bold text-amber-900">
-              {formatMoney(profitLoss.costOfGoodsSold, { decimals: 0 })}
-            </p>
-            <div className="mt-4 space-y-2">
-              {profitLossAccounts.costOfGoodsSold.map((account) => (
-                <div
-                  key={account.id}
-                  className="flex items-center justify-between rounded-xl bg-white/70 px-3 py-2 text-sm"
-                >
-                  <span className="font-medium text-amber-900">{account.name}</span>
-                  <span className="font-semibold text-amber-900">
-                    {formatMoney(account.balance, { decimals: 0 })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-teal-200 bg-teal-50 p-5">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-teal-800">Gross profit</span>
-              <Calculator className="h-5 w-5 text-teal-600" />
-            </div>
-            <p className="mt-3 text-3xl font-bold text-teal-900">
-              {formatMoney(profitLoss.grossProfit, { decimals: 0 })}
-            </p>
-            <p className="mt-2 text-sm text-teal-700">
-              {formatMoney(profitLoss.income, { decimals: 0 })} -{' '}
-              {formatMoney(profitLoss.costOfGoodsSold, { decimals: 0 })}
-            </p>
-          </div>
-
-          <div className="flex items-center justify-center text-slate-400">
-            <ArrowRight className="h-5 w-5" />
-          </div>
-
-          <div className="rounded-2xl bg-rose-50 p-5">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-rose-800">Operating expenses</span>
-              <TrendingDown className="h-5 w-5 text-rose-600" />
-            </div>
-            <p className="mt-3 text-3xl font-bold text-rose-900">
-              {formatMoney(profitLoss.operatingExpenses, { decimals: 0 })}
-            </p>
-            <div className="mt-4 space-y-2">
-              {profitLossAccounts.operatingExpenses.map((account) => (
-                <div
-                  key={account.id}
-                  className="flex items-center justify-between rounded-xl bg-white/70 px-3 py-2 text-sm"
-                >
-                  <span className="font-medium text-rose-900">{account.name}</span>
-                  <span className="font-semibold text-rose-900">
-                    {formatMoney(account.balance, { decimals: 0 })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-slate-900 p-5 text-white">
-            <p className="text-sm font-medium text-slate-300">Profit or loss</p>
-            <p className="mt-3 text-4xl font-bold">
-              {formatMoney(profitLoss.netProfit, { decimals: 0 })}
-            </p>
-            <p className="mt-2 text-sm text-slate-400">
-              {formatMoney(profitLoss.grossProfit, { decimals: 0 })} -{' '}
-              {formatMoney(profitLoss.operatingExpenses, { decimals: 0 })}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 p-4">
-            <p className="text-sm font-medium text-slate-500">Recent gross profit trend</p>
-            <div className="mt-4 space-y-3">
-              {trend.map((point) => (
-                <div key={point.period} className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-slate-700">{point.period}</span>
-                  <span className="font-semibold text-slate-900">
-                    {formatMoney(point.grossProfit, { decimals: 0 })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+        <div className="grid gap-16 lg:grid-cols-3">
+          {[
+            { title: 'Income', rows: data?.incomeAccounts ?? [] },
+            { title: 'COGS', rows: data?.costOfGoodsSoldAccounts ?? [] },
+            { title: 'Operating expenses', rows: data?.operatingExpenseAccounts ?? [] },
+          ].map((block) => (
+            <PageCard key={block.title} variant="plain">
+              <p className="text-xs uppercase tracking-wide text-slate-400">{block.title}</p>
+              <ul className="mt-8 space-y-6">
+                {loading ? (
+                  <li className="text-sm text-slate-400">…</li>
+                ) : block.rows.length === 0 ? (
+                  <li className="text-sm text-slate-400">—</li>
+                ) : (
+                  block.rows.map((a) => (
+                    <li
+                      key={a.id}
+                      className="flex justify-between gap-4 text-sm"
+                    >
+                      <span className="text-slate-600">{a.name}</span>
+                      <span className="tabular-nums font-medium text-slate-900">
+                        {formatMoney(a.balance, { decimals: 0 })}
+                      </span>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </PageCard>
+          ))}
         </div>
-      </PageCard>
+
+        <PageCard variant="plain">
+          <p className="mb-8 text-xs uppercase tracking-wide text-slate-400">Monthly gross profit</p>
+          <ul className="space-y-4">
+            {loading
+              ? null
+              : trend.map((point) => (
+                  <li key={point.period} className="flex justify-between text-sm">
+                    <span className="text-slate-500">{point.period}</span>
+                    <span className="tabular-nums font-medium text-slate-900">
+                      {formatMoney(point.grossProfit, { decimals: 0 })}
+                    </span>
+                  </li>
+                ))}
+          </ul>
+        </PageCard>
+      </div>
     </PageTransition>
   )
 }

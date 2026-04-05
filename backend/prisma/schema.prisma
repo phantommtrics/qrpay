@@ -124,6 +124,12 @@ enum ChartAccountCategory {
   EXPENSE
 }
 
+/** General ledger line vs operating bank account record on the chart. */
+enum ChartAccountKind {
+  LEDGER
+  BANK
+}
+
 enum JournalSourceType {
   CUSTOMER_SALE_PAYMENT
 }
@@ -231,14 +237,22 @@ model BusinessGatewayCredential {
 }
 
 model ChartOfAccount {
-  id         String               @id @default(cuid())
-  businessId String
-  code       String
-  name       String
-  category   ChartAccountCategory
-  isSystem   Boolean              @default(false)
-  createdAt  DateTime             @default(now())
-  updatedAt  DateTime             @updatedAt
+  id          String               @id @default(cuid())
+  businessId  String
+  code        String
+  name        String
+  /** Guidance for bookkeepers: what transactions belong in this account. */
+  description String?              @db.Text
+  category    ChartAccountCategory
+  kind        ChartAccountKind     @default(LEDGER)
+  /** For kind BANK: number as shown on statements / IBAN tail. */
+  bankAccountNumber String?
+  bankName          String?
+  /** Branch, SWIFT, notes — optional. */
+  bankDetails       String?        @db.Text
+  isSystem    Boolean              @default(false)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
   business   Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
   lines      JournalLine[]
 
@@ -269,6 +283,8 @@ model JournalLine {
   chartOfAccountId String
   debitAmount      Decimal        @default(0) @db.Decimal(12, 2)
   creditAmount     Decimal        @default(0) @db.Decimal(12, 2)
+  /** Line narration for financial review (IFRS-style clarity). */
+  description      String?        @db.Text
   journalEntry     JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
   chartOfAccount   ChartOfAccount @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
 

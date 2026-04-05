@@ -9,7 +9,7 @@ function getStoredToken(): string | null {
   return window.localStorage.getItem(STORAGE_KEY_TOKEN)
 }
 
-async function apiRequest<T>(
+export async function apiRequest<T>(
   path: string,
   init?: RequestInit & { businessId?: string },
 ): Promise<T> {

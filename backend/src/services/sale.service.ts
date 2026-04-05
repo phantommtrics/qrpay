@@ -613,11 +613,14 @@ export async function completeCashPayment(orderId: string, businessId: string) {
       await recordCustomerSaleJournalAndLedger(tx, {
         businessId,
         orderId,
+        orderPublicCode: order.publicCode,
         paymentId: payment.id,
+        paymentPublicCode: payment.publicCode,
         amount: payment.amount,
         currency: payment.currency,
         provider: payment.provider,
         method: payment.method,
+        status: payment.status,
         providerRef: payment.providerRef,
       });
 
@@ -786,11 +789,14 @@ export async function completeWalletPaymentByPublicToken(
       await recordCustomerSaleJournalAndLedger(tx, {
         businessId: fresh.order.businessId,
         orderId: fresh.orderId,
+        orderPublicCode: fresh.order.publicCode,
         paymentId: updatedPayment.id,
+        paymentPublicCode: updatedPayment.publicCode,
         amount: updatedPayment.amount,
         currency: updatedPayment.currency,
         provider: updatedPayment.provider,
         method: updatedPayment.method,
+        status: updatedPayment.status,
         providerRef: updatedPayment.providerRef,
       });
 

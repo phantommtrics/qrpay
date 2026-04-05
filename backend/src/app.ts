@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import {
   BillingInterval,
   BusinessMembershipStatus,
+  ChartAccountCategory,
+  ChartAccountKind,
   InvoiceStatus,
   ManualRefundReviewStatus,
   PlanCode,
@@ -142,6 +144,8 @@ import {
   startWalletPayment,
   verifySimulatorWebhookSecret,
 } from "./services/sale.service.js";
+import { getAccountingSummaryForBusiness } from "./services/accounting-summary.service.js";
+import { createChartOfAccountForBusiness } from "./services/chart-of-accounts.service.js";
 import {
   OrderStatus,
   PaymentMethod,
@@ -4003,6 +4007,113 @@ app.get(
               completedAt: p.completedAt,
             }),
           ),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/accounting/summary",
+  authenticateToken,
+  requireAnyEntitlement(["accounting.view", "accounting.chart.view"]),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const data = await getAccountingSummaryForBusiness(businessId as string);
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+const createChartAccountBodySchema = z
+  .object({
+    kind: z.nativeEnum(ChartAccountKind).optional().default(ChartAccountKind.LEDGER),
+    code: z.string().trim().min(1).max(64),
+    name: z.string().trim().min(1).max(200),
+    category: z.nativeEnum(ChartAccountCategory),
+    description: z.string().trim().max(4000).optional().nullable(),
+    bankAccountNumber: z.string().trim().max(64).optional().nullable(),
+    bankName: z.string().trim().max(200).optional().nullable(),
+    bankDetails: z.string().trim().max(4000).optional().nullable(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.kind === ChartAccountKind.BANK) {
+      if (!data.bankName?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Bank name is required for bank accounts.",
+          path: ["bankName"],
+        });
+      }
+      if (!data.bankAccountNumber?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Account number is required for bank accounts.",
+          path: ["bankAccountNumber"],
+        });
+      }
+    }
+  });
+
+app.post(
+  "/api/businesses/:businessId/chart-of-accounts",
+  authenticateToken,
+  requireAnyEntitlement(["accounting.view", "accounting.chart.view"]),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const body = createChartAccountBodySchema.parse(request.body);
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const row = await createChartOfAccountForBusiness(businessId as string, {
+        code: body.code,
+        name: body.name,
+        category: body.category,
+        description: body.description ?? null,
+        kind: body.kind,
+        bankAccountNumber: body.bankAccountNumber ?? null,
+        bankName: body.bankName ?? null,
+        bankDetails: body.bankDetails ?? null,
+      });
+
+      response.status(201).json({
+        data: {
+          id: row.id,
+          code: row.code,
+          name: row.name,
+          description: row.description,
+          category: row.category,
+          kind: row.kind,
+          bankAccountNumber: row.bankAccountNumber,
+          bankName: row.bankName,
+          bankDetails: row.bankDetails,
         },
       });
     } catch (error) {

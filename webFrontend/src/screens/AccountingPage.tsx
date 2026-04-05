@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import {
   Area,
   AreaChart,
@@ -7,265 +8,216 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import {
-  ArrowRight,
-  BanknoteArrowUp,
-  BookOpenText,
-  ChartNoAxesCombined,
-  Wallet,
-} from 'lucide-react'
+import { ArrowRight, BookOpenText, ChartNoAxesCombined, Wallet } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { PageCard } from '../components/ui/PageCard'
-import { PageSectionHeader } from '../components/ui/PageSectionHeader'
 import { PageTransition } from '../components/ui/PageTransition'
 import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
-import { formatMoney } from '../utils/formatMoney'
 import {
-  calculateProfitLoss,
-  getCashBalancesForBusiness,
-  getOverallCashBalance,
-  getProfitLossSnapshotForBusiness,
-  getProfitLossTrendForBusiness,
-  summarizeTrend,
-} from '../utils/accounting'
+  fetchAccountingSummary,
+  trendWithGrossProfit,
+  type AccountingSummary,
+} from '../services/accountingApi'
+import { ApiError } from '../services/subscriptionApi'
+import { formatMoney } from '../utils/formatMoney'
 
 export function AccountingPage() {
   const navigate = useNavigate()
-  const { canAccess, currentOrganization, currentPlan } = useAuth()
+  const { canAccess, currentOrganization } = useAuth()
   const businessId = currentOrganization?.id
-  const cashBalances = getCashBalancesForBusiness(businessId)
-  const profitLossSnapshot = getProfitLossSnapshotForBusiness(businessId)
-  const trend = summarizeTrend(getProfitLossTrendForBusiness(businessId))
   const canOpenChartOfAccounts = canAccess('accounting.chart.view')
-  const overallCashBalance = getOverallCashBalance(cashBalances)
-  const balancesSummary = `${cashBalances.length} account${cashBalances.length === 1 ? '' : 's'}`
+  const [data, setData] = useState<AccountingSummary | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  if (!profitLossSnapshot) {
+  useEffect(() => {
+    if (!businessId) {
+      setData(null)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    void fetchAccountingSummary(businessId)
+      .then((d) => {
+        if (!cancelled) setData(d)
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setData(null)
+          setError(e instanceof ApiError ? e.message : 'Could not load accounting data.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [businessId])
+
+  if (!businessId) {
     return (
-      <PageTransition className="space-y-6">
-        <PageCard className="p-8">
-          <h2 className="text-2xl font-bold text-slate-900">Accounting</h2>
-          <p className="mt-3 text-slate-600">
-            No accounting data is available for this organization yet.
-          </p>
+      <PageTransition>
+        <PageCard variant="plain" className="py-16">
+          <h1 className="text-xl font-semibold text-slate-900">Accounting</h1>
+          <p className="mt-4 text-slate-500">Select a business to continue.</p>
         </PageCard>
       </PageTransition>
     )
   }
 
-  const profitLoss = calculateProfitLoss(profitLossSnapshot)
+  const pnl = data?.pnl
+  const trend = data ? trendWithGrossProfit(data.trend) : []
+  const cashTotal = data?.cashTotal ?? 0
+  const cashCount = data?.cashPositions.length ?? 0
 
   return (
-    <PageTransition className="space-y-6">
-      <PageCard className="p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-600">
-              Accounting Dashboard
-            </p>
-            <h2 className="mt-2 text-2xl font-bold text-slate-900">
-              {currentOrganization?.name ?? 'Business'} financial overview
-            </h2>
-            <p className="mt-2 max-w-3xl text-slate-600">
-              A Xero-style starting point for balances, profitability, and account controls.
-            </p>
-          </div>
-          <div className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white">
-            {currentPlan?.name ?? 'Current'} plan
-          </div>
-        </div>
-      </PageCard>
+    <PageTransition>
+      <div className="space-y-16 py-4">
+        <PageCard variant="plain">
+          <h1 className="text-xl font-semibold text-slate-900">Accounting</h1>
+          {currentOrganization?.name ? (
+            <p className="mt-1 text-sm text-slate-500">{currentOrganization.name}</p>
+          ) : null}
+          {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+        </PageCard>
 
-      <div className="grid gap-6 xl:grid-cols-3">
-        <button
-          onClick={() => navigate(APP_PATHS.accountingBalances)}
-          className="text-left"
-        >
-          <PageCard className="h-full p-6 transition-all hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-500">Consolidated cash value</p>
-                <h3 className="mt-3 text-3xl font-bold text-slate-900">
-                  {formatMoney(overallCashBalance, { decimals: 0 })}
-                </h3>
-              </div>
-              <div className="rounded-2xl bg-teal-50 p-3 text-teal-600">
-                <Wallet className="h-6 w-6" />
-              </div>
-            </div>
-            <p className="mt-4 text-sm text-slate-500">
-              Combined view of all merchant and bank accounts.
-            </p>
-            <div className="mt-5 flex items-center justify-between text-sm font-medium text-teal-700">
-              <span>{balancesSummary}</span>
-              <span className="inline-flex items-center">
-                Open balances
-                <ArrowRight className="ml-1 h-4 w-4" />
-              </span>
-            </div>
-          </PageCard>
-        </button>
-
-        <button
-          onClick={() => navigate(APP_PATHS.accountingProfitLoss)}
-          className="text-left"
-        >
-          <PageCard className="h-full p-6 transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-500">Profit or Loss</p>
-                <h3 className="mt-3 text-3xl font-bold text-slate-900">
-                  {formatMoney(profitLoss.netProfit, { decimals: 0 })}
-                </h3>
-              </div>
-              <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
-                <ChartNoAxesCombined className="h-6 w-6" />
-              </div>
-            </div>
-            <p className="mt-4 text-sm text-slate-500">
-              Calculated as income minus cost of goods sold minus operating expenses.
-            </p>
-            <div className="mt-5 flex items-center justify-between text-sm font-medium text-indigo-700">
-              <span>Gross profit {formatMoney(profitLoss.grossProfit, { decimals: 0 })}</span>
-              <span className="inline-flex items-center">
-                Open P&amp;L
-                <ArrowRight className="ml-1 h-4 w-4" />
-              </span>
-            </div>
-          </PageCard>
-        </button>
-
-        <button
-          onClick={() => {
-            if (canOpenChartOfAccounts) {
-              navigate(APP_PATHS.accountingChart)
-            }
-          }}
-          className="text-left disabled:cursor-not-allowed"
-          disabled={!canOpenChartOfAccounts}
-        >
-          <PageCard
-            className={`h-full p-6 transition-all ${
-              canOpenChartOfAccounts
-                ? 'hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-md'
-                : 'bg-slate-50'
-            }`}
+        <div className="grid gap-12 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => navigate(APP_PATHS.accountingBalances)}
+            className="text-left transition-opacity hover:opacity-80"
           >
-            <div className="flex items-start justify-between">
+            <PageCard variant="plain" className="space-y-6">
+              <Wallet className="h-5 w-5 text-slate-400" strokeWidth={1.5} />
               <div>
-                <p className="text-sm font-medium text-slate-500">Chart of accounts</p>
-                <h3 className="mt-3 text-3xl font-bold text-slate-900">
-                  {canOpenChartOfAccounts ? 'Live controls' : 'Business Pro'}
-                </h3>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Cash &amp; clearing</p>
+                <p className="mt-2 text-3xl font-semibold tabular-nums text-slate-900">
+                  {loading ? '…' : formatMoney(cashTotal, { decimals: 0 })}
+                </p>
               </div>
-              <div className="rounded-2xl bg-amber-50 p-3 text-amber-600">
-                <BookOpenText className="h-6 w-6" />
+              <p className="flex items-center text-sm text-slate-500">
+                {cashCount} position{cashCount === 1 ? '' : 's'}
+                <ArrowRight className="ml-1 h-4 w-4" />
+              </p>
+            </PageCard>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate(APP_PATHS.accountingProfitLoss)}
+            className="text-left transition-opacity hover:opacity-80"
+          >
+            <PageCard variant="plain" className="space-y-6">
+              <ChartNoAxesCombined className="h-5 w-5 text-slate-400" strokeWidth={1.5} />
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Net profit</p>
+                <p className="mt-2 text-3xl font-semibold tabular-nums text-slate-900">
+                  {loading || !pnl ? '…' : formatMoney(pnl.netProfit, { decimals: 0 })}
+                </p>
               </div>
-            </div>
-            <p className="mt-4 text-sm text-slate-500">
-              Receive, send, transfer, and inspect transactions across accounts.
-            </p>
-            <div className="mt-5 flex items-center justify-between text-sm font-medium text-amber-700">
-              <span>{canOpenChartOfAccounts ? 'Full access enabled' : 'Upgrade required'}</span>
-              <span className="inline-flex items-center">
-                {canOpenChartOfAccounts ? 'Open controls' : 'Locked'}
-                {canOpenChartOfAccounts ? <ArrowRight className="ml-1 h-4 w-4" /> : null}
-              </span>
+              <p className="flex items-center text-sm text-slate-500">
+                {pnl ? `${formatMoney(pnl.grossProfit, { decimals: 0 })} gross` : '…'}
+                <ArrowRight className="ml-1 h-4 w-4" />
+              </p>
+            </PageCard>
+          </button>
+
+          <button
+            type="button"
+            disabled={!canOpenChartOfAccounts}
+            onClick={() => canOpenChartOfAccounts && navigate(APP_PATHS.accountingChart)}
+            className="text-left transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <PageCard variant="plain" className="space-y-6">
+              <BookOpenText className="h-5 w-5 text-slate-400" strokeWidth={1.5} />
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Chart of accounts</p>
+                <p className="mt-2 text-3xl font-semibold text-slate-900">
+                  {canOpenChartOfAccounts ? 'View' : '—'}
+                </p>
+              </div>
+              <p className="text-sm text-slate-500">
+                {canOpenChartOfAccounts ? 'Open' : 'No access'}
+                {canOpenChartOfAccounts ? <ArrowRight className="ml-1 inline h-4 w-4" /> : null}
+              </p>
+            </PageCard>
+          </button>
+        </div>
+
+        <div className="grid gap-16 lg:grid-cols-[1.2fr_0.8fr]">
+          <PageCard variant="plain">
+            <p className="mb-8 text-xs uppercase tracking-wide text-slate-400">Six-month trend</p>
+            <div className="h-72">
+              {loading ? (
+                <p className="text-sm text-slate-400">Loading…</p>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trend}>
+                    <defs>
+                      <linearGradient id="accTrendFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#0d9488" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#f1f5f9" strokeDasharray="4 4" vertical={false} />
+                    <XAxis
+                      dataKey="period"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#94a3b8', fontSize: 11 }}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#94a3b8', fontSize: 11 }}
+                      tickFormatter={(v) => `D${v}`}
+                    />
+                    <Tooltip
+                      formatter={(value: number | string) =>
+                        formatMoney(Number(value), { decimals: 0 })
+                      }
+                      contentStyle={{
+                        border: 'none',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 20px rgb(0 0 0 / 0.06)',
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="grossProfit"
+                      stroke="#0d9488"
+                      strokeWidth={2}
+                      fill="url(#accTrendFill)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </PageCard>
-        </button>
-      </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-        <PageCard className="p-6">
-          <PageSectionHeader title="Profitability Trend" className="mb-6" />
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trend}>
-                <defs>
-                  <linearGradient id="dashboardIncomeFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0D9488" stopOpacity={0.28} />
-                    <stop offset="95%" stopColor="#0D9488" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="period"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: '#64748B', fontSize: 12 }}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: '#64748B', fontSize: 12 }}
-                  tickFormatter={(value) => `D${value}`}
-                />
-                <Tooltip
-                  formatter={(value) => formatMoney(Number(value), { decimals: 0 })}
-                  contentStyle={{
-                    border: 'none',
-                    borderRadius: '12px',
-                    boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="grossProfit"
-                  stroke="#0D9488"
-                  strokeWidth={3}
-                  fill="url(#dashboardIncomeFill)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </PageCard>
-
-        <PageCard className="p-6">
-          <PageSectionHeader title="At a Glance" className="mb-6" />
-          <div className="space-y-4">
-            {[
-              {
-                label: 'Income',
-                value: profitLoss.income,
-                tone: 'text-emerald-700',
-                icon: BanknoteArrowUp,
-              },
-              {
-                label: 'Cost of goods sold',
-                value: profitLoss.costOfGoodsSold,
-                tone: 'text-amber-700',
-                icon: Wallet,
-              },
-              {
-                label: 'Gross profit',
-                value: profitLoss.grossProfit,
-                tone: 'text-teal-700',
-                icon: ChartNoAxesCombined,
-              },
-              {
-                label: 'Operating expenses',
-                value: profitLoss.operatingExpenses,
-                tone: 'text-rose-700',
-                icon: BookOpenText,
-              },
-            ].map((item) => (
-              <div key={item.label} className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-2xl bg-white p-2 text-slate-600 shadow-sm">
-                    <item.icon className="h-4 w-4" />
-                  </div>
-                  <span className="text-sm font-medium text-slate-600">{item.label}</span>
-                </div>
-                <span className={`text-sm font-semibold ${item.tone}`}>
-                  {formatMoney(item.value, { decimals: 0 })}
-                </span>
-              </div>
-            ))}
-          </div>
-        </PageCard>
+          <PageCard variant="plain">
+            <p className="mb-8 text-xs uppercase tracking-wide text-slate-400">P&amp;L</p>
+            <ul className="space-y-8">
+              {[
+                { label: 'Income', value: pnl?.income },
+                { label: 'COGS', value: pnl?.costOfSales },
+                { label: 'Gross profit', value: pnl?.grossProfit },
+                { label: 'Operating expenses', value: pnl?.operatingExpenses },
+              ].map((row) => (
+                <li key={row.label} className="flex items-baseline justify-between gap-4">
+                  <span className="text-sm text-slate-500">{row.label}</span>
+                  <span className="tabular-nums text-sm font-medium text-slate-900">
+                    {loading || row.value === undefined ? '…' : formatMoney(row.value, { decimals: 0 })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </PageCard>
+        </div>
       </div>
     </PageTransition>
   )

@@ -7,12 +7,15 @@
     "seed": "tsx prisma/seed.ts"
   },
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:migrate:deploy": "node scripts/check-prisma-migrations.mjs && prisma migrate deploy",
+    "prisma:seed": "tsx prisma/seed.ts",
+    "check:migrations": "node scripts/check-prisma-migrations.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.6.0",
