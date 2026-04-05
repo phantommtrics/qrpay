@@ -12,10 +12,21 @@ import {
 import {
   CHART_CODE_CASH_ON_HAND,
   CHART_CODE_MERCHANT_WALLET_CLEARING,
+  CHART_CODE_QR_WALLET_PROCESSING_FEES,
   CHART_CODE_SALES,
   ensureDefaultChartOfAccountsForBusiness,
   getChartAccountByCode,
 } from "./chart-of-accounts.service.js";
+import {
+  CHECKOUT_ADAPTER_WAVE_GAMBIA,
+  CHECKOUT_ADAPTER_YONNA_WALLET,
+} from "./payment-gateway.service.js";
+import {
+  getDecryptedGatewaySecrets,
+  type WaveGatewaySecrets,
+  type YonnaGatewaySecrets,
+} from "./business-gateway-credential.service.js";
+import { customerWalletFeeRateFromGatewaySecrets } from "./merchant-pos-wallet-fee-resolution.service.js";
 
 function providerLabel(provider: PaymentProvider): string {
   if (provider === PaymentProvider.UPFRONT_PAY) {
@@ -33,6 +44,37 @@ function paymentMethodKey(method: PaymentMethod | string): string {
 
 function paymentProviderKey(provider: PaymentProvider | string): string {
   return String(provider).trim().toUpperCase();
+}
+
+/**
+ * When `Payment.gatewayCode` is null (legacy rows or unusual flows), infer the gateway used for
+ * Wave/Yonna wallet checkout if the business has exactly one credential for that adapter.
+ */
+async function resolveGatewayCodeForMerchantWalletFee(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  provider: PaymentProvider,
+): Promise<string | null> {
+  const pk = paymentProviderKey(provider);
+  const adapter =
+    pk === paymentProviderKey(PaymentProvider.WAVE_GAMBIA)
+      ? CHECKOUT_ADAPTER_WAVE_GAMBIA
+      : pk === paymentProviderKey(PaymentProvider.YONNA_WALLET)
+        ? CHECKOUT_ADAPTER_YONNA_WALLET
+        : null;
+  if (!adapter) {
+    return null;
+  }
+
+  const rows = await tx.businessGatewayCredential.findMany({
+    where: { businessId },
+    include: { gateway: true },
+  });
+  const matches = rows.filter((r) => (r.gateway.checkoutAdapter || "").trim() === adapter);
+  if (matches.length !== 1) {
+    return null;
+  }
+  return matches[0]?.gateway.code ?? null;
 }
 
 function isPaymentCompleted(status: PaymentStatus | string): boolean {
@@ -75,7 +117,11 @@ function paymentMethodDisplay(input: CustomerSaleJournalInput): string {
  * Represents proceeds pending bank / provider settlement; accountants can later
  * journal Dr Bank · Cr Digital payments clearing when statements are reconciled.
  *
- * Idempotent per payment via unique `paymentId` on `SalesLedgerEntry`.
+ * **Wave/Yonna wallet fee (optional)** — After the sale journal, {@link recordMerchantCustomerWalletFeeJournalAndLedger}
+ * posts Dr QR wallet processing fees · Cr Digital clearing for the rate in encrypted gateway credentials (by
+ * `gatewayCode`, or inferred when the business has a single Wave/Yonna checkout gateway).
+ *
+ * Idempotent per payment via `SalesLedgerEntry` unique (`paymentId`, `type`).
  */
 export type CustomerSaleJournalInput = {
   businessId: string;
@@ -92,6 +138,8 @@ export type CustomerSaleJournalInput = {
   /** Must be COMPLETED; journals are not posted for pending/failed payments. */
   status: PaymentStatus;
   providerRef: string;
+  /** Payment row gateway code — used to load wallet fee % from encrypted gateway credentials. */
+  gatewayCode?: string | null;
 };
 
 function buildJournalHeaderMemo(input: CustomerSaleJournalInput): string {
@@ -138,8 +186,11 @@ export async function recordCustomerSaleJournalAndLedger(
   tx: Prisma.TransactionClient,
   input: CustomerSaleJournalInput,
 ): Promise<void> {
-  const existing = await tx.salesLedgerEntry.findUnique({
-    where: { paymentId: input.paymentId },
+  const existing = await tx.salesLedgerEntry.findFirst({
+    where: {
+      paymentId: input.paymentId,
+      type: SalesLedgerEntryType.CUSTOMER_SALE,
+    },
   });
   if (existing) {
     return;
@@ -216,6 +267,121 @@ export async function recordCustomerSaleJournalAndLedger(
         recognitionBasis:
           "Revenue recognised when payment is received (cash basis at point of sale).",
         journalMemo: memo,
+      },
+    },
+  });
+}
+
+/**
+ * Estimated Wave/Yonna wallet fee on a completed customer QR payment (orders/POS).
+ * Rate comes from `customerWalletFeeRate` in encrypted gateway credentials for `gatewayCode` (or inferred gateway).
+ * No-op for simulator/cash/other providers, missing credentials, zero rate, or ambiguous multiple gateways.
+ */
+export async function recordMerchantCustomerWalletFeeJournalAndLedger(
+  tx: Prisma.TransactionClient,
+  input: CustomerSaleJournalInput,
+): Promise<void> {
+  if (!isPaymentCompleted(input.status)) {
+    return;
+  }
+  if (paymentMethodKey(input.method) !== paymentMethodKey(PaymentMethod.QR_WALLET)) {
+    return;
+  }
+  const pk = paymentProviderKey(input.provider);
+  if (
+    pk !== paymentProviderKey(PaymentProvider.WAVE_GAMBIA) &&
+    pk !== paymentProviderKey(PaymentProvider.YONNA_WALLET)
+  ) {
+    return;
+  }
+
+  let gatewayCode = input.gatewayCode?.trim() || null;
+  if (!gatewayCode) {
+    gatewayCode = await resolveGatewayCodeForMerchantWalletFee(tx, input.businessId, input.provider);
+  }
+  if (!gatewayCode) {
+    return;
+  }
+
+  const existingFee = await tx.salesLedgerEntry.findFirst({
+    where: {
+      paymentId: input.paymentId,
+      type: SalesLedgerEntryType.WALLET_FEE,
+    },
+  });
+  if (existingFee) {
+    return;
+  }
+
+  const secrets = await getDecryptedGatewaySecrets<WaveGatewaySecrets | YonnaGatewaySecrets>(
+    input.businessId,
+    gatewayCode,
+  );
+  const rate = customerWalletFeeRateFromGatewaySecrets(secrets);
+  const fee = new Prisma.Decimal(input.amount.toString()).mul(rate).toDecimalPlaces(2);
+  if (fee.lte(0)) {
+    return;
+  }
+
+  await ensureDefaultChartOfAccountsForBusiness(tx, input.businessId);
+
+  const expenseAcct = await getChartAccountByCode(tx, input.businessId, CHART_CODE_QR_WALLET_PROCESSING_FEES);
+  const clearingAcct = await getChartAccountByCode(tx, input.businessId, CHART_CODE_MERCHANT_WALLET_CLEARING);
+  if (!expenseAcct || !clearingAcct) {
+    throw new Error("Chart accounts missing for QR wallet fee posting.");
+  }
+
+  const memo = [
+    `Wallet processing fee (est.) — Order ${input.orderPublicCode}`,
+    `Payment ${input.paymentPublicCode} · ${providerLabel(input.provider)}`,
+    `${input.currency} ${fee.toString()} (rate ${rate.toString()} × gross ${input.amount.toString()})`,
+  ].join(" | ");
+
+  const journal = await tx.journalEntry.create({
+    data: {
+      businessId: input.businessId,
+      memo,
+      sourceType: JournalSourceType.CUSTOMER_SALE_WALLET_FEE,
+      sourceId: input.paymentId,
+      lines: {
+        create: [
+          {
+            chartOfAccountId: expenseAcct.id,
+            debitAmount: fee,
+            creditAmount: new Prisma.Decimal(0),
+            description: `Estimated wallet/QR processing fee — payment ${input.paymentPublicCode}`,
+          },
+          {
+            chartOfAccountId: clearingAcct.id,
+            debitAmount: new Prisma.Decimal(0),
+            creditAmount: fee,
+            description: "Reduce digital payments clearing by estimated provider fee",
+          },
+        ],
+      },
+    },
+  });
+
+  await tx.salesLedgerEntry.create({
+    data: {
+      businessId: input.businessId,
+      orderId: input.orderId,
+      paymentId: input.paymentId,
+      journalEntryId: journal.id,
+      type: SalesLedgerEntryType.WALLET_FEE,
+      direction: SalesLedgerDirection.MONEY_OUT,
+      status: SalesLedgerStatus.SUCCEEDED,
+      amount: fee,
+      currency: input.currency,
+      provider: providerLabel(input.provider),
+      providerPaymentRef: input.providerRef,
+      metadata: {
+        feeBasis: "payment_gross",
+        rate: rate.toString(),
+        orderPublicCode: input.orderPublicCode,
+        paymentPublicCode: input.paymentPublicCode,
+        debitAccountCode: expenseAcct.code,
+        creditAccountCode: clearingAcct.code,
       },
     },
   });

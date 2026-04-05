@@ -29,4 +29,6 @@ export const PLATFORM_ADMIN_ROUTE_ACCESS: Partial<
   'platform.users.manage': { module: 'platform.security_system_users', action: 'view' },
   'platform.billing.manage': { module: 'platform.billing', action: 'edit' },
   'platform.payment_gateways.manage': { module: 'platform.payment_gateways', action: 'view' },
+  'platform.accounting.view': { module: 'platform.accounting', action: 'view' },
+  'platform.accounting.create': { module: 'platform.accounting', action: 'create' },
 }

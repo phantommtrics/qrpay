@@ -10,7 +10,10 @@ import {
   PaymentStatus,
 } from "../lib/prisma-sales-enums.js";
 import { prisma } from "../lib/prisma.js";
-import { recordCustomerSaleJournalAndLedger } from "./sale-accounting.service.js";
+import {
+  recordCustomerSaleJournalAndLedger,
+  recordMerchantCustomerWalletFeeJournalAndLedger,
+} from "./sale-accounting.service.js";
 import {
   listOrderCheckoutWallets,
   startGatewayWalletCheckout,
@@ -786,7 +789,7 @@ export async function completeWalletPaymentByPublicToken(
         "QR Wallet",
       );
 
-      await recordCustomerSaleJournalAndLedger(tx, {
+      const saleJournalInput = {
         businessId: fresh.order.businessId,
         orderId: fresh.orderId,
         orderPublicCode: fresh.order.publicCode,
@@ -798,7 +801,10 @@ export async function completeWalletPaymentByPublicToken(
         method: updatedPayment.method,
         status: updatedPayment.status,
         providerRef: updatedPayment.providerRef,
-      });
+        gatewayCode: updatedPayment.gatewayCode,
+      };
+      await recordCustomerSaleJournalAndLedger(tx, saleJournalInput);
+      await recordMerchantCustomerWalletFeeJournalAndLedger(tx, saleJournalInput);
 
       return {
         ok: true as const,

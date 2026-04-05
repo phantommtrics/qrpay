@@ -64,12 +64,15 @@ export function MerchantApiPage() {
 
   const [waveBearer, setWaveBearer] = useState('')
   const [waveWebhook, setWaveWebhook] = useState('')
+  /** Percent 0–100 for UI; stored as fraction in credentials. */
+  const [waveWalletFeePercent, setWaveWalletFeePercent] = useState('')
 
   const [yonnaClientId, setYonnaClientId] = useState('')
   const [yonnaSecretKey, setYonnaSecretKey] = useState('')
   const [yonnaWebhook, setYonnaWebhook] = useState('')
   /** Stored encrypted; used for in-store Yonna QR so staff need not type each order. */
   const [yonnaDefaultPayerPhone, setYonnaDefaultPayerPhone] = useState('')
+  const [yonnaWalletFeePercent, setYonnaWalletFeePercent] = useState('')
 
   const load = useCallback(async () => {
     if (!businessId) {
@@ -146,10 +149,12 @@ export function MerchantApiPage() {
   function resetFormFields() {
     setWaveBearer('')
     setWaveWebhook('')
+    setWaveWalletFeePercent('')
     setYonnaClientId('')
     setYonnaSecretKey('')
     setYonnaWebhook('')
     setYonnaDefaultPayerPhone('')
+    setYonnaWalletFeePercent('')
   }
 
   function closeCredentialModal() {
@@ -186,7 +191,11 @@ export function MerchantApiPage() {
     const replaceSecrets = credentialModalMode === 'edit'
     try {
       if (modalAdapter === 'wave_gambia') {
-        const secrets: { bearerToken?: string; webhookSecret?: string } = {}
+        const secrets: {
+          bearerToken?: string
+          webhookSecret?: string
+          customerWalletFeeRate?: number | null
+        } = {}
         if (replaceSecrets) {
           secrets.bearerToken = waveBearer.trim()
           secrets.webhookSecret = waveWebhook.trim()
@@ -197,6 +206,17 @@ export function MerchantApiPage() {
           if (waveWebhook.trim()) {
             secrets.webhookSecret = waveWebhook.trim()
           }
+        }
+        const wfp = waveWalletFeePercent.trim()
+        if (wfp !== '') {
+          const p = Number.parseFloat(wfp.replace(',', '.'))
+          if (!Number.isFinite(p) || p < 0 || p > 100) {
+            setError('Wallet fee must be between 0 and 100 (%).')
+            return
+          }
+          secrets.customerWalletFeeRate = p / 100
+        } else if (replaceSecrets) {
+          secrets.customerWalletFeeRate = null
         }
         await upsertBusinessGatewayCredentialRequest(businessId, {
           gatewayCode: modalGateway.code,
@@ -209,6 +229,7 @@ export function MerchantApiPage() {
           secretKey?: string
           webhookSecret?: string
           defaultPayerPhone?: string
+          customerWalletFeeRate?: number | null
         } = {}
         if (replaceSecrets) {
           secrets.clientId = yonnaClientId.trim()
@@ -228,6 +249,17 @@ export function MerchantApiPage() {
           if (yonnaDefaultPayerPhone.trim()) {
             secrets.defaultPayerPhone = yonnaDefaultPayerPhone.trim()
           }
+        }
+        const yfp = yonnaWalletFeePercent.trim()
+        if (yfp !== '') {
+          const p = Number.parseFloat(yfp.replace(',', '.'))
+          if (!Number.isFinite(p) || p < 0 || p > 100) {
+            setError('Wallet fee must be between 0 and 100 (%).')
+            return
+          }
+          secrets.customerWalletFeeRate = p / 100
+        } else if (replaceSecrets) {
+          secrets.customerWalletFeeRate = null
         }
         await upsertBusinessGatewayCredentialRequest(businessId, {
           gatewayCode: modalGateway.code,
@@ -273,7 +305,8 @@ export function MerchantApiPage() {
     (isEditCredentialModal
       ? waveBearer.trim().length > 0
       : waveBearer.trim().length > 0 ||
-        (Boolean(modalStatus?.hasCredential) && waveWebhook.trim().length > 0))
+        (Boolean(modalStatus?.hasCredential) && waveWebhook.trim().length > 0) ||
+        (Boolean(modalStatus?.hasCredential) && waveWalletFeePercent.trim() !== ''))
 
   function yonnaPayerPhoneValid(s: string) {
     return s.replace(/\D/g, '').length >= 7
@@ -293,6 +326,7 @@ export function MerchantApiPage() {
             yonnaSecretKey.trim() ||
               yonnaClientId.trim() ||
               yonnaWebhook.trim() ||
+              yonnaWalletFeePercent.trim() !== '' ||
               (yonnaDefaultPayerPhone.trim() && yonnaPayerPhoneValid(yonnaDefaultPayerPhone)),
           )
         : Boolean(
@@ -465,6 +499,7 @@ export function MerchantApiPage() {
                       <th className="px-4 py-3">Secret</th>
                       <th className="px-4 py-3">Pay phone</th>
                       <th className="px-4 py-3">Webhook</th>
+                      <th className="px-4 py-3">Wallet fee</th>
                       <th className="px-4 py-3">Updated</th>
                     </tr>
                   </thead>
@@ -495,6 +530,13 @@ export function MerchantApiPage() {
                           <td className="px-4 py-3">
                             {isWave || isYonna ? (
                               <YesNo value={Boolean(fs?.webhookSecret)} />
+                            ) : (
+                              <EmDash />
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {isWave || isYonna ? (
+                              <YesNo value={Boolean(fs?.customerWalletFeeRate)} />
                             ) : (
                               <EmDash />
                             )}
@@ -571,6 +613,24 @@ export function MerchantApiPage() {
                             placeholder={isEditCredentialModal ? 'Empty removes webhook secret' : 'Optional'}
                           />
                         </div>
+                        <div>
+                          <label className="text-sm font-medium text-slate-800">
+                            Est. wallet fee on sales (% of payment)
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
+                            className={inputClass}
+                            value={waveWalletFeePercent}
+                            onChange={(e) => setWaveWalletFeePercent(e.target.value)}
+                            placeholder={isEditCredentialModal ? 'Empty removes saved fee' : 'e.g. 1 for 1%'}
+                          />
+                          <p className="mt-1 text-xs text-slate-500">
+                            Used for your books only (Dr QR wallet fees · Cr digital clearing). Per provider; leave
+                            empty if none. Replace mode: empty clears the saved rate.
+                          </p>
+                        </div>
                       </>
                     ) : null}
 
@@ -629,6 +689,23 @@ export function MerchantApiPage() {
                             onChange={(e) => setYonnaWebhook(e.target.value)}
                             placeholder={isEditCredentialModal ? 'Empty removes webhook secret' : 'same as webhook secret'}
                           />
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-slate-800">
+                            Est. wallet fee on sales (% of payment)
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
+                            className={inputClass}
+                            value={yonnaWalletFeePercent}
+                            onChange={(e) => setYonnaWalletFeePercent(e.target.value)}
+                            placeholder={isEditCredentialModal ? 'Empty removes saved fee' : 'e.g. 0 if none'}
+                          />
+                          <p className="mt-1 text-xs text-slate-500">
+                            Same as Wave: optional rate for merchant GL when customers pay by Yonna wallet.
+                          </p>
                         </div>
                       </>
                     ) : null}

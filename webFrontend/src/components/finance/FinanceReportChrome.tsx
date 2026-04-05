@@ -10,11 +10,16 @@ export function FinanceReportChrome({
   description,
   toolbar,
   children,
+  backTo = APP_PATHS.accounting,
+  backLabel = 'Back to accounting',
 }: {
   title: string
   description?: string
   toolbar?: ReactNode
   children: ReactNode
+  /** Override for platform operator reports (default: merchant accounting hub). */
+  backTo?: string
+  backLabel?: string
 }) {
   return (
     <div className="space-y-5 py-2 lg:space-y-6">
@@ -23,11 +28,11 @@ export function FinanceReportChrome({
         className="space-y-4 rounded-md border-qb-border p-5 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
       >
         <Link
-          to={APP_PATHS.accounting}
+          to={backTo}
           className="inline-flex items-center text-sm font-medium text-qb-muted hover:text-qb-heading"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to accounting
+          {backLabel}
         </Link>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>

@@ -64,6 +64,8 @@ function labelEntryType(type: string) {
       return 'Refund'
     case 'ADJUSTMENT':
       return 'Adjustment'
+    case 'WALLET_FEE':
+      return 'Wallet fee'
     default: {
       const s = type.replace(/_/g, ' ').toLowerCase()
       return s.charAt(0).toUpperCase() + s.slice(1)

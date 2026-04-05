@@ -150,6 +150,19 @@ import {
   getProfitLossReport,
   listChartAccountsForReports,
 } from "./services/accounting-reports.service.js";
+import {
+  getPlatformAccountStatementsReports,
+  getPlatformGlBalanceReport,
+  getPlatformProfitLossReport,
+  listPlatformChartAccountsForReports,
+} from "./services/platform-accounting-reports.service.js";
+import {
+  createPlatformChartAccount,
+  deletePlatformChartAccount,
+  listPlatformChartAccounts,
+  updatePlatformChartAccount,
+} from "./services/platform-chart-of-accounts.service.js";
+import { createPlatformManualJournal, listPlatformJournalEntries } from "./services/platform-journal.service.js";
 import { getAccountingSummaryForBusiness } from "./services/accounting-summary.service.js";
 import {
   createBusinessContact,
@@ -1750,6 +1763,347 @@ app.delete(
     try {
       await deletePaymentGateway(req.params.gatewayId as string);
       res.status(204).send();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+const platformManualJournalBodySchema = z.object({
+  postedAt: z.string().trim().min(1),
+  memo: z.string().trim().max(4000).optional().nullable(),
+  reference: z.string().trim().max(200).optional().nullable(),
+  lines: z
+    .array(
+      z.object({
+        chartOfAccountId: z.string().min(1),
+        debit: z.number().nonnegative(),
+        credit: z.number().nonnegative(),
+        description: z.string().trim().max(4000).optional().nullable(),
+      }),
+    )
+    .min(2),
+});
+
+const platformChartAccountCreateBodySchema = z.object({
+  code: z.string().trim().min(1).max(64),
+  name: z.string().trim().min(1).max(200),
+  category: z.nativeEnum(ChartAccountCategory),
+  description: z.string().trim().max(4000).optional().nullable(),
+});
+
+const platformChartAccountPatchBodySchema = z
+  .object({
+    code: z.string().trim().min(1).max(64).optional(),
+    name: z.string().trim().min(1).max(200).optional(),
+    category: z.nativeEnum(ChartAccountCategory).optional(),
+    description: z.string().trim().max(4000).optional().nullable(),
+  })
+  .refine(
+    (o) =>
+      o.code !== undefined ||
+      o.name !== undefined ||
+      o.category !== undefined ||
+      o.description !== undefined,
+    { message: "At least one field is required." },
+  );
+
+/** Legacy template: only `platform.accounting` — grant full finance access. */
+const platformFinanceLegacyViewGate = {
+  moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING,
+  action: "view" as const,
+};
+
+app.get(
+  "/api/platform/accounting/chart-of-accounts",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny([
+    platformFinanceLegacyViewGate,
+    { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_CHART, action: "view" },
+  ]),
+  async (_req, res, next) => {
+    try {
+      const rows = await listPlatformChartAccounts();
+      res.json({
+        data: rows.map((a) => ({
+          id: a.id,
+          code: a.code,
+          name: a.name,
+          description: a.description,
+          category: a.category,
+          kind: a.kind,
+          isSystem: a.isSystem,
+          createdAt: a.createdAt.toISOString(),
+          updatedAt: a.updatedAt.toISOString(),
+        })),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/accounting/chart-of-accounts",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny([
+    platformFinanceLegacyViewGate,
+    { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_CHART, action: "create" },
+  ]),
+  async (req, res, next) => {
+    try {
+      const body = platformChartAccountCreateBodySchema.parse(req.body);
+      const row = await createPlatformChartAccount({
+        code: body.code,
+        name: body.name,
+        category: body.category,
+        description: body.description ?? null,
+      });
+      res.status(201).json({
+        data: {
+          id: row.id,
+          code: row.code,
+          name: row.name,
+          description: row.description,
+          category: row.category,
+          kind: row.kind,
+          isSystem: row.isSystem,
+          createdAt: row.createdAt.toISOString(),
+          updatedAt: row.updatedAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.patch(
+  "/api/platform/accounting/chart-of-accounts/:accountId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny([
+    platformFinanceLegacyViewGate,
+    { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_CHART, action: "edit" },
+  ]),
+  async (req, res, next) => {
+    try {
+      const body = platformChartAccountPatchBodySchema.parse(req.body);
+      const row = await updatePlatformChartAccount(req.params.accountId as string, {
+        code: body.code,
+        name: body.name,
+        category: body.category,
+        description: body.description,
+      });
+      res.json({
+        data: {
+          id: row.id,
+          code: row.code,
+          name: row.name,
+          description: row.description,
+          category: row.category,
+          kind: row.kind,
+          isSystem: row.isSystem,
+          createdAt: row.createdAt.toISOString(),
+          updatedAt: row.updatedAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.delete(
+  "/api/platform/accounting/chart-of-accounts/:accountId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny([
+    platformFinanceLegacyViewGate,
+    { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_CHART, action: "delete" },
+  ]),
+  async (req, res, next) => {
+    try {
+      await deletePlatformChartAccount(req.params.accountId as string);
+      res.status(204).send();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/accounting/accounts-for-reports",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny([
+    platformFinanceLegacyViewGate,
+    { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_CHART, action: "view" },
+    { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_REPORTS_GL, action: "view" },
+    { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_REPORTS_PNL, action: "view" },
+    { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_REPORTS_STATEMENT, action: "view" },
+  ]),
+  async (_req, res, next) => {
+    try {
+      const data = await listPlatformChartAccountsForReports();
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/accounting/journal-entries",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.ACCOUNTING, "view"),
+  async (req, res, next) => {
+    try {
+      const page = clampPage(Number(req.query.page));
+      const pageSize = clampPageSize(Number(req.query.pageSize));
+      const result = await listPlatformJournalEntries({ page, pageSize });
+      res.json({
+        data: result.rows.map((e) => ({
+          id: e.id,
+          postedAt: e.postedAt.toISOString(),
+          memo: e.memo,
+          reference: e.reference,
+          sourceType: e.sourceType,
+          sourceId: e.sourceId,
+          createdAt: e.createdAt.toISOString(),
+          lines: e.lines.map((ln) => ({
+            id: ln.id,
+            chartOfAccountId: ln.chartOfAccountId,
+            code: ln.chartOfAccount.code,
+            name: ln.chartOfAccount.name,
+            category: ln.chartOfAccount.category,
+            debit: Number(ln.debitAmount),
+            credit: Number(ln.creditAmount),
+            description: ln.description,
+          })),
+        })),
+        total: result.total,
+        page: result.page,
+        pageSize: result.pageSize,
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/accounting/journal-entries/manual",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.ACCOUNTING, "create"),
+  async (req, res, next) => {
+    try {
+      const body = platformManualJournalBodySchema.parse(req.body);
+      const created = await createPlatformManualJournal(body);
+      res.status(201).json({
+        data: {
+          id: created.id,
+          postedAt: created.postedAt.toISOString(),
+          memo: created.memo,
+          reference: created.reference,
+          sourceType: created.sourceType,
+          lines: created.lines.map((ln) => ({
+            id: ln.id,
+            chartOfAccountId: ln.chartOfAccountId,
+            debit: Number(ln.debitAmount),
+            credit: Number(ln.creditAmount),
+            description: ln.description,
+          })),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/accounting/reports/gl-balance",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny([
+    platformFinanceLegacyViewGate,
+    { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_REPORTS_GL, action: "view" },
+  ]),
+  async (req, res, next) => {
+    try {
+      const asOf =
+        typeof req.query.asOf === "string" && req.query.asOf.trim()
+          ? req.query.asOf.trim()
+          : "";
+      if (!asOf) {
+        throw new HttpError(400, "Query parameter asOf (YYYY-MM-DD) is required.");
+      }
+      const data = await getPlatformGlBalanceReport(asOf);
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/accounting/reports/profit-loss",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny([
+    platformFinanceLegacyViewGate,
+    { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_REPORTS_PNL, action: "view" },
+  ]),
+  async (req, res, next) => {
+    try {
+      const from = typeof req.query.from === "string" ? req.query.from.trim() : "";
+      const to = typeof req.query.to === "string" ? req.query.to.trim() : "";
+      if (!from || !to) {
+        throw new HttpError(400, "Query parameters from and to (YYYY-MM-DD) are required.");
+      }
+      const data = await getPlatformProfitLossReport(from, to);
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/accounting/reports/account-statement",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny([
+    platformFinanceLegacyViewGate,
+    { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_REPORTS_STATEMENT, action: "view" },
+  ]),
+  async (req, res, next) => {
+    try {
+      const idsRaw =
+        typeof req.query.chartOfAccountIds === "string"
+          ? req.query.chartOfAccountIds
+          : typeof req.query.chartOfAccountId === "string"
+            ? req.query.chartOfAccountId
+            : "";
+      const chartOfAccountIds = idsRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const from = typeof req.query.from === "string" ? req.query.from.trim() : "";
+      const to = typeof req.query.to === "string" ? req.query.to.trim() : "";
+      if (chartOfAccountIds.length === 0 || !from || !to) {
+        throw new HttpError(
+          400,
+          "Query parameters chartOfAccountId or chartOfAccountIds (comma-separated), from, and to (YYYY-MM-DD) are required.",
+        );
+      }
+      const data = await getPlatformAccountStatementsReports(chartOfAccountIds, from, to);
+      res.json({ data });
     } catch (e) {
       next(e);
     }

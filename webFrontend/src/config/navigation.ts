@@ -48,6 +48,12 @@ export const APP_PATHS = {
   subscriptionsInvoices: '/subscriptions/invoices',
   subscriptionsInvoiceDetail: '/subscriptions/invoices/:invoiceId',
   platformPaymentGateways: '/platform/payment-gateways',
+  platformAccounting: '/platform/accounting',
+  platformAccountingChart: '/platform/accounting/chart-of-accounts',
+  platformAccountingJournals: '/platform/accounting/journals',
+  platformAccountingReportGl: '/platform/accounting/reports/gl-balance',
+  platformAccountingReportPnl: '/platform/accounting/reports/profit-loss',
+  platformAccountingReportStatement: '/platform/accounting/reports/account-statement',
   platformSystemConfiguration: '/platform/system-configuration',
   platformBusinesses: '/platform/businesses',
   platformBusinessDetail: '/platform/businesses/:businessId',
@@ -118,6 +124,46 @@ export function platformBusinessesSubnavAllowed(
   }
   return canAccess(item.permission)
 }
+
+/** Platform operator: Finance (mirrors merchant Finance → GL / P&amp;L / statement, etc.). */
+export const PLATFORM_FINANCE_SUBNAV: PlatformBusinessesSubNavItem[] = [
+  {
+    name: 'finance-accounting',
+    path: APP_PATHS.platformAccounting,
+    title: 'Accounting',
+    permission: 'platform.accounting.view',
+  },
+  {
+    name: 'finance-chart',
+    path: APP_PATHS.platformAccountingChart,
+    title: 'Chart of accounts',
+    permission: 'platform.accounting.chart.view',
+  },
+  {
+    name: 'finance-journals',
+    path: APP_PATHS.platformAccountingJournals,
+    title: 'Journal entries',
+    permission: 'platform.accounting.view',
+  },
+  {
+    name: 'finance-gl',
+    path: APP_PATHS.platformAccountingReportGl,
+    title: 'GL balance',
+    permission: 'platform.accounting.reports.gl',
+  },
+  {
+    name: 'finance-pnl',
+    path: APP_PATHS.platformAccountingReportPnl,
+    title: 'Profit & loss',
+    permission: 'platform.accounting.reports.pnl',
+  },
+  {
+    name: 'finance-statement',
+    path: APP_PATHS.platformAccountingReportStatement,
+    title: 'Account statement',
+    permission: 'platform.accounting.reports.statement',
+  },
+]
 
 /** Platform operator: Businesses section (after Dashboard). */
 export const PLATFORM_BUSINESSES_SUBNAV: PlatformBusinessesSubNavItem[] = [
@@ -309,6 +355,25 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.platformPaymentGateways)) {
     return 'Payment gateways'
+  }
+
+  if (pathname.includes(APP_PATHS.platformAccountingChart)) {
+    return 'Chart of accounts'
+  }
+  if (pathname.includes(APP_PATHS.platformAccountingJournals)) {
+    return 'Journal entries'
+  }
+  if (pathname.includes(APP_PATHS.platformAccountingReportGl)) {
+    return 'GL balance report'
+  }
+  if (pathname.includes(APP_PATHS.platformAccountingReportPnl)) {
+    return 'Profit & loss report'
+  }
+  if (pathname.includes(APP_PATHS.platformAccountingReportStatement)) {
+    return 'Account statement'
+  }
+  if (pathname.includes(APP_PATHS.platformAccounting)) {
+    return 'Accounting'
   }
 
   if (pathname.includes(APP_PATHS.integrationsMerchantApi)) {

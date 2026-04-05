@@ -7,6 +7,7 @@ import { WavePaymentService } from "./wave-payment.service.js";
 import { completeSubscriptionInvoicePayment } from "./subscription.service.js";
 import { waveApiBaseUrl } from "../config/payment-provider-env.js";
 import { CHECKOUT_ADAPTER_WAVE_GAMBIA } from "./payment-gateway.service.js";
+import { cancelPendingInvoicePaymentLedgers } from "./billing-ledger.service.js";
 
 function validateWaveSignature(waveSignature: string, rawBody: string, webhookSecret: string): boolean {
   try {
@@ -115,10 +116,6 @@ export async function processWaveSubscriptionWebhook(rawBody: string, signatureH
     }
   }
 
-  if (mapped !== "SUCCESS") {
-    return;
-  }
-
   const orClause: Array<{ id: string } | { checkoutSessionId: string }> = [];
   if (clientReference) {
     orClause.push({ id: clientReference });
@@ -142,6 +139,19 @@ export async function processWaveSubscriptionWebhook(rawBody: string, signatureH
   }
 
   if (invoice.checkoutProvider && invoice.checkoutProvider !== CHECKOUT_ADAPTER_WAVE_GAMBIA) {
+    return;
+  }
+
+  if (mapped === "PENDING") {
+    return;
+  }
+
+  if (mapped === "CANCELLED" || mapped === "FAILED") {
+    await prisma.$transaction((tx) => cancelPendingInvoicePaymentLedgers(tx, invoice.id));
+    return;
+  }
+
+  if (mapped !== "SUCCESS") {
     return;
   }
 

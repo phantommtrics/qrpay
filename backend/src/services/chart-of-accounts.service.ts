@@ -12,6 +12,9 @@ export const CHART_CODE_SALES = "200";
  */
 export const CHART_CODE_MERCHANT_WALLET_CLEARING = "MERCHANT_WALLET_CLEARING";
 
+/** Estimated QR / wallet processing cost on customer sales (paired with clearing credit). */
+export const CHART_CODE_QR_WALLET_PROCESSING_FEES = "QR_WALLET_FEES";
+
 /** Physical cash and immediate counter collections (POS cash, upfront pay). */
 export const CHART_CODE_CASH_ON_HAND = "CASH_ON_HAND";
 
@@ -36,6 +39,14 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Wallet and card sales before the provider settles to your bank. Easypay debits this when customers pay by QR or card; clear to your bank account when money arrives.",
     category: ChartAccountCategory.ASSET,
+    isSystem: true,
+  },
+  {
+    code: CHART_CODE_QR_WALLET_PROCESSING_FEES,
+    name: "QR / digital wallet processing fees",
+    description:
+      "Estimated fees charged by Wave, Yonna, or similar on customer wallet payments (orders/POS). Easypay debits this and credits digital clearing when a rate is configured per business or server default.",
+    category: ChartAccountCategory.EXPENSE,
     isSystem: true,
   },
   {

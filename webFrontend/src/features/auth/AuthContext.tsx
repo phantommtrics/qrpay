@@ -15,6 +15,7 @@ import {
 } from '../../data/mockData'
 import { APP_PATHS, getDefaultProtectedPath } from '../../config/navigation'
 import { PLATFORM_ADMIN_ROUTE_ACCESS } from '../../config/platformAdminRouteAccess'
+import { platformAdminFinancePermission } from '../../utils/platformAdminFinancePermissions'
 import {
   ApiError,
   changePassword as changePasswordRequest,
@@ -909,6 +910,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const m = user.platformPermissions?.['platform.payment_gateways']
             return Boolean(m?.view || m?.create || m?.edit || m?.delete)
           }
+          const finance = platformAdminFinancePermission(permission, user.platformPermissions)
+          if (finance !== null) {
+            return finance
+          }
           const gate = PLATFORM_ADMIN_ROUTE_ACCESS[permission]
           if (!gate) {
             return false
@@ -964,6 +969,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (permission === 'platform.payment_gateways.manage') {
               const m = user.platformPermissions?.['platform.payment_gateways']
               return Boolean(m?.view || m?.create || m?.edit || m?.delete)
+            }
+            const finance = platformAdminFinancePermission(permission, user.platformPermissions)
+            if (finance !== null) {
+              return finance
             }
             const gate = PLATFORM_ADMIN_ROUTE_ACCESS[permission]
             if (!gate) {
