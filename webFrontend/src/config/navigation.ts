@@ -32,6 +32,10 @@ export const APP_PATHS = {
   accountingBalances: '/accounting/balances',
   accountingProfitLoss: '/accounting/profit-loss',
   accountingChart: '/accounting/chart-of-accounts',
+  accountingJournals: '/accounting/journals',
+  accountingReportGlBalance: '/accounting/reports/gl-balance',
+  accountingReportProfitLoss: '/accounting/reports/profit-loss',
+  accountingReportAccountStatement: '/accounting/reports/account-statement',
   staff: '/staff',
   staffStatus: '/staff/status',
   configuration: '/configuration',
@@ -355,6 +359,16 @@ export function getPageTitle(pathname: string) {
   }
   if (pathname.startsWith('/restaurant/setup')) {
     return 'Restaurant setup'
+  }
+
+  if (pathname.includes(APP_PATHS.accountingReportGlBalance)) {
+    return 'GL balance report'
+  }
+  if (pathname.includes(APP_PATHS.accountingReportProfitLoss)) {
+    return 'Profit & loss report'
+  }
+  if (pathname.includes(APP_PATHS.accountingReportAccountStatement)) {
+    return 'Account statement'
   }
 
   const matchedItem = [...MAIN_NAV_ITEMS].sort((a, b) => b.path.length - a.path.length).find(

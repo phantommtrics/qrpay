@@ -8,7 +8,15 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { ArrowRight, BookOpenText, ChartNoAxesCombined, Wallet } from 'lucide-react'
+import {
+  ArrowRight,
+  BookOpenText,
+  ChartNoAxesCombined,
+  FileSpreadsheet,
+  NotebookPen,
+  Scale,
+  Wallet,
+} from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { PageCard } from '../components/ui/PageCard'
@@ -28,6 +36,10 @@ export function AccountingPage() {
   const { canAccess, currentOrganization } = useAuth()
   const businessId = currentOrganization?.id
   const canOpenChartOfAccounts = canAccess('accounting.chart.view')
+  const canGlReport = canAccess('accounting.reports.gl')
+  const canPnlReport = canAccess('accounting.reports.pnl')
+  const canStatement = canAccess('accounting.reports.statement')
+  const hasFinanceReports = canGlReport || canPnlReport || canStatement
   const [data, setData] = useState<AccountingSummary | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,8 +74,8 @@ export function AccountingPage() {
     return (
       <PageTransition>
         <PageCard variant="plain" className="py-16">
-          <h1 className="text-xl font-semibold text-slate-900">Accounting</h1>
-          <p className="mt-4 text-slate-500">Select a business to continue.</p>
+          <h1 className="text-xl font-semibold text-qb-heading">Accounting</h1>
+          <p className="mt-4 text-qb-muted">Select a business to continue.</p>
         </PageCard>
       </PageTransition>
     )
@@ -74,83 +86,180 @@ export function AccountingPage() {
   const cashTotal = data?.cashTotal ?? 0
   const cashCount = data?.cashPositions.length ?? 0
 
+  const tileCard =
+    'space-y-6 rounded-md border border-qb-border bg-white p-6 shadow-[0_1px_2px_rgba(57,58,61,0.08)] transition-shadow hover:shadow-[0_2px_8px_rgba(57,58,61,0.1)]'
+
   return (
     <PageTransition>
-      <div className="space-y-16 py-4">
+      <div className="space-y-12 py-4 lg:space-y-14">
         <PageCard variant="plain">
-          <h1 className="text-xl font-semibold text-slate-900">Accounting</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-qb-heading">Accounting</h1>
           {currentOrganization?.name ? (
-            <p className="mt-1 text-sm text-slate-500">{currentOrganization.name}</p>
+            <p className="mt-1 text-sm text-qb-muted">{currentOrganization.name}</p>
           ) : null}
-          {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+          {error ? <p className="mt-4 text-sm font-medium text-red-700">{error}</p> : null}
         </PageCard>
 
-        <div className="grid gap-12 sm:grid-cols-3">
+        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
           <button
             type="button"
             onClick={() => navigate(APP_PATHS.accountingBalances)}
-            className="text-left transition-opacity hover:opacity-80"
+            className="text-left"
           >
-            <PageCard variant="plain" className="space-y-6">
-              <Wallet className="h-5 w-5 text-slate-400" strokeWidth={1.5} />
+            <div className={tileCard}>
+              <Wallet className="h-5 w-5 text-qb-heading" strokeWidth={1.5} />
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Cash &amp; clearing</p>
-                <p className="mt-2 text-3xl font-semibold tabular-nums text-slate-900">
+                <p className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                  Cash &amp; clearing
+                </p>
+                <p className="mt-2 text-3xl font-semibold tabular-nums text-qb-heading">
                   {loading ? '…' : formatMoney(cashTotal, { decimals: 0 })}
                 </p>
               </div>
-              <p className="flex items-center text-sm text-slate-500">
+              <p className="flex items-center text-sm text-qb-muted">
                 {cashCount} position{cashCount === 1 ? '' : 's'}
-                <ArrowRight className="ml-1 h-4 w-4" />
+                <ArrowRight className="ml-1 h-4 w-4 text-qb-heading" />
               </p>
-            </PageCard>
+            </div>
           </button>
 
           <button
             type="button"
             onClick={() => navigate(APP_PATHS.accountingProfitLoss)}
-            className="text-left transition-opacity hover:opacity-80"
+            className="text-left"
           >
-            <PageCard variant="plain" className="space-y-6">
-              <ChartNoAxesCombined className="h-5 w-5 text-slate-400" strokeWidth={1.5} />
+            <div className={tileCard}>
+              <ChartNoAxesCombined className="h-5 w-5 text-qb-heading" strokeWidth={1.5} />
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Net profit</p>
-                <p className="mt-2 text-3xl font-semibold tabular-nums text-slate-900">
+                <p className="text-xs font-semibold uppercase tracking-wide text-qb-muted">Net profit</p>
+                <p className="mt-2 text-3xl font-semibold tabular-nums text-qb-heading">
                   {loading || !pnl ? '…' : formatMoney(pnl.netProfit, { decimals: 0 })}
                 </p>
               </div>
-              <p className="flex items-center text-sm text-slate-500">
+              <p className="flex items-center text-sm text-qb-muted">
                 {pnl ? `${formatMoney(pnl.grossProfit, { decimals: 0 })} gross` : '…'}
-                <ArrowRight className="ml-1 h-4 w-4" />
+                <ArrowRight className="ml-1 h-4 w-4 text-qb-heading" />
               </p>
-            </PageCard>
+            </div>
           </button>
 
           <button
             type="button"
             disabled={!canOpenChartOfAccounts}
             onClick={() => canOpenChartOfAccounts && navigate(APP_PATHS.accountingChart)}
-            className="text-left transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+            className="text-left disabled:cursor-not-allowed disabled:opacity-45"
           >
-            <PageCard variant="plain" className="space-y-6">
-              <BookOpenText className="h-5 w-5 text-slate-400" strokeWidth={1.5} />
+            <div className={tileCard}>
+              <BookOpenText className="h-5 w-5 text-qb-heading" strokeWidth={1.5} />
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Chart of accounts</p>
-                <p className="mt-2 text-3xl font-semibold text-slate-900">
+                <p className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                  Chart of accounts
+                </p>
+                <p className="mt-2 text-3xl font-semibold text-qb-heading">
                   {canOpenChartOfAccounts ? 'View' : '—'}
                 </p>
               </div>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-qb-muted">
                 {canOpenChartOfAccounts ? 'Open' : 'No access'}
-                {canOpenChartOfAccounts ? <ArrowRight className="ml-1 inline h-4 w-4" /> : null}
+                {canOpenChartOfAccounts ? <ArrowRight className="ml-1 inline h-4 w-4 text-qb-heading" /> : null}
               </p>
-            </PageCard>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate(APP_PATHS.accountingJournals)}
+            className="text-left"
+          >
+            <div className={tileCard}>
+              <NotebookPen className="h-5 w-5 text-qb-heading" strokeWidth={1.5} />
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                  Journal entries
+                </p>
+                <p className="mt-2 text-3xl font-semibold text-qb-heading">Post</p>
+              </div>
+              <p className="flex items-center text-sm text-qb-muted">
+                Money in, out, transfers
+                <ArrowRight className="ml-1 h-4 w-4 text-qb-heading" />
+              </p>
+            </div>
           </button>
         </div>
 
-        <div className="grid gap-16 lg:grid-cols-[1.2fr_0.8fr]">
-          <PageCard variant="plain">
-            <p className="mb-8 text-xs uppercase tracking-wide text-slate-400">Six-month trend</p>
+        {hasFinanceReports ? (
+          <PageCard
+            variant="default"
+            className="rounded-md border-qb-border p-6 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
+          >
+            <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-qb-muted">
+              Financial reports
+            </p>
+            <p className="mb-6 max-w-2xl text-sm text-qb-muted">
+              Period-based reports similar to Xero: trial balance, detailed profit &amp; loss, and
+              single-account activity. Export to CSV or PDF when your plan includes export access.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-3">
+              {canGlReport ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(APP_PATHS.accountingReportGlBalance)}
+                  className="text-left"
+                >
+                  <div className="rounded-md border border-qb-border bg-qb-surface/40 p-4 transition-shadow hover:shadow-md">
+                    <Scale className="h-5 w-5 text-qb-heading" strokeWidth={1.5} />
+                    <p className="mt-3 text-sm font-semibold text-qb-heading">GL balance</p>
+                    <p className="mt-1 text-xs text-qb-muted">Trial balance as at a date</p>
+                    <p className="mt-2 flex items-center text-xs font-medium text-qb-heading">
+                      Open <ArrowRight className="ml-1 h-3 w-3" />
+                    </p>
+                  </div>
+                </button>
+              ) : null}
+              {canPnlReport ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(APP_PATHS.accountingReportProfitLoss)}
+                  className="text-left"
+                >
+                  <div className="rounded-md border border-qb-border bg-qb-surface/40 p-4 transition-shadow hover:shadow-md">
+                    <FileSpreadsheet className="h-5 w-5 text-qb-heading" strokeWidth={1.5} />
+                    <p className="mt-3 text-sm font-semibold text-qb-heading">Profit &amp; loss</p>
+                    <p className="mt-1 text-xs text-qb-muted">Revenue &amp; expenses by period</p>
+                    <p className="mt-2 flex items-center text-xs font-medium text-qb-heading">
+                      Open <ArrowRight className="ml-1 h-3 w-3" />
+                    </p>
+                  </div>
+                </button>
+              ) : null}
+              {canStatement ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(APP_PATHS.accountingReportAccountStatement)}
+                  className="text-left"
+                >
+                  <div className="rounded-md border border-qb-border bg-qb-surface/40 p-4 transition-shadow hover:shadow-md">
+                    <BookOpenText className="h-5 w-5 text-qb-heading" strokeWidth={1.5} />
+                    <p className="mt-3 text-sm font-semibold text-qb-heading">Account statement</p>
+                    <p className="mt-1 text-xs text-qb-muted">Running balance for one account</p>
+                    <p className="mt-2 flex items-center text-xs font-medium text-qb-heading">
+                      Open <ArrowRight className="ml-1 h-3 w-3" />
+                    </p>
+                  </div>
+                </button>
+              ) : null}
+            </div>
+          </PageCard>
+        ) : null}
+
+        <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:gap-10">
+          <PageCard
+            variant="default"
+            className="rounded-md border-qb-border p-6 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
+          >
+            <p className="mb-6 text-xs font-semibold uppercase tracking-wide text-qb-muted">
+              Six-month trend
+            </p>
             <div className="h-72">
               {loading ? (
                 <p className="text-sm text-slate-400">Loading…</p>
@@ -159,11 +268,11 @@ export function AccountingPage() {
                   <AreaChart data={trend}>
                     <defs>
                       <linearGradient id="accTrendFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#0d9488" stopOpacity={0.2} />
-                        <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
+                        <stop offset="5%" stopColor="#64748b" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#64748b" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid stroke="#f1f5f9" strokeDasharray="4 4" vertical={false} />
+                    <CartesianGrid stroke="#e8eaef" strokeDasharray="4 4" vertical={false} />
                     <XAxis
                       dataKey="period"
                       axisLine={false}
@@ -177,9 +286,10 @@ export function AccountingPage() {
                       tickFormatter={(v) => `D${v}`}
                     />
                     <Tooltip
-                      formatter={(value: number | string) =>
-                        formatMoney(Number(value), { decimals: 0 })
-                      }
+                      formatter={(value) => {
+                        const n = Array.isArray(value) ? value[0] : value
+                        return formatMoney(Number(n ?? 0), { decimals: 0 })
+                      }}
                       contentStyle={{
                         border: 'none',
                         borderRadius: '8px',
@@ -189,7 +299,7 @@ export function AccountingPage() {
                     <Area
                       type="monotone"
                       dataKey="grossProfit"
-                      stroke="#0d9488"
+                      stroke="#64748b"
                       strokeWidth={2}
                       fill="url(#accTrendFill)"
                     />
@@ -199,18 +309,24 @@ export function AccountingPage() {
             </div>
           </PageCard>
 
-          <PageCard variant="plain">
-            <p className="mb-8 text-xs uppercase tracking-wide text-slate-400">P&amp;L</p>
-            <ul className="space-y-8">
+          <PageCard
+            variant="default"
+            className="rounded-md border-qb-border p-6 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
+          >
+            <p className="mb-6 text-xs font-semibold uppercase tracking-wide text-qb-muted">P&amp;L</p>
+            <ul className="divide-y divide-qb-border">
               {[
                 { label: 'Income', value: pnl?.income },
                 { label: 'COGS', value: pnl?.costOfSales },
                 { label: 'Gross profit', value: pnl?.grossProfit },
                 { label: 'Operating expenses', value: pnl?.operatingExpenses },
               ].map((row) => (
-                <li key={row.label} className="flex items-baseline justify-between gap-4">
-                  <span className="text-sm text-slate-500">{row.label}</span>
-                  <span className="tabular-nums text-sm font-medium text-slate-900">
+                <li
+                  key={row.label}
+                  className="flex items-baseline justify-between gap-4 py-4 first:pt-0 last:pb-0"
+                >
+                  <span className="text-sm text-qb-muted">{row.label}</span>
+                  <span className="tabular-nums text-sm font-semibold text-qb-heading">
                     {loading || row.value === undefined ? '…' : formatMoney(row.value, { decimals: 0 })}
                   </span>
                 </li>

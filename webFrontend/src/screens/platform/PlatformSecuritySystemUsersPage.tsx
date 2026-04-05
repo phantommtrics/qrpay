@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Mail, Plus, UserPlus } from 'lucide-react'
+import { Plus, UserPlus } from 'lucide-react'
 
 import { PageCard } from '../../components/ui/PageCard'
 import { PageSectionHeader } from '../../components/ui/PageSectionHeader'

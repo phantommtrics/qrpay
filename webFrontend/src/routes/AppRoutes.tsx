@@ -98,6 +98,26 @@ const AccountingChartAccountsPage = lazy(() =>
     default: module.AccountingChartAccountsPage,
   })),
 )
+const AccountingJournalsPage = lazy(() =>
+  import('../screens/AccountingJournalsPage').then((module) => ({
+    default: module.AccountingJournalsPage,
+  })),
+)
+const GlBalanceReportPage = lazy(() =>
+  import('../screens/GlBalanceReportPage').then((module) => ({
+    default: module.GlBalanceReportPage,
+  })),
+)
+const ProfitLossReportPage = lazy(() =>
+  import('../screens/ProfitLossReportPage').then((module) => ({
+    default: module.ProfitLossReportPage,
+  })),
+)
+const AccountStatementReportPage = lazy(() =>
+  import('../screens/AccountStatementReportPage').then((module) => ({
+    default: module.AccountStatementReportPage,
+  })),
+)
 const StaffPage = lazy(() =>
   import('../screens/StaffPage').then((module) => ({
     default: module.StaffPage,
@@ -404,6 +424,30 @@ export function AppRoutes() {
       element: <AccountingChartAccountsPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
       permission: 'accounting.chart.view' as const,
+    },
+    {
+      path: APP_PATHS.accountingJournals,
+      element: <AccountingJournalsPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'accounting.view' as const,
+    },
+    {
+      path: APP_PATHS.accountingReportGlBalance,
+      element: <GlBalanceReportPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'accounting.reports.gl' as const,
+    },
+    {
+      path: APP_PATHS.accountingReportProfitLoss,
+      element: <ProfitLossReportPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'accounting.reports.pnl' as const,
+    },
+    {
+      path: APP_PATHS.accountingReportAccountStatement,
+      element: <AccountStatementReportPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'accounting.reports.statement' as const,
     },
     {
       path: APP_PATHS.businesses,

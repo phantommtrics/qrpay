@@ -1,6 +1,19 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
+/* Neutral, light accounting UI (outline / text emphasis, no brand fill) */
+@theme {
+  --color-qb-surface: #f8fafc;
+  --color-qb-border: #e2e8f0;
+  --color-qb-primary: #475569;
+  --color-qb-primary-hover: #334155;
+  --color-qb-primary-soft: #f1f5f9;
+  --color-qb-heading: #1e293b;
+  --color-qb-muted: #64748b;
+  --color-qb-success-bg: #f1f5f9;
+  --color-qb-success-text: #334155;
+}
+
 :root {
   color: #0f172a;
   background: #f8fafc;

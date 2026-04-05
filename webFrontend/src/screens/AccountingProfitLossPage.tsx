@@ -84,7 +84,7 @@ export function AccountingProfitLossPage() {
               <div key={label} className="flex justify-between gap-8">
                 <dt className="text-sm text-slate-500">{label}</dt>
                 <dd className="tabular-nums text-sm font-medium text-slate-900">
-                  {loading || value === undefined ? '…' : formatMoney(value, { decimals: 0 })}
+                  {loading || value === undefined ? '…' : formatMoney(Number(value), { decimals: 0 })}
                 </dd>
               </div>
             ))}

@@ -204,6 +204,9 @@ export function Sidebar({
     if (p.startsWith('/platform/security')) {
       setIsPlatformSecurityOpen(true)
     }
+    if (p.startsWith('/accounting/reports')) {
+      setOpenServiceIds((prev) => ({ ...prev, svc_finance: true }))
+    }
   }, [location.pathname])
 
   function isPlatformBusinessesSubActive(path: string) {

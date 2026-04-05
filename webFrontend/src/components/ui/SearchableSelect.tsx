@@ -24,6 +24,8 @@ export function SearchableSelect({
   className = '',
   buttonClassName = '',
   listMaxHeightClass = 'max-h-60',
+  /** Extra classes on the floating dropdown panel (e.g. QB borders). */
+  dropdownClassName = '',
 }: {
   id?: string
   value: string
@@ -37,6 +39,7 @@ export function SearchableSelect({
   className?: string
   buttonClassName?: string
   listMaxHeightClass?: string
+  dropdownClassName?: string
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -126,7 +129,7 @@ export function SearchableSelect({
             <div
               ref={panelRef}
               role="listbox"
-              className="fixed z-[300] flex max-h-[min(18rem,calc(100vh-5rem))] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white py-2 shadow-lg ring-1 ring-black/5"
+              className={`fixed z-[300] flex max-h-[min(18rem,calc(100vh-5rem))] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white py-2 shadow-lg ring-1 ring-black/5 ${dropdownClassName}`}
               style={{
                 top: panelBox.top,
                 left: panelBox.left,

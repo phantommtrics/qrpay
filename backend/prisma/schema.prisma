@@ -132,6 +132,9 @@ enum ChartAccountKind {
 
 enum JournalSourceType {
   CUSTOMER_SALE_PAYMENT
+  MANUAL_MONEY_IN
+  MANUAL_MONEY_OUT
+  MANUAL_BANK_TRANSFER
 }
 
 enum SalesLedgerEntryType {
@@ -176,6 +179,7 @@ model Business {
   paymentMethods                BusinessPaymentMethod[]
   billingLedgerEntries          BillingLedgerEntry[]
   chartOfAccounts               ChartOfAccount[]
+  contacts                      BusinessContact[]
   journalEntries                JournalEntry[]
   salesLedgerEntries            SalesLedgerEntry[]
   gatewayCredentials            BusinessGatewayCredential[]
@@ -236,6 +240,23 @@ model BusinessGatewayCredential {
   @@index([businessId])
 }
 
+/** Counterparties for manual journal entries (received from / paid to). */
+model BusinessContact {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  email      String?
+  phone      String?
+  notes      String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  journalEntries JournalEntry[]
+
+  @@index([businessId])
+  @@index([businessId, name])
+}
+
 model ChartOfAccount {
   id          String               @id @default(cuid())
   businessId  String
@@ -268,13 +289,18 @@ model JournalEntry {
   sourceType  JournalSourceType?
   /** e.g. Payment.id when sourceType is CUSTOMER_SALE_PAYMENT */
   sourceId    String?
+  /** External reference (invoice no., cheque no., etc.). */
+  reference   String?
+  contactId   String?
   createdAt   DateTime           @default(now())
   business    Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact     BusinessContact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
   lines       JournalLine[]
   salesLedger SalesLedgerEntry[]
 
   @@index([businessId, postedAt])
   @@index([businessId, sourceType, sourceId])
+  @@index([contactId])
 }
 
 model JournalLine {
@@ -285,6 +311,9 @@ model JournalLine {
   creditAmount     Decimal        @default(0) @db.Decimal(12, 2)
   /** Line narration for financial review (IFRS-style clarity). */
   description      String?        @db.Text
+  quantity         Decimal?       @db.Decimal(18, 6)
+  unitLabel        String?
+  taxAmount        Decimal        @default(0) @db.Decimal(12, 2)
   journalEntry     JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
   chartOfAccount   ChartOfAccount @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
 

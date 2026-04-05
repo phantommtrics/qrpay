@@ -144,8 +144,23 @@ import {
   startWalletPayment,
   verifySimulatorWebhookSecret,
 } from "./services/sale.service.js";
+import {
+  getAccountStatementsReports,
+  getGlBalanceReport,
+  getProfitLossReport,
+  listChartAccountsForReports,
+} from "./services/accounting-reports.service.js";
 import { getAccountingSummaryForBusiness } from "./services/accounting-summary.service.js";
+import {
+  createBusinessContact,
+  listBusinessContacts,
+} from "./services/business-contact.service.js";
 import { createChartOfAccountForBusiness } from "./services/chart-of-accounts.service.js";
+import {
+  postManualBankTransfer,
+  postManualMoneyIn,
+  postManualMoneyOut,
+} from "./services/manual-journal.service.js";
 import {
   OrderStatus,
   PaymentMethod,
@@ -4042,6 +4057,150 @@ app.get(
   },
 );
 
+app.get(
+  "/api/businesses/:businessId/accounting/accounts-for-reports",
+  authenticateToken,
+  requireAnyEntitlement([
+    "accounting.reports.gl",
+    "accounting.reports.pnl",
+    "accounting.reports.statement",
+  ]),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const rows = await listChartAccountsForReports(businessId as string);
+      response.json({ data: rows });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/accounting/reports/gl-balance",
+  authenticateToken,
+  requireEntitlement("accounting.reports.gl"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const asOf =
+        typeof request.query.asOf === "string" && request.query.asOf.trim()
+          ? request.query.asOf.trim()
+          : new Date().toISOString().slice(0, 10);
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const data = await getGlBalanceReport(businessId as string, asOf);
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/accounting/reports/profit-loss",
+  authenticateToken,
+  requireEntitlement("accounting.reports.pnl"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const from = typeof request.query.from === "string" ? request.query.from.trim() : "";
+      const to = typeof request.query.to === "string" ? request.query.to.trim() : "";
+      if (!from || !to) {
+        throw new HttpError(400, "Query parameters from and to (YYYY-MM-DD) are required.");
+      }
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const data = await getProfitLossReport(businessId as string, from, to);
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/accounting/reports/account-statement",
+  authenticateToken,
+  requireEntitlement("accounting.reports.statement"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const idsRaw =
+        typeof request.query.chartOfAccountIds === "string"
+          ? request.query.chartOfAccountIds
+          : typeof request.query.chartOfAccountId === "string"
+            ? request.query.chartOfAccountId
+            : "";
+      const chartOfAccountIds = idsRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const from = typeof request.query.from === "string" ? request.query.from.trim() : "";
+      const to = typeof request.query.to === "string" ? request.query.to.trim() : "";
+      if (chartOfAccountIds.length === 0 || !from || !to) {
+        throw new HttpError(
+          400,
+          "Query parameters chartOfAccountId or chartOfAccountIds (comma-separated), from, and to (YYYY-MM-DD) are required.",
+        );
+      }
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const data = await getAccountStatementsReports(
+        businessId as string,
+        chartOfAccountIds,
+        from,
+        to,
+      );
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 const createChartAccountBodySchema = z
   .object({
     kind: z.nativeEnum(ChartAccountKind).optional().default(ChartAccountKind.LEDGER),
@@ -4114,6 +4273,263 @@ app.post(
           bankAccountNumber: row.bankAccountNumber,
           bankName: row.bankName,
           bankDetails: row.bankDetails,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+const manualJournalLineSchema = z.object({
+  chartOfAccountId: z.string().min(1),
+  narration: z.string().max(4000).optional().nullable(),
+  quantity: z.coerce.number().positive(),
+  unitLabel: z.string().trim().max(64).optional().nullable(),
+  unitAmount: z.coerce.number().min(0),
+  taxAmount: z.coerce.number().min(0).optional().default(0),
+});
+
+const manualMoneyInBodySchema = z.object({
+  contactId: z.string().optional().nullable(),
+  newContactName: z.string().trim().max(200).optional().nullable(),
+  newContactEmail: z.string().trim().max(320).optional().nullable(),
+  newContactPhone: z.string().trim().max(64).optional().nullable(),
+  postedAt: z.string().min(1),
+  reference: z.string().trim().max(200).optional().nullable(),
+  settlementChartAccountId: z.string().min(1),
+  lines: z.array(manualJournalLineSchema).min(1),
+});
+
+const manualMoneyOutBodySchema = manualMoneyInBodySchema;
+
+const manualBankTransferBodySchema = z.object({
+  fromChartAccountId: z.string().min(1),
+  toChartAccountId: z.string().min(1),
+  amount: z.coerce.number().positive(),
+  postedAt: z.string().min(1),
+  reference: z.string().trim().max(200).optional().nullable(),
+});
+
+function parsePostedAt(raw: string): Date {
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) {
+    throw new HttpError(400, "Invalid posted date.");
+  }
+  return d;
+}
+
+app.get(
+  "/api/businesses/:businessId/contacts",
+  authenticateToken,
+  requireEntitlement("accounting.view"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const q = typeof request.query.q === "string" ? request.query.q : undefined;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const rows = await listBusinessContacts(businessId as string, q);
+      response.json({
+        data: rows.map((c) => ({
+          id: c.id,
+          name: c.name,
+          email: c.email,
+          phone: c.phone,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/contacts",
+  authenticateToken,
+  requireEntitlement("accounting.view"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const body = z
+        .object({
+          name: z.string().trim().min(1).max(200),
+          email: z.string().trim().max(320).optional().nullable(),
+          phone: z.string().trim().max(64).optional().nullable(),
+        })
+        .parse(request.body);
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const row = await createBusinessContact(businessId as string, body);
+      response.status(201).json({
+        data: {
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          phone: row.phone,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/journals/money-in",
+  authenticateToken,
+  requireEntitlement("accounting.view"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const body = manualMoneyInBodySchema.parse(request.body);
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const entry = await postManualMoneyIn(businessId as string, {
+        contactId: body.contactId ?? null,
+        newContactName: body.newContactName ?? null,
+        newContactEmail: body.newContactEmail ?? null,
+        newContactPhone: body.newContactPhone ?? null,
+        postedAt: parsePostedAt(body.postedAt),
+        reference: body.reference ?? null,
+        settlementChartAccountId: body.settlementChartAccountId,
+        lines: body.lines.map((l) => ({
+          chartOfAccountId: l.chartOfAccountId,
+          narration: l.narration ?? "",
+          quantity: l.quantity,
+          unitLabel: l.unitLabel ?? null,
+          unitAmount: l.unitAmount,
+          taxAmount: l.taxAmount ?? 0,
+        })),
+      });
+
+      response.status(201).json({
+        data: {
+          journalEntryId: entry.id,
+          postedAt: entry.postedAt.toISOString(),
+          memo: entry.memo,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/journals/money-out",
+  authenticateToken,
+  requireEntitlement("accounting.view"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const body = manualMoneyOutBodySchema.parse(request.body);
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const entry = await postManualMoneyOut(businessId as string, {
+        contactId: body.contactId ?? null,
+        newContactName: body.newContactName ?? null,
+        newContactEmail: body.newContactEmail ?? null,
+        newContactPhone: body.newContactPhone ?? null,
+        postedAt: parsePostedAt(body.postedAt),
+        reference: body.reference ?? null,
+        settlementChartAccountId: body.settlementChartAccountId,
+        lines: body.lines.map((l) => ({
+          chartOfAccountId: l.chartOfAccountId,
+          narration: l.narration ?? "",
+          quantity: l.quantity,
+          unitLabel: l.unitLabel ?? null,
+          unitAmount: l.unitAmount,
+          taxAmount: l.taxAmount ?? 0,
+        })),
+      });
+
+      response.status(201).json({
+        data: {
+          journalEntryId: entry.id,
+          postedAt: entry.postedAt.toISOString(),
+          memo: entry.memo,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/journals/bank-transfer",
+  authenticateToken,
+  requireEntitlement("accounting.view"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const body = manualBankTransferBodySchema.parse(request.body);
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const entry = await postManualBankTransfer(businessId as string, {
+        fromChartAccountId: body.fromChartAccountId,
+        toChartAccountId: body.toChartAccountId,
+        amount: body.amount,
+        postedAt: parsePostedAt(body.postedAt),
+        reference: body.reference ?? null,
+      });
+
+      response.status(201).json({
+        data: {
+          journalEntryId: entry.id,
+          postedAt: entry.postedAt.toISOString(),
+          memo: entry.memo,
         },
       });
     } catch (error) {
