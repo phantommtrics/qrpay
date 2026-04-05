@@ -13,9 +13,10 @@ export function normalizeIndustryLabel(value: string | null | undefined): string
   return (value ?? "").trim().toLowerCase();
 }
 
+/** Retail-style catalogue: category + barcode flow (excludes restaurant menu). */
 export function isRetailOrWholesaleIndustry(industry: string | null | undefined): boolean {
   const normalized = normalizeIndustryLabel(industry);
-  return normalized === "retail" || normalized === "wholesale";
+  return normalized === "retail" || normalized === "wholesale" || normalized === "pharmacy";
 }
 
 export function isRestaurantIndustry(industry: string | null | undefined): boolean {
@@ -77,7 +78,7 @@ async function assertWithinProductLimit(businessId: string): Promise<void> {
 export type CreateProductInput = {
   businessId: string;
   name: string;
-  /** Required for retail/wholesale; for restaurant, derived from menu category when menuCategoryId is set. */
+  /** Required for retail/wholesale/pharmacy; for restaurant, derived from menu category when menuCategoryId is set. */
   category: string;
   menuCategoryId?: string | null;
   description?: string | null;
@@ -139,7 +140,7 @@ export async function createProduct(input: CreateProductInput) {
   if (!isRetailWholesale && !isRestaurant) {
     throw new HttpError(
       403,
-      "Products are only available for Retail, Wholesale, or Restaurant businesses.",
+      "Products are only available for Retail, Wholesale, Pharmacy, or Restaurant businesses.",
     );
   }
 
@@ -256,7 +257,7 @@ export async function updateProduct(input: UpdateProductInput) {
   if (!isRetailWholesale && !isRestaurant) {
     throw new HttpError(
       403,
-      "Products are only available for Retail, Wholesale, or Restaurant businesses.",
+      "Products are only available for Retail, Wholesale, Pharmacy, or Restaurant businesses.",
     );
   }
 

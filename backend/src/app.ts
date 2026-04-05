@@ -344,6 +344,8 @@ const createOrderBodySchema = z.object({
       }),
     )
     .min(1),
+  /** Staff POS: optional dining table for manual table service orders. */
+  diningTableId: z.string().min(1).optional(),
 });
 
 const simulatorWebhookBodySchema = z.object({
@@ -371,7 +373,7 @@ const createProductSchema = z
     if (!hasMenu && !hasCat) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Provide category (retail/wholesale) or menuCategoryId (restaurant).",
+        message: "Provide category (retail/wholesale/pharmacy) or menuCategoryId (restaurant).",
         path: ["category"],
       });
     }
@@ -3570,10 +3572,30 @@ app.post(
         throw new HttpError(403, "Access denied to this business");
       }
 
+      let diningTableId: string | null = null;
+      let tableLabelSnapshot: string | null = null;
+      const tableIdRaw = body.diningTableId?.trim();
+      if (tableIdRaw) {
+        const table = await prisma.diningTable.findFirst({
+          where: {
+            id: tableIdRaw,
+            businessId: businessId as string,
+            isActive: true,
+          },
+        });
+        if (!table) {
+          throw new HttpError(400, "Dining table not found or inactive.");
+        }
+        diningTableId = table.id;
+        tableLabelSnapshot = table.label;
+      }
+
       const order = await createOrder({
         businessId: businessId as string,
         userId: request.user!.id,
         lines: body.lines,
+        diningTableId,
+        tableLabelSnapshot,
       });
 
       response.status(201).json({
@@ -3621,7 +3643,7 @@ app.get(
 app.get(
   "/api/businesses/:businessId/orders/:orderId",
   authenticateToken,
-  requireEntitlement("pos.access"),
+  requireAnyEntitlement(["orders.view", "pos.access"]),
   async (request, response, next) => {
     try {
       const { businessId, orderId } = request.params;
@@ -3633,7 +3655,11 @@ app.get(
         },
       });
 
-      if (!membership && !request.user?.isPlatformOwner) {
+      if (
+        !membership &&
+        !request.user?.isPlatformOwner &&
+        request.user?.role !== "PLATFORM_ADMIN"
+      ) {
         throw new HttpError(403, "Access denied to this business");
       }
 
@@ -3684,7 +3710,7 @@ app.post(
 app.post(
   "/api/businesses/:businessId/orders/:orderId/payments/wallet",
   authenticateToken,
-  requireEntitlement("pos.access"),
+  requireAnyEntitlement(["pos.access", "orders.manage"]),
   async (request, response, next) => {
     try {
       const { businessId, orderId } = request.params;
@@ -3696,7 +3722,11 @@ app.post(
         },
       });
 
-      if (!membership && !request.user?.isPlatformOwner) {
+      if (
+        !membership &&
+        !request.user?.isPlatformOwner &&
+        request.user?.role !== "PLATFORM_ADMIN"
+      ) {
         throw new HttpError(403, "Access denied to this business");
       }
 
@@ -3717,7 +3747,7 @@ app.post(
 app.post(
   "/api/businesses/:businessId/orders/:orderId/payments/cash",
   authenticateToken,
-  requireEntitlement("pos.access"),
+  requireAnyEntitlement(["pos.access", "orders.manage"]),
   async (request, response, next) => {
     try {
       const { businessId, orderId } = request.params;
@@ -3729,7 +3759,11 @@ app.post(
         },
       });
 
-      if (!membership && !request.user?.isPlatformOwner) {
+      if (
+        !membership &&
+        !request.user?.isPlatformOwner &&
+        request.user?.role !== "PLATFORM_ADMIN"
+      ) {
         throw new HttpError(403, "Access denied to this business");
       }
 
@@ -3756,7 +3790,7 @@ app.post(
 app.post(
   "/api/businesses/:businessId/orders/:orderId/payments/wallet/simulate",
   authenticateToken,
-  requireEntitlement("pos.access"),
+  requireAnyEntitlement(["pos.access", "orders.manage"]),
   async (request, response, next) => {
     try {
       const { businessId, orderId } = request.params;
@@ -3768,7 +3802,11 @@ app.post(
         },
       });
 
-      if (!membership && !request.user?.isPlatformOwner) {
+      if (
+        !membership &&
+        !request.user?.isPlatformOwner &&
+        request.user?.role !== "PLATFORM_ADMIN"
+      ) {
         throw new HttpError(403, "Access denied to this business");
       }
 

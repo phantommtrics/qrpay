@@ -2,9 +2,10 @@ export function normalizeIndustryLabel(value: string | null | undefined): string
   return (value ?? '').trim().toLowerCase()
 }
 
+/** Retail-style catalogue: category + barcode flow (excludes restaurant menu). */
 export function isRetailOrWholesaleIndustry(industry: string | null | undefined): boolean {
   const n = normalizeIndustryLabel(industry)
-  return n === 'retail' || n === 'wholesale'
+  return n === 'retail' || n === 'wholesale' || n === 'pharmacy'
 }
 
 export function isRestaurantIndustry(industry: string | null | undefined): boolean {

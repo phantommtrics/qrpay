@@ -31,14 +31,22 @@ import {
   simulateWalletPayment,
   startWalletCheckout,
 } from '../services/salesApi'
-import { ApiError } from '../services/subscriptionApi'
+import { ApiError, fetchDiningTables, type DiningTableRow } from '../services/subscriptionApi'
 import { formatMoney } from '../utils/formatMoney'
+import { isRestaurantIndustry } from '../utils/businessIndustry'
 import { playPosScanError, playPosScanSuccess } from '../utils/posSounds'
 
 type ScanFeedback = { text: string; variant: 'success' | 'error' }
 
 export function POSPage() {
   const { businessProducts, currentOrganization, refreshBusinessProducts } = useAuth()
+  const restaurantPos = Boolean(
+    currentOrganization && isRestaurantIndustry(currentOrganization.industry),
+  )
+  const [diningTables, setDiningTables] = useState<DiningTableRow[]>([])
+  const [diningTablesError, setDiningTablesError] = useState<string | null>(null)
+  const [selectedTableId, setSelectedTableId] = useState('')
+  const [placeOrderBusy, setPlaceOrderBusy] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [scannerOpen, setScannerOpen] = useState(false)
   const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null)
@@ -54,6 +62,9 @@ export function POSPage() {
   const [walletLoading, setWalletLoading] = useState(false)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
   const [receiptLabel, setReceiptLabel] = useState<string | null>(null)
+
+  const isTableServiceOrder = restaurantPos && Boolean(selectedTableId)
+
   const {
     cart,
     total: subtotal,
@@ -65,6 +76,32 @@ export function POSPage() {
   } = useCart()
 
   const products = businessProducts
+
+  useEffect(() => {
+    setSelectedTableId('')
+    setDiningTables([])
+    setDiningTablesError(null)
+    if (!currentOrganization?.id || !restaurantPos) {
+      return
+    }
+    let cancelled = false
+    void fetchDiningTables(currentOrganization.id)
+      .then((rows) => {
+        if (!cancelled) {
+          setDiningTables(rows.filter((t) => t.isActive))
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setDiningTablesError(
+            e instanceof ApiError ? e.message : 'Could not load tables.',
+          )
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentOrganization?.id, restaurantPos])
 
   const handleProductAdd = useCallback(
     (product: (typeof products)[number]) => {
@@ -144,8 +181,10 @@ export function POSPage() {
     resetCheckoutUi,
   ])
 
+  /** Walk-in / counter or non-restaurant: create order and open payment on this device. */
   const handleCharge = async () => {
     if (!currentOrganization || cart.length === 0) return
+    if (isTableServiceOrder) return
     setCheckoutError(null)
     setReceiptLabel(null)
     setPaymentStatus('waiting')
@@ -166,6 +205,44 @@ export function POSPage() {
       setPaymentModalOpen(false)
     } finally {
       setWalletLoading(false)
+    }
+  }
+
+  /** Restaurant + table: only create awaiting-payment order; staff collects payment from Orders. */
+  const handlePlaceTableOrder = async () => {
+    if (!currentOrganization || cart.length === 0 || !selectedTableId) return
+    setPlaceOrderBusy(true)
+    setScanFeedback(null)
+    try {
+      const lines = cart.map((item) => ({
+        productId: item.product.id,
+        quantity: item.quantity,
+      }))
+      const order = await createSaleOrder(currentOrganization.id, lines, {
+        diningTableId: selectedTableId,
+      })
+      clearCart()
+      void playPosScanSuccess()
+      setScanFeedback({
+        variant: 'success',
+        text: `Order ${order.publicCode} placed for this table. Open Orders → View details to collect payment.`,
+      })
+    } catch (e) {
+      void playPosScanError()
+      setScanFeedback({
+        variant: 'error',
+        text: e instanceof ApiError ? e.message : 'Could not place order.',
+      })
+    } finally {
+      setPlaceOrderBusy(false)
+    }
+  }
+
+  const handlePrimaryCheckout = () => {
+    if (isTableServiceOrder) {
+      void handlePlaceTableOrder()
+    } else {
+      void handleCharge()
     }
   }
 
@@ -297,7 +374,7 @@ export function POSPage() {
             <button
               type="button"
               onClick={() => setScannerOpen(true)}
-              disabled={scannerOpen || paymentModalOpen}
+              disabled={scannerOpen || paymentModalOpen || placeOrderBusy}
               className="rounded-full bg-teal-600 px-6 py-2 font-medium text-white shadow-lg shadow-teal-900/50 transition-colors hover:bg-teal-500 disabled:opacity-70"
             >
               {scannerOpen ? 'Scanning...' : 'Scan barcode'}
@@ -350,7 +427,7 @@ export function POSPage() {
                   <button
                     key={product.id}
                     type="button"
-                    disabled={paymentModalOpen}
+                    disabled={paymentModalOpen || placeOrderBusy}
                     onClick={() => handleProductAdd(product)}
                     className="flex flex-col items-center rounded-xl border border-slate-100 p-3 text-center transition-all hover:border-teal-500 hover:bg-teal-50 disabled:opacity-50"
                   >
@@ -409,7 +486,7 @@ export function POSPage() {
                     <div className="flex items-center rounded-lg border border-slate-200 bg-white">
                       <button
                         type="button"
-                        disabled={paymentModalOpen}
+                        disabled={paymentModalOpen || placeOrderBusy}
                         onClick={() => updateQuantity(item.product.id, -1)}
                         aria-label={`Decrease quantity for ${item.product.name}`}
                         className="p-1.5 text-slate-500 hover:text-teal-600"
@@ -423,6 +500,7 @@ export function POSPage() {
                         type="button"
                         disabled={
                           paymentModalOpen ||
+                          placeOrderBusy ||
                           item.quantity >=
                             (item.product.availableStock ?? item.product.stock)
                         }
@@ -435,7 +513,7 @@ export function POSPage() {
                     </div>
                     <button
                       type="button"
-                      disabled={paymentModalOpen}
+                      disabled={paymentModalOpen || placeOrderBusy}
                       onClick={() => removeFromCart(item.product.id)}
                       aria-label={`Remove ${item.product.name} from cart`}
                       className="rounded-lg p-2 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600"
@@ -450,6 +528,43 @@ export function POSPage() {
         </div>
 
         <div className="rounded-b-2xl border-t border-slate-100 bg-slate-50 p-4">
+          {restaurantPos ? (
+            <div className="mb-4">
+              <label
+                htmlFor="pos-table-select"
+                className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase"
+              >
+                Table (manual order)
+              </label>
+              <select
+                id="pos-table-select"
+                value={selectedTableId}
+                disabled={paymentModalOpen || placeOrderBusy}
+                onChange={(e) => setSelectedTableId(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+              >
+                <option value="">Walk-in / counter (no table)</option>
+                {diningTables.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+              {selectedTableId ? (
+                <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+                  {/* Uses <strong>Order placement</strong> only — payment is completed from{' '}
+                  <strong>Orders</strong> → View details. */}
+                </p>
+              ) : null}
+              {diningTablesError ? (
+                <p className="mt-1 text-xs text-amber-700">{diningTablesError}</p>
+              ) : diningTables.length === 0 && !diningTablesError ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Add tables in Restaurant setup to assign orders to a table.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="mb-4 space-y-2 text-sm">
             <div className="flex justify-between text-slate-500">
               <span>Subtotal</span>
@@ -469,18 +584,32 @@ export function POSPage() {
             <button
               type="button"
               onClick={clearCart}
-              disabled={cart.length === 0 || paymentModalOpen}
+              disabled={cart.length === 0 || paymentModalOpen || placeOrderBusy}
               className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50"
             >
               Clear
             </button>
             <button
               type="button"
-              onClick={() => void handleCharge()}
-              disabled={cart.length === 0 || paymentModalOpen}
-              className="flex flex-1 items-center justify-center rounded-xl bg-teal-600 py-3 text-lg font-bold text-white transition-colors hover:bg-teal-700 disabled:opacity-50"
+              onClick={() => void handlePrimaryCheckout()}
+              disabled={cart.length === 0 || paymentModalOpen || placeOrderBusy}
+              className="flex flex-1 flex-col items-center justify-center rounded-xl bg-teal-600 py-3 text-lg font-bold text-white transition-colors hover:bg-teal-700 disabled:opacity-50"
             >
-              Charge {formatMoney(subtotal)}
+              {placeOrderBusy ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Placing…
+                </span>
+              ) : isTableServiceOrder ? (
+                <>
+                  <span>Order placement</span>
+                  <span className="mt-0.5 text-sm font-semibold opacity-90">
+                    {formatMoney(subtotal)}
+                  </span>
+                </>
+              ) : (
+                <>Charge {formatMoney(subtotal)}</>
+              )}
             </button>
           </div>
         </div>

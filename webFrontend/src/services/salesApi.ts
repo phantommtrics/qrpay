@@ -140,19 +140,27 @@ export async function postPublicRestaurantOrder(
 export async function createSaleOrder(
   businessId: string,
   lines: { productId: string; quantity: number }[],
+  options?: { diningTableId?: string | null },
 ): Promise<SaleOrder> {
+  const body: { lines: typeof lines; diningTableId?: string } = { lines }
+  if (options?.diningTableId) {
+    body.diningTableId = options.diningTableId
+  }
   const res = await apiRequest<{ data: SaleOrder }>(`/businesses/${businessId}/orders`, {
     method: 'POST',
     businessId,
-    body: JSON.stringify({ lines }),
+    body: JSON.stringify(body),
   })
   return res.data
 }
 
 export async function fetchSaleOrder(businessId: string, orderId: string): Promise<SaleOrder> {
-  const res = await apiRequest<{ data: SaleOrder }>(`/businesses/${businessId}/orders/${orderId}`, {
+  const res = await apiRequest<{ data?: SaleOrder }>(`/businesses/${businessId}/orders/${orderId}`, {
     businessId,
   })
+  if (!res?.data) {
+    throw new ApiError('Order not found.', 404)
+  }
   return res.data
 }
 
