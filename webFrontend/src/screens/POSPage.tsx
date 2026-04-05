@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Banknote,
@@ -34,6 +34,7 @@ import {
   type OrderCheckoutWalletRow,
 } from '../services/salesApi'
 import { ApiError, fetchDiningTables, type DiningTableRow } from '../services/subscriptionApi'
+import type { Product } from '../types'
 import { formatMoney } from '../utils/formatMoney'
 import { isRestaurantIndustry } from '../utils/businessIndustry'
 import { playPosScanError, playPosScanSuccess } from '../utils/posSounds'
@@ -81,6 +82,32 @@ export function POSPage() {
 
   const isTableServiceOrder = restaurantPos && Boolean(selectedTableId)
 
+  const getProductById = useCallback(
+    (productId: string) => businessProducts.find((p) => p.id === productId),
+    [businessProducts],
+  )
+
+  const sellableForLine = useCallback(
+    (fallback: Product) => {
+      const live = getProductById(fallback.id) ?? fallback
+      const n = live.availableStock ?? live.stock
+      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+    },
+    [getProductById],
+  )
+
+  const catalogStockSignature = useMemo(
+    () =>
+      businessProducts
+        .map(
+          (p) =>
+            `${p.id}:${p.stock}:${p.reservedStock ?? 0}:${p.availableStock ?? ''}`,
+        )
+        .sort()
+        .join('|'),
+    [businessProducts],
+  )
+
   const {
     cart,
     total: subtotal,
@@ -89,7 +116,27 @@ export function POSPage() {
     updateQuantity,
     removeFromCart,
     clearCart,
-  } = useCart()
+  } = useCart({ getProductById, catalogStockSignature })
+
+  useEffect(() => {
+    const orgId = currentOrganization?.id
+    if (!orgId) return
+    const poll = () => {
+      void refreshBusinessProducts()
+    }
+    const intervalMs = 1000
+    const id = window.setInterval(poll, intervalMs)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshBusinessProducts()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [currentOrganization?.id, refreshBusinessProducts])
 
   const products = businessProducts
 
@@ -136,7 +183,7 @@ export function POSPage() {
       } else {
         setScanFeedback({
           variant: 'error',
-          text: `No more stock — maximum quantity for ${product.name} is already in the cart.`,
+          text: `Cannot add more — ${product.name} is already at the available quantity limit (including items in this cart or reserved for checkout).`,
         })
       }
     },
@@ -195,15 +242,18 @@ export function POSPage() {
     setPaymentModalOpen(false)
     resetCheckoutUi()
     if (shouldReleaseStock) {
-      void cancelSaleOrder(orgId, orderId).catch(() => {
-        /* release is best-effort; order may already be paid */
-      })
+      void cancelSaleOrder(orgId, orderId)
+        .then(() => refreshBusinessProducts())
+        .catch(() => {
+          /* release is best-effort; order may already be paid */
+        })
     }
   }, [
     checkoutOrderId,
     currentOrganization?.id,
     paymentStatus,
     resetCheckoutUi,
+    refreshBusinessProducts,
   ])
 
   /** Walk-in / counter or non-restaurant: create order and open payment on this device. */
@@ -233,6 +283,7 @@ export function POSPage() {
       const order = await createSaleOrder(currentOrganization.id, lines)
       setCheckoutOrderId(order.id)
       setCheckoutTotal(order.total)
+      void refreshBusinessProducts()
     } catch (e) {
       setCheckoutError(e instanceof ApiError ? e.message : 'Could not create order.')
       setPaymentModalOpen(false)
@@ -255,6 +306,7 @@ export function POSPage() {
         diningTableId: selectedTableId,
       })
       clearCart()
+      void refreshBusinessProducts()
       void playPosScanSuccess()
       setScanFeedback({
         variant: 'success',
@@ -679,8 +731,7 @@ export function POSPage() {
                         disabled={
                           paymentModalOpen ||
                           placeOrderBusy ||
-                          item.quantity >=
-                            (item.product.availableStock ?? item.product.stock)
+                          item.quantity >= sellableForLine(item.product)
                         }
                         onClick={() => updateQuantity(item.product.id, 1)}
                         aria-label={`Increase quantity for ${item.product.name}`}

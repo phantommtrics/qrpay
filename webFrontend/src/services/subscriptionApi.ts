@@ -559,9 +559,13 @@ export type BackendProduct = {
 }
 
 export function mapBackendProductToProduct(p: BackendProduct): Product {
-  const reserved = p.reservedStock ?? 0
+  const onHand = Math.max(0, Math.floor(Number(p.stock) || 0))
+  const reserved = Math.max(0, Math.floor(Number(p.reservedStock) || 0))
+  const rawAvail = p.availableStock
   const available =
-    p.availableStock ?? Math.max(0, p.stock - reserved)
+    rawAvail !== undefined && rawAvail !== null
+      ? Math.max(0, Math.floor(Number(rawAvail)))
+      : Math.max(0, onHand - reserved)
   return {
     id: p.id,
     businessId: p.businessId,
@@ -569,7 +573,7 @@ export function mapBackendProductToProduct(p: BackendProduct): Product {
     price: p.price,
     category: p.category,
     menuCategoryId: p.menuCategoryId ?? null,
-    stock: p.stock,
+    stock: onHand,
     reservedStock: reserved,
     availableStock: available,
     imageColor: p.imageColor,

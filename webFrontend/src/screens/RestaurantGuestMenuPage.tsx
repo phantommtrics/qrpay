@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { CheckCircle2, ChevronDown, ChevronLeft, Minus, Plus, QrCode, Utensils } from 'lucide-react'
@@ -124,11 +124,68 @@ export function RestaurantGuestMenuPage() {
   const [orderStatus, setOrderStatus] = useState<'browsing' | 'paying' | 'success'>('browsing')
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [menuHint, setMenuHint] = useState<string | null>(null)
+
+  const productById = useMemo(() => {
+    const m = new Map<string, Product>()
+    const walk = (nodes: GuestMenuTreeNode[]) => {
+      for (const n of nodes) {
+        for (const p of n.products) {
+          m.set(p.id, p)
+        }
+        walk(n.children)
+      }
+    }
+    walk(categories)
+    for (const p of uncategorized) {
+      m.set(p.id, p)
+    }
+    return m
+  }, [categories, uncategorized])
+
+  const getProductById = useCallback(
+    (productId: string) => productById.get(productId),
+    [productById],
+  )
+
+  const sellableForLine = useCallback(
+    (fallback: Product) => {
+      const live = getProductById(fallback.id) ?? fallback
+      const n = live.availableStock ?? live.stock
+      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+    },
+    [getProductById],
+  )
+
+  const catalogStockSignature = useMemo(
+    () =>
+      Array.from(productById.values())
+        .map(
+          (p) =>
+            `${p.id}:${p.stock}:${p.reservedStock ?? 0}:${p.availableStock ?? ''}`,
+        )
+        .sort()
+        .join('|'),
+    [productById],
+  )
+
   const { cart, total, itemCount, addToCart, updateQuantity, clearCart } = useCart({
     minQuantity: 0,
     removeWhenZero: true,
+    getProductById,
+    catalogStockSignature,
   })
-  const [menuHint, setMenuHint] = useState<string | null>(null)
+
+  const refreshMenuStock = useCallback(async () => {
+    if (!businessSlug || !tableToken) return
+    try {
+      const data = await fetchRestaurantGuestMenu(businessSlug, tableToken)
+      setCategories(data.menu.categories)
+      setUncategorized(data.menu.uncategorizedProducts)
+    } catch {
+      /* keep last loaded menu */
+    }
+  }, [businessSlug, tableToken])
 
   const loadMenu = useCallback(async () => {
     if (!businessSlug || !tableToken) {
@@ -160,6 +217,24 @@ export function RestaurantGuestMenuPage() {
   useEffect(() => {
     void loadMenu()
   }, [loadMenu])
+
+  useEffect(() => {
+    if (orderStatus !== 'browsing') return
+    const tick = () => {
+      void refreshMenuStock()
+    }
+    const iv = window.setInterval(tick, 1000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshMenuStock()
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.clearInterval(iv)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [orderStatus, refreshMenuStock])
 
   useEffect(() => {
     if (!menuHint) return
@@ -223,8 +298,15 @@ export function RestaurantGuestMenuPage() {
             clearCart()
             setPublicCode(null)
             setOrderNumber(null)
+            setIsCartOpen(false)
+            setMenuHint(null)
+            setSubmitError(null)
+            void loadMenu()
+            if (typeof window !== 'undefined') {
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }
           }}
-          className="font-medium text-teal-600 hover:underline"
+          className="rounded-xl bg-teal-600 px-6 py-3 font-semibold text-white shadow-md shadow-teal-600/25 hover:bg-teal-700"
         >
           Order more items
         </button>
@@ -277,6 +359,8 @@ export function RestaurantGuestMenuPage() {
                   const order = await postPublicRestaurantOrder(businessSlug, tableToken, lines)
                   setPublicCode(order.publicCode)
                   setOrderNumber(Math.floor(Math.random() * 10000))
+                  clearCart()
+                  setIsCartOpen(false)
                   setOrderStatus('success')
                 } catch (e) {
                   setSubmitError(
@@ -448,9 +532,7 @@ export function RestaurantGuestMenuPage() {
                       <span className="w-6 text-center text-sm font-medium">{item.quantity}</span>
                       <button
                         type="button"
-                        disabled={
-                          item.quantity >= (item.product.availableStock ?? item.product.stock)
-                        }
+                        disabled={item.quantity >= sellableForLine(item.product)}
                         onClick={() => updateQuantity(item.product.id, 1)}
                         className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm disabled:opacity-40"
                       >

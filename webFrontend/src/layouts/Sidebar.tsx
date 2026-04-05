@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Cog,
   LayoutGrid,
+  ListTree,
   LockKeyhole,
   LogOut,
   Plus,
@@ -613,20 +614,36 @@ export function Sidebar({
                 Restaurant
               </div>
               {canAccess('products.view') ? (
-                <NavLink
-                  to={APP_PATHS.restaurantSetup}
-                  onClick={() => setIsOpen(false)}
-                  className={({ isActive }) =>
-                    `mb-0.5 flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white ${
-                      isActive
-                        ? 'border-teal-500 bg-teal-500/10 text-teal-400'
-                        : 'border-transparent'
-                    }`
-                  }
-                >
-                  <LayoutGrid className="mr-3 h-5 w-5" />
-                  <span className="font-medium">Tables &amp; menu setup</span>
-                </NavLink>
+                <>
+                  <NavLink
+                    to={APP_PATHS.restaurantTables}
+                    onClick={() => setIsOpen(false)}
+                    className={({ isActive }) =>
+                      `mb-0.5 flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white ${
+                        isActive
+                          ? 'border-teal-500 bg-teal-500/10 text-teal-400'
+                          : 'border-transparent'
+                      }`
+                    }
+                  >
+                    <LayoutGrid className="mr-3 h-5 w-5" />
+                    <span className="font-medium">Dining tables</span>
+                  </NavLink>
+                  <NavLink
+                    to={APP_PATHS.restaurantMenuSetup}
+                    onClick={() => setIsOpen(false)}
+                    className={({ isActive }) =>
+                      `mb-0.5 flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white ${
+                        isActive
+                          ? 'border-teal-500 bg-teal-500/10 text-teal-400'
+                          : 'border-transparent'
+                      }`
+                    }
+                  >
+                    <ListTree className="mr-3 h-5 w-5" />
+                    <span className="font-medium">Menu setup</span>
+                  </NavLink>
+                </>
               ) : null}
               <NavLink
                 to={
@@ -635,7 +652,7 @@ export function Sidebar({
                         businessSlug: currentOrganization.slug,
                         tableToken: restaurantPreviewToken,
                       })
-                    : APP_PATHS.restaurantSetup
+                    : APP_PATHS.restaurantTables
                 }
                 onClick={() => setIsOpen(false)}
                 className="flex items-center rounded-lg border-l-2 border-transparent px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white"

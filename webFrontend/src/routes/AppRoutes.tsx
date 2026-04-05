@@ -38,6 +38,16 @@ const RestaurantSetupPage = lazy(() =>
     default: module.RestaurantSetupPage,
   })),
 )
+const RestaurantTablesPage = lazy(() =>
+  import('../screens/RestaurantTablesPage').then((module) => ({
+    default: module.RestaurantTablesPage,
+  })),
+)
+const RestaurantMenuSetupPage = lazy(() =>
+  import('../screens/RestaurantMenuSetupPage').then((module) => ({
+    default: module.RestaurantMenuSetupPage,
+  })),
+)
 const DashboardPage = lazy(() =>
   import('../screens/DashboardPage').then((module) => ({
     default: module.DashboardPage,
@@ -358,6 +368,18 @@ export function AppRoutes() {
     {
       path: APP_PATHS.restaurantSetup,
       element: <RestaurantSetupPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.roles,
+      permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.permission,
+    },
+    {
+      path: APP_PATHS.restaurantTables,
+      element: <RestaurantTablesPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.roles,
+      permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.permission,
+    },
+    {
+      path: APP_PATHS.restaurantMenuSetup,
+      element: <RestaurantMenuSetupPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.roles,
       permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.permission,
     },

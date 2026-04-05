@@ -63,8 +63,12 @@ export const APP_PATHS = {
   platformSecurityMoveUsers: '/platform/security/move-users',
   /** Guest-facing menu: business slug + table public token from dining tables. */
   restaurantGuestMenu: '/b/:businessSlug/:tableToken',
-  /** Merchant: tables, QR URLs, menu categories. */
+  /** @deprecated Redirects to restaurantTables. */
   restaurantSetup: '/restaurant/setup',
+  /** Dining tables, guest URLs, printable QR. */
+  restaurantTables: '/restaurant/tables',
+  /** Menu category tree for restaurant products. */
+  restaurantMenuSetup: '/restaurant/menu',
 } as const
 
 export const PLATFORM_SECURITY_SUBNAV = [
@@ -357,8 +361,8 @@ export function getPageTitle(pathname: string) {
   if (pathname.startsWith('/b/')) {
     return 'Restaurant menu'
   }
-  if (pathname.startsWith('/restaurant/setup')) {
-    return 'Restaurant setup'
+  if (pathname.startsWith('/restaurant/')) {
+    return 'Restaurant'
   }
 
   if (pathname.includes(APP_PATHS.accountingReportGlBalance)) {
