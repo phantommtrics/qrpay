@@ -96,10 +96,6 @@ export function PlatformInvoicesPage() {
             Platform
           </p>
           <h1 className="mt-2 text-3xl font-bold text-slate-900">Invoices</h1>
-          <p className="mt-2 max-w-2xl text-slate-600">
-            Subscription billing documents. Created date range defaults to today (00:00–23:59 UTC
-            per selected calendar day).
-          </p>
           {canAccess('platform.billing_review.view') ? (
             <p className="mt-2 text-sm">
               <Link

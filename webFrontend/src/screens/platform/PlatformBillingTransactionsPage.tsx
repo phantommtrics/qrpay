@@ -268,10 +268,6 @@ export function PlatformBillingTransactionsPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">Billing transactions</h1>
-            <p className="mt-1 max-w-2xl text-sm text-slate-600">
-              Subscription billing ledger across <strong>all businesses</strong>, filtered by period. Money{' '}
-              <strong>in</strong> is toward the platform; money <strong>out</strong> is the reverse.
-            </p>
           </div>
           <div className="flex flex-col items-stretch gap-2 self-start sm:flex-row sm:items-center">
             <button

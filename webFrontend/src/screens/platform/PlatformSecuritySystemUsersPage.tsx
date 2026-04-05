@@ -156,7 +156,6 @@ export function PlatformSecuritySystemUsersPage() {
       <div className="space-y-6">
         <PageSectionHeader
           title="System users"
-          subtitle="Platform admins sign in like any other user. We email a temporary password; they must set a new password on first login."
         />
 
         {!canCreate && user?.isPlatformAdmin ? (
@@ -175,10 +174,6 @@ export function PlatformSecuritySystemUsersPage() {
                 </span>
                 <div>
                   <h4 className="text-base font-semibold text-slate-900">Invite a platform admin</h4>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Choose the function group that defines their access. They need the email you enter
-                    below.
-                  </p>
                 </div>
               </div>
 
@@ -256,11 +251,6 @@ export function PlatformSecuritySystemUsersPage() {
                   </button>
                 </div>
               </div>
-              <p className="flex items-start gap-2 text-xs text-slate-500">
-                <Mail className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                Requires Resend (or your mail provider) to be configured on the server, same as staff
-                invites.
-              </p>
             </div>
           </PageCard>
         ) : null}

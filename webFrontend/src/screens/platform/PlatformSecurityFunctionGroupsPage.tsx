@@ -201,7 +201,6 @@ export function PlatformSecurityFunctionGroupsPage() {
       <div className="space-y-6">
         <PageSectionHeader
           title="Function groups"
-          subtitle="Each group has a name and maps to one role template. Platform staff in that group get the full permission matrix from that template."
         />
 
         {!canCreate && user?.isPlatformAdmin ? (

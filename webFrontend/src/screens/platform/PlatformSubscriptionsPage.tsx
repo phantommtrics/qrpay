@@ -97,10 +97,6 @@ export function PlatformSubscriptionsPage() {
             Platform
           </p>
           <h1 className="mt-2 text-3xl font-bold text-slate-900">Subscriptions</h1>
-          <p className="mt-2 max-w-2xl text-slate-600">
-            Filter by lifecycle status and by when the subscription record was created. Date range
-            defaults to today (00:00–23:59 UTC per selected calendar day).
-          </p>
         </div>
         <button
           type="button"

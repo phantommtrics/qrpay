@@ -162,12 +162,6 @@ export function PlatformBillingsPage() {
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-600">Platform</p>
           <h1 className="mt-2 text-3xl font-bold text-slate-900">Billings</h1>
-          <p className="mt-2 max-w-2xl text-slate-600">
-            Set monthly and yearly subscription charges. Businesses choose a billing cycle at signup;
-            renewals use the same interval and current catalog prices. Access is controlled by the{' '}
-            <span className="font-medium text-slate-800">Plan billing &amp; pricing</span> module in
-            Security → Role templates.
-          </p>
           {canAccess('platform.billing_review.view') ? (
             <p className="mt-2 text-sm">
               <Link
