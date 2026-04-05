@@ -35,6 +35,8 @@ import { formatMoney } from '../utils/formatMoney'
 
 type OrderTab = 'all' | 'pending_payment' | 'paid' | 'cancelled'
 
+const ORDERS_PAGE_SIZE = 20
+
 type DetailStep = 'summary' | 'payment'
 type PaymentPhase = 'choose' | 'pick_wallet' | 'wallet'
 
@@ -44,14 +46,6 @@ const TABS: { id: OrderTab; label: string }[] = [
   { id: 'paid', label: 'Paid' },
   { id: 'cancelled', label: 'Cancelled' },
 ]
-
-function tabMatches(tab: OrderTab, status: string): boolean {
-  if (tab === 'all') return true
-  if (tab === 'pending_payment') return status === 'pending_payment'
-  if (tab === 'paid') return status === 'paid'
-  if (tab === 'cancelled') return status === 'cancelled'
-  return true
-}
 
 function saleStatusToBadgeStatus(status: string): Order['status'] {
   if (status === 'paid') return 'completed'
@@ -84,10 +78,22 @@ export function OrdersPage() {
   const canCollectPaymentApi = canAccess('pos.access') || canAccess('orders.manage')
 
   const [orders, setOrders] = useState<SaleOrder[]>([])
+  const [ordersTotal, setOrdersTotal] = useState(0)
+  const [ordersPage, setOrdersPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<OrderTab>('all')
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => window.clearTimeout(t)
+  }, [search])
+
+  useEffect(() => {
+    setOrdersPage(1)
+  }, [activeTab, debouncedSearch])
 
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null)
   const [detail, setDetail] = useState<SaleOrder | null>(null)
@@ -119,21 +125,29 @@ export function OrdersPage() {
   const load = useCallback(async () => {
     if (!businessId) {
       setOrders([])
+      setOrdersTotal(0)
       setLoading(false)
       return
     }
     setLoading(true)
     setLoadError(null)
     try {
-      const data = await fetchSaleOrders(businessId)
-      setOrders(data)
+      const data = await fetchSaleOrders(businessId, {
+        page: ordersPage,
+        pageSize: ORDERS_PAGE_SIZE,
+        q: debouncedSearch || undefined,
+        status: activeTab,
+      })
+      setOrders(data.orders)
+      setOrdersTotal(data.total)
     } catch (e) {
       setOrders([])
+      setOrdersTotal(0)
       setLoadError(e instanceof ApiError ? e.message : 'Could not load orders.')
     } finally {
       setLoading(false)
     }
-  }, [businessId])
+  }, [businessId, ordersPage, debouncedSearch, activeTab])
 
   useEffect(() => {
     void load()
@@ -445,15 +459,12 @@ export function OrdersPage() {
     }
   }, [businessId, detail, load, refreshBusinessProducts, resetPaymentUi, walletCheckoutAdapter])
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return orders.filter((o) => {
-      if (!tabMatches(activeTab, o.status)) return false
-      if (!q) return true
-      if (o.publicCode.toLowerCase().includes(q)) return true
-      return o.lines.some((l) => l.productName.toLowerCase().includes(q))
-    })
-  }, [orders, activeTab, search])
+  const ordersRangeLabel = useMemo(() => {
+    if (ordersTotal === 0) return 'No orders'
+    const start = (ordersPage - 1) * ORDERS_PAGE_SIZE + 1
+    const end = Math.min(ordersPage * ORDERS_PAGE_SIZE, ordersTotal)
+    return `Showing ${start}–${end} of ${ordersTotal}`
+  }, [ordersTotal, ordersPage])
 
   const canCollectPayment =
     detail?.status === 'pending_payment' &&
@@ -507,68 +518,68 @@ export function OrdersPage() {
       ) : null}
 
       <PageCard className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left">
+        <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+          <table className="min-w-[960px] w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-sm text-slate-500">
-                <th className="p-4 font-medium">Order</th>
-                <th className="p-4 font-medium">Date &amp; time</th>
-                <th className="p-4 font-medium">Items</th>
-                <th className="p-4 font-medium">Table</th>
-                <th className="p-4 font-medium">Total</th>
-                <th className="p-4 font-medium">Status</th>
-                <th className="p-4 font-medium"></th>
+                <th className="px-5 py-4 font-medium">Order</th>
+                <th className="px-5 py-4 font-medium">Date &amp; time</th>
+                <th className="px-5 py-4 font-medium">Items</th>
+                <th className="px-5 py-4 font-medium">Table</th>
+                <th className="px-5 py-4 font-medium">Total</th>
+                <th className="px-5 py-4 font-medium">Status</th>
+                <th className="px-5 py-4 font-medium"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-sm text-slate-500">
+                  <td colSpan={7} className="px-5 py-10 text-center text-sm text-slate-500">
                     Loading orders…
                   </td>
                 </tr>
               ) : !businessId ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-sm text-slate-500">
+                  <td colSpan={7} className="px-5 py-10 text-center text-sm text-slate-500">
                     Select a business to view orders.
                   </td>
                 </tr>
-              ) : filtered.length === 0 ? (
+              ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-sm text-slate-500">
+                  <td colSpan={7} className="px-5 py-10 text-center text-sm text-slate-500">
                     No orders match this view. POS and guest table orders appear here.
                   </td>
                 </tr>
               ) : (
-                filtered.map((order) => (
+                orders.map((order) => (
                   <tr key={order.id} className="group transition-colors hover:bg-slate-50">
-                    <td className="p-4">
+                    <td className="px-5 py-4">
                       <div className="font-mono text-sm font-semibold text-slate-800">
                         {order.publicCode}
                       </div>
                     </td>
-                    <td className="p-4 text-sm text-slate-600">
+                    <td className="px-5 py-4 text-sm text-slate-600">
                       {new Date(order.createdAt).toLocaleString(undefined, {
                         dateStyle: 'short',
                         timeStyle: 'short',
                       })}
                     </td>
-                    <td className="p-4">
+                    <td className="px-5 py-4">
                       <div className="text-sm text-slate-800">{order.lines.length} items</div>
-                      <div className="max-w-[220px] truncate text-xs text-slate-500">
+                      <div className="max-w-[260px] truncate text-xs text-slate-500">
                         {order.lines.map((item) => item.productName).join(', ')}
                       </div>
                     </td>
-                    <td className="p-4 text-sm font-medium text-slate-600">
+                    <td className="px-5 py-4 text-sm font-medium text-slate-600">
                       {order.tableLabel?.trim() || '—'}
                     </td>
-                    <td className="p-4 font-semibold text-slate-800">
+                    <td className="px-5 py-4 font-semibold text-slate-800">
                       {formatMoney(order.total, { decimals: 2 })}
                     </td>
-                    <td className="p-4">
+                    <td className="px-5 py-4">
                       <OrderStatusBadge status={saleStatusToBadgeStatus(order.status)} />
                     </td>
-                    <td className="p-4 text-right">
+                    <td className="px-5 py-4 text-right">
                       <button
                         type="button"
                         onClick={() => void openDetail(order.id)}
@@ -583,6 +594,29 @@ export function OrdersPage() {
             </tbody>
           </table>
         </div>
+        {businessId && !loading ? (
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+            <span>{ordersRangeLabel}</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={ordersPage <= 1}
+                onClick={() => setOrdersPage((p) => Math.max(1, p - 1))}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={ordersPage * ORDERS_PAGE_SIZE >= ordersTotal}
+                onClick={() => setOrdersPage((p) => p + 1)}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        ) : null}
       </PageCard>
 
       <AnimatePresence>

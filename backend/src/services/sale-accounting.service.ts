@@ -16,6 +16,9 @@ import {
 } from "./chart-of-accounts.service.js";
 
 function providerLabel(provider: PaymentProvider): string {
+  if (provider === PaymentProvider.UPFRONT_PAY) {
+    return "upfront pay";
+  }
   return String(provider).toLowerCase();
 }
 

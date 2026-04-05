@@ -376,19 +376,62 @@ export async function getOrderForBusiness(orderId: string, businessId: string) {
   });
 }
 
-const LIST_ORDERS_MAX = 500;
+export type ListOrdersForBusinessParams = {
+  page: number;
+  pageSize: number;
+  search?: string;
+  status?: "all" | "pending_payment" | "paid" | "cancelled";
+};
 
-export async function listOrdersForBusiness(businessId: string, options?: { limit?: number }) {
-  const take = Math.min(Math.max(options?.limit ?? 100, 1), LIST_ORDERS_MAX);
-  return prisma.order.findMany({
-    where: { businessId },
-    orderBy: { createdAt: "desc" },
-    take,
-    include: {
-      lines: true,
-      diningTable: { select: { id: true, label: true, publicToken: true } },
-    },
-  });
+export async function listOrdersForBusiness(
+  businessId: string,
+  params: ListOrdersForBusinessParams,
+) {
+  const page = Math.max(1, params.page);
+  const pageSize = Math.min(Math.max(params.pageSize, 1), 100);
+  const skip = (page - 1) * pageSize;
+  const q = params.search?.trim();
+  const statusTab = params.status ?? "all";
+
+  const statusWhere =
+    statusTab === "all"
+      ? {}
+      : {
+          status:
+            statusTab === "pending_payment"
+              ? OrderStatus.PENDING_PAYMENT
+              : statusTab === "paid"
+                ? OrderStatus.PAID
+                : OrderStatus.CANCELLED,
+        };
+
+  const searchWhere =
+    q && q.length > 0
+      ? {
+          OR: [
+            { publicCode: { contains: q, mode: "insensitive" as const } },
+            { lines: { some: { productName: { contains: q, mode: "insensitive" as const } } } },
+          ],
+        }
+      : {};
+
+  const where = { businessId, ...statusWhere, ...searchWhere };
+
+  const [total, orders] = await prisma.$transaction([
+    prisma.order.count({ where }),
+    prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: pageSize,
+      include: {
+        lines: true,
+        diningTable: { select: { id: true, label: true, publicToken: true } },
+      },
+    }),
+  ]);
+
+  return { total, page, pageSize, orders };
 }
 
 export type StartWalletPaymentResult = {
@@ -531,7 +574,7 @@ export async function completeCashPayment(orderId: string, businessId: string) {
         data: { status: PaymentStatus.CANCELLED },
       });
 
-      const providerRef = `SIM-CASH-${orderId}`;
+      const providerRef = `CASH-${order.publicCode}`;
 
       const payment = await tx.payment.create({
         data: {
@@ -539,7 +582,7 @@ export async function completeCashPayment(orderId: string, businessId: string) {
           orderId,
           publicCode: await nextPaymentPublicCode(tx, businessId, order.business.name),
           method: PaymentMethod.CASH,
-          provider: PaymentProvider.SIMULATOR,
+          provider: PaymentProvider.UPFRONT_PAY,
           status: PaymentStatus.COMPLETED,
           amount: order.total,
           currency: order.currency,
@@ -856,6 +899,13 @@ export async function getPublicPayInfo(publicToken: string) {
   };
 }
 
+export type PaymentsBusinessSummary = {
+  completedAmount: number;
+  completedCount: number;
+  nonCompletedCount: number;
+  walletCompletedCount: number;
+};
+
 export async function listPaymentsForBusiness(
   businessId: string,
   params: { page: number; pageSize: number },
@@ -863,8 +913,20 @@ export async function listPaymentsForBusiness(
   const { page, pageSize } = params;
   const skip = (page - 1) * pageSize;
 
-  const [total, rows] = await prisma.$transaction([
+  const [total, completedAgg, completedCount, walletCompletedCount, rows] = await prisma.$transaction([
     prisma.payment.count({ where: { businessId } }),
+    prisma.payment.aggregate({
+      where: { businessId, status: PaymentStatus.COMPLETED },
+      _sum: { amount: true },
+    }),
+    prisma.payment.count({ where: { businessId, status: PaymentStatus.COMPLETED } }),
+    prisma.payment.count({
+      where: {
+        businessId,
+        status: PaymentStatus.COMPLETED,
+        method: PaymentMethod.QR_WALLET,
+      },
+    }),
     prisma.payment.findMany({
       where: { businessId },
       orderBy: { createdAt: "desc" },
@@ -876,7 +938,14 @@ export async function listPaymentsForBusiness(
     }),
   ]);
 
-  return { total, page, pageSize, payments: rows };
+  const summary: PaymentsBusinessSummary = {
+    completedAmount: Number(completedAgg._sum.amount ?? 0),
+    completedCount,
+    nonCompletedCount: total - completedCount,
+    walletCompletedCount,
+  };
+
+  return { total, page, pageSize, payments: rows, summary };
 }
 
 export async function getReceiptForBusiness(receiptId: string, businessId: string) {

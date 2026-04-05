@@ -31,6 +31,7 @@ export const PaymentProvider = {
   SIMULATOR: "SIMULATOR",
   WAVE_GAMBIA: "WAVE_GAMBIA",
   YONNA_WALLET: "YONNA_WALLET",
+  UPFRONT_PAY: "UPFRONT_PAY",
 } as const;
 
 export type PaymentProviderType = (typeof PaymentProvider)[keyof typeof PaymentProvider];

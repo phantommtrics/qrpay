@@ -112,6 +112,8 @@ enum PaymentProvider {
   SIMULATOR
   WAVE_GAMBIA
   YONNA_WALLET
+  /// Counter / POS cash recorded by staff (not a wallet simulator).
+  UPFRONT_PAY
 }
 
 enum ChartAccountCategory {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Banknote,
@@ -27,9 +27,11 @@ import {
   cancelSaleOrder,
   confirmCashPayment,
   createSaleOrder,
+  fetchOrderCheckoutWallets,
   fetchSaleOrder,
   simulateWalletPayment,
   startWalletCheckout,
+  type OrderCheckoutWalletRow,
 } from '../services/salesApi'
 import { ApiError, fetchDiningTables, type DiningTableRow } from '../services/subscriptionApi'
 import { formatMoney } from '../utils/formatMoney'
@@ -37,6 +39,8 @@ import { isRestaurantIndustry } from '../utils/businessIndustry'
 import { playPosScanError, playPosScanSuccess } from '../utils/posSounds'
 
 type ScanFeedback = { text: string; variant: 'success' | 'error' }
+
+type PosPaymentPhase = 'choose' | 'pick_wallet' | 'wallet'
 
 export function POSPage() {
   const { businessProducts, currentOrganization, refreshBusinessProducts } = useAuth()
@@ -56,12 +60,24 @@ export function POSPage() {
   const dismissProductFlash = useCallback(() => setProductFlash(null), [])
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentStatus, setPaymentStatus] = useState<'waiting' | 'success'>('waiting')
+  const [paymentPhase, setPaymentPhase] = useState<PosPaymentPhase>('choose')
   const [checkoutOrderId, setCheckoutOrderId] = useState<string | null>(null)
   const [checkoutTotal, setCheckoutTotal] = useState(0)
   const [qrPayload, setQrPayload] = useState<string | null>(null)
+  const [walletLaunchUrl, setWalletLaunchUrl] = useState<string | null>(null)
+  const [walletPaymentHtml, setWalletPaymentHtml] = useState<string | null>(null)
+  const [walletCheckoutAdapter, setWalletCheckoutAdapter] = useState<string | null>(null)
+  const [checkoutWallets, setCheckoutWallets] = useState<OrderCheckoutWalletRow[]>([])
+  const [selectedGatewayCode, setSelectedGatewayCode] = useState<string | null>(null)
+  const [yonnaPhone, setYonnaPhone] = useState('')
   const [walletLoading, setWalletLoading] = useState(false)
+  const [paymentBusy, setPaymentBusy] = useState(false)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
   const [receiptLabel, setReceiptLabel] = useState<string | null>(null)
+  const checkoutWalletsCacheRef = useRef<{
+    businessId: string
+    wallets: OrderCheckoutWalletRow[]
+  } | null>(null)
 
   const isTableServiceOrder = restaurantPos && Boolean(selectedTableId)
 
@@ -156,11 +172,20 @@ export function POSPage() {
 
   const resetCheckoutUi = useCallback(() => {
     setCheckoutOrderId(null)
+    setPaymentPhase('choose')
     setQrPayload(null)
+    setWalletLaunchUrl(null)
+    setWalletPaymentHtml(null)
+    setWalletCheckoutAdapter(null)
+    setCheckoutWallets([])
+    setSelectedGatewayCode(null)
+    setYonnaPhone('')
     setCheckoutError(null)
     setWalletLoading(false)
+    setPaymentBusy(false)
     setReceiptLabel(null)
     setPaymentStatus('waiting')
+    checkoutWalletsCacheRef.current = null
   }, [])
 
   const closePaymentModal = useCallback(() => {
@@ -188,7 +213,15 @@ export function POSPage() {
     setCheckoutError(null)
     setReceiptLabel(null)
     setPaymentStatus('waiting')
+    setPaymentPhase('choose')
     setQrPayload(null)
+    setWalletLaunchUrl(null)
+    setWalletPaymentHtml(null)
+    setWalletCheckoutAdapter(null)
+    setCheckoutWallets([])
+    setSelectedGatewayCode(null)
+    setYonnaPhone('')
+    checkoutWalletsCacheRef.current = null
     setCheckoutOrderId(null)
     setPaymentModalOpen(true)
     setWalletLoading(true)
@@ -256,37 +289,39 @@ export function POSPage() {
       return
     }
     let cancelled = false
-    void (async () => {
-      try {
-        const { qrPayload: url } = await startWalletCheckout(
-          currentOrganization.id,
-          checkoutOrderId,
-        )
+    void fetchOrderCheckoutWallets(currentOrganization.id)
+      .then((wallets) => {
         if (!cancelled) {
-          setQrPayload(url)
+          checkoutWalletsCacheRef.current = {
+            businessId: currentOrganization.id,
+            wallets,
+          }
         }
-      } catch (e) {
+      })
+      .catch(() => {
         if (!cancelled) {
-          setCheckoutError(e instanceof ApiError ? e.message : 'Could not start wallet checkout.')
+          checkoutWalletsCacheRef.current = null
         }
-      }
-    })()
+      })
     return () => {
       cancelled = true
     }
   }, [paymentModalOpen, checkoutOrderId, currentOrganization, paymentStatus])
 
   useEffect(() => {
+    const hasWalletUi =
+      Boolean(qrPayload) || Boolean(walletPaymentHtml) || Boolean(walletLaunchUrl)
     if (
       !paymentModalOpen ||
       !checkoutOrderId ||
       !currentOrganization ||
       paymentStatus !== 'waiting' ||
-      !qrPayload
+      paymentPhase !== 'wallet' ||
+      !hasWalletUi
     ) {
       return
     }
-    const interval = window.setInterval(() => {
+    const tick = () => {
       void (async () => {
         try {
           const order = await fetchSaleOrder(currentOrganization.id, checkoutOrderId)
@@ -304,21 +339,157 @@ export function POSPage() {
           /* ignore transient poll errors */
         }
       })()
-    }, 2000)
+    }
+    tick()
+    const interval = window.setInterval(tick, 2000)
     return () => window.clearInterval(interval)
   }, [
     paymentModalOpen,
     checkoutOrderId,
     currentOrganization,
     paymentStatus,
+    paymentPhase,
     qrPayload,
+    walletPaymentHtml,
+    walletLaunchUrl,
     clearCart,
     refreshBusinessProducts,
+  ])
+
+  const applyWalletStartResult = useCallback(
+    (r: {
+      qrPayload: string
+      launchUrl: string
+      paymentHtml: string | null
+      checkoutAdapter: string
+    }) => {
+      setQrPayload(r.qrPayload)
+      setWalletLaunchUrl(r.launchUrl?.trim() ? r.launchUrl.trim() : null)
+      setWalletPaymentHtml(r.paymentHtml)
+      setWalletCheckoutAdapter(r.checkoutAdapter)
+    },
+    [],
+  )
+
+  const handleWalletEntryClick = useCallback(async () => {
+    if (!currentOrganization || !checkoutOrderId) return
+    setCheckoutError(null)
+
+    const cached = checkoutWalletsCacheRef.current
+    let wallets: OrderCheckoutWalletRow[]
+    if (cached && cached.businessId === currentOrganization.id) {
+      wallets = cached.wallets
+    } else {
+      setPaymentBusy(true)
+      try {
+        wallets = await fetchOrderCheckoutWallets(currentOrganization.id)
+        checkoutWalletsCacheRef.current = {
+          businessId: currentOrganization.id,
+          wallets,
+        }
+      } catch (e) {
+        setCheckoutError(
+          e instanceof ApiError ? e.message : 'Could not load wallets.',
+        )
+        setPaymentBusy(false)
+        return
+      }
+      setPaymentBusy(false)
+    }
+
+    setCheckoutWallets(wallets)
+
+    const startCheckout = async (body: { gatewayCode?: string; payerPhone?: string }) => {
+      setPaymentPhase('wallet')
+      setQrPayload(null)
+      setWalletLaunchUrl(null)
+      setWalletPaymentHtml(null)
+      setWalletCheckoutAdapter(null)
+      setPaymentBusy(true)
+      try {
+        const r = await startWalletCheckout(
+          currentOrganization.id,
+          checkoutOrderId,
+          body,
+        )
+        applyWalletStartResult(r)
+      } catch (e) {
+        setPaymentPhase('choose')
+        setCheckoutError(
+          e instanceof ApiError ? e.message : 'Could not start wallet payment.',
+        )
+      } finally {
+        setPaymentBusy(false)
+      }
+    }
+
+    if (wallets.length === 0) {
+      await startCheckout({})
+      return
+    }
+
+    if (wallets.length === 1) {
+      const only = wallets[0]!
+      setSelectedGatewayCode(only.code)
+      if (only.checkoutAdapter === 'yonna_wallet' && !only.hasStoredPayerPhone) {
+        setYonnaPhone((p) => (p.trim() === '' ? '+220' : p))
+      } else if (only.checkoutAdapter === 'yonna_wallet' && only.hasStoredPayerPhone) {
+        setYonnaPhone('')
+      }
+    } else {
+      setSelectedGatewayCode(null)
+    }
+    setPaymentPhase('pick_wallet')
+  }, [applyWalletStartResult, checkoutOrderId, currentOrganization])
+
+  const handleConfirmWalletSelection = useCallback(async () => {
+    if (!currentOrganization || !checkoutOrderId || !selectedGatewayCode) return
+    const w = checkoutWallets.find((x) => x.code === selectedGatewayCode)
+    const yonnaNeedsManualPhone =
+      w?.checkoutAdapter === 'yonna_wallet' && !w.hasStoredPayerPhone
+    if (yonnaNeedsManualPhone) {
+      const digits = yonnaPhone.replace(/\D/g, '')
+      if (digits.length < 7) {
+        setCheckoutError(
+          'Enter the customer phone number after +220 (at least 7 digits).',
+        )
+        return
+      }
+    }
+    setCheckoutError(null)
+    setPaymentPhase('wallet')
+    setQrPayload(null)
+    setWalletLaunchUrl(null)
+    setWalletPaymentHtml(null)
+    setWalletCheckoutAdapter(null)
+    setPaymentBusy(true)
+    try {
+      const r = await startWalletCheckout(currentOrganization.id, checkoutOrderId, {
+        gatewayCode: selectedGatewayCode,
+        payerPhone: yonnaNeedsManualPhone ? yonnaPhone.trim() : undefined,
+      })
+      applyWalletStartResult(r)
+    } catch (e) {
+      setPaymentPhase('pick_wallet')
+      setCheckoutError(
+        e instanceof ApiError ? e.message : 'Could not start wallet payment.',
+      )
+    } finally {
+      setPaymentBusy(false)
+    }
+  }, [
+    applyWalletStartResult,
+    checkoutOrderId,
+    checkoutWallets,
+    currentOrganization,
+    selectedGatewayCode,
+    yonnaPhone,
   ])
 
   const handleCashPay = async () => {
     if (!currentOrganization || !checkoutOrderId) return
     setCheckoutError(null)
+    setPaymentBusy(true)
     try {
       const result = await confirmCashPayment(currentOrganization.id, checkoutOrderId)
       setReceiptLabel(`Receipt ${result.receipt.publicCode}`)
@@ -327,12 +498,15 @@ export function POSPage() {
       void refreshBusinessProducts()
     } catch (e) {
       setCheckoutError(e instanceof ApiError ? e.message : 'Cash payment failed.')
+    } finally {
+      setPaymentBusy(false)
     }
   }
 
   const handleSimulateWallet = async () => {
-    if (!currentOrganization || !checkoutOrderId) return
+    if (!currentOrganization || !checkoutOrderId || walletCheckoutAdapter !== 'simulator') return
     setCheckoutError(null)
+    setPaymentBusy(true)
     try {
       await simulateWalletPayment(currentOrganization.id, checkoutOrderId)
       const order = await fetchSaleOrder(currentOrganization.id, checkoutOrderId)
@@ -345,7 +519,11 @@ export function POSPage() {
         void refreshBusinessProducts()
       }
     } catch (e) {
-      setCheckoutError(e instanceof ApiError ? e.message : 'Could not complete wallet payment.')
+      setCheckoutError(
+        e instanceof ApiError ? e.message : 'Could not complete wallet payment.',
+      )
+    } finally {
+      setPaymentBusy(false)
     }
   }
 
@@ -626,63 +804,244 @@ export function POSPage() {
                 }
               }}
             />
-            <CenteredModal className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <CenteredModal className="relative z-10 flex max-h-[min(92vh,720px)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
               {paymentStatus === 'waiting' ? (
-                <div className="flex flex-col items-center p-8 text-center">
-                  <h2 className="mb-2 text-2xl font-bold text-slate-800">Scan to Pay</h2>
-                  <p className="mb-4 text-slate-500">
-                    Customer opens the link in the QR (simulator wallet). Or use Cash / Simulate below.
-                  </p>
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                  <div className="shrink-0 px-6 pt-6 text-center">
+                    <h2 className="text-2xl font-bold text-slate-800">Checkout</h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                      cash or wallet
+                    </p>
+                  </div>
                   {walletLoading || !checkoutOrderId ? (
-                    <div className="mb-6 flex h-52 flex-col items-center justify-center gap-2">
+                    <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16">
                       <Loader2 className="h-10 w-10 animate-spin text-teal-600" />
                       <span className="text-sm text-slate-500">Creating order…</span>
                     </div>
                   ) : (
-                    <div className="relative mb-6 rounded-2xl border-2 border-slate-100 bg-white p-4 shadow-inner">
-                      {qrPayload ? (
-                        <div className="bg-white p-2">
-                          <QRCode value={qrPayload} size={192} level="M" />
+                    <div className="min-h-0 flex-1 space-y-4 px-6 pb-6 pt-4">
+                      <div className="rounded-xl bg-slate-50 p-4 text-center">
+                        <p className="mb-1 text-sm text-slate-500">Amount due</p>
+                        <p className="text-3xl font-bold text-teal-600">
+                          {formatMoney(checkoutTotal)}
+                        </p>
+                      </div>
+                      {checkoutError ? (
+                        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+                          {checkoutError}
+                        </p>
+                      ) : null}
+
+                      {paymentPhase === 'choose' ? (
+                        <div className="space-y-4">
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <button
+                              type="button"
+                              disabled={paymentBusy}
+                              onClick={() => void handleCashPay()}
+                              className="flex min-h-[7rem] flex-col items-start gap-2 rounded-xl border-2 border-slate-200 bg-white p-4 text-left transition-colors hover:border-teal-300 hover:bg-teal-50/40 disabled:pointer-events-none disabled:opacity-50"
+                            >
+                              <span className="text-teal-600">
+                                {paymentBusy ? (
+                                  <Loader2 className="h-7 w-7 animate-spin" />
+                                ) : (
+                                  <Banknote className="h-7 w-7 stroke-[1.25]" />
+                                )}
+                              </span>
+                              <span>
+                                <span className="block text-sm font-semibold text-slate-900">Cash</span>
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={paymentBusy}
+                              onClick={() => void handleWalletEntryClick()}
+                              className="flex min-h-[7rem] flex-col items-start gap-2 rounded-xl border-2 border-slate-200 bg-white p-4 text-left transition-colors hover:border-teal-300 hover:bg-teal-50/40 disabled:pointer-events-none disabled:opacity-50"
+                            >
+                              <span className="text-slate-800">
+                                {paymentBusy ? (
+                                  <Loader2 className="h-7 w-7 animate-spin text-slate-600" />
+                                ) : (
+                                  <CreditCard className="h-7 w-7 stroke-[1.25]" />
+                                )}
+                              </span>
+                              <span>
+                                <span className="block text-sm font-semibold text-slate-900">Wallet</span>
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : paymentPhase === 'pick_wallet' ? (
+                        <div className="space-y-3 text-left">
+                          <ul className="max-h-[40vh] space-y-2 overflow-y-auto pr-1">
+                            {checkoutWallets.map((w) => {
+                              const selected = selectedGatewayCode === w.code
+                              return (
+                                <li key={w.gatewayId}>
+                                  <button
+                                    type="button"
+                                    disabled={paymentBusy}
+                                    onClick={() => {
+                                      setSelectedGatewayCode(w.code)
+                                      if (w.checkoutAdapter === 'yonna_wallet') {
+                                        if (w.hasStoredPayerPhone) {
+                                          setYonnaPhone('')
+                                        } else {
+                                          setYonnaPhone((prev) => {
+                                            const t = prev.trim()
+                                            if (t === '' || t === '+') return '+220'
+                                            return prev
+                                          })
+                                        }
+                                      } else {
+                                        setYonnaPhone('')
+                                      }
+                                      setCheckoutError(null)
+                                    }}
+                                    className={`w-full rounded-xl border-2 p-3 text-left text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 disabled:opacity-50 ${
+                                      selected
+                                        ? 'border-teal-500 bg-teal-50/70 shadow-sm ring-2 ring-teal-500/20'
+                                        : 'border-slate-200 bg-white hover:border-slate-300'
+                                    }`}
+                                  >
+                                    <span className="font-semibold text-slate-900">{w.name}</span>
+                                    <span className="mt-0.5 block text-xs text-slate-500">{w.code}</span>
+                                  </button>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                          {(() => {
+                            const sel = checkoutWallets.find((x) => x.code === selectedGatewayCode)
+                            if (!sel || sel.checkoutAdapter !== 'yonna_wallet') return null
+                            if (sel.hasStoredPayerPhone) {
+                              return (
+                                <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                                  Pay phone is saved under Merchant API — no need to type it here.
+                                </p>
+                              )
+                            }
+                            return (
+                              <div>
+                                <label className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                                  Customer phone
+                                </label>
+                                <input
+                                  type="tel"
+                                  value={yonnaPhone}
+                                  onChange={(e) => setYonnaPhone(e.target.value)}
+                                  placeholder="+220 — then type the number"
+                                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                />
+                              </div>
+                            )
+                          })()}
+                          {selectedGatewayCode ? (
+                            <button
+                              type="button"
+                              disabled={paymentBusy}
+                              onClick={() => void handleConfirmWalletSelection()}
+                              className="w-full rounded-xl bg-teal-600 py-2.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+                            >
+                              {paymentBusy ? 'Starting…' : 'Get QR code'}
+                            </button>
+                          ) : (
+                            <p className="rounded-lg bg-slate-50 px-3 py-2 text-center text-xs text-slate-600">
+                              Choose a provider to enable Get QR code.
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentPhase('choose')
+                              setCheckoutWallets([])
+                              setSelectedGatewayCode(null)
+                              setYonnaPhone('')
+                              setCheckoutError(null)
+                            }}
+                            className="w-full text-sm font-medium text-teal-600 hover:underline"
+                          >
+                            Back
+                          </button>
                         </div>
                       ) : (
-                        <div className="flex h-48 w-48 items-center justify-center text-slate-400">
-                          <Loader2 className="h-10 w-10 animate-spin" />
+                        <div className="space-y-4 text-center">
+                          <p className="text-sm font-semibold text-slate-800">
+                            Customer pays with their wallet
+                          </p>
+                          {walletPaymentHtml && walletCheckoutAdapter !== 'yonna_wallet' ? (
+                            <iframe
+                              title="Wallet checkout"
+                              className="mx-auto h-[min(320px,42vh)] w-full max-w-sm rounded-lg border border-slate-200 bg-white"
+                              srcDoc={walletPaymentHtml}
+                              sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+                            />
+                          ) : null}
+                          <div className="flex flex-col items-center">
+                            {qrPayload ? (
+                              <div className="flex justify-center p-1">
+                                <QRCode value={qrPayload} size={180} level="M" />
+                              </div>
+                            ) : walletPaymentHtml && walletCheckoutAdapter !== 'yonna_wallet' ? null : (
+                              <div className="flex justify-center py-6">
+                                <Loader2 className="h-10 w-10 animate-spin text-teal-600" />
+                              </div>
+                            )}
+                            {walletLaunchUrl?.trim() && walletCheckoutAdapter !== 'yonna_wallet' ? (
+                              <a
+                                href={walletLaunchUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-2 text-sm font-medium text-teal-600 hover:underline"
+                              >
+                                Open payment page
+                              </a>
+                            ) : null}
+                            {qrPayload ? (
+                              <button
+                                type="button"
+                                onClick={() => void navigator.clipboard.writeText(qrPayload)}
+                                className="mt-2 text-sm font-medium text-teal-600 hover:underline"
+                              >
+                                Copy link for QR
+                              </button>
+                            ) : null}
+                          </div>
+                          {walletCheckoutAdapter === 'simulator' ? (
+                            <button
+                              type="button"
+                              disabled={paymentBusy}
+                              onClick={() => void handleSimulateWallet()}
+                              className="w-full rounded-xl bg-slate-900 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                            >
+                              Simulate customer paid (demo)
+                            </button>
+                          ) : (
+                            <p className="text-xs text-slate-500">
+                              When the customer completes payment, this screen will confirm automatically.
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentPhase('choose')
+                              setQrPayload(null)
+                              setWalletLaunchUrl(null)
+                              setWalletPaymentHtml(null)
+                              setWalletCheckoutAdapter(null)
+                              setCheckoutWallets([])
+                              setSelectedGatewayCode(null)
+                              setYonnaPhone('')
+                              setCheckoutError(null)
+                            }}
+                            className="w-full text-sm font-medium text-teal-600 hover:underline"
+                          >
+                            Change payment method
+                          </button>
                         </div>
                       )}
                     </div>
                   )}
-                  <div className="mb-4 w-full rounded-xl bg-slate-50 p-4">
-                    <p className="mb-1 text-sm text-slate-500">Amount Due</p>
-                    <p className="text-3xl font-bold text-teal-600">
-                      {formatMoney(checkoutOrderId ? checkoutTotal : subtotal)}
-                    </p>
-                  </div>
-                  {checkoutError ? (
-                    <p className="mb-4 w-full text-sm text-red-600">{checkoutError}</p>
-                  ) : null}
-                  <div className="flex w-full gap-3">
-                    <button
-                      type="button"
-                      disabled={!checkoutOrderId || walletLoading}
-                      onClick={() => void handleSimulateWallet()}
-                      className="flex flex-1 items-center justify-center rounded-xl bg-slate-900 py-3 font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
-                    >
-                      <CreditCard className="mr-2 h-5 w-5" />
-                      Simulate Wallet
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!checkoutOrderId || walletLoading}
-                      onClick={() => void handleCashPay()}
-                      className="flex flex-1 items-center justify-center rounded-xl border-2 border-slate-200 bg-white py-3 font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
-                    >
-                      <Banknote className="mr-2 h-5 w-5" />
-                      Cash
-                    </button>
-                  </div>
-                  <p className="mt-4 text-xs text-slate-400">
-                    Provider: simulator · Payload encodes the customer pay URL for this attempt.
-                  </p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center bg-emerald-50 p-10 text-center">

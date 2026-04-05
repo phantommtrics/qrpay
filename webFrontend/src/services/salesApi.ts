@@ -111,12 +111,39 @@ export type StartWalletCheckoutResponse = {
   checkoutAdapter: string
 }
 
-export async function fetchSaleOrders(businessId: string): Promise<SaleOrder[]> {
-  const res = await apiRequest<{ data?: SaleOrder[] }>(`/businesses/${businessId}/orders`, {
-    method: 'GET',
-    businessId,
+export type OrdersListResponse = {
+  total: number
+  page: number
+  pageSize: number
+  orders: SaleOrder[]
+}
+
+export async function fetchSaleOrders(
+  businessId: string,
+  params?: { page?: number; pageSize?: number; q?: string; status?: string },
+): Promise<OrdersListResponse> {
+  const page = params?.page ?? 1
+  const pageSize = params?.pageSize ?? 20
+  const qs = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
   })
-  return Array.isArray(res?.data) ? res.data : []
+  const status = params?.status?.trim()
+  if (status && status !== 'all') {
+    qs.set('status', status)
+  }
+  const q = params?.q?.trim()
+  if (q) {
+    qs.set('q', q)
+  }
+  const res = await apiRequest<{ data: OrdersListResponse }>(
+    `/businesses/${businessId}/orders?${qs.toString()}`,
+    {
+      method: 'GET',
+      businessId,
+    },
+  )
+  return res.data
 }
 
 export async function cancelSaleOrder(businessId: string, orderId: string): Promise<void> {
@@ -243,10 +270,18 @@ export async function simulateWalletPayment(
   return res.data
 }
 
+export type PaymentsListSummary = {
+  completedAmount: number
+  completedCount: number
+  nonCompletedCount: number
+  walletCompletedCount: number
+}
+
 export type PaymentsListResponse = {
   total: number
   page: number
   pageSize: number
+  summary: PaymentsListSummary
   payments: SalePayment[]
 }
 

@@ -2990,7 +2990,11 @@ function formatSalePaymentRow(p: {
     providerReference: p.providerRef,
     method: p.method === PaymentMethod.QR_WALLET ? "qr_wallet" : "cash",
     provider:
-      p.provider === PaymentProvider.SIMULATOR ? "simulator" : String(p.provider).toLowerCase(),
+      p.provider === PaymentProvider.SIMULATOR
+        ? "simulator"
+        : p.provider === PaymentProvider.UPFRONT_PAY
+          ? "upfront pay"
+          : String(p.provider).toLowerCase(),
     gatewayCode: p.gatewayCode ?? null,
     createdAt: p.createdAt.toISOString(),
     completedAt: p.completedAt?.toISOString() ?? null,
@@ -3092,7 +3096,7 @@ function formatReceiptDetail(receipt: {
       lineTotal: Number(line.lineTotal),
     })),
     paymentMethod: receipt.paymentMethod,
-    provider: receipt.provider,
+    provider: receipt.provider === "UPFRONT_PAY" ? "upfront pay" : receipt.provider,
     providerRef: receipt.providerRef,
     createdAt: receipt.createdAt.toISOString(),
   };
@@ -3710,9 +3714,31 @@ app.get(
         throw new HttpError(403, "Access denied to this business");
       }
 
-      const orders = await listOrdersForBusiness(businessId as string, { limit: 200 });
+      const page = clampPage(Number(request.query.page ?? 1));
+      const pageSize = clampPageSize(Number(request.query.pageSize ?? 20));
+      const q = typeof request.query.q === "string" ? request.query.q : "";
+      const statusRaw = typeof request.query.status === "string" ? request.query.status : "all";
+      const status =
+        statusRaw === "all" ||
+        statusRaw === "pending_payment" ||
+        statusRaw === "paid" ||
+        statusRaw === "cancelled"
+          ? statusRaw
+          : "all";
+
+      const result = await listOrdersForBusiness(businessId as string, {
+        page,
+        pageSize,
+        search: q,
+        status,
+      });
       response.json({
-        data: orders.map((o) => formatSaleOrder(o)),
+        data: {
+          total: result.total,
+          page: result.page,
+          pageSize: result.pageSize,
+          orders: result.orders.map((o) => formatSaleOrder(o)),
+        },
       });
     } catch (error) {
       next(error);
@@ -3970,6 +3996,7 @@ app.get(
           total: result.total,
           page: result.page,
           pageSize: result.pageSize,
+          summary: result.summary,
           payments: result.payments.map((p: (typeof result.payments)[number]) =>
             formatSalePaymentRow({
               ...p,
