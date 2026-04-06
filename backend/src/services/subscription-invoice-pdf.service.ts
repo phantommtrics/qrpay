@@ -57,11 +57,11 @@ export function generateSubscriptionInvoicePdf(payload: InvoicePdfPayload): Prom
 
     let y = margin;
 
-    // —— Header: left block (EasyPay / QRPay, Invoice, id) + right block (status, dates) ——
+    // —— Header: left block (EasyPay, Invoice, id) + right block (status, dates) ——
     const headerTop = y;
 
     doc.font("Helvetica-Bold").fontSize(8).fillColor(COL.teal600);
-    doc.text("EASYPAY / QRPAY", margin, headerTop, {
+    doc.text("EASYPAY", margin, headerTop, {
       characterSpacing: 2,
       width: midX - margin - 12,
     });

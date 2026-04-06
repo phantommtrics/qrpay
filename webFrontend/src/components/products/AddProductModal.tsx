@@ -3,6 +3,7 @@ import Barcode from 'react-barcode'
 import { ChevronLeft, ImageIcon, Upload, X } from 'lucide-react'
 
 import { ModalOverlay } from '../ui/ModalOverlay'
+import { SearchableListbox } from '../ui/SearchableListbox'
 import { ProductThumb } from './ProductThumb'
 import {
   ApiError,
@@ -13,6 +14,7 @@ import {
 } from '../../services/subscriptionApi'
 import type { Product } from '../../types'
 import { inferBarcodeFormat } from '../../utils/barcodeFormat'
+import { categoryBreadcrumb, leafMenuCategories } from '../../utils/menuCategoryTree'
 import {
   prepareProductImageForUpload,
   productImageExceedsUploadLimit,
@@ -23,22 +25,6 @@ import {
 type Step = 1 | 2
 
 const STEP_LABELS = ['Barcode', 'Details & save'] as const
-
-function leafMenuCategories(rows: MenuCategoryRow[]): MenuCategoryRow[] {
-  return rows.filter((r) => !rows.some((c) => c.parentId === r.id))
-}
-
-function menuCategoryLabel(rows: MenuCategoryRow[], id: string): string {
-  const byId = new Map(rows.map((r) => [r.id, r]))
-  const parts: string[] = []
-  let cur: MenuCategoryRow | undefined = byId.get(id)
-  let guard = 0
-  while (cur && guard++ < 32) {
-    parts.unshift(cur.name)
-    cur = cur.parentId ? byId.get(cur.parentId) : undefined
-  }
-  return parts.join(' → ')
-}
 
 export function AddProductModal({
   businessId,
@@ -103,6 +89,15 @@ export function AddProductModal({
   }, [businessId, isRestaurant])
 
   const leafRows = useMemo(() => leafMenuCategories(menuRows), [menuRows])
+
+  const leafPickerOptions = useMemo(
+    () =>
+      leafRows.map((r) => ({
+        id: r.id,
+        label: categoryBreadcrumb(menuRows, r.id),
+      })),
+    [leafRows, menuRows],
+  )
 
   const detailsComplete = useMemo(() => {
     const priceNum = Number(price)
@@ -215,7 +210,7 @@ export function AddProductModal({
     name: name.trim() || 'Product name',
     price: Number(price) && Number(price) > 0 ? Number(price) : 0,
     category: isRestaurant
-      ? (menuCategoryId ? menuCategoryLabel(menuRows, menuCategoryId) : 'Category')
+      ? (menuCategoryId ? categoryBreadcrumb(menuRows, menuCategoryId) : 'Category')
       : category.trim() || 'Category',
     stock: Number.isFinite(Number.parseInt(stock, 10)) ? Number.parseInt(stock, 10) : 0,
     imageColor: 'bg-slate-100',
@@ -458,21 +453,17 @@ export function AddProductModal({
               />
             </label>
             {isRestaurant ? (
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">Menu category (leaf)</span>
-                <select
-                  required
+              <div>
+                <SearchableListbox
+                  fieldLabel="Menu category (leaf)"
+                  fieldLabelClassName="text-sm font-medium text-slate-700"
+                  options={leafPickerOptions}
                   value={menuCategoryId}
-                  onChange={(e) => setMenuCategoryId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-teal-500"
-                >
-                  <option value="">Select a category…</option>
-                  {leafRows.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {menuCategoryLabel(menuRows, r.id)}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setMenuCategoryId}
+                  placeholder="Search categories…"
+                  listId="add-product-menu-category-list"
+                  disabled={Boolean(menuLoadError)}
+                />
                 {menuLoadError ? (
                   <p className="mt-1 text-xs text-red-600">{menuLoadError}</p>
                 ) : leafRows.length === 0 && !menuLoadError ? (
@@ -480,7 +471,7 @@ export function AddProductModal({
                     Create a leaf category under Restaurant setup first.
                   </p>
                 ) : null}
-              </label>
+              </div>
             ) : (
               <label className="block">
                 <span className="mb-1 block text-sm font-medium text-slate-700">Category</span>
@@ -535,7 +526,8 @@ export function AddProductModal({
                   <ProductThumb
                     product={previewProduct}
                     size="lg"
-                    className="h-28 w-full max-w-none rounded-none object-contain"
+                    imageFit="cover"
+                    className="h-28 w-full max-w-none rounded-none"
                   />
                 </div>
                 <div className="p-3">

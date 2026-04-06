@@ -4,14 +4,20 @@ import Barcode from 'react-barcode'
 import { Download, Edit, ImageIcon, Loader2, X } from 'lucide-react'
 
 import { ModalOverlay } from '../ui/ModalOverlay'
+import { SearchableListbox } from '../ui/SearchableListbox'
+import { useAuth } from '../../features/auth/AuthContext'
 import type { Product } from '../../types'
-import { inferBarcodeFormat, type RetailBarcodeFormat } from '../../utils/barcodeFormat'
-import { ProductThumb } from './ProductThumb'
 import {
   ApiError,
+  fetchMenuCategories,
   updateBusinessProduct,
   uploadBusinessProductImage,
+  type MenuCategoryRow,
 } from '../../services/subscriptionApi'
+import { inferBarcodeFormat, type RetailBarcodeFormat } from '../../utils/barcodeFormat'
+import { isRestaurantIndustry } from '../../utils/businessIndustry'
+import { categoryBreadcrumb, leafMenuCategories } from '../../utils/menuCategoryTree'
+import { ProductThumb } from './ProductThumb'
 import { downloadSvgAsPng, sanitizeDownloadBasename } from '../../utils/downloadSvgAsPng'
 import {
   prepareProductImageForUpload,
@@ -44,6 +50,8 @@ export function ProductDetailsModal({
   onUpdated?: (product: Product) => void
 }) {
   const barcodeHostRef = useRef<HTMLDivElement>(null)
+  const { currentOrganization } = useAuth()
+  const isRestaurantProduct = isRestaurantIndustry(currentOrganization?.industry)
 
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(product.name)
@@ -60,6 +68,10 @@ export function ProductDetailsModal({
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [downloadingBarcode, setDownloadingBarcode] = useState(false)
 
+  const [menuRows, setMenuRows] = useState<MenuCategoryRow[]>([])
+  const [menuLoadError, setMenuLoadError] = useState<string | null>(null)
+  const [menuCategoryIdEdit, setMenuCategoryIdEdit] = useState(product.menuCategoryId ?? '')
+
   useEffect(() => {
     setEditing(false)
     const s = syncFormFromProduct(product)
@@ -69,12 +81,45 @@ export function ProductDetailsModal({
     setPrice(s.price)
     setStock(s.stock)
     setPackImageUrl(s.packImageUrl)
+    setMenuCategoryIdEdit(product.menuCategoryId ?? '')
     setSaveError(null)
     setImageFieldError(null)
     setDownloadError(null)
   }, [product])
 
-  const isRestaurantMenuItem = Boolean(product.menuCategoryId)
+  useEffect(() => {
+    if (!editing || !isRestaurantProduct || !businessId) {
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const rows = await fetchMenuCategories(businessId)
+        if (!cancelled) {
+          setMenuRows(rows)
+          setMenuLoadError(null)
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setMenuRows([])
+          setMenuLoadError(e instanceof ApiError ? e.message : 'Could not load menu categories.')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [editing, businessId, isRestaurantProduct])
+
+  const leafRows = useMemo(() => leafMenuCategories(menuRows), [menuRows])
+  const leafPickerOptions = useMemo(
+    () =>
+      leafRows.map((r) => ({
+        id: r.id,
+        label: categoryBreadcrumb(menuRows, r.id),
+      })),
+    [leafRows, menuRows],
+  )
 
   const barcodeVal = product.barcodeValue ?? ''
   const barcodeFormat: RetailBarcodeFormat = inferBarcodeFormat(barcodeVal || 'x')
@@ -83,11 +128,16 @@ export function ProductDetailsModal({
     ? {
         ...product,
         name: name.trim() || product.name,
-        category: category.trim() || product.category,
+        category: isRestaurantProduct
+          ? menuCategoryIdEdit.trim()
+            ? categoryBreadcrumb(menuRows, menuCategoryIdEdit) || product.category
+            : product.category
+          : category.trim() || product.category,
         price: Number(price) || product.price,
         stock: Number.parseInt(stock, 10) || product.stock,
         description: description.trim() || undefined,
         imageUrl: packImageUrl || null,
+        menuCategoryId: isRestaurantProduct ? menuCategoryIdEdit.trim() || null : product.menuCategoryId,
       }
     : product
 
@@ -99,15 +149,29 @@ export function ProductDetailsModal({
     const d1 = description.trim()
     const img0 = product.imageUrl ?? ''
     const img1 = packImageUrl.trim()
+    const catDirty = isRestaurantProduct
+      ? menuCategoryIdEdit !== (product.menuCategoryId ?? '')
+      : category.trim() !== product.category
     return (
       name.trim() !== product.name ||
-      (!isRestaurantMenuItem && category.trim() !== product.category) ||
+      catDirty ||
       d0 !== d1 ||
       Number(price) !== product.price ||
       Number.parseInt(stock, 10) !== product.stock ||
       img0 !== img1
     )
-  }, [editing, name, category, description, price, stock, packImageUrl, product, isRestaurantMenuItem])
+  }, [
+    editing,
+    name,
+    category,
+    menuCategoryIdEdit,
+    description,
+    price,
+    stock,
+    packImageUrl,
+    product,
+    isRestaurantProduct,
+  ])
 
   const baseName = sanitizeDownloadBasename(product.name)
 
@@ -173,8 +237,17 @@ export function ProductDetailsModal({
     const priceNum = Number(price)
     const stockNum = Number.parseInt(stock, 10)
 
-    if (!name.trim() || (!isRestaurantMenuItem && !category.trim())) {
-      setSaveError('Name and category are required.')
+    if (!name.trim()) {
+      setSaveError('Name is required.')
+      return
+    }
+    if (isRestaurantProduct) {
+      if (!menuCategoryIdEdit.trim()) {
+        setSaveError('Select a menu category (leaf).')
+        return
+      }
+    } else if (!category.trim()) {
+      setSaveError('Category is required.')
       return
     }
     if (!Number.isFinite(priceNum) || priceNum <= 0) {
@@ -190,8 +263,8 @@ export function ProductDetailsModal({
     try {
       const updated = await updateBusinessProduct(businessId, product.id, {
         name: name.trim(),
-        ...(isRestaurantMenuItem
-          ? {}
+        ...(isRestaurantProduct
+          ? { menuCategoryId: menuCategoryIdEdit.trim() }
           : { category: category.trim() }),
         description: description.trim() ? description.trim() : null,
         price: priceNum,
@@ -221,6 +294,7 @@ export function ProductDetailsModal({
     setPrice(s.price)
     setStock(s.stock)
     setPackImageUrl(s.packImageUrl)
+    setMenuCategoryIdEdit(product.menuCategoryId ?? '')
     setSaveError(null)
     setImageFieldError(null)
     setEditing(false)
@@ -237,21 +311,50 @@ export function ProductDetailsModal({
         className="relative z-10 flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl md:max-h-[90vh] md:flex-row"
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto border-b border-slate-100 p-6 md:border-r md:border-b-0">
-          <div className="mb-6 flex items-start justify-between">
-            <ProductThumb product={displayProduct} className="h-16 w-16" />
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full p-2 text-slate-400 hover:bg-slate-100"
-              aria-label="Close"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
+          {!editing ? (
+            <div className="relative mb-6 w-full">
+              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl bg-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] ring-1 ring-inset ring-slate-900/5">
+                <div className="absolute inset-0">
+                  <ProductThumb
+                    product={displayProduct}
+                    size="fill"
+                    imageFit="cover"
+                    imageAlt={displayProduct.name}
+                    className="rounded-none"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="absolute top-3 right-3 z-10 rounded-full bg-white/95 p-2 text-slate-600 shadow-md ring-1 ring-slate-200/90 backdrop-blur-sm transition-colors hover:bg-white"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          ) : (
+            <div className="mb-4 flex justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          )}
 
           {!editing ? (
             <>
               <h2 className="mb-1 text-2xl font-bold text-slate-800">{product.name}</h2>
+              {isRestaurantProduct && !product.menuCategoryId ? (
+                <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  This item has no menu category (for example if the category was deleted). Edit the product
+                  and choose a leaf category to put it back on the menu.
+                </p>
+              ) : null}
               <p className="mb-6 text-slate-500">{product.category}</p>
 
               <div className="space-y-4">
@@ -309,15 +412,30 @@ export function ProductDetailsModal({
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
                   />
                 </label>
-                {isRestaurantMenuItem ? (
+                {isRestaurantProduct ? (
                   <div>
-                    <span className="mb-1 block text-xs font-medium text-slate-600">Menu category</span>
-                    <p className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                      {product.category}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      To use a different leaf category, create a new menu item and remove this one.
-                    </p>
+                    {!product.menuCategoryId ? (
+                      <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        Select a leaf category so this product appears on the guest menu again.
+                      </p>
+                    ) : null}
+                    <SearchableListbox
+                      fieldLabel="Menu category (leaf)"
+                      fieldLabelClassName="text-xs font-medium text-slate-600"
+                      options={leafPickerOptions}
+                      value={menuCategoryIdEdit}
+                      onChange={setMenuCategoryIdEdit}
+                      placeholder="Search categories…"
+                      listId="edit-product-menu-category-list"
+                      disabled={Boolean(menuLoadError)}
+                    />
+                    {menuLoadError ? (
+                      <p className="mt-1 text-xs text-red-600">{menuLoadError}</p>
+                    ) : leafRows.length === 0 && !menuLoadError ? (
+                      <p className="mt-1 text-xs text-amber-700">
+                        Create a leaf category under Restaurant menu setup first.
+                      </p>
+                    ) : null}
                   </div>
                 ) : (
                   <label className="block">
@@ -365,11 +483,7 @@ export function ProductDetailsModal({
 
                 <div>
                   <span className="mb-2 block text-xs font-medium text-slate-600">Photo</span>
-                  <div
-                    className={`relative flex h-48 w-full max-w-md items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100 ${
-                      uploadingImage ? 'opacity-70' : ''
-                    }`}
-                  >
+                  <div className="relative aspect-[4/3] w-full max-w-md overflow-hidden rounded-xl bg-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] ring-1 ring-inset ring-slate-900/5">
                     {packImageUrl ? (
                       <>
                         <button
@@ -378,20 +492,26 @@ export function ProductDetailsModal({
                             setPackImageUrl('')
                             setImageFieldError(null)
                           }}
-                          className="absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-900/70 text-white shadow-md hover:bg-slate-900"
+                          className="absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow-md ring-1 ring-slate-200/90 backdrop-blur-sm hover:bg-white"
                           aria-label="Remove image"
                         >
                           <X className="h-4 w-4" />
                         </button>
                         <img
                           src={packImageUrl}
-                          alt=""
-                          className="max-h-full max-w-full object-contain p-3"
+                          alt={name.trim() || 'Product photo'}
+                          className="absolute inset-0 h-full w-full object-cover object-center"
                           referrerPolicy="no-referrer"
                         />
                       </>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
+                    ) : null}
+                    {uploadingImage ? (
+                      <div className="absolute inset-0 z-[5] flex items-center justify-center bg-slate-900/25 backdrop-blur-[2px]">
+                        <Loader2 className="h-9 w-9 animate-spin text-white drop-shadow-md" />
+                      </div>
+                    ) : null}
+                    {!packImageUrl ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center">
                         <ImageIcon className="h-8 w-8 text-slate-400" />
                         <p className="text-xs text-slate-600">Take a photo or upload</p>
                         <div className="flex flex-wrap justify-center gap-2">
@@ -432,7 +552,7 @@ export function ProductDetailsModal({
                           </label>
                         </div>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                   {imageFieldError ? (
                     <p className="mt-2 text-xs text-red-600">{imageFieldError}</p>

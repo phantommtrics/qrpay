@@ -1,6 +1,6 @@
 # Platform administration
 
-This document describes **platform owner** behavior, **tenant isolation**, and the **platform APIs** used by the Businesses / Subscriptions / Invoices screens. It complements the main project overview in the repository root `README.md` (which is not replaced by this file).
+This document describes **platform owner** behavior, **tenant isolation**, and the **platform APIs** used by the Businesses / Subscriptions / Invoices screens. For the full documentation index (architecture, components, workflows), see **[docs/README.md](./README.md)**. It complements the main project overview in the repository root `README.md` (which is not replaced by this file).
 
 ## Role and login
 

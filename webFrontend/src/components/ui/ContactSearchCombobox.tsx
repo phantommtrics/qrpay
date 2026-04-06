@@ -290,7 +290,7 @@ export function ContactSearchCombobox({
               onClick={() => closeAddModal()}
             />
             <CenteredModal className="relative z-10 w-full max-w-md overflow-hidden rounded-xl border border-qb-border bg-white shadow-2xl">
-              <form onSubmit={(e) => void submitAdd(e)} className="p-6">
+              <form noValidate onSubmit={(e) => void submitAdd(e)} className="p-6">
                 <div className="mb-4 flex items-start justify-between gap-4">
                   <div className="flex items-center gap-2">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-qb-primary-soft">

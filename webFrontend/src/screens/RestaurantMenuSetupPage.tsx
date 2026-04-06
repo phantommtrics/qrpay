@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Trash2 } from 'lucide-react'
 
+import { ConfirmModal } from '../components/ui/ConfirmModal'
+import { SearchableListbox } from '../components/ui/SearchableListbox'
 import { FlashNotice } from '../components/ui/FlashNotice'
 import { PageTransition } from '../components/ui/PageTransition'
 import { APP_PATHS } from '../config/navigation'
@@ -13,19 +15,8 @@ import {
   fetchMenuCategories,
   type MenuCategoryRow,
 } from '../services/subscriptionApi'
+import { categoryBreadcrumb, orderedCategoryTree } from '../utils/menuCategoryTree'
 import { isRestaurantIndustry } from '../utils/businessIndustry'
-
-function categoryBreadcrumb(rows: MenuCategoryRow[], id: string): string {
-  const byId = new Map(rows.map((r) => [r.id, r]))
-  const parts: string[] = []
-  let cur: MenuCategoryRow | undefined = byId.get(id)
-  let guard = 0
-  while (cur && guard++ < 32) {
-    parts.unshift(cur.name)
-    cur = cur.parentId ? byId.get(cur.parentId) : undefined
-  }
-  return parts.join(' → ')
-}
 
 export function RestaurantMenuSetupPage() {
   const { currentOrganization, canAccess, user } = useAuth()
@@ -40,8 +31,16 @@ export function RestaurantMenuSetupPage() {
   const [newCatName, setNewCatName] = useState('')
   const [newCatParent, setNewCatParent] = useState<string>('')
 
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string
+    name: string
+    hasChildren: boolean
+  } | null>(null)
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+
   const canCreate = canAccess('products.create')
-  const canDelete = canAccess('products.delete')
+  /** Menu categories use the same permission as adding categories (not `products.delete`, which is for SKU removal on many plans). */
+  const canDeleteCategory = canCreate
 
   const load = useCallback(async () => {
     if (!businessId || !allowed) {
@@ -65,20 +64,82 @@ export function RestaurantMenuSetupPage() {
     void load()
   }, [load])
 
-  const parentOptions = useMemo(() => categories, [categories])
+  const treeOrdered = useMemo(() => orderedCategoryTree(categories), [categories])
+
+  const parentPickerOptions = useMemo(
+    () =>
+      treeOrdered.map(({ row, depth }) => ({
+        id: row.id,
+        label: categoryBreadcrumb(categories, row.id),
+        depth,
+      })),
+    [treeOrdered, categories],
+  )
 
   const showGate =
     Boolean(currentOrganization) && !allowed && !user?.isPlatformOwner && !user?.isPlatformAdmin
 
+  const closeDeleteModal = () => {
+    if (!deleteSubmitting) {
+      setDeleteTarget(null)
+    }
+  }
+
+  const runDeleteCategory = () => {
+    if (!businessId || !deleteTarget) return
+    void (async () => {
+      setDeleteSubmitting(true)
+      try {
+        await deleteMenuCategory(businessId, deleteTarget.id)
+        setFlash(deleteTarget.hasChildren ? 'Category tree deleted.' : 'Category deleted.')
+        setDeleteTarget(null)
+        void load()
+      } catch (err) {
+        setFlash(err instanceof ApiError ? err.message : 'Could not delete.')
+      } finally {
+        setDeleteSubmitting(false)
+      }
+    })()
+  }
+
   return (
     <PageTransition className="mx-auto max-w-4xl space-y-8 px-4 py-6">
       <FlashNotice message={flash} onDismiss={() => setFlash(null)} />
+
+      <ConfirmModal
+        open={deleteTarget != null}
+        title={
+          deleteTarget == null
+            ? ''
+            : deleteTarget.hasChildren
+              ? `Delete “${deleteTarget.name}” and subcategories?`
+              : `Delete “${deleteTarget.name}”?`
+        }
+        variant="danger"
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        loading={deleteSubmitting}
+        onCancel={closeDeleteModal}
+        onConfirm={runDeleteCategory}
+      >
+        {deleteTarget?.hasChildren ? (
+          <p>
+            This removes the whole branch under this category. Products in any of those categories will be
+            unassigned from the menu until you assign a category again when editing each product.
+          </p>
+        ) : (
+          <p>
+            Products that use this category will be unassigned from the menu until you assign another
+            category.
+          </p>
+        )}
+      </ConfirmModal>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Menu setup</h1>
           <p className="mt-1 text-sm text-slate-600">
-            {/* Build your category tree. Products are assigned to a <strong>leaf</strong> category (no
-            subcategories under it). */}
+            Build your menu tree: top-level sections and nested sub-menus. Products are added under{' '}
+            <span className="font-medium text-slate-800">leaf</span> categories (no children below them).
           </p>
         </div>
         {allowed ? (
@@ -109,7 +170,8 @@ export function RestaurantMenuSetupPage() {
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-slate-900">Categories</h2>
           <p className="mt-1 text-sm text-slate-600">
-            {/* Add top-level sections (e.g. Starters) or nest under a parent for sub-menus. */}
+            Categories below follow tree order (parent, then children). Use “Main menu” to nest under an
+            existing category or leave as top level.
           </p>
 
           <form
@@ -132,29 +194,25 @@ export function RestaurantMenuSetupPage() {
             }}
           >
             <label className="block flex-1">
-              <span className="mb-1 block text-xs font-medium text-slate-600">Menu Name</span>
+              <span className="mb-1 block text-xs font-medium text-slate-600">Menu name</span>
               <input
                 value={newCatName}
                 onChange={(ev) => setNewCatName(ev.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
                 placeholder="e.g. Starters"
               />
             </label>
-            <label className="block w-full sm:w-56">
-              <span className="mb-1 block text-xs font-medium text-slate-600">Main Menu</span>
-              <select
+            <div className="w-full sm:w-64 sm:shrink-0">
+              <SearchableListbox
+                fieldLabel="Main menu"
+                options={parentPickerOptions}
                 value={newCatParent}
-                onChange={(ev) => setNewCatParent(ev.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              >
-                <option value="">— Top level —</option>
-                {parentOptions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {categoryBreadcrumb(categories, c.id)}
-                  </option>
-                ))}
-              </select>
-            </label>
+                onChange={setNewCatParent}
+                placeholder="Top level — leave empty, or search to nest under…"
+                listId="restaurant-menu-parent-picker"
+                disabled={!canCreate}
+              />
+            </div>
             <button
               type="submit"
               disabled={!canCreate}
@@ -165,41 +223,50 @@ export function RestaurantMenuSetupPage() {
             </button>
           </form>
 
-          <ul className="mt-6 divide-y divide-slate-100">
+          <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80">
             {categories.length === 0 ? (
-              <li className="py-4 text-sm text-slate-500">No categories yet.</li>
+              <p className="px-4 py-8 text-center text-sm text-slate-500">No categories yet.</p>
             ) : (
-              categories.map((c) => (
-                <li
-                  key={c.id}
-                  className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"
-                >
-                  <span className="font-medium text-slate-800">
-                    {categoryBreadcrumb(categories, c.id)}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={!canDelete}
-                    onClick={async () => {
-                      if (!businessId || !canDelete) return
-                      if (!window.confirm('Delete this category?')) return
-                      try {
-                        await deleteMenuCategory(businessId, c.id)
-                        setFlash('Category deleted.')
-                        void load()
-                      } catch (err) {
-                        setFlash(err instanceof ApiError ? err.message : 'Could not delete.')
-                      }
-                    }}
-                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-red-600 hover:bg-red-50 disabled:opacity-40"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Delete
-                  </button>
-                </li>
-              ))
+              <ul className="divide-y divide-slate-200 bg-white">
+                {treeOrdered.map(({ row, depth }) => {
+                  const path = categoryBreadcrumb(categories, row.id)
+                  const isRoot = depth === 0
+                  const hasChildren = categories.some((c) => c.parentId === row.id)
+                  return (
+                    <li key={row.id} className="group">
+                      <div className="flex flex-wrap items-start justify-between gap-3 px-3 py-3 sm:px-4 sm:py-3.5">
+                        <div
+                          className="min-w-0 flex-1 border-l-2 border-teal-200/80 pl-3 transition-colors group-hover:border-teal-400/90"
+                          style={{ marginLeft: `${depth * 0.75}rem` }}
+                        >
+                          <p className="font-medium text-slate-900">{row.name}</p>
+                          {!isRoot ? (
+                            <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{path}</p>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!canDeleteCategory}
+                          onClick={() => {
+                            if (!canDeleteCategory) return
+                            setDeleteTarget({
+                              id: row.id,
+                              name: row.name,
+                              hasChildren,
+                            })
+                          }}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-40"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delete
+                        </button>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
             )}
-          </ul>
+          </div>
         </section>
       ) : null}
     </PageTransition>

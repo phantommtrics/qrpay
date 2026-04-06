@@ -64,7 +64,7 @@ export function SignupPage() {
               <QrCode className="h-6 w-6 text-teal-400" />
             </div>
             <div>
-              <p className="text-xl font-bold">Create your QRPay organization</p>
+              <p className="text-xl font-bold">Create your EASYPay organization</p>
               <p className="text-sm text-slate-400">
                 Choose a plan, create an account, and start a 7-day payment trial.
               </p>

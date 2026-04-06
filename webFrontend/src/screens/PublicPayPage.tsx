@@ -24,7 +24,11 @@ export function PublicPayPage() {
     try {
       const data = await fetchPublicPayInfo(publicToken)
       setInfo(data)
-      if (data.orderStatus === 'paid' || data.paymentStatus === 'completed') {
+      const settled =
+        data.paymentStatus === 'completed' ||
+        (data.kind === 'order' && data.orderStatus === 'paid') ||
+        (data.kind === 'sales_invoice' && data.invoiceStatus === 'paid')
+      if (settled) {
         setPaid(true)
       }
     } catch (e) {
@@ -77,7 +81,9 @@ export function PublicPayPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-slate-100 p-6">
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
         <h1 className="mb-1 text-center text-lg font-semibold text-slate-900">{info.businessName}</h1>
-        <p className="mb-6 text-center text-sm text-slate-500">Wallet payment (simulator)</p>
+        <p className="mb-6 text-center text-sm text-slate-500">
+          {info.kind === 'sales_invoice' ? 'Invoice wallet payment' : 'Wallet payment (simulator)'}
+        </p>
         <div className="mb-6 text-center">
           <p className="text-sm text-slate-500">Amount</p>
           <p className="text-3xl font-bold text-teal-600">{formatMoney(info.amount)}</p>

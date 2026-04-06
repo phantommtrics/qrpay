@@ -293,10 +293,13 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
   let payload: unknown = null
 
-  try {
-    payload = await response.json()
-  } catch {
-    payload = null
+  if (response.status !== 204 && response.status !== 205) {
+    try {
+      const text = await response.text()
+      payload = text ? JSON.parse(text) : null
+    } catch {
+      payload = null
+    }
   }
 
   if (!response.ok) {

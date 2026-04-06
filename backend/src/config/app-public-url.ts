@@ -1,5 +1,6 @@
 import type { Request } from "express";
 
+import { env } from "./env.js";
 import { HttpError } from "../lib/http-error.js";
 
 /** Paths where EasyPay listens for provider → server webhooks (POST). */
@@ -68,12 +69,21 @@ export function getPaymentWebhookEndpoints(): PaymentWebhookEndpoints | null {
 }
 
 /**
- * Public origin for **browser** return URLs after checkout. Prefers `APP_PUBLIC_BASE_URL`, then request origin, then fallbacks.
+ * Public origin for **browser** return URLs after checkout (e.g. `/pay/:token`).
+ * Prefers `APP_PUBLIC_BASE_URL`, then **`PLATFORM_URL`** (same as guest links / emails), then request origin.
  */
 export function resolveAppPublicBaseForBrowserReturns(req: Request): string {
-  const env = process.env.APP_PUBLIC_BASE_URL?.trim();
-  if (env) {
-    return normalizeToHttpsOrigin(env);
+  const appPublic = process.env.APP_PUBLIC_BASE_URL?.trim();
+  if (appPublic) {
+    return normalizeToHttpsOrigin(appPublic);
+  }
+
+  const platformUrl = env.PLATFORM_URL.replace(/\/$/, "");
+  if (platformUrl.startsWith("http://")) {
+    return platformUrl;
+  }
+  if (platformUrl.startsWith("https://")) {
+    return normalizeToHttpsOrigin(platformUrl);
   }
 
   const rawBase =
@@ -89,7 +99,7 @@ export function resolveAppPublicBaseForBrowserReturns(req: Request): string {
   if (!appBase || !appBase.startsWith("https://")) {
     throw new HttpError(
       500,
-      "APP_PUBLIC_BASE_URL must be set to a public HTTPS origin for payment return URLs.",
+      "Set APP_PUBLIC_BASE_URL or PLATFORM_URL to a public origin for payment return URLs.",
     );
   }
   return appBase;

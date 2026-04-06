@@ -9,6 +9,8 @@ import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import { createBusinessContact, getBusinessContactOrThrow } from "./business-contact.service.js";
 
+type DbClient = typeof prisma | Prisma.TransactionClient;
+
 function dec(n: number | string): Prisma.Decimal {
   return new Prisma.Decimal(typeof n === "number" && !Number.isFinite(n) ? 0 : n);
 }
@@ -17,8 +19,12 @@ function roundMoney(d: Prisma.Decimal): Prisma.Decimal {
   return d.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 }
 
-async function loadChartAccount(businessId: string, chartOfAccountId: string) {
-  const a = await prisma.chartOfAccount.findFirst({
+async function loadChartAccount(
+  businessId: string,
+  chartOfAccountId: string,
+  db: DbClient = prisma,
+) {
+  const a = await db.chartOfAccount.findFirst({
     where: { id: chartOfAccountId, businessId },
   });
   if (!a) {
@@ -149,25 +155,64 @@ export async function postManualMoneyIn(
     .filter(Boolean)
     .join(" | ");
 
-  return prisma.journalEntry.create({
+  return createMoneyInJournalEntry(businessId, {
+    postedAt: input.postedAt,
+    memo,
+    reference: input.reference?.trim() || null,
+    contactId,
+    sourceType: JournalSourceType.MANUAL_MONEY_IN,
+    sourceId: contactId,
+    settlementChartAccountId: settlement.id,
+    settlementDebitDescription: `Receipt posted to ${settlement.name} (${settlement.code}).`,
+    lineRows,
+    creditSum,
+  });
+}
+
+type MoneyInJournalPayload = {
+  postedAt: Date;
+  memo: string;
+  reference: string | null;
+  contactId: string;
+  sourceType: JournalSourceType;
+  sourceId: string;
+  settlementChartAccountId: string;
+  settlementDebitDescription: string;
+  lineRows: Array<{
+    chartOfAccountId: string;
+    creditAmount: Prisma.Decimal;
+    description: string;
+    quantity: Prisma.Decimal | null;
+    unitLabel: string | null;
+    taxAmount: Prisma.Decimal;
+  }>;
+  creditSum: Prisma.Decimal;
+};
+
+async function createMoneyInJournalEntry(
+  businessId: string,
+  payload: MoneyInJournalPayload,
+  db: DbClient = prisma,
+) {
+  return db.journalEntry.create({
     data: {
       businessId,
-      postedAt: input.postedAt,
-      memo,
-      reference: input.reference?.trim() || null,
-      contactId,
-      sourceType: JournalSourceType.MANUAL_MONEY_IN,
-      sourceId: contactId,
+      postedAt: payload.postedAt,
+      memo: payload.memo,
+      reference: payload.reference,
+      contactId: payload.contactId,
+      sourceType: payload.sourceType,
+      sourceId: payload.sourceId,
       lines: {
         create: [
           {
-            chartOfAccountId: settlement.id,
-            debitAmount: creditSum,
+            chartOfAccountId: payload.settlementChartAccountId,
+            debitAmount: payload.creditSum,
             creditAmount: dec(0),
-            description: `Receipt posted to ${settlement.name} (${settlement.code}).`,
+            description: payload.settlementDebitDescription,
             taxAmount: dec(0),
           },
-          ...lineRows.map((r) => ({
+          ...payload.lineRows.map((r) => ({
             chartOfAccountId: r.chartOfAccountId,
             debitAmount: dec(0),
             creditAmount: r.creditAmount,
@@ -181,6 +226,73 @@ export async function postManualMoneyIn(
     },
     include: { lines: { include: { chartOfAccount: { select: { code: true, name: true } } } } },
   });
+}
+
+/**
+ * Cash-basis GL when a sales invoice is marked paid: same shape as money-in, different source.
+ */
+export async function postMoneyInJournalForSalesInvoice(
+  businessId: string,
+  input: {
+    invoiceId: string;
+    contactId: string;
+    postedAt: Date;
+    reference?: string | null;
+    settlementChartAccountId: string;
+    lines: ManualJournalLineInput[];
+    memo: string;
+  },
+  db: DbClient = prisma,
+) {
+  if (!input.lines.length) {
+    throw new HttpError(400, "Add at least one line.");
+  }
+
+  const settlement = await loadChartAccount(businessId, input.settlementChartAccountId, db);
+  assertAssetSettlement(settlement);
+
+  const lineRows: MoneyInJournalPayload["lineRows"] = [];
+  let creditSum = dec(0);
+
+  for (const line of input.lines) {
+    const narration = line.narration?.trim() || "Sales invoice line";
+    if (narration.length > 4000) {
+      throw new HttpError(400, "Narration is too long.");
+    }
+    await loadChartAccount(businessId, line.chartOfAccountId, db);
+    const total = lineTotal(line);
+    if (total.lte(0)) {
+      throw new HttpError(400, "Each line total must be greater than zero.");
+    }
+    creditSum = creditSum.add(total);
+    lineRows.push({
+      chartOfAccountId: line.chartOfAccountId,
+      creditAmount: total,
+      description: narration,
+      quantity: dec(line.quantity),
+      unitLabel: line.unitLabel?.trim() || null,
+      taxAmount: roundMoney(dec(line.taxAmount)),
+    });
+  }
+
+  creditSum = roundMoney(creditSum);
+
+  return createMoneyInJournalEntry(
+    businessId,
+    {
+      postedAt: input.postedAt,
+      memo: input.memo,
+      reference: input.reference?.trim() || null,
+      contactId: input.contactId,
+      sourceType: JournalSourceType.SALES_INVOICE_PAYMENT,
+      sourceId: input.invoiceId,
+      settlementChartAccountId: settlement.id,
+      settlementDebitDescription: `Sales invoice payment — ${settlement.name} (${settlement.code}).`,
+      lineRows,
+      creditSum,
+    },
+    db,
+  );
 }
 
 /**

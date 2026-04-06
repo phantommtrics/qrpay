@@ -280,6 +280,18 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     category: 'Reports',
   },
   {
+    key: 'sales.quotation',
+    label: 'Sales quotations',
+    description: 'Create and manage customer quotations',
+    category: 'Sales',
+  },
+  {
+    key: 'sales.invoice',
+    label: 'Sales invoices',
+    description: 'Create and manage sales invoices and payment posting',
+    category: 'Sales',
+  },
+  {
     key: 'pos.access',
     label: 'POS Access',
     description: 'Access point of sale system',
@@ -295,6 +307,12 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     key: 'organization.manage',
     label: 'Organization Settings',
     description: 'Update organization profile and subscription settings.',
+    category: 'Administration',
+  },
+  {
+    key: 'contacts.manage',
+    label: 'Contacts',
+    description: 'View and create business contacts for journals and sales documents',
     category: 'Administration',
   },
   {
@@ -351,6 +369,8 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'accounting.reports.pnl': false,
     'accounting.reports.statement': false,
     'accounting.reports.export': false,
+    'sales.quotation': false,
+    'sales.invoice': false,
     'staff.manage': true,
     'status.change.view': true,
     'organization.manage': true,
@@ -360,6 +380,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'subscriptions.invoices': true,
     'subscriptions.billing_activity': true,
     'merchant.api': true,
+    'contacts.manage': true,
   },
   pro: {
     'dashboard.view': true,
@@ -382,6 +403,8 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'accounting.reports.pnl': true,
     'accounting.reports.statement': true,
     'accounting.reports.export': true,
+    'sales.quotation': true,
+    'sales.invoice': true,
     'staff.manage': true,
     'status.change.view': true,
     'organization.manage': true,
@@ -391,6 +414,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'subscriptions.invoices': true,
     'subscriptions.billing_activity': true,
     'merchant.api': true,
+    'contacts.manage': true,
   },
   business_pro: {
     'dashboard.view': true,
@@ -413,6 +437,8 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'accounting.reports.pnl': true,
     'accounting.reports.statement': true,
     'accounting.reports.export': true,
+    'sales.quotation': true,
+    'sales.invoice': true,
     'staff.manage': true,
     'status.change.view': true,
     'organization.manage': true,
@@ -422,6 +448,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'subscriptions.invoices': true,
     'subscriptions.billing_activity': true,
     'merchant.api': true,
+    'contacts.manage': true,
   },
 }
 
@@ -658,7 +685,7 @@ export const CASH_ACCOUNT_BALANCES: CashAccountBalance[] = [
   {
     id: 'cash-b1-merchant',
     businessId: 'b1',
-    name: 'QRPay Merchant Wallet',
+    name: 'EASYPay Merchant Wallet',
     type: 'merchant',
     balance: 28420,
     lastUpdatedAt: '2026-03-20T09:30:00.000Z',
@@ -674,7 +701,7 @@ export const CASH_ACCOUNT_BALANCES: CashAccountBalance[] = [
   {
     id: 'cash-b2-merchant',
     businessId: 'b2',
-    name: 'QRPay Merchant Wallet',
+    name: 'EASYPay Merchant Wallet',
     type: 'merchant',
     balance: 51240,
     lastUpdatedAt: '2026-03-20T09:30:00.000Z',
@@ -690,7 +717,7 @@ export const CASH_ACCOUNT_BALANCES: CashAccountBalance[] = [
   {
     id: 'cash-b3-merchant',
     businessId: 'b3',
-    name: 'QRPay Merchant Wallet',
+    name: 'EASYPay Merchant Wallet',
     type: 'merchant',
     balance: 132900,
     lastUpdatedAt: '2026-03-20T09:30:00.000Z',
@@ -1170,7 +1197,7 @@ export const ACCOUNTING_TRANSACTIONS: AccountingTransaction[] = [
     amount: 8200,
     toAccountId: 'cash-b1-merchant',
     reference: 'RCV-1001',
-    description: 'QRPay wallet collections',
+    description: 'EASYPay wallet collections',
     createdAt: '2026-03-18T09:30:00.000Z',
   },
   {

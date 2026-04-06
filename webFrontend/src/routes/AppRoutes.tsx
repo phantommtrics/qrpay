@@ -113,6 +113,31 @@ const AccountingJournalsPage = lazy(() =>
     default: module.AccountingJournalsPage,
   })),
 )
+const SalesQuotationsPage = lazy(() =>
+  import('../screens/SalesQuotationsPage').then((module) => ({
+    default: module.SalesQuotationsPage,
+  })),
+)
+const SalesInvoicesPage = lazy(() =>
+  import('../screens/SalesInvoicesPage').then((module) => ({
+    default: module.SalesInvoicesPage,
+  })),
+)
+const SalesQuotationDetailPage = lazy(() =>
+  import('../screens/SalesQuotationDetailPage').then((module) => ({
+    default: module.SalesQuotationDetailPage,
+  })),
+)
+const SalesInvoiceDetailPage = lazy(() =>
+  import('../screens/SalesInvoiceDetailPage').then((module) => ({
+    default: module.SalesInvoiceDetailPage,
+  })),
+)
+const ContactsPage = lazy(() =>
+  import('../screens/ContactsPage').then((module) => ({
+    default: module.ContactsPage,
+  })),
+)
 const GlBalanceReportPage = lazy(() =>
   import('../screens/GlBalanceReportPage').then((module) => ({
     default: module.GlBalanceReportPage,
@@ -206,6 +231,16 @@ const ProductPublicPage = lazy(() =>
 const PublicPayPage = lazy(() =>
   import('../screens/PublicPayPage').then((module) => ({
     default: module.PublicPayPage,
+  })),
+)
+const GuestQuotationPage = lazy(() =>
+  import('../screens/GuestQuotationPage').then((module) => ({
+    default: module.GuestQuotationPage,
+  })),
+)
+const GuestInvoicePage = lazy(() =>
+  import('../screens/GuestInvoicePage').then((module) => ({
+    default: module.GuestInvoicePage,
   })),
 )
 const PlatformSecurityRolesPage = lazy(() =>
@@ -520,6 +555,30 @@ export function AppRoutes() {
       permission: 'accounting.view' as const,
     },
     {
+      path: APP_PATHS.salesQuotations,
+      element: <SalesQuotationsPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'sales.quotation' as const,
+    },
+    {
+      path: APP_PATHS.salesInvoices,
+      element: <SalesInvoicesPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'sales.invoice' as const,
+    },
+    {
+      path: APP_PATHS.salesQuotationDetail,
+      element: <SalesQuotationDetailPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'sales.quotation' as const,
+    },
+    {
+      path: APP_PATHS.salesInvoiceDetail,
+      element: <SalesInvoiceDetailPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'sales.invoice' as const,
+    },
+    {
       path: APP_PATHS.accountingReportGlBalance,
       element: <GlBalanceReportPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
@@ -542,6 +601,12 @@ export function AppRoutes() {
       element: <BusinessesPage />,
       roles: ['admin', 'merchant'] as UserRole[],
       permission: 'organization.manage' as const,
+    },
+    {
+      path: APP_PATHS.contacts,
+      element: <ContactsPage />,
+      roles: ['admin', 'merchant'] as UserRole[],
+      permission: 'contacts.manage' as const,
     },
     {
       path: APP_PATHS.staff,
@@ -633,6 +698,8 @@ export function AppRoutes() {
         <Route path={APP_PATHS.restaurantGuestMenu} element={<RestaurantGuestMenuPage />} />
         <Route path="/p/:productId" element={<ProductPublicPage />} />
         <Route path="/pay/:publicToken" element={<PublicPayPage />} />
+        <Route path="/guest/quotation/:guestToken" element={<GuestQuotationPage />} />
+        <Route path="/guest/invoice/:guestToken" element={<GuestInvoicePage />} />
         <Route
           path={APP_PATHS.changePassword}
           element={

@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { CheckCircle2, ChevronDown, ChevronLeft, Minus, Plus, QrCode, Utensils } from 'lucide-react'
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Minus,
+  Plus,
+  QrCode,
+  Utensils,
+} from 'lucide-react'
 
 import { ProductThumb } from '../components/products/ProductThumb'
 import { BottomSheet } from '../components/ui/BottomSheet'
@@ -13,31 +21,68 @@ import type { Product } from '../types'
 import { formatMoney } from '../utils/formatMoney'
 import { productSellableUnits } from '../utils/productStock'
 
-function MenuBranch({
-  node,
-  depth,
+function sortGuestNodesByOrder(nodes: GuestMenuTreeNode[]): GuestMenuTreeNode[] {
+  return [...nodes].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+}
+
+/** Leaf subcategories first, then branches; within each group by sort order. */
+function sortGuestChildrenLeavesFirst(nodes: GuestMenuTreeNode[]): GuestMenuTreeNode[] {
+  return [...nodes].sort((a, b) => {
+    const aLeaf = a.children.length === 0
+    const bLeaf = b.children.length === 0
+    if (aLeaf !== bLeaf) {
+      return aLeaf ? -1 : 1
+    }
+    return a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)
+  })
+}
+
+/** Square frame: photo fills with cover; emoji tiles align to same box. */
+function GuestProductImageFrame({
+  product,
+  className = 'h-20 w-20',
+}: {
+  product: Product
+  className?: string
+}) {
+  return (
+    <div
+      className={`relative shrink-0 overflow-hidden rounded-xl bg-slate-100 ring-1 ring-inset ring-slate-900/5 ${className}`}
+    >
+      <div className="absolute inset-0">
+        <ProductThumb
+          product={product}
+          size="fill"
+          imageFit="cover"
+          imageAlt={product.name}
+          className="rounded-none"
+        />
+      </div>
+    </div>
+  )
+}
+
+function GuestMenuProductCard({
+  item,
   onAdd,
+<<<<<<< HEAD
   getProductById,
   menuHint,
+=======
+>>>>>>> a3b8ff8ece2a07d7d62126992c5bc1b1fdd3425b
   setMenuHint,
 }: {
-  node: GuestMenuTreeNode
-  depth: number
+  item: Product
   onAdd: (item: Product) => AddToCartResult
+<<<<<<< HEAD
   getProductById: (id: string) => Product | undefined
   menuHint: string | null
+=======
+>>>>>>> a3b8ff8ece2a07d7d62126992c5bc1b1fdd3425b
   setMenuHint: (v: string | null) => void
 }) {
-  const [open, setOpen] = useState(depth < 2)
-  const hasProducts = node.products.length > 0
-  const hasChildren = node.children.length > 0
-  const pad = Math.min(depth, 4) * 12
-
-  if (!hasProducts && !hasChildren) {
-    return null
-  }
-
   return (
+<<<<<<< HEAD
     <div className="mb-3" style={{ paddingLeft: pad ? pad - (depth > 0 ? 8 : 0) : 0 }}>
       {hasChildren || hasProducts ? (
         <button
@@ -115,6 +160,46 @@ function MenuBranch({
           />
         ))}
     </div>
+=======
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex gap-3 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm"
+    >
+      <GuestProductImageFrame product={item} />
+      <div className="flex min-w-0 flex-1 flex-col justify-between">
+        <div>
+          <h3 className="font-bold leading-tight text-slate-800">{item.name}</h3>
+          <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{item.description ?? ''}</p>
+        </div>
+        <div className="mt-2 flex items-center justify-between">
+          <span className="font-bold text-teal-600">{formatMoney(item.price)}</span>
+          {(item.availableStock ?? item.stock) <= 0 ? (
+            <span className="text-xs font-medium text-red-600">Sold out</span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                const r = onAdd(item)
+                if (!r.ok) {
+                  setMenuHint(
+                    r.reason === 'out_of_stock'
+                      ? `${item.name} is out of stock.`
+                      : `Maximum quantity for ${item.name} is already in your cart.`,
+                  )
+                }
+              }}
+              aria-label={`Add ${item.name}`}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-50 text-teal-600 hover:bg-teal-100"
+            >
+              <Plus className="h-5 w-5" />
+            </button>
+          )}
+        </div>
+      </div>
+    </motion.div>
+>>>>>>> a3b8ff8ece2a07d7d62126992c5bc1b1fdd3425b
   )
 }
 
@@ -133,6 +218,8 @@ export function RestaurantGuestMenuPage() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [menuHint, setMenuHint] = useState<string | null>(null)
+  /** Drill-down path: empty = top-level categories only. */
+  const [navStack, setNavStack] = useState<GuestMenuTreeNode[]>([])
 
   const productById = useMemo(() => {
     const m = new Map<string, Product>()
@@ -249,11 +336,36 @@ export function RestaurantGuestMenuPage() {
     return () => window.clearTimeout(t)
   }, [menuHint])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' })
+  }, [navStack])
+
+  const currentNode = navStack.length > 0 ? navStack[navStack.length - 1] : null
+  const ancestorTrail =
+    navStack.length > 1 ? navStack.slice(0, -1).map((n) => n.name).join(' · ') : null
+
+  const goBackMenu = () => {
+    setNavStack((s) => s.slice(0, -1))
+  }
+
+  const enterCategory = (node: GuestMenuTreeNode) => {
+    setNavStack((s) => [...s, node])
+  }
+
   const handleAdd = useCallback(
     (item: Product) => {
       return addToCart(item)
     },
     [addToCart],
+  )
+
+  const rootCategories = useMemo(
+    () =>
+      sortGuestNodesByOrder(categories).filter(
+        (n) => n.children.length > 0 || n.products.length > 0,
+      ),
+    [categories],
   )
 
   if (loading) {
@@ -308,6 +420,7 @@ export function RestaurantGuestMenuPage() {
             setIsCartOpen(false)
             setMenuHint(null)
             setSubmitError(null)
+            setNavStack([])
             void loadMenu()
             if (typeof window !== 'undefined') {
               window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -389,12 +502,39 @@ export function RestaurantGuestMenuPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
-      <header className="sticky top-0 z-10 bg-white px-4 pt-6 pb-3 shadow-sm">
-        <div className="mx-auto max-w-3xl">
-          <h1 className="text-2xl font-bold text-slate-800">{businessName || 'Menu'}</h1>
-          <p className="mt-1 flex items-center text-sm font-medium text-teal-600">
-            <Utensils className="mr-1 h-4 w-4" /> Table {tableLabel}
-          </p>
+      <header className="sticky top-0 z-10 border-b border-slate-100 bg-white shadow-sm">
+        <div className="mx-auto max-w-3xl px-4 pt-4 pb-3">
+          {currentNode ? (
+            <div className="flex items-start gap-2">
+              <button
+                type="button"
+                onClick={goBackMenu}
+                aria-label="Back"
+                className="-ml-2 mt-0.5 shrink-0 rounded-full p-2 text-slate-600 hover:bg-slate-100"
+              >
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+              <div className="min-w-0 flex-1">
+                <h1 className="text-xl font-bold leading-tight text-slate-900 sm:text-2xl">
+                  {currentNode.name}
+                </h1>
+                {ancestorTrail ? (
+                  <p className="mt-1 line-clamp-2 text-xs text-slate-500">{ancestorTrail}</p>
+                ) : null}
+                <p className="mt-1 flex items-center text-sm font-medium text-teal-600">
+                  <Utensils className="mr-1 h-4 w-4 shrink-0" /> Table {tableLabel}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <h1 className="text-2xl font-bold text-slate-800">{businessName || 'Menu'}</h1>
+              <p className="mt-1 flex items-center text-sm font-medium text-teal-600">
+                <Utensils className="mr-1 h-4 w-4" /> Table {tableLabel}
+              </p>
+              <p className="mt-2 text-sm text-slate-500">Choose a category to browse the menu.</p>
+            </>
+          )}
         </div>
       </header>
 
@@ -408,6 +548,7 @@ export function RestaurantGuestMenuPage() {
           </p>
         ) : null}
 
+<<<<<<< HEAD
         {categories.map((node) => (
           <MenuBranch
             key={node.id}
@@ -473,6 +614,157 @@ export function RestaurantGuestMenuPage() {
             </div>
           </div>
         ) : null}
+=======
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={navStack.map((n) => n.id).join('/') || 'root'}
+            initial={{ opacity: 0, x: 14 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -10 }}
+            transition={{ duration: 0.2 }}
+          >
+            {!currentNode ? (
+              <>
+                <h2 className="mb-3 px-1 text-sm font-semibold tracking-wide text-slate-500 uppercase">
+                  Menu
+                </h2>
+                <div className="space-y-2">
+                  {rootCategories.map((node) => {
+                    const isLeaf = node.children.length === 0
+                    const subCount = node.children.length
+                    const productCount = node.products.length
+                    return (
+                      <button
+                        key={node.id}
+                        type="button"
+                        onClick={() => enterCategory(node)}
+                        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-left shadow-sm transition-colors hover:border-teal-200 hover:bg-teal-50/40"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-semibold text-slate-900">{node.name}</span>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {isLeaf
+                              ? productCount === 1
+                                ? '1 item'
+                                : `${productCount} items`
+                              : subCount === 1
+                                ? '1 subcategory'
+                                : `${subCount} subcategories`}
+                            {!isLeaf && productCount > 0
+                              ? ` · ${productCount} item${productCount === 1 ? '' : 's'} here`
+                              : ''}
+                          </p>
+                        </div>
+                        <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {uncategorized.length > 0 ? (
+                  <div className="mt-8">
+                    <h2 className="mb-3 px-1 text-sm font-semibold tracking-wide text-slate-500 uppercase">
+                      Other
+                    </h2>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {uncategorized.map((item) => (
+                        <GuestMenuProductCard
+                          key={item.id}
+                          item={item}
+                          onAdd={handleAdd}
+                          setMenuHint={setMenuHint}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : currentNode.children.length === 0 ? (
+              <>
+                <h2 className="mb-3 px-1 text-sm font-semibold tracking-wide text-slate-500 uppercase">
+                  Items
+                </h2>
+                {currentNode.products.length === 0 ? (
+                  <p className="py-10 text-center text-sm text-slate-500">No dishes in this category yet.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {currentNode.products.map((item) => (
+                      <GuestMenuProductCard
+                        key={item.id}
+                        item={item}
+                        onAdd={handleAdd}
+                        setMenuHint={setMenuHint}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <h2 className="mb-3 px-1 text-sm font-semibold tracking-wide text-slate-500 uppercase">
+                  Categories
+                </h2>
+                <div className="space-y-2">
+                  {sortGuestChildrenLeavesFirst(currentNode.children)
+                    .filter((c) => c.children.length > 0 || c.products.length > 0)
+                    .map((child) => {
+                    const isLeaf = child.children.length === 0
+                    const subCount = child.children.length
+                    const productCount = child.products.length
+                    return (
+                      <button
+                        key={child.id}
+                        type="button"
+                        onClick={() => enterCategory(child)}
+                        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-left shadow-sm transition-colors hover:border-teal-200 hover:bg-teal-50/40"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-semibold text-slate-900">{child.name}</span>
+                          {isLeaf ? (
+                            <p className="mt-0.5 text-xs text-teal-700">
+                              {productCount === 0
+                                ? 'No items yet'
+                                : productCount === 1
+                                  ? '1 item'
+                                  : `${productCount} items`}
+                            </p>
+                          ) : (
+                            <p className="mt-0.5 text-xs text-slate-500">
+                              {subCount === 1 ? '1 subcategory' : `${subCount} subcategories`}
+                              {productCount > 0
+                                ? ` · ${productCount} item${productCount === 1 ? '' : 's'} here`
+                                : ''}
+                            </p>
+                          )}
+                        </div>
+                        <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {currentNode.products.length > 0 ? (
+                  <div className="mt-8">
+                    <h2 className="mb-3 px-1 text-sm font-semibold tracking-wide text-slate-500 uppercase">
+                      In this section
+                    </h2>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {currentNode.products.map((item) => (
+                        <GuestMenuProductCard
+                          key={item.id}
+                          item={item}
+                          onAdd={handleAdd}
+                          setMenuHint={setMenuHint}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </motion.div>
+        </AnimatePresence>
+>>>>>>> a3b8ff8ece2a07d7d62126992c5bc1b1fdd3425b
 
         {!loading && categories.length === 0 && uncategorized.length === 0 ? (
           <p className="py-12 text-center text-sm text-slate-500">No items in this section.</p>
@@ -526,7 +818,7 @@ export function RestaurantGuestMenuPage() {
               <div className="flex-1 space-y-4 overflow-y-auto p-4">
                 {cart.map((item) => (
                   <div key={item.product.id} className="flex items-center gap-4">
-                    <ProductThumb product={item.product} className="h-16 w-16" />
+                    <GuestProductImageFrame product={item.product} className="h-16 w-16" />
                     <div className="min-w-0 flex-1">
                       <h4 className="text-sm font-bold text-slate-800">{item.product.name}</h4>
                       <p className="text-sm font-semibold text-teal-600">

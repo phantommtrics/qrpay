@@ -80,6 +80,10 @@ enum StaffCreationNotificationType {
   PLATFORM_ADMIN_INVITE
   /** Subscription invoice issued to business owner (PDF attached). */
   SUBSCRIPTION_INVOICE
+  /** Merchant-issued sales invoice approved / sent to customer contact. */
+  SALES_INVOICE_APPROVED
+  /** Sales quotation sent to customer contact (PDF + guest link). */
+  SALES_QUOTATION_SENT
   /** Business notified that a subscription invoice refund is under platform review (PDF attached). */
   SUBSCRIPTION_INVOICE_REFUND_REVIEW
   /** Business notified that a refund was approved; includes expected refund date (PDF attached). */
@@ -139,6 +143,8 @@ enum JournalSourceType {
   MANUAL_MONEY_IN
   MANUAL_MONEY_OUT
   MANUAL_BANK_TRANSFER
+  /** Cash-basis GL when a business sales invoice is marked paid. */
+  SALES_INVOICE_PAYMENT
 }
 
 /** Easypay operator GL — merchant subscription cash vs manual platform costs. */
@@ -176,6 +182,20 @@ enum BusinessMembershipStatus {
   TERMINATED
 }
 
+enum SalesQuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+}
+
+enum SalesInvoiceStatus {
+  DRAFT
+  APPROVED
+  PAID
+  VOID
+}
+
 model Business {
   id                            String                         @id @default(cuid())
   name                          String
@@ -203,6 +223,8 @@ model Business {
   journalEntries                JournalEntry[]
   salesLedgerEntries            SalesLedgerEntry[]
   gatewayCredentials            BusinessGatewayCredential[]
+  salesQuotations               SalesQuotation[]
+  salesInvoices                 SalesInvoice[]
 }
 
 enum BusinessPaymentMethodStatus {
@@ -270,8 +292,10 @@ model BusinessContact {
   notes      String?  @db.Text
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  journalEntries JournalEntry[]
+  business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  journalEntries   JournalEntry[]
+  salesQuotations  SalesQuotation[]
+  salesInvoices    SalesInvoice[]
 
   @@index([businessId])
   @@index([businessId, name])
@@ -294,8 +318,11 @@ model ChartOfAccount {
   isSystem    Boolean              @default(false)
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
-  business   Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  lines      JournalLine[]
+  business            Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lines               JournalLine[]
+  salesQuotationLines SalesQuotationLine[]
+  salesInvoiceLines   SalesInvoiceLine[]
+  salesInvoicesSettledHere SalesInvoice[]  @relation("InvoiceSettlementAccount")
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -314,9 +341,10 @@ model JournalEntry {
   contactId   String?
   createdAt   DateTime           @default(now())
   business    Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  contact     BusinessContact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  lines       JournalLine[]
-  salesLedger SalesLedgerEntry[]
+  contact                  BusinessContact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  lines                    JournalLine[]
+  salesLedger              SalesLedgerEntry[]
+  salesInvoiceFromPayment  SalesInvoice?      @relation("SalesInvoiceJournal")
 
   @@index([businessId, postedAt])
   @@index([businessId, sourceType, sourceId])
@@ -339,6 +367,96 @@ model JournalLine {
 
   @@index([journalEntryId])
   @@index([chartOfAccountId])
+}
+
+/** Customer quote (Xero-style); accepting creates a sales invoice draft. */
+model SalesQuotation {
+  id         String               @id @default(cuid())
+  businessId String
+  contactId  String
+  publicCode String
+  status     SalesQuotationStatus @default(DRAFT)
+  validUntil DateTime?
+  reference  String?
+  currency   String               @default("GMD")
+  /** Secret token for guest view / accept / reject (set when sent). */
+  guestToken String?              @unique
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+  business   Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact    BusinessContact      @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  lines      SalesQuotationLine[]
+  invoiceFromQuote SalesInvoice?  @relation("QuotationToInvoice")
+
+  @@unique([businessId, publicCode])
+  @@index([businessId, status])
+}
+
+model SalesQuotationLine {
+  id               String         @id @default(cuid())
+  quotationId      String
+  chartOfAccountId String
+  narration        String         @default("")
+  quantity         Decimal        @db.Decimal(18, 6)
+  unitLabel        String?
+  unitAmount       Decimal        @db.Decimal(12, 2)
+  taxAmount        Decimal        @default(0) @db.Decimal(12, 2)
+  sortOrder        Int            @default(0)
+  quotation        SalesQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  chartOfAccount   ChartOfAccount @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
+
+  @@index([quotationId])
+}
+
+/**
+ * Merchant-issued invoice. General ledger is posted only when status becomes PAID (cash-basis).
+ * Approving notifies the contact by email (Xero-style issue / send).
+ */
+model SalesInvoice {
+  id                       String             @id @default(cuid())
+  businessId               String
+  contactId                String
+  sourceQuotationId        String?            @unique
+  publicCode               String
+  status                   SalesInvoiceStatus @default(DRAFT)
+  issueDate                DateTime
+  dueDate                  DateTime?
+  reference                String?
+  currency                 String             @default("GMD")
+  /** Secret token for guest view / wallet pay (set when approved). */
+  guestToken               String?            @unique
+  settlementChartAccountId String?
+  journalEntryId           String?            @unique
+  approvedAt               DateTime?
+  paidAt                   DateTime?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+  business                 Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact                  BusinessContact    @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  sourceQuotation          SalesQuotation?    @relation("QuotationToInvoice", fields: [sourceQuotationId], references: [id], onDelete: SetNull)
+  settlementAccount        ChartOfAccount?    @relation("InvoiceSettlementAccount", fields: [settlementChartAccountId], references: [id], onDelete: SetNull)
+  journalEntry             JournalEntry?      @relation("SalesInvoiceJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+  lines                    SalesInvoiceLine[]
+  payments                 Payment[]
+
+  @@unique([businessId, publicCode])
+  @@index([businessId, status])
+}
+
+model SalesInvoiceLine {
+  id               String         @id @default(cuid())
+  invoiceId        String
+  chartOfAccountId String
+  narration        String         @default("")
+  quantity         Decimal        @db.Decimal(18, 6)
+  unitLabel        String?
+  unitAmount       Decimal        @db.Decimal(12, 2)
+  taxAmount        Decimal        @default(0) @db.Decimal(12, 2)
+  sortOrder        Int            @default(0)
+  invoice          SalesInvoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  chartOfAccount   ChartOfAccount @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
 }
 
 /** Platform (EasyPay) chart — one global ledger, not per merchant Business. */
@@ -812,7 +930,8 @@ model OrderLine {
 model Payment {
   id              String          @id @default(cuid())
   businessId      String
-  orderId         String
+  orderId         String?
+  salesInvoiceId  String?         @unique
   publicCode      String
   method          PaymentMethod
   provider        PaymentProvider @default(SIMULATOR)
@@ -826,7 +945,8 @@ model Payment {
   completedAt     DateTime?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
-  order           Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order           Order?           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  salesInvoice    SalesInvoice?    @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
   business             Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
   salesLedgerEntries   SalesLedgerEntry[]
 

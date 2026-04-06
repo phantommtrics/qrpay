@@ -28,7 +28,7 @@ export function LandingPage() {
                 <QrCode className="h-6 w-6 text-teal-400" />
               </div>
               <div>
-                <p className="text-lg font-bold">QRPay</p>
+                <p className="text-lg font-bold">EASYPAY</p>
                 <p className="text-xs text-slate-400">Retail and restaurant payments</p>
               </div>
             </div>
@@ -55,7 +55,7 @@ export function LandingPage() {
                   Subscription-ready QR payments for small, big, and enterprise businesses
                 </div>
                 <h1 className="max-w-3xl text-4xl font-bold tracking-tight text-white md:text-6xl">
-                  Launch your QRPay storefront, team, and subscription access in one place.
+                  Launch your EASYPAY storefront, team, and subscription access in one place.
                 </h1>
                 <p className="mt-6 max-w-2xl text-lg text-slate-300">
                   Showcase your business online, create an organization, choose a plan, and let
@@ -189,7 +189,7 @@ export function LandingPage() {
                 Permission-based plans your business can grow into
               </h2>
               <p className="mt-3 text-slate-600">
-                Customers can see exactly how QRPay scales from startup teams to enterprise
+                Customers can see exactly how EASYPAY scales from startup teams to enterprise
                 operations. Platform owners assign these permissions per subscription plan.
               </p>
             </div>

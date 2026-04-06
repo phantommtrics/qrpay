@@ -62,9 +62,12 @@ export type PermissionKey =
   | 'accounting.reports.pnl'
   | 'accounting.reports.statement'
   | 'accounting.reports.export'
+  | 'sales.quotation'
+  | 'sales.invoice'
   | 'pos.access'
   | 'dashboard.view'
   | 'organization.manage'
+  | 'contacts.manage'
   | 'business.configuration'
   | 'subscriptions.billings'
   | 'subscriptions.invoices'
@@ -140,6 +143,7 @@ export interface PermissionDefinition {
     | 'Products'
     | 'Operations'
     | 'Integrations'
+    | 'Sales'
 }
 
 export type PlanPermissions = Record<PlanId, Partial<Record<PermissionKey, boolean>>>

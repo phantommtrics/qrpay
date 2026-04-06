@@ -115,7 +115,12 @@ export function ProductsPage() {
             onClick={() => setSelectedProduct(product)}
             className="overflow-hidden rounded-xl border border-slate-200 bg-white text-left transition-shadow hover:shadow-md"
           >
-            <ProductThumb product={product} size="lg" className="h-32 w-full rounded-none rounded-t-xl" />
+            <ProductThumb
+              product={product}
+              size="lg"
+              imageFit="cover"
+              className="h-32 w-full rounded-none rounded-t-xl ring-1 ring-inset ring-slate-900/5"
+            />
             <div className="p-4">
               <div className="mb-2 flex items-start justify-between gap-3">
                 <h3 className="line-clamp-1 font-semibold text-slate-800">{product.name}</h3>

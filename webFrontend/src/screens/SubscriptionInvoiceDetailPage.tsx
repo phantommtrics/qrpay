@@ -112,7 +112,7 @@ export function SubscriptionInvoiceDetailPage() {
           <header className="flex flex-col gap-6 border-b border-slate-200 pb-8 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-teal-600">
-                EasyPay / QRPay
+                EasyPay / EASYPay
               </p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">Invoice</h1>
               <p className="mt-1 font-mono text-sm text-slate-500">{inv.id}</p>
