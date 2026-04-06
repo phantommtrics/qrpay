@@ -28,6 +28,12 @@ export const APP_PATHS = {
   payments: '/payments',
   reports: '/reports',
   subscriptionsBillingActivity: '/subscriptions/billing-activity',
+  salesQuotations: '/sales/quotations',
+  salesInvoices: '/sales/invoices',
+  /** Dynamic: `/sales/quotations/${quotationId}` */
+  salesQuotationDetail: '/sales/quotations/:quotationId',
+  /** Dynamic: `/sales/invoices/${invoiceId}` */
+  salesInvoiceDetail: '/sales/invoices/:invoiceId',
   accounting: '/accounting',
   accountingBalances: '/accounting/balances',
   accountingProfitLoss: '/accounting/profit-loss',
@@ -39,6 +45,7 @@ export const APP_PATHS = {
   staff: '/staff',
   staffStatus: '/staff/status',
   configuration: '/configuration',
+  contacts: '/contacts',
   businesses: '/businesses',
   billing: '/billing',
   integrationsMerchantApi: '/integrations/merchant-api',
@@ -76,6 +83,14 @@ export const APP_PATHS = {
   /** Menu category tree for restaurant products. */
   restaurantMenuSetup: '/restaurant/menu',
 } as const
+
+export function salesQuotationDetailPath(quotationId: string) {
+  return `/sales/quotations/${encodeURIComponent(quotationId)}`
+}
+
+export function salesInvoiceDetailPath(invoiceId: string) {
+  return `/sales/invoices/${encodeURIComponent(invoiceId)}`
+}
 
 export const PLATFORM_SECURITY_SUBNAV = [
   {
@@ -423,6 +438,10 @@ export function getPageTitle(pathname: string) {
     return 'Configuration'
   }
 
+  if (pathname.includes(APP_PATHS.contacts)) {
+    return 'Contacts'
+  }
+
   if (pathname.startsWith('/b/')) {
     return 'Restaurant menu'
   }
@@ -438,6 +457,12 @@ export function getPageTitle(pathname: string) {
   }
   if (pathname.includes(APP_PATHS.accountingReportAccountStatement)) {
     return 'Account statement'
+  }
+  if (pathname.includes(APP_PATHS.salesQuotations)) {
+    return 'Sales quotations'
+  }
+  if (pathname.includes(APP_PATHS.salesInvoices)) {
+    return 'Sales invoices'
   }
 
   const matchedItem = [...MAIN_NAV_ITEMS].sort((a, b) => b.path.length - a.path.length).find(

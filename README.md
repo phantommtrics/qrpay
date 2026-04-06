@@ -2,6 +2,10 @@
 
 EasyPay is a subscription-enabled merchant application with a React frontend and an Express + Prisma backend.
 
+## Documentation
+
+Full system documentation (architecture, backend and frontend components, workflows, operations) is in **[docs/README.md](./docs/README.md)**. Platform owner APIs and UI behavior are covered in [docs/platform-admin.md](./docs/platform-admin.md).
+
 ## Current business model
 
 - One login account can own or access multiple businesses.

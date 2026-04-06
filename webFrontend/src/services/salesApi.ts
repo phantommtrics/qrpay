@@ -1,5 +1,6 @@
 import { API_BASE_URL } from '../config/api'
 
+import type { SalesInvoiceRow, SalesQuotationRow } from './salesDocumentsApi'
 import { ApiError } from './subscriptionApi'
 
 const STORAGE_KEY_TOKEN = 'qrpay.auth.token'
@@ -50,6 +51,60 @@ export async function apiRequest<T>(
   return payload as T
 }
 
+/** Binary responses (e.g. PDF); skips JSON parse. Returns optional filename from Content-Disposition. */
+export async function apiFetchBinary(
+  path: string,
+  init?: RequestInit & { businessId?: string },
+): Promise<{ blob: Blob; filename: string | null }> {
+  const token = getStoredToken()
+  const { businessId, ...rest } = init ?? {}
+  const headers = new Headers(rest.headers)
+  if (businessId) {
+    headers.set('x-business-id', businessId)
+  }
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...rest,
+    headers,
+  })
+
+  if (!response.ok) {
+    let errorMessage = 'Request failed.'
+    try {
+      const payload: unknown = await response.json()
+      if (
+        payload &&
+        typeof payload === 'object' &&
+        'error' in payload &&
+        typeof (payload as { error: unknown }).error === 'string'
+      ) {
+        errorMessage = (payload as { error: string }).error
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(errorMessage, response.status)
+  }
+
+  const blob = await response.blob()
+  let filename: string | null = null
+  const cd = response.headers.get('Content-Disposition')
+  if (cd) {
+    const m = /filename\*?=(?:UTF-8''|")?([^";\n]+)/i.exec(cd)
+    if (m) {
+      try {
+        filename = decodeURIComponent(m[1].replace(/"/g, '').trim())
+      } catch {
+        filename = m[1].replace(/"/g, '').trim()
+      }
+    }
+  }
+  return { blob, filename }
+}
+
 export type SaleOrderLine = {
   id: string
   productId: string
@@ -78,10 +133,13 @@ export type SaleOrder = {
 
 export type SalePayment = {
   id: string
-  orderId: string
+  orderId: string | null
   orderPublicCode: string | null
+  salesInvoiceId?: string | null
+  salesInvoicePublicCode?: string | null
   businessId: string
   publicCode: string
+  publicToken: string
   amount: number
   currency: string
   status: 'pending' | 'completed' | 'failed'
@@ -329,14 +387,26 @@ export async function fetchReceipt(
   return res.data
 }
 
-export type PublicPayInfo = {
-  businessName: string
-  amount: number
-  currency: string
-  orderStatus: string
-  paymentStatus: string
-  method: string
-}
+export type PublicPayInfo =
+  | {
+      kind: 'order'
+      businessName: string
+      amount: number
+      currency: string
+      orderStatus: string
+      paymentStatus: string
+      method: string
+    }
+  | {
+      kind: 'sales_invoice'
+      businessName: string
+      amount: number
+      currency: string
+      invoiceStatus: string
+      invoiceCode: string
+      paymentStatus: string
+      method: string
+    }
 
 export async function fetchPublicPayInfo(publicToken: string): Promise<PublicPayInfo> {
   const response = await fetch(`${API_BASE_URL}/public/pay/${publicToken}`)
@@ -355,6 +425,132 @@ export async function fetchPublicPayInfo(publicToken: string): Promise<PublicPay
   }
   const envelope = payload as { data: PublicPayInfo }
   return envelope.data
+}
+
+export type GuestQuotationPayload = {
+  businessName: string
+  canRespond: boolean
+  document: SalesQuotationRow
+  createdInvoice?: SalesInvoiceRow
+}
+
+export async function fetchGuestQuotation(guestToken: string): Promise<GuestQuotationPayload> {
+  const response = await fetch(`${API_BASE_URL}/public/guest/quotation/${encodeURIComponent(guestToken)}`)
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  return (payload as { data: GuestQuotationPayload }).data
+}
+
+export async function respondGuestQuotation(
+  guestToken: string,
+  action: 'accept' | 'reject',
+): Promise<GuestQuotationPayload> {
+  const response = await fetch(
+    `${API_BASE_URL}/public/guest/quotation/${encodeURIComponent(guestToken)}/respond`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    },
+  )
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  return (payload as { data: GuestQuotationPayload }).data
+}
+
+export type GuestInvoicePayload = {
+  businessName: string
+  canPay: boolean
+  document: SalesInvoiceRow
+}
+
+export async function fetchGuestInvoice(guestToken: string): Promise<GuestInvoicePayload> {
+  const response = await fetch(`${API_BASE_URL}/public/guest/invoice/${encodeURIComponent(guestToken)}`)
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  return (payload as { data: GuestInvoicePayload }).data
+}
+
+export async function fetchGuestInvoiceWallets(guestToken: string): Promise<OrderCheckoutWalletRow[]> {
+  const response = await fetch(
+    `${API_BASE_URL}/public/guest/invoice/${encodeURIComponent(guestToken)}/wallets`,
+  )
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  const envelope = payload as { data: { wallets: OrderCheckoutWalletRow[] } }
+  return Array.isArray(envelope.data?.wallets) ? envelope.data.wallets : []
+}
+
+export async function startGuestInvoiceWalletCheckout(
+  guestToken: string,
+  body?: { gatewayCode?: string; payerPhone?: string },
+): Promise<StartWalletCheckoutResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/public/guest/invoice/${encodeURIComponent(guestToken)}/payments/wallet`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    },
+  )
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  return (payload as { data: StartWalletCheckoutResponse }).data
 }
 
 export async function simulatePublicWalletPay(publicToken: string): Promise<void> {

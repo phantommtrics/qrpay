@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Request } from "express";
-import { Prisma } from "@prisma/client";
+import { Prisma, SalesInvoiceStatus } from "@prisma/client";
 
 import { HttpError } from "../lib/http-error.js";
 import {
@@ -18,6 +18,8 @@ import {
   listOrderCheckoutWallets,
   startGatewayWalletCheckout,
 } from "./order-wallet-checkout.service.js";
+import { markSalesInvoicePaidWithWalletPayment } from "./sales-invoice.service.js";
+import { resolveDefaultBankSettlementAccountId } from "./sales-settlement-account.service.js";
 
 const SIMULATOR_WEBHOOK_PROVIDER = "simulator";
 
@@ -633,6 +635,146 @@ export async function completeCashPayment(orderId: string, businessId: string) {
   );
 }
 
+async function completeSalesInvoiceWalletPaymentCore(
+  payment: {
+    id: string;
+    businessId: string;
+    salesInvoiceId: string | null;
+    orderId: string | null;
+    status: string;
+    salesInvoice: {
+      id: string;
+      status: SalesInvoiceStatus;
+      journalEntryId: string | null;
+    } | null;
+  },
+  options?: { externalEventId?: string },
+) {
+  if (!payment.salesInvoiceId || !payment.salesInvoice) {
+    throw new HttpError(500, "Sales invoice payment is missing invoice data.");
+  }
+
+  if (options?.externalEventId) {
+    const existingLog = await prisma.webhookEventLog.findUnique({
+      where: {
+        provider_eventKey: {
+          provider: SIMULATOR_WEBHOOK_PROVIDER,
+          eventKey: options.externalEventId,
+        },
+      },
+    });
+    if (existingLog) {
+      return {
+        ok: true as const,
+        duplicate: true as const,
+        orderId: null as string | null,
+        receiptId: null as string | null,
+        salesInvoiceId: payment.salesInvoiceId,
+      };
+    }
+  }
+
+  if (
+    payment.status === PaymentStatus.COMPLETED ||
+    payment.salesInvoice.status === SalesInvoiceStatus.PAID ||
+    payment.salesInvoice.journalEntryId
+  ) {
+    return {
+      ok: true as const,
+      duplicate: true as const,
+      orderId: null as string | null,
+      receiptId: null as string | null,
+      salesInvoiceId: payment.salesInvoiceId,
+    };
+  }
+
+  if (payment.status !== PaymentStatus.PENDING) {
+    throw new HttpError(400, "Payment cannot be completed.");
+  }
+
+  const settlementId = await resolveDefaultBankSettlementAccountId(payment.businessId);
+
+  return prisma.$transaction(
+    async (tx) => {
+      if (options?.externalEventId) {
+        try {
+          await tx.webhookEventLog.create({
+            data: {
+              provider: SIMULATOR_WEBHOOK_PROVIDER,
+              eventKey: options.externalEventId,
+            },
+          });
+        } catch (error) {
+          if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === "P2002"
+          ) {
+            return {
+              ok: true as const,
+              duplicate: true as const,
+              orderId: null as string | null,
+              receiptId: null as string | null,
+              salesInvoiceId: payment.salesInvoiceId,
+            };
+          }
+          throw error;
+        }
+      }
+
+      const fresh = await tx.payment.findUnique({
+        where: { id: payment.id },
+        include: {
+          salesInvoice: {
+            include: {
+              lines: { orderBy: { sortOrder: "asc" } },
+              contact: true,
+            },
+          },
+        },
+      });
+
+      if (!fresh?.salesInvoice) {
+        throw new HttpError(404, "Payment not found.");
+      }
+
+      if (
+        fresh.status === PaymentStatus.COMPLETED ||
+        fresh.salesInvoice.status === SalesInvoiceStatus.PAID ||
+        fresh.salesInvoice.journalEntryId
+      ) {
+        return {
+          ok: true as const,
+          duplicate: true as const,
+          orderId: null as string | null,
+          receiptId: null as string | null,
+          salesInvoiceId: fresh.salesInvoiceId,
+        };
+      }
+
+      if (fresh.status !== PaymentStatus.PENDING) {
+        throw new HttpError(400, "Payment cannot be completed.");
+      }
+
+      await markSalesInvoicePaidWithWalletPayment(
+        tx,
+        fresh.businessId,
+        fresh.salesInvoice.id,
+        fresh.id,
+        { settlementChartAccountId: settlementId, postedAt: new Date() },
+      );
+
+      return {
+        ok: true as const,
+        duplicate: false as const,
+        orderId: null as string | null,
+        receiptId: null as string | null,
+        salesInvoiceId: fresh.salesInvoiceId,
+      };
+    },
+    { maxWait: 10_000, timeout: 15_000 },
+  );
+}
+
 export async function completeWalletPaymentByPublicToken(
   publicToken: string,
   options?: { externalEventId?: string },
@@ -647,6 +789,12 @@ export async function completeWalletPaymentByPublicToken(
           business: { select: { name: true } },
         },
       },
+      salesInvoice: {
+        include: {
+          lines: { orderBy: { sortOrder: "asc" } },
+          contact: true,
+        },
+      },
     },
   });
 
@@ -655,6 +803,14 @@ export async function completeWalletPaymentByPublicToken(
   }
   if (payment.method !== PaymentMethod.QR_WALLET) {
     throw new HttpError(400, "Not a wallet payment.");
+  }
+
+  if (payment.salesInvoiceId && payment.salesInvoice) {
+    return completeSalesInvoiceWalletPaymentCore(payment, options);
+  }
+
+  if (!payment.orderId || !payment.order) {
+    throw new HttpError(400, "Invalid payment — no order linked.");
   }
 
   if (options?.externalEventId) {
@@ -712,7 +868,7 @@ export async function completeWalletPaymentByPublicToken(
               ok: true as const,
               duplicate: true as const,
               orderId: payment.orderId,
-              receiptId: row?.order.receipt?.id ?? null,
+              receiptId: row?.order?.receipt?.id ?? null,
             };
           }
           throw error;
@@ -734,6 +890,9 @@ export async function completeWalletPaymentByPublicToken(
 
       if (!fresh) {
         throw new HttpError(404, "Payment not found.");
+      }
+      if (!fresh.orderId || !fresh.order) {
+        throw new HttpError(400, "Invalid payment — no order linked.");
       }
 
       if (
@@ -894,6 +1053,7 @@ export async function getPublicPayInfo(publicToken: string) {
     include: {
       business: { select: { name: true } },
       order: { select: { id: true, status: true, total: true, currency: true } },
+      salesInvoice: { select: { id: true, publicCode: true, status: true } },
     },
   });
 
@@ -901,7 +1061,25 @@ export async function getPublicPayInfo(publicToken: string) {
     throw new HttpError(404, "Payment not found.");
   }
 
+  if (payment.salesInvoiceId && payment.salesInvoice) {
+    return {
+      kind: "sales_invoice" as const,
+      businessName: payment.business.name,
+      amount: Number(payment.amount),
+      currency: payment.currency,
+      invoiceStatus: payment.salesInvoice.status,
+      invoiceCode: payment.salesInvoice.publicCode,
+      paymentStatus: payment.status,
+      method: payment.method,
+    };
+  }
+
+  if (!payment.order) {
+    throw new HttpError(400, "Invalid payment record.");
+  }
+
   return {
+    kind: "order" as const,
     businessName: payment.business.name,
     amount: Number(payment.amount),
     currency: payment.currency,
@@ -946,6 +1124,7 @@ export async function listPaymentsForBusiness(
       take: pageSize,
       include: {
         order: { select: { id: true, publicCode: true } },
+        salesInvoice: { select: { id: true, publicCode: true } },
       },
     }),
   ]);

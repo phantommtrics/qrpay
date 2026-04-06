@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ContactSearchCombobox } from '../components/ui/ContactSearchCombobox'
@@ -7,14 +7,22 @@ import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/SearchableSelect'
 import { Toast, type ToastVariant } from '../components/ui/Toast'
-import { APP_PATHS } from '../config/navigation'
+import { APP_PATHS, salesQuotationDetailPath } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
 import { fetchAccountingSummary, type AccountingAccountRow } from '../services/accountingApi'
-import { postBankTransferJournal, postMoneyInJournal, postMoneyOutJournal } from '../services/journalApi'
 import { ApiError } from '../services/subscriptionApi'
+import {
+  acceptSalesQuotation,
+  createSalesQuotation,
+  fetchSalesQuotations,
+  patchSalesQuotation,
+  rejectSalesQuotation,
+  sendSalesQuotation,
+  type SalesQuotationRow,
+} from '../services/salesDocumentsApi'
 import { formatMoney } from '../utils/formatMoney'
 
-type Tab = 'in' | 'out' | 'transfer'
+type Tab = 'new' | 'list'
 
 type LineDraft = {
   id: string
@@ -26,7 +34,6 @@ type LineDraft = {
   chartOfAccountId: string
 }
 
-/** Stable unique ids for draft lines; avoids crypto.randomUUID() where unsupported. */
 function newLineId(): string {
   const c = globalThis.crypto
   if (c && typeof c.randomUUID === 'function') return c.randomUUID()
@@ -62,12 +69,16 @@ function lineTotal(l: LineDraft): number {
   return parseNum(l.quantity) * parseNum(l.unitAmount) + parseNum(l.taxAmount)
 }
 
-function subtotalExTax(lines: LineDraft[]): number {
-  return lines.reduce((s, l) => s + parseNum(l.quantity) * parseNum(l.unitAmount), 0)
-}
-
 function totalWithTax(lines: LineDraft[]): number {
   return lines.reduce((s, l) => s + lineTotal(l), 0)
+}
+
+function docLineTotal(l: SalesQuotationRow['lines'][0]): number {
+  return l.quantity * l.unitAmount + l.taxAmount
+}
+
+function quotationTotal(q: SalesQuotationRow): number {
+  return q.lines.reduce((s, l) => s + docLineTotal(l), 0)
 }
 
 function todayDateInput(): string {
@@ -78,7 +89,8 @@ function todayDateInput(): string {
   return `${y}-${m}-${day}`
 }
 
-function dateInputToIso(dateStr: string): string {
+function dateInputToIso(dateStr: string): string | null {
+  if (!dateStr?.trim()) return null
   const d = new Date(`${dateStr}T12:00:00`)
   return d.toISOString()
 }
@@ -98,58 +110,57 @@ const QB_SELECT_FORM =
 const QB_DROPDOWN = '!rounded-md !border-qb-border'
 const ACCOUNT_LIST_MAX = 'max-h-[7.5rem]'
 
-export function AccountingJournalsPage() {
+function statusBadge(status: string) {
+  const base =
+    'inline-flex rounded-sm px-2 py-0.5 text-xs font-semibold uppercase tracking-wide'
+  switch (status) {
+    case 'DRAFT':
+      return <span className={`${base} bg-slate-100 text-slate-700`}>Draft</span>
+    case 'SENT':
+      return <span className={`${base} bg-sky-100 text-sky-800`}>Sent</span>
+    case 'ACCEPTED':
+      return <span className={`${base} bg-emerald-100 text-emerald-800`}>Accepted</span>
+    case 'REJECTED':
+      return <span className={`${base} bg-red-100 text-red-800`}>Rejected</span>
+    default:
+      return <span className={`${base} bg-qb-surface text-qb-muted`}>{status}</span>
+  }
+}
+
+export function SalesQuotationsPage() {
   const { currentOrganization } = useAuth()
   const businessId = currentOrganization?.id
 
-  const [tab, setTab] = useState<Tab>('in')
+  const [tab, setTab] = useState<Tab>('new')
   const [accounts, setAccounts] = useState<AccountingAccountRow[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(false)
 
-  const [postedAt, setPostedAt] = useState(todayDateInput)
   const [reference, setReference] = useState('')
-  const [settlementId, setSettlementId] = useState('')
-
+  const [validUntil, setValidUntil] = useState('')
   const [contactId, setContactId] = useState('')
   const [contactInput, setContactInput] = useState('')
-
   const [lines, setLines] = useState<LineDraft[]>(() => [newLine()])
 
-  const [fromBankId, setFromBankId] = useState('')
-  const [toBankId, setToBankId] = useState('')
-  const [transferAmount, setTransferAmount] = useState('')
+  const [listRows, setListRows] = useState<SalesQuotationRow[]>([])
+  const [loadingList, setLoadingList] = useState(false)
+  const [rowBusy, setRowBusy] = useState<string | null>(null)
+
+  const [editingQuotationId, setEditingQuotationId] = useState<string | null>(null)
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null)
 
   const dismissToast = useCallback(() => setToast(null), [])
-
   const reportError = useCallback((msg: string) => {
     setError(msg)
     setToast({ message: msg, variant: 'error' })
   }, [])
 
-  const assetAccounts = useMemo(
-    () => accounts.filter((a) => a.category === 'ASSET').sort((a, b) => a.code.localeCompare(b.code)),
-    [accounts],
-  )
-
-  const bankAccounts = useMemo(
-    () =>
-      accounts
-        .filter((a) => a.kind === 'BANK')
-        .sort((a, b) => a.code.localeCompare(b.code)),
-    [accounts],
-  )
-
   const lineAccountOptions = useMemo(
     () => [...accounts].sort((a, b) => a.code.localeCompare(b.code)),
     [accounts],
   )
-
-  const bankSelectOptions = useMemo(() => accountsToOptions(bankAccounts), [bankAccounts])
-  const assetSelectOptions = useMemo(() => accountsToOptions(assetAccounts), [assetAccounts])
   const lineSelectOptions = useMemo(() => accountsToOptions(lineAccountOptions), [lineAccountOptions])
 
   const loadAccounts = useCallback(() => {
@@ -161,149 +172,153 @@ export function AccountingJournalsPage() {
       .finally(() => setLoadingAccounts(false))
   }, [businessId])
 
+  const loadList = useCallback(() => {
+    if (!businessId) return
+    setLoadingList(true)
+    void fetchSalesQuotations(businessId)
+      .then(setListRows)
+      .catch(() => setListRows([]))
+      .finally(() => setLoadingList(false))
+  }, [businessId])
+
   useEffect(() => {
     loadAccounts()
   }, [loadAccounts])
 
-  const resetInOutForm = () => {
-    setPostedAt(todayDateInput())
+  useEffect(() => {
+    if (tab === 'list' && businessId) loadList()
+  }, [tab, businessId, loadList])
+
+  const resetForm = () => {
     setReference('')
-    setSettlementId('')
+    setValidUntil('')
     setContactId('')
     setContactInput('')
     setLines([newLine()])
+    setEditingQuotationId(null)
   }
 
-  const resetTransferForm = () => {
-    setPostedAt(todayDateInput())
-    setReference('')
-    setFromBankId('')
-    setToBankId('')
-    setTransferAmount('')
+  const hydrateFromQuotation = useCallback((q: SalesQuotationRow) => {
+    setReference(q.reference ?? '')
+    setValidUntil(q.validUntil ? q.validUntil.slice(0, 10) : '')
+    setContactId(q.contactId)
+    setContactInput(q.contact.name)
+    const ordered = [...q.lines].sort((a, b) => a.sortOrder - b.sortOrder)
+    setLines(
+      ordered.length
+        ? ordered.map((l) => ({
+            id: newLineId(),
+            narration: l.narration,
+            unitLabel: l.unitLabel ?? '',
+            quantity: String(l.quantity),
+            unitAmount: String(l.unitAmount),
+            taxAmount: String(l.taxAmount),
+            chartOfAccountId: l.chartOfAccountId,
+          }))
+        : [newLine()],
+    )
+  }, [])
+
+  const startEditQuotation = (q: SalesQuotationRow) => {
+    setEditingQuotationId(q.id)
+    hydrateFromQuotation(q)
+    setTab('new')
+    setError(null)
+    setToast(null)
+  }
+
+  const cancelEdit = () => {
+    resetForm()
+    setError(null)
+    setToast(null)
   }
 
   const updateLine = (id: string, patch: Partial<LineDraft>) => {
     setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)))
   }
 
-  const submitInOut = async (e: FormEvent, direction: 'in' | 'out') => {
+  const submitCreate = async (e: FormEvent) => {
     e.preventDefault()
     if (!businessId) return
     setError(null)
     setToast(null)
-
-    if (!postedAt?.trim()) {
-      reportError('Select a date.')
-      return
-    }
-
-    const payloadLines = lines
-      .map((l) => ({
-        chartOfAccountId: l.chartOfAccountId,
-        narration: l.narration.trim(),
-        quantity: parseNum(l.quantity),
-        unitLabel: l.unitLabel.trim() || null,
-        unitAmount: parseNum(l.unitAmount),
-        taxAmount: parseNum(l.taxAmount),
-      }))
-      .filter((l) => l.chartOfAccountId && (l.quantity * l.unitAmount + l.taxAmount > 0))
-
-    if (payloadLines.length === 0) {
-      reportError('Add at least one line with an account and amounts.')
-      return
-    }
-    if (!settlementId) {
-      reportError('Select a settlement account (cash or bank).')
-      return
-    }
 
     if (!contactId) {
       reportError('Select a contact from the list or use Add contact.')
       return
     }
 
-    const base = {
-      postedAt: dateInputToIso(postedAt),
-      reference: reference.trim() || null,
-      settlementChartAccountId: settlementId,
-      lines: payloadLines,
-      contactId,
-      newContactName: null,
-      newContactEmail: null,
-      newContactPhone: null,
+    const payloadLines = lines
+      .map((l) => ({
+        chartOfAccountId: l.chartOfAccountId,
+        narration: l.narration.trim() || undefined,
+        quantity: parseNum(l.quantity),
+        unitLabel: l.unitLabel.trim() || null,
+        unitAmount: parseNum(l.unitAmount),
+        taxAmount: parseNum(l.taxAmount),
+      }))
+      .filter((l) => l.chartOfAccountId && l.quantity > 0 && l.unitAmount >= 0)
+
+    if (payloadLines.length === 0) {
+      reportError('Add at least one line with an account, quantity, and unit amount.')
+      return
     }
 
     setBusy(true)
     try {
-      if (direction === 'in') {
-        await postMoneyInJournal(businessId, base)
+      if (editingQuotationId) {
+        await patchSalesQuotation(businessId, editingQuotationId, {
+          contactId,
+          reference: reference.trim() || null,
+          validUntil: dateInputToIso(validUntil),
+          lines: payloadLines,
+        })
+        setToast({ message: 'Quotation updated.', variant: 'success' })
       } else {
-        await postMoneyOutJournal(businessId, base)
+        await createSalesQuotation(businessId, {
+          contactId,
+          reference: reference.trim() || null,
+          validUntil: dateInputToIso(validUntil),
+          lines: payloadLines,
+        })
+        setToast({ message: 'Quotation created.', variant: 'success' })
       }
-      setError(null)
-      setToast({ message: 'Transaction saved successfully.', variant: 'success' })
-      resetInOutForm()
-      loadAccounts()
+      resetForm()
+      loadList()
     } catch (err) {
       const msg =
         err instanceof ApiError
           ? err.message
           : err instanceof Error
             ? err.message
-            : 'Could not save journal.'
+            : editingQuotationId
+              ? 'Could not update quotation.'
+              : 'Could not create quotation.'
       reportError(msg)
     } finally {
       setBusy(false)
     }
   }
 
-  const submitTransfer = async (e: FormEvent) => {
-    e.preventDefault()
+  const runRow = async (id: string, fn: () => Promise<unknown>, successMessage = 'Updated.') => {
     if (!businessId) return
+    setRowBusy(id)
     setError(null)
     setToast(null)
-
-    if (!postedAt?.trim()) {
-      reportError('Select a date.')
-      return
-    }
-
-    const amt = parseNum(transferAmount)
-    if (!fromBankId || !toBankId) {
-      reportError('Select from and to bank accounts.')
-      return
-    }
-    if (fromBankId === toBankId) {
-      reportError('From and to must differ.')
-      return
-    }
-    if (amt <= 0) {
-      reportError('Enter a positive amount.')
-      return
-    }
-    setBusy(true)
     try {
-      await postBankTransferJournal(businessId, {
-        fromChartAccountId: fromBankId,
-        toChartAccountId: toBankId,
-        amount: amt,
-        postedAt: dateInputToIso(postedAt),
-        reference: reference.trim() || null,
-      })
-      setError(null)
-      setToast({ message: 'Transaction saved successfully.', variant: 'success' })
-      resetTransferForm()
-      loadAccounts()
+      await fn()
+      setToast({ message: successMessage, variant: 'success' })
+      loadList()
     } catch (err) {
       const msg =
         err instanceof ApiError
           ? err.message
           : err instanceof Error
             ? err.message
-            : 'Could not post transfer.'
+            : 'Action failed.'
       reportError(msg)
     } finally {
-      setBusy(false)
+      setRowBusy(null)
     }
   }
 
@@ -314,14 +329,12 @@ export function AccountingJournalsPage() {
           <p className="text-slate-500">Select a business.</p>
         </PageCard>
       </PageTransition>
-    )
+  )
   }
-
-  const st = subtotalExTax(lines)
-  const tt = totalWithTax(lines)
 
   const fieldInput =
     'w-full rounded-sm border border-qb-border bg-white px-3 py-2 text-sm text-qb-heading placeholder:text-qb-muted/60 focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35'
+  const tt = totalWithTax(lines)
 
   return (
     <PageTransition>
@@ -343,19 +356,18 @@ export function AccountingJournalsPage() {
             Back
           </Link>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-qb-heading">Journal entries</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-qb-heading">Sales quotations</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-qb-muted">
-              Record money in, money out, or bank-to-bank transfers. Lines update chart balances;
-              negative balances are allowed (overdrafts).
+              Build quotes with revenue lines on your chart of accounts. Send to the customer, then accept
+              to create a draft sales invoice or reject to close the quote.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-0 border-b border-qb-border">
             {(
               [
-                ['in', 'Money in'],
-                ['out', 'Money out'],
-                ['transfer', 'Bank transfer'],
+                ['new', 'New'],
+                ['list', 'List'],
               ] as const
             ).map(([k, label]) => (
               <button
@@ -396,22 +408,49 @@ export function AccountingJournalsPage() {
             <p className="text-sm font-medium text-red-800">{error}</p>
           </PageCard>
         ) : null}
-        {tab === 'transfer' ? (
+
+        {tab === 'new' ? (
           <PageCard
             variant="default"
             className="space-y-6 rounded-md border-qb-border p-5 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
           >
-            <form noValidate onSubmit={(e) => void submitTransfer(e)} className="space-y-6">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">Date</span>
-                  <input
-                    type="date"
-                    value={postedAt}
-                    onChange={(e) => setPostedAt(e.target.value)}
-                    className={fieldInput}
+            {editingQuotationId ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
+                <p>
+                  Editing{' '}
+                  <span className="font-mono font-semibold">
+                    {listRows.find((r) => r.id === editingQuotationId)?.publicCode ?? 'quotation'}
+                  </span>
+                  — draft only can be edited.
+                </p>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="rounded-sm border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm hover:bg-amber-50"
+                >
+                  Cancel edit
+                </button>
+              </div>
+            ) : null}
+            <form noValidate onSubmit={(e) => void submitCreate(e)} className="space-y-6">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="sm:col-span-1">
+                  <ContactSearchCombobox
+                    businessId={businessId}
+                    selectedId={contactId}
+                    inputValue={contactInput}
+                    onInputChange={(v) => {
+                      setContactInput(v)
+                      setContactId('')
+                    }}
+                    onSelectContact={(id, name) => {
+                      setContactId(id)
+                      setContactInput(name)
+                    }}
+                    label="Customer"
+                    listMaxHeightClass={ACCOUNT_LIST_MAX}
                   />
-                </label>
+                </div>
                 <label className="block space-y-1.5">
                   <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
                     Reference
@@ -423,137 +462,17 @@ export function AccountingJournalsPage() {
                     placeholder="Optional"
                   />
                 </label>
-              </div>
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
-                    From bank
-                  </span>
-                  <div className="mt-1">
-                    <SearchableSelect
-                      value={fromBankId}
-                      onChange={setFromBankId}
-                      options={bankSelectOptions}
-                      placeholder="Select source bank"
-                      emptyMessage="No bank accounts"
-                      noResultsMessage="No matching account"
-                      buttonClassName={QB_SELECT_FORM}
-                      listMaxHeightClass={ACCOUNT_LIST_MAX}
-                      dropdownClassName={QB_DROPDOWN}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">To bank</span>
-                  <div className="mt-1">
-                    <SearchableSelect
-                      value={toBankId}
-                      onChange={setToBankId}
-                      options={bankSelectOptions}
-                      placeholder="Select destination bank"
-                      emptyMessage="No bank accounts"
-                      noResultsMessage="No matching account"
-                      buttonClassName={QB_SELECT_FORM}
-                      listMaxHeightClass={ACCOUNT_LIST_MAX}
-                      dropdownClassName={QB_DROPDOWN}
-                    />
-                  </div>
-                </div>
-              </div>
-              {bankAccounts.length === 0 ? (
-                <p className="text-sm text-amber-800">
-                  Add bank-type accounts on the chart of accounts to use transfers.
-                </p>
-              ) : null}
-              <label className="block max-w-xs space-y-1.5">
-                <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">Amount</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={transferAmount}
-                  onChange={(e) => setTransferAmount(e.target.value)}
-                  className={`${fieldInput} tabular-nums`}
-                  placeholder="0.00"
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={busy}
-                className="rounded-sm border border-qb-border bg-white px-5 py-2.5 text-sm font-semibold text-qb-heading shadow-sm hover:bg-qb-surface disabled:opacity-50"
-              >
-                {busy ? 'Saving…' : 'Save transfer'}
-              </button>
-            </form>
-          </PageCard>
-        ) : (
-          <PageCard
-            variant="default"
-            className="space-y-6 rounded-md border-qb-border p-5 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
-          >
-            <form
-              noValidate
-              onSubmit={(e) => void submitInOut(e, tab === 'in' ? 'in' : 'out')}
-              className="space-y-6"
-            >
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="sm:col-span-1">
-                  <div className="mt-0">
-                    <ContactSearchCombobox
-                      businessId={businessId}
-                      selectedId={contactId}
-                      inputValue={contactInput}
-                      onInputChange={(v) => {
-                        setContactInput(v)
-                        setContactId('')
-                      }}
-                      onSelectContact={(id, name) => {
-                        setContactId(id)
-                        setContactInput(name)
-                      }}
-                      label={tab === 'in' ? 'Received from' : 'Paid to'}
-                      listMaxHeightClass={ACCOUNT_LIST_MAX}
-                    />
-                  </div>
-                </div>
                 <label className="block space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">Date</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                    Valid until
+                  </span>
                   <input
                     type="date"
-                    value={postedAt}
-                    onChange={(e) => setPostedAt(e.target.value)}
+                    value={validUntil}
+                    onChange={(e) => setValidUntil(e.target.value)}
                     className={fieldInput}
                   />
                 </label>
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
-                    Reference
-                  </span>
-                  <input
-                    value={reference}
-                    onChange={(e) => setReference(e.target.value)}
-                    className={fieldInput}
-                    placeholder="Invoice, cheque, etc."
-                  />
-                </label>
-              </div>
-
-              <div>
-                <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
-                  {tab === 'in' ? 'Deposit to (asset)' : 'Pay from (asset)'}
-                </span>
-                <div className="mt-1 max-w-md">
-                  <SearchableSelect
-                    value={settlementId}
-                    onChange={setSettlementId}
-                    options={assetSelectOptions}
-                    placeholder="Cash or bank account"
-                    emptyMessage="No asset accounts"
-                    noResultsMessage="No matching account"
-                    buttonClassName={QB_SELECT_FORM}
-                    listMaxHeightClass={ACCOUNT_LIST_MAX}
-                    dropdownClassName={QB_DROPDOWN}
-                  />
-                </div>
               </div>
 
               <div className="overflow-x-auto rounded-sm border border-qb-border bg-white">
@@ -656,29 +575,138 @@ export function AccountingJournalsPage() {
               </div>
 
               <div className="flex flex-wrap items-end justify-between gap-4 border-t border-qb-border pt-5">
-                <div className="space-y-1 text-sm tabular-nums">
-                  <p className="text-qb-muted">
-                    Subtotal (qty × unit){' '}
-                    <span className="font-semibold text-qb-heading">
-                      {formatMoney(st, { decimals: 2 })}
-                    </span>
-                  </p>
-                  <p className="text-qb-heading">
-                    Total (incl. tax){' '}
-                    <span className="text-lg font-semibold text-qb-heading">
-                      {formatMoney(tt, { decimals: 2 })}
-                    </span>
-                  </p>
-                </div>
+                <p className="text-sm tabular-nums text-qb-heading">
+                  Total (incl. tax){' '}
+                  <span className="text-lg font-semibold">{formatMoney(tt, { decimals: 2 })}</span>
+                </p>
                 <button
                   type="submit"
                   disabled={busy}
                   className="rounded-sm border border-qb-border bg-white px-6 py-2.5 text-sm font-semibold text-qb-heading shadow-sm hover:bg-qb-surface disabled:opacity-50"
                 >
-                  {busy ? 'Saving…' : 'Save journal'}
+                  {busy ? 'Saving…' : editingQuotationId ? 'Save changes' : 'Create quotation'}
                 </button>
               </div>
             </form>
+          </PageCard>
+        ) : (
+          <PageCard
+            variant="default"
+            className="space-y-4 rounded-md border-qb-border p-5 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
+          >
+            {loadingList ? (
+              <div className="flex items-center gap-2 py-8 text-qb-muted">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Loading…
+              </div>
+            ) : listRows.length === 0 ? (
+              <p className="py-8 text-sm text-qb-muted">No quotations yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[880px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-qb-border text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                      <th className="py-2 pr-3">Code</th>
+                      <th className="py-2 pr-3">Contact</th>
+                      <th className="py-2 pr-3">Status</th>
+                      <th className="py-2 pr-3">Valid until</th>
+                      <th className="py-2 pr-3 text-right">Total</th>
+                      <th className="py-2 pr-3">Invoice</th>
+                      <th className="py-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-qb-border">
+                    {listRows.map((q) => {
+                      const canSend = q.status === 'DRAFT'
+                      const canEdit = q.status === 'DRAFT'
+                      const canAcceptReject =
+                        q.status !== 'ACCEPTED' && q.status !== 'REJECTED' && !q.invoiceFromQuote
+                      const busyThis = rowBusy === q.id
+                      return (
+                        <tr key={q.id} className="align-top">
+                          <td className="py-3 pr-3 font-medium text-qb-heading">{q.publicCode}</td>
+                          <td className="py-3 pr-3 text-qb-heading">{q.contact.name}</td>
+                          <td className="py-3 pr-3">{statusBadge(q.status)}</td>
+                          <td className="py-3 pr-3 tabular-nums text-qb-muted">
+                            {q.validUntil
+                              ? new Date(q.validUntil).toLocaleDateString()
+                              : '—'}
+                          </td>
+                          <td className="py-3 pr-3 text-right tabular-nums font-medium text-qb-heading">
+                            {formatMoney(quotationTotal(q), { decimals: 2 })} {q.currency}
+                          </td>
+                          <td className="py-3 pr-3 text-qb-muted">
+                            {q.invoiceFromQuote ? q.invoiceFromQuote.publicCode : '—'}
+                          </td>
+                          <td className="py-3">
+                            <div className="flex flex-wrap gap-2">
+                              <Link
+                                to={salesQuotationDetailPath(q.id)}
+                                className="inline-flex items-center gap-1 rounded-sm border border-qb-border bg-white px-2.5 py-1 text-xs font-semibold text-qb-heading shadow-sm hover:bg-qb-surface"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                                View
+                              </Link>
+                              {canEdit ? (
+                                <button
+                                  type="button"
+                                  disabled={busyThis}
+                                  onClick={() => startEditQuotation(q)}
+                                  className="inline-flex items-center gap-1 rounded-sm border border-qb-border bg-white px-2.5 py-1 text-xs font-semibold text-qb-heading shadow-sm hover:bg-qb-surface disabled:opacity-50"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                  Edit
+                                </button>
+                              ) : null}
+                              {canSend ? (
+                                <button
+                                  type="button"
+                                  disabled={busyThis}
+                                  onClick={() =>
+                                    void runRow(q.id, () => sendSalesQuotation(businessId, q.id))
+                                  }
+                                  className="rounded-sm border border-qb-border bg-white px-2.5 py-1 text-xs font-semibold text-qb-heading shadow-sm hover:bg-qb-surface disabled:opacity-50"
+                                >
+                                  Send
+                                </button>
+                              ) : null}
+                              {canAcceptReject ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={busyThis}
+                                    onClick={() =>
+                                      void runRow(
+                                        q.id,
+                                        () => acceptSalesQuotation(businessId, q.id),
+                                        'Draft sales invoice created from quotation.',
+                                      )
+                                    }
+                                    className="rounded-sm border border-qb-border bg-white px-2.5 py-1 text-xs font-semibold text-qb-heading shadow-sm hover:bg-qb-surface disabled:opacity-50"
+                                  >
+                                    Accept
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busyThis}
+                                    onClick={() =>
+                                      void runRow(q.id, () => rejectSalesQuotation(businessId, q.id))
+                                    }
+                                    className="rounded-sm border border-qb-border bg-white px-2.5 py-1 text-xs font-semibold text-red-700 shadow-sm hover:bg-red-50 disabled:opacity-50"
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </PageCard>
         )}
       </div>

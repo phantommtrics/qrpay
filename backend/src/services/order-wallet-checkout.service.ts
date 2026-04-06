@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Request } from "express";
-import type { Prisma } from "@prisma/client";
+import { Prisma, SalesInvoiceStatus } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
@@ -277,6 +277,201 @@ export async function startGatewayWalletCheckout(input: {
       status: PaymentStatus.PENDING,
       amount: order.total,
       currency: order.currency,
+      providerRef: result.transactionId || transactionId,
+      publicToken,
+    },
+  });
+
+  const launchUrl =
+    payUrl && payUrl.length > 0 ? payUrl : result.paymentHtml ? "" : buildPayUrl(publicToken);
+
+  return {
+    payment,
+    qrPayload,
+    launchUrl,
+    paymentHtml: result.paymentHtml ?? null,
+    checkoutAdapter: adapter,
+  };
+}
+
+/** Guest / public invoice wallet checkout (no stock; links Payment to SalesInvoice only). */
+export async function startGatewayWalletCheckoutForInvoice(input: {
+  invoiceId: string;
+  businessId: string;
+  gatewayCode: string;
+  payerPhone?: string;
+  req: Request;
+}): Promise<GatewayWalletCheckoutResult> {
+  const invoice = await prisma.salesInvoice.findFirst({
+    where: { id: input.invoiceId, businessId: input.businessId },
+    include: {
+      business: { select: { name: true } },
+      lines: { orderBy: { sortOrder: "asc" } },
+    },
+  });
+
+  if (!invoice) {
+    throw new HttpError(404, "Invoice not found.");
+  }
+  if (invoice.status !== SalesInvoiceStatus.APPROVED) {
+    throw new HttpError(400, "Only approved invoices can be paid online.");
+  }
+  if (invoice.journalEntryId) {
+    throw new HttpError(400, "This invoice is already recorded as paid.");
+  }
+  if (!invoice.lines.length) {
+    throw new HttpError(400, "Invoice has no lines.");
+  }
+
+  let total = new Prisma.Decimal(0);
+  for (const l of invoice.lines) {
+    total = total.add(l.quantity.mul(l.unitAmount).add(l.taxAmount));
+  }
+
+  const codeNorm = input.gatewayCode.trim().toLowerCase();
+  const wallets = await listOrderCheckoutWallets(input.businessId);
+  const pick = wallets.find((w) => w.code === codeNorm);
+  if (!pick) {
+    throw new HttpError(
+      400,
+      "This wallet is not configured for checkout. Add credentials under Merchant API.",
+    );
+  }
+
+  const gateway = await getPaymentGatewayByCode(codeNorm);
+  if (!gateway || !gateway.isEnabled) {
+    throw new HttpError(400, "This payment gateway is not available.");
+  }
+
+  const adapter = gateway.checkoutAdapter?.trim() || "";
+  if (adapter !== CHECKOUT_ADAPTER_WAVE_GAMBIA && adapter !== CHECKOUT_ADAPTER_YONNA_WALLET) {
+    throw new HttpError(400, "Checkout is not supported for this gateway.");
+  }
+
+  await prisma.payment.updateMany({
+    where: {
+      salesInvoiceId: invoice.id,
+      businessId: input.businessId,
+      method: PaymentMethod.QR_WALLET,
+      status: PaymentStatus.PENDING,
+    },
+    data: { status: PaymentStatus.CANCELLED },
+  });
+
+  const appBase = resolveAppPublicBaseForBrowserReturns(input.req);
+
+  if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
+    const secrets = await getDecryptedGatewaySecrets<WaveGatewaySecrets>(
+      input.businessId,
+      codeNorm,
+    );
+    if (!secrets?.bearerToken?.trim()) {
+      throw new HttpError(503, "Wallet credentials could not be loaded for this business.");
+    }
+
+    const publicToken = genPublicToken();
+    const successUrl = `${appBase}/pay/${encodeURIComponent(publicToken)}`;
+    const errorUrl = `${appBase}/pay/${encodeURIComponent(publicToken)}?error=1`;
+
+    const wave = new WavePaymentService({
+      baseUrl: waveApiBaseUrl(),
+      bearerToken: secrets.bearerToken.trim(),
+    });
+
+    const amountStr = String(Math.round(Number(total)));
+    const session = await wave.createCheckoutSession({
+      amount: amountStr,
+      currency: (invoice.currency || "GMD").toUpperCase(),
+      success_url: successUrl,
+      error_url: errorUrl,
+      client_reference: invoice.id,
+    });
+
+    const payment = await prisma.payment.create({
+      data: {
+        businessId: input.businessId,
+        orderId: null,
+        salesInvoiceId: invoice.id,
+        publicCode: await nextPaymentPublicCode(prisma, input.businessId, invoice.business.name),
+        method: PaymentMethod.QR_WALLET,
+        provider: PaymentProvider.WAVE_GAMBIA,
+        gatewayCode: gateway.code,
+        status: PaymentStatus.PENDING,
+        amount: total,
+        currency: invoice.currency,
+        providerRef: session.id,
+        publicToken,
+      },
+    });
+
+    const launchUrl = session.wave_launch_url;
+    return {
+      payment,
+      qrPayload: launchUrl,
+      launchUrl,
+      paymentHtml: null,
+      checkoutAdapter: adapter,
+    };
+  }
+
+  const secrets = await getDecryptedGatewaySecrets<YonnaGatewaySecrets>(
+    input.businessId,
+    codeNorm,
+  );
+  if (!secrets?.secretKey?.trim() || !secrets?.clientId?.trim()) {
+    throw new HttpError(503, "Wallet credentials could not be loaded for this business.");
+  }
+
+  const payerPhone =
+    input.payerPhone?.trim() || secrets.defaultPayerPhone?.trim() || "";
+  if (!payerPhone) {
+    throw new HttpError(
+      400,
+      "Wallet phone is required. Save a default number under Merchant API for Yonna, or send payerPhone with the request.",
+    );
+  }
+
+  const yonna = new YonnaForexPaymentService({
+    baseUrl: yonnaForexApiBaseUrl(),
+    secretKey: secrets.secretKey.trim(),
+    clientId: secrets.clientId.trim(),
+  });
+
+  const countryCode = (process.env.YONNA_FOREX_COUNTRY_CODE || "+220").trim();
+  const currencyCode = (invoice.currency || "GMD").toUpperCase();
+  const transactionId = yonna.generateTransactionId();
+
+  const result = await yonna.processPayment({
+    amount: Number(total),
+    phone: payerPhone,
+    currency: currencyCode,
+    fee: 0,
+    transactionId,
+    countryCode,
+    appTransactionId: invoice.id,
+    description: `Invoice ${invoice.publicCode}`,
+  });
+
+  if (!result.success) {
+    throw new HttpError(400, result.error || result.message || "Wallet checkout failed.");
+  }
+
+  const publicToken = genPublicToken();
+  const payUrl = result.paymentUrl?.trim();
+  const qrPayload = payUrl && payUrl.length > 0 ? payUrl : buildPayUrl(publicToken);
+
+  const payment = await prisma.payment.create({
+    data: {
+      businessId: input.businessId,
+      orderId: null,
+      salesInvoiceId: invoice.id,
+      publicCode: await nextPaymentPublicCode(prisma, input.businessId, invoice.business.name),
+      method: PaymentMethod.QR_WALLET,
+      provider: PaymentProvider.YONNA_WALLET,
+      gatewayCode: gateway.code,
+      status: PaymentStatus.PENDING,
+      amount: total,
+      currency: invoice.currency,
       providerRef: result.transactionId || transactionId,
       publicToken,
     },
