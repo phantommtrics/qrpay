@@ -11,17 +11,20 @@ import { ApiError, fetchRestaurantGuestMenu, type GuestMenuTreeNode } from '../s
 import { postPublicRestaurantOrder } from '../services/salesApi'
 import type { Product } from '../types'
 import { formatMoney } from '../utils/formatMoney'
+import { productSellableUnits } from '../utils/productStock'
 
 function MenuBranch({
   node,
   depth,
   onAdd,
+  getProductById,
   menuHint,
   setMenuHint,
 }: {
   node: GuestMenuTreeNode
   depth: number
   onAdd: (item: Product) => AddToCartResult
+  getProductById: (id: string) => Product | undefined
   menuHint: string | null
   setMenuHint: (v: string | null) => void
 }) {
@@ -51,7 +54,10 @@ function MenuBranch({
 
       {open && hasProducts ? (
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {node.products.map((item) => (
+          {node.products.map((item) => {
+            const live = getProductById(item.id) ?? item
+            const cap = productSellableUnits(live)
+            return (
             <motion.div
               key={item.id}
               layout
@@ -67,7 +73,7 @@ function MenuBranch({
                 </div>
                 <div className="mt-2 flex items-center justify-between">
                   <span className="font-bold text-teal-600">{formatMoney(item.price)}</span>
-                  {(item.availableStock ?? item.stock) <= 0 ? (
+                  {cap <= 0 ? (
                     <span className="text-xs font-medium text-red-600">Sold out</span>
                   ) : (
                     <button
@@ -91,7 +97,8 @@ function MenuBranch({
                 </div>
               </div>
             </motion.div>
-          ))}
+            )
+          })}
         </div>
       ) : null}
 
@@ -102,6 +109,7 @@ function MenuBranch({
             node={child}
             depth={depth + 1}
             onAdd={onAdd}
+            getProductById={getProductById}
             menuHint={menuHint}
             setMenuHint={setMenuHint}
           />
@@ -151,8 +159,7 @@ export function RestaurantGuestMenuPage() {
   const sellableForLine = useCallback(
     (fallback: Product) => {
       const live = getProductById(fallback.id) ?? fallback
-      const n = live.availableStock ?? live.stock
-      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+      return productSellableUnits(live)
     },
     [getProductById],
   )
@@ -407,6 +414,7 @@ export function RestaurantGuestMenuPage() {
             node={node}
             depth={0}
             onAdd={handleAdd}
+            getProductById={getProductById}
             menuHint={menuHint}
             setMenuHint={setMenuHint}
           />
@@ -418,7 +426,10 @@ export function RestaurantGuestMenuPage() {
               Other
             </h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {uncategorized.map((item) => (
+              {uncategorized.map((item) => {
+                const live = getProductById(item.id) ?? item
+                const cap = productSellableUnits(live)
+                return (
                 <motion.div
                   key={item.id}
                   layout
@@ -434,7 +445,7 @@ export function RestaurantGuestMenuPage() {
                     </div>
                     <div className="mt-2 flex items-center justify-between">
                       <span className="font-bold text-teal-600">{formatMoney(item.price)}</span>
-                      {(item.availableStock ?? item.stock) <= 0 ? (
+                      {cap <= 0 ? (
                         <span className="text-xs font-medium text-red-600">Sold out</span>
                       ) : (
                         <button
@@ -457,7 +468,8 @@ export function RestaurantGuestMenuPage() {
                     </div>
                   </div>
                 </motion.div>
-              ))}
+                )
+              })}
             </div>
           </div>
         ) : null}

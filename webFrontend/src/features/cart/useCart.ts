@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 
 import type { CartItem, Product } from '../../types'
+import { productSellableUnits } from '../../utils/productStock'
 
 function sellableUnits(product: Product): number {
-  const n = product.availableStock ?? product.stock
-  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+  return productSellableUnits(product)
 }
 
 function cartFingerprint(items: CartItem[]): string {
@@ -41,7 +41,15 @@ export function useCart(options?: {
   const getProductByIdRef = useRef(getProductById)
   getProductByIdRef.current = getProductById
 
-  const resolveProduct = (p: Product): Product => getProductById?.(p.id) ?? p
+  /** Always read the latest catalog resolver (avoids stale closures inside setCart). */
+  const resolveProduct = useCallback((p: Product): Product => {
+    return getProductByIdRef.current?.(p.id) ?? p
+  }, [])
+
+  const addResultRef: MutableRefObject<AddToCartResult> = useRef({
+    ok: false,
+    reason: 'out_of_stock',
+  })
 
   const total = useMemo(
     () =>
@@ -62,12 +70,10 @@ export function useCart(options?: {
         return current
       }
 
-      const resolve = (p: Product) => getProductByIdRef.current?.(p.id) ?? p
-
       const merged = new Map<string, CartItem>()
       for (const item of current) {
         const id = item.product.id
-        const live = resolve(item.product)
+        const live = getProductByIdRef.current?.(item.product.id) ?? item.product
         const prev = merged.get(id)
         if (prev) {
           merged.set(id, {
@@ -81,9 +87,13 @@ export function useCart(options?: {
 
       const out: CartItem[] = []
       for (const item of merged.values()) {
-        const live = resolve(item.product)
+        const live = getProductByIdRef.current?.(item.product.id) ?? item.product
         const cap = sellableUnits(live)
         let q = item.quantity
+
+        if (removeWhenZero && cap <= 0) {
+          continue
+        }
 
         if (cap > 0 && q > cap) {
           q = cap
@@ -110,8 +120,8 @@ export function useCart(options?: {
     // not when the callback identity changes each render.
   }, [catalogStockSignature, minQuantity, removeWhenZero])
 
-  const addToCart = (product: Product): AddToCartResult => {
-    let result: AddToCartResult = { ok: false, reason: 'out_of_stock' }
+  const addToCart = useCallback((product: Product): AddToCartResult => {
+    addResultRef.current = { ok: false, reason: 'out_of_stock' }
     setCart((current) => {
       const latest = resolveProduct(product)
       const cap = sellableUnits(latest)
@@ -137,26 +147,26 @@ export function useCart(options?: {
 
       if (cap <= 0) {
         if (currentQty > 0) {
-          result = { ok: false, reason: 'max_in_cart' }
+          addResultRef.current = { ok: false, reason: 'max_in_cart' }
         } else {
-          result = { ok: false, reason: 'out_of_stock' }
+          addResultRef.current = { ok: false, reason: 'out_of_stock' }
         }
         return current
       }
 
       if (currentQty >= cap) {
-        result = { ok: false, reason: 'max_in_cart' }
+        addResultRef.current = { ok: false, reason: 'max_in_cart' }
         return current
       }
 
-      result = { ok: true }
+      addResultRef.current = { ok: true }
 
       const rest = list.filter((item) => item.product.id !== latest.id)
       const nextQty = currentQty + 1
       return [...rest, { product: latest, quantity: nextQty }]
     })
-    return result
-  }
+    return addResultRef.current
+  }, [resolveProduct])
 
   const updateQuantity = (productId: string, delta: number) => {
     setCart((current) => {
