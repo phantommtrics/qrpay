@@ -81,14 +81,6 @@ function quotationTotal(q: SalesQuotationRow): number {
   return q.lines.reduce((s, l) => s + docLineTotal(l), 0)
 }
 
-function todayDateInput(): string {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
 function dateInputToIso(dateStr: string): string | null {
   if (!dateStr?.trim()) return null
   const d = new Date(`${dateStr}T12:00:00`)
@@ -105,8 +97,6 @@ function accountsToOptions(accounts: AccountingAccountRow[]): SearchableSelectOp
 
 const QB_SELECT_TABLE =
   '!rounded-sm !border-qb-border !px-2 !py-1.5 !text-xs !font-normal !text-qb-heading !shadow-sm focus:!border-qb-primary focus:!ring-1 focus:!ring-qb-primary/35'
-const QB_SELECT_FORM =
-  '!rounded-sm !border-qb-border !px-3 !py-2 !text-sm !font-normal !text-qb-heading !shadow-sm focus:!border-qb-primary focus:!ring-1 focus:!ring-qb-primary/35'
 const QB_DROPDOWN = '!rounded-md !border-qb-border'
 const ACCOUNT_LIST_MAX = 'max-h-[7.5rem]'
 
