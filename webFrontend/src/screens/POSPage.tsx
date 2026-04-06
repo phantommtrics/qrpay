@@ -36,6 +36,7 @@ import {
 import { ApiError, fetchDiningTables, type DiningTableRow } from '../services/subscriptionApi'
 import type { Product } from '../types'
 import { formatMoney } from '../utils/formatMoney'
+import { productSellableUnits } from '../utils/productStock'
 import { isRestaurantIndustry } from '../utils/businessIndustry'
 import { playPosScanError, playPosScanSuccess } from '../utils/posSounds'
 
@@ -90,8 +91,7 @@ export function POSPage() {
   const sellableForLine = useCallback(
     (fallback: Product) => {
       const live = getProductById(fallback.id) ?? fallback
-      const n = live.availableStock ?? live.stock
-      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+      return productSellableUnits(live)
     },
     [getProductById],
   )

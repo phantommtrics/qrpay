@@ -157,12 +157,13 @@ export function PaymentsPage() {
           </button>
         </div>
         <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
-          <table className="min-w-[1100px] w-full border-collapse text-left">
+          <table className="min-w-[1220px] w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-sm text-slate-500">
                 <th className="px-5 py-4 font-medium">Reference</th>
                 <th className="px-5 py-4 font-medium">Provider ref</th>
                 <th className="px-5 py-4 font-medium">Order ref</th>
+                <th className="px-5 py-4 font-medium">Recorded by</th>
                 <th className="px-5 py-4 font-medium">Method</th>
                 <th className="px-5 py-4 font-medium">Provider</th>
                 <th className="px-5 py-4 font-medium">Amount</th>
@@ -173,13 +174,13 @@ export function PaymentsPage() {
             <tbody className="divide-y divide-slate-100">
               {displayLoading ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-10 text-center text-slate-500">
+                  <td colSpan={9} className="px-5 py-10 text-center text-slate-500">
                     Loading…
                   </td>
                 </tr>
               ) : displayPayments.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-10 text-center text-slate-500">
+                  <td colSpan={9} className="px-5 py-10 text-center text-slate-500">
                     No payments yet. Complete a sale on POS to see records here.
                   </td>
                 </tr>
@@ -192,6 +193,15 @@ export function PaymentsPage() {
                     </td>
                     <td className="px-5 py-4 font-mono text-sm font-medium text-slate-800">
                       {payment.orderPublicCode ?? payment.orderId}
+                    </td>
+                    <td className="max-w-[160px] px-5 py-4 text-sm text-slate-700">
+                      {payment.recordedBy ? (
+                        <span className="line-clamp-2" title={payment.recordedBy.email}>
+                          {payment.recordedBy.name}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center text-sm text-slate-700">

@@ -224,5 +224,14 @@ export async function getBusinessNavigationMenu(
     }
   }
 
+  const isBusinessOwner = await prisma.businessMembership.findFirst({
+    where: { userId, businessId, isOwner: true },
+  });
+  if (!isBusinessOwner) {
+    for (const g of byService.values()) {
+      g.items = g.items.filter((item) => item.navPath !== "/activity-log");
+    }
+  }
+
   return Array.from(byService.values()).sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
 }

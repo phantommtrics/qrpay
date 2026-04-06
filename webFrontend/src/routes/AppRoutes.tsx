@@ -73,6 +73,11 @@ const PaymentsPage = lazy(() =>
     default: module.PaymentsPage,
   })),
 )
+const ActivityLogPage = lazy(() =>
+  import('../screens/ActivityLogPage').then((module) => ({
+    default: module.ActivityLogPage,
+  })),
+)
 const ReportsPage = lazy(() =>
   import('../screens/ReportsPage').then((module) => ({
     default: module.ReportsPage,
@@ -504,6 +509,13 @@ export function AppRoutes() {
       permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.payments)!.permission,
     },
     {
+      path: APP_PATHS.activityLog,
+      element: <ActivityLogPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.activityLog)!.roles,
+      permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.activityLog)!.permission,
+      requireBusinessOwner: true,
+    },
+    {
       path: APP_PATHS.reports,
       element: <ReportsPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.reports)!.roles,
@@ -719,6 +731,9 @@ export function AppRoutes() {
                   'anyOfPermissions' in route ? route.anyOfPermissions : undefined
                 }
                 allowedRoles={route.roles}
+                requireBusinessOwner={
+                  'requireBusinessOwner' in route ? route.requireBusinessOwner : undefined
+                }
               >
                 {route.element}
               </ProtectedRoute>

@@ -175,6 +175,12 @@ enum SalesLedgerStatus {
   SUCCEEDED
 }
 
+/** Audit log: who performed an action (staff user vs automated system). */
+enum ActivityActorKind {
+  USER
+  SYSTEM
+}
+
 enum BusinessMembershipStatus {
   ACTIVE
   BLOCKED
@@ -225,6 +231,7 @@ model Business {
   gatewayCredentials            BusinessGatewayCredential[]
   salesQuotations               SalesQuotation[]
   salesInvoices                 SalesInvoice[]
+  activityLogs                  ActivityLog[]
 }
 
 enum BusinessPaymentMethodStatus {
@@ -616,6 +623,8 @@ model User {
   ordersCreated                 Order[]                        @relation("OrderCreatedBy")
   subscriptionInvoicesRefundReviewed SubscriptionInvoice[]     @relation("SubscriptionInvoiceRefundReviewedBy")
   platformFunctionGroup         PlatformFunctionGroup?         @relation(fields: [platformFunctionGroupId], references: [id], onDelete: SetNull)
+  paymentsRecorded              Payment[]                      @relation("PaymentRecordedBy")
+  activityLogsAsActor           ActivityLog[]                 @relation("ActivityLogActor")
 
   @@index([platformFunctionGroupId])
 }
@@ -943,17 +952,37 @@ model Payment {
   providerRef     String          @unique
   publicToken     String          @unique
   completedAt     DateTime?
+  /** Staff member who recorded cash or initiated wallet checkout from POS (guest-paid wallet may still show this). */
+  recordedByUserId String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   order           Order?           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   salesInvoice    SalesInvoice?    @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
   business             Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recordedBy           User?              @relation("PaymentRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
   salesLedgerEntries   SalesLedgerEntry[]
 
   @@index([orderId])
   @@index([businessId, status])
   @@index([publicToken])
+  @@index([recordedByUserId])
   @@unique([businessId, publicCode])
+}
+
+model ActivityLog {
+  id           String            @id @default(cuid())
+  businessId   String
+  actorUserId  String?
+  actorKind    ActivityActorKind @default(USER)
+  eventType    String
+  resourceType String
+  resourceId   String?
+  metadata     Json?
+  createdAt    DateTime          @default(now())
+  business     Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  actorUser    User?             @relation("ActivityLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
 }
 
 model Receipt {

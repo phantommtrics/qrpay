@@ -4,6 +4,7 @@ import {
   BarChart3,
   ClipboardList,
   CreditCard,
+  History,
   LayoutDashboard,
   Package,
   Settings2,
@@ -26,6 +27,8 @@ export const APP_PATHS = {
   products: '/products',
   orders: '/orders',
   payments: '/payments',
+  /** Staff / system audit trail (payment events, etc.) */
+  activityLog: '/activity-log',
   reports: '/reports',
   subscriptionsBillingActivity: '/subscriptions/billing-activity',
   salesQuotations: '/sales/quotations',
@@ -278,6 +281,15 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     icon: CreditCard,
     roles: ['platform_owner', 'platform_admin', 'admin', 'merchant', 'cashier'],
     title: 'Payments',
+    permission: 'payments.view',
+  },
+  {
+    name: 'Activity log',
+    path: APP_PATHS.activityLog,
+    icon: History,
+    /** Shown in sidebar only when `currentOrganization.isOwner`; route and API are owner-only. */
+    roles: ['platform_owner', 'platform_admin', 'admin', 'merchant', 'cashier'],
+    title: 'Activity log',
     permission: 'payments.view',
   },
   {

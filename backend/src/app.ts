@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  ActivityActorKind,
   BillingInterval,
   BusinessMembershipStatus,
   ChartAccountCategory,
@@ -96,6 +97,7 @@ import {
   getEffectiveEntitlementSlugs,
   getEntitlementSlugsForBusiness,
 } from "./services/entitlement.service.js";
+import { getDashboardSummaryForBusiness } from "./services/dashboard-summary.service.js";
 import {
   getPlanCatalogGrouped,
   getUserSystemProductIdsForBusiness,
@@ -128,6 +130,11 @@ import {
   subscriptionDaysRemaining,
   utcTodayIsoDate,
 } from "./services/platform-admin.service.js";
+import {
+  ACTIVITY_EVENT,
+  appendActivityLog,
+  listActivityLogsForBusiness,
+} from "./services/activity-log.service.js";
 import { listOrderCheckoutWallets } from "./services/order-wallet-checkout.service.js";
 import {
   cancelPendingOrder,
@@ -250,6 +257,7 @@ import {
 } from "./middleware/jwt.js";
 import {
   requireAnyEntitlement,
+  requireBusinessOwnerOnly,
   requireBusinessOwnerOrPlatform,
   requireEntitlement,
   requireBillingOrMerchantApiOrPlatform,
@@ -2549,6 +2557,22 @@ app.post(
     businessId: businessId as string,
     ...validatedData,
   });
+
+  await appendActivityLog(prisma, {
+    businessId: businessId as string,
+    actorUserId: req.user!.id,
+    actorKind: ActivityActorKind.USER,
+    eventType: ACTIVITY_EVENT.STAFF_USER_INVITED,
+    resourceType: "user",
+    resourceId: result.user.id,
+    metadata: {
+      email: result.user.email,
+      name: result.user.name,
+      role: validatedData.role,
+      inviteType: result.inviteType,
+    },
+  });
+
   res.status(201).json({
     data: {
       user: formatUserResponse(result.user),
@@ -2571,6 +2595,20 @@ app.patch(
         targetUserId as string,
         body.status,
       );
+
+      await appendActivityLog(prisma, {
+        businessId: businessId as string,
+        actorUserId: req.user!.id,
+        actorKind: ActivityActorKind.USER,
+        eventType: ACTIVITY_EVENT.STAFF_MEMBERSHIP_STATUS_CHANGED,
+        resourceType: "membership",
+        resourceId: targetUserId as string,
+        metadata: {
+          targetUserId: targetUserId as string,
+          status: body.status,
+        },
+      });
+
       res.json({ data: { status: body.status } });
     } catch (e) {
       next(e);
@@ -2673,6 +2711,21 @@ app.post(
       imageEmoji: payload.imageEmoji,
     });
 
+    await appendActivityLog(prisma, {
+      businessId: businessId as string,
+      actorUserId: req.user!.id,
+      actorKind: ActivityActorKind.USER,
+      eventType: ACTIVITY_EVENT.PRODUCT_CREATED,
+      resourceType: "product",
+      resourceId: product.id,
+      metadata: {
+        name: product.name,
+        category: product.category,
+        price: Number(product.price),
+        stock: product.stock,
+      },
+    });
+
     res.status(201).json({
       data: formatProductResponse(product),
     });
@@ -2703,6 +2756,22 @@ app.patch(
         businessId: businessId as string,
         productId: productId as string,
         ...body,
+      });
+
+      const updatedFields = Object.keys(body).filter(
+        (k) => (body as Record<string, unknown>)[k] !== undefined,
+      );
+      await appendActivityLog(prisma, {
+        businessId: businessId as string,
+        actorUserId: req.user!.id,
+        actorKind: ActivityActorKind.USER,
+        eventType: ACTIVITY_EVENT.PRODUCT_UPDATED,
+        resourceType: "product",
+        resourceId: product.id,
+        metadata: {
+          name: product.name,
+          updatedFields,
+        },
       });
 
       res.json({
@@ -3091,6 +3160,27 @@ app.get(
 );
 
 app.get(
+  "/api/businesses/:businessId/dashboard/summary",
+  authenticateToken,
+  requireEntitlement("dashboard.view"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const summary = await getDashboardSummaryForBusiness(businessId as string);
+      res.json({ data: summary });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
   "/api/businesses/:businessId/navigation-menu",
   authenticateToken,
   async (req, res, next) => {
@@ -3390,6 +3480,7 @@ function formatSalePaymentRow(p: {
   completedAt: Date | null;
   order?: { id: string; publicCode: string } | null;
   salesInvoice?: { id: string; publicCode: string } | null;
+  recordedBy?: { id: string; name: string; email: string } | null;
 }) {
   return {
     id: p.id,
@@ -3415,6 +3506,9 @@ function formatSalePaymentRow(p: {
     gatewayCode: p.gatewayCode ?? null,
     createdAt: p.createdAt.toISOString(),
     completedAt: p.completedAt?.toISOString() ?? null,
+    recordedBy: p.recordedBy
+      ? { id: p.recordedBy.id, name: p.recordedBy.name, email: p.recordedBy.email }
+      : null,
   };
 }
 
@@ -4109,6 +4203,7 @@ app.post("/api/public/pay/:publicToken/simulate", async (request, response, next
     }
     const result = await completeWalletPaymentByPublicToken(request.params.publicToken as string, {
       externalEventId: `sim-public-${Date.now()}`,
+      settlementSource: "public_pay_simulate",
     });
     response.json({ data: result });
   } catch (error) {
@@ -4376,6 +4471,7 @@ app.post(
         {
           gatewayCode: body.gatewayCode,
           payerPhone: body.payerPhone,
+          recordedByUserId: request.user!.id,
         },
         request,
       );
@@ -4418,7 +4514,11 @@ app.post(
         throw new HttpError(403, "Access denied to this business");
       }
 
-      const result = await completeCashPayment(orderId as string, businessId as string);
+      const result = await completeCashPayment(
+        orderId as string,
+        businessId as string,
+        request.user!.id,
+      );
 
       response.json({
         data: {
@@ -4461,7 +4561,11 @@ app.post(
         throw new HttpError(403, "Access denied to this business");
       }
 
-      const result = await completeWalletPaymentForOrder(orderId as string, businessId as string);
+      const result = await completeWalletPaymentForOrder(
+        orderId as string,
+        businessId as string,
+        request.user!.id,
+      );
 
       response.json({ data: result });
     } catch (error) {
@@ -4505,6 +4609,58 @@ app.get(
               completedAt: p.completedAt,
             }),
           ),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/activity-log",
+  authenticateToken,
+  requireBusinessOwnerOnly(),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const page = clampPage(Number(request.query.page ?? 1));
+      const pageSize = clampPageSize(Number(request.query.pageSize ?? 50));
+      const eventType =
+        typeof request.query.eventType === "string" ? request.query.eventType.trim() : "";
+      const actorKindRaw =
+        typeof request.query.actorKind === "string" ? request.query.actorKind.trim().toLowerCase() : "";
+      let actorKind: ActivityActorKind | null = null;
+      if (actorKindRaw === "user") {
+        actorKind = ActivityActorKind.USER;
+      } else if (actorKindRaw === "system") {
+        actorKind = ActivityActorKind.SYSTEM;
+      }
+
+      const result = await listActivityLogsForBusiness(businessId as string, {
+        page,
+        pageSize,
+        eventType: eventType || undefined,
+        actorKind,
+      });
+
+      response.json({
+        data: {
+          total: result.total,
+          page: result.page,
+          pageSize: result.pageSize,
+          logs: result.logs.map((row) => ({
+            id: row.id,
+            eventType: row.eventType,
+            resourceType: row.resourceType,
+            resourceId: row.resourceId,
+            actorKind: row.actorKind === "USER" ? "user" : "system",
+            actor: row.actorUser
+              ? { id: row.actorUser.id, name: row.actorUser.name, email: row.actorUser.email }
+              : null,
+            metadata: row.metadata,
+            createdAt: row.createdAt.toISOString(),
+          })),
         },
       });
     } catch (error) {

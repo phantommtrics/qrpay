@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 import { useParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -19,6 +20,7 @@ import { ApiError, fetchRestaurantGuestMenu, type GuestMenuTreeNode } from '../s
 import { postPublicRestaurantOrder } from '../services/salesApi'
 import type { Product } from '../types'
 import { formatMoney } from '../utils/formatMoney'
+import { productSellableUnits } from '../utils/productStock'
 
 function sortGuestNodesByOrder(nodes: GuestMenuTreeNode[]): GuestMenuTreeNode[] {
   return [...nodes].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
@@ -61,6 +63,8 @@ function GuestProductImageFrame({
   )
 }
 
+type GuestMenuBanner = { message: string; variant: 'success' | 'warning' } | null
+
 function GuestMenuProductCard({
   item,
   onAdd,
@@ -68,7 +72,7 @@ function GuestMenuProductCard({
 }: {
   item: Product
   onAdd: (item: Product) => AddToCartResult
-  setMenuHint: (v: string | null) => void
+  setMenuHint: Dispatch<SetStateAction<GuestMenuBanner>>
 }) {
   return (
     <motion.div
@@ -85,7 +89,7 @@ function GuestMenuProductCard({
         </div>
         <div className="mt-2 flex items-center justify-between">
           <span className="font-bold text-teal-600">{formatMoney(item.price)}</span>
-          {(item.availableStock ?? item.stock) <= 0 ? (
+          {productSellableUnits(item) <= 0 ? (
             <span className="text-xs font-medium text-red-600">Sold out</span>
           ) : (
             <button
@@ -93,11 +97,18 @@ function GuestMenuProductCard({
               onClick={() => {
                 const r = onAdd(item)
                 if (!r.ok) {
-                  setMenuHint(
-                    r.reason === 'out_of_stock'
-                      ? `${item.name} is out of stock.`
-                      : `Maximum quantity for ${item.name} is already in your cart.`,
-                  )
+                  setMenuHint({
+                    message:
+                      r.reason === 'out_of_stock'
+                        ? `${item.name} is out of stock.`
+                        : `Maximum quantity for ${item.name} is already in your cart.`,
+                    variant: 'warning',
+                  })
+                } else {
+                  setMenuHint({
+                    message: `${item.name} added to your cart.`,
+                    variant: 'success',
+                  })
                 }
               }}
               aria-label={`Add ${item.name}`}
@@ -126,7 +137,7 @@ export function RestaurantGuestMenuPage() {
   const [orderStatus, setOrderStatus] = useState<'browsing' | 'paying' | 'success'>('browsing')
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [menuHint, setMenuHint] = useState<string | null>(null)
+  const [menuHint, setMenuHint] = useState<GuestMenuBanner>(null)
   /** Drill-down path: empty = top-level categories only. */
   const [navStack, setNavStack] = useState<GuestMenuTreeNode[]>([])
 
@@ -155,8 +166,7 @@ export function RestaurantGuestMenuPage() {
   const sellableForLine = useCallback(
     (fallback: Product) => {
       const live = getProductById(fallback.id) ?? fallback
-      const n = live.availableStock ?? live.stock
-      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+      return productSellableUnits(live)
     },
     [getProductById],
   )
@@ -452,9 +462,13 @@ export function RestaurantGuestMenuPage() {
         {menuHint ? (
           <p
             role="status"
-            className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-900"
+            className={
+              menuHint.variant === 'success'
+                ? 'mb-4 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-center text-sm text-teal-900'
+                : 'mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-900'
+            }
           >
-            {menuHint}
+            {menuHint.message}
           </p>
         ) : null}
 
