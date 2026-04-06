@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Request } from "express";
-import { Prisma, SalesInvoiceStatus } from "@prisma/client";
+import { ActivityActorKind, Prisma, SalesInvoiceStatus } from "@prisma/client";
 
 import { HttpError } from "../lib/http-error.js";
 import {
@@ -21,6 +21,7 @@ import {
 } from "./order-wallet-checkout.service.js";
 import { markSalesInvoicePaidWithWalletPayment } from "./sales-invoice.service.js";
 import { resolveDefaultBankSettlementAccountId } from "./sales-settlement-account.service.js";
+import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
 
 const SIMULATOR_WEBHOOK_PROVIDER = "simulator";
 
@@ -365,6 +366,9 @@ export async function getOrderForBusiness(orderId: string, businessId: string) {
       lines: true,
       payments: {
         orderBy: { createdAt: "desc" },
+        include: {
+          recordedBy: { select: { id: true, name: true, email: true } },
+        },
       },
       receipt: true,
       diningTable: { select: { id: true, label: true, publicToken: true } },
@@ -441,7 +445,7 @@ export type StartWalletPaymentResult = {
 export async function startWalletPayment(
   orderId: string,
   businessId: string,
-  options?: { gatewayCode?: string; payerPhone?: string },
+  options?: { gatewayCode?: string; payerPhone?: string; recordedByUserId?: string | null },
   req?: Request,
 ): Promise<StartWalletPaymentResult> {
   const configuredWallets = await listOrderCheckoutWallets(businessId);
@@ -462,6 +466,7 @@ export async function startWalletPayment(
       businessId,
       gatewayCode,
       payerPhone: options?.payerPhone,
+      recordedByUserId: options?.recordedByUserId ?? undefined,
       req,
     });
   }
@@ -509,6 +514,7 @@ export async function startWalletPayment(
     }
   }
 
+  const recordedByUserId = options?.recordedByUserId?.trim() || undefined;
   const payment = await prisma.payment.create({
     data: {
       businessId,
@@ -521,8 +527,26 @@ export async function startWalletPayment(
       currency: order.currency,
       providerRef: genWalletProviderRef(),
       publicToken: genPublicToken(),
+      recordedByUserId,
     },
   });
+
+  if (recordedByUserId) {
+    await appendActivityLog(prisma, {
+      businessId,
+      actorUserId: recordedByUserId,
+      actorKind: ActivityActorKind.USER,
+      eventType: ACTIVITY_EVENT.PAYMENT_WALLET_INITIATED,
+      resourceType: "payment",
+      resourceId: payment.id,
+      metadata: {
+        orderId,
+        orderPublicCode: order.publicCode,
+        paymentPublicCode: payment.publicCode,
+        provider: "simulator",
+      },
+    });
+  }
 
   const url = buildPayUrl(payment.publicToken);
   return {
@@ -534,7 +558,11 @@ export async function startWalletPayment(
   };
 }
 
-export async function completeCashPayment(orderId: string, businessId: string) {
+export async function completeCashPayment(
+  orderId: string,
+  businessId: string,
+  recordedByUserId: string,
+) {
   return prisma.$transaction(
     async (tx) => {
       const order = await tx.order.findFirst({
@@ -585,6 +613,7 @@ export async function completeCashPayment(orderId: string, businessId: string) {
           providerRef,
           publicToken: genPublicToken(),
           completedAt: new Date(),
+          recordedByUserId,
         },
       });
 
@@ -620,6 +649,21 @@ export async function completeCashPayment(orderId: string, businessId: string) {
         providerRef: payment.providerRef,
       });
 
+      await appendActivityLog(tx, {
+        businessId,
+        actorUserId: recordedByUserId,
+        actorKind: ActivityActorKind.USER,
+        eventType: ACTIVITY_EVENT.PAYMENT_CASH_COMPLETED,
+        resourceType: "payment",
+        resourceId: payment.id,
+        metadata: {
+          orderPublicCode: order.publicCode,
+          paymentPublicCode: payment.publicCode,
+          amount: Number(payment.amount),
+          currency: payment.currency,
+        },
+      });
+
       return { payment, receipt };
     },
     { maxWait: 10_000, timeout: 15_000 },
@@ -633,10 +677,12 @@ async function completeSalesInvoiceWalletPaymentCore(
     salesInvoiceId: string | null;
     orderId: string | null;
     status: string;
+    publicCode: string;
     salesInvoice: {
       id: string;
       status: SalesInvoiceStatus;
       journalEntryId: string | null;
+      publicCode: string;
     } | null;
   },
   options?: { externalEventId?: string },
@@ -754,6 +800,19 @@ async function completeSalesInvoiceWalletPaymentCore(
         { settlementChartAccountId: settlementId, postedAt: new Date() },
       );
 
+      await appendActivityLog(tx, {
+        businessId: fresh.businessId,
+        actorUserId: null,
+        actorKind: ActivityActorKind.SYSTEM,
+        eventType: ACTIVITY_EVENT.PAYMENT_SALES_INVOICE_WALLET_SETTLED,
+        resourceType: "payment",
+        resourceId: fresh.id,
+        metadata: {
+          invoicePublicCode: fresh.salesInvoice.publicCode,
+          paymentPublicCode: fresh.publicCode,
+        },
+      });
+
       return {
         ok: true as const,
         duplicate: false as const,
@@ -766,9 +825,16 @@ async function completeSalesInvoiceWalletPaymentCore(
   );
 }
 
+export type CompleteWalletPaymentByPublicTokenOptions = {
+  externalEventId?: string;
+  /** POS staff completing simulator wallet checkout */
+  settledByStaffUserId?: string | null;
+  settlementSource?: "staff_simulate" | "public_pay_simulate" | "webhook";
+};
+
 export async function completeWalletPaymentByPublicToken(
   publicToken: string,
-  options?: { externalEventId?: string },
+  options?: CompleteWalletPaymentByPublicTokenOptions,
 ) {
   const payment = await prisma.payment.findUnique({
     where: { publicToken },
@@ -797,7 +863,23 @@ export async function completeWalletPaymentByPublicToken(
   }
 
   if (payment.salesInvoiceId && payment.salesInvoice) {
-    return completeSalesInvoiceWalletPaymentCore(payment, options);
+    return completeSalesInvoiceWalletPaymentCore(
+      {
+        id: payment.id,
+        businessId: payment.businessId,
+        salesInvoiceId: payment.salesInvoiceId,
+        orderId: payment.orderId,
+        status: payment.status,
+        publicCode: payment.publicCode,
+        salesInvoice: {
+          id: payment.salesInvoice.id,
+          status: payment.salesInvoice.status,
+          journalEntryId: payment.salesInvoice.journalEntryId,
+          publicCode: payment.salesInvoice.publicCode,
+        },
+      },
+      options,
+    );
   }
 
   if (!payment.orderId || !payment.order) {
@@ -956,6 +1038,24 @@ export async function completeWalletPaymentByPublicToken(
       await recordCustomerSaleJournalAndLedger(tx, saleJournalInput);
       await recordMerchantCustomerWalletFeeJournalAndLedger(tx, saleJournalInput);
 
+      const staffId = options?.settledByStaffUserId?.trim() || null;
+      const source =
+        options?.settlementSource ??
+        (staffId ? ("staff_simulate" as const) : ("webhook" as const));
+      await appendActivityLog(tx, {
+        businessId: fresh.order.businessId,
+        actorUserId: staffId,
+        actorKind: staffId ? ActivityActorKind.USER : ActivityActorKind.SYSTEM,
+        eventType: ACTIVITY_EVENT.PAYMENT_WALLET_SETTLED,
+        resourceType: "payment",
+        resourceId: updatedPayment.id,
+        metadata: {
+          orderPublicCode: fresh.order.publicCode,
+          paymentPublicCode: updatedPayment.publicCode,
+          source,
+        },
+      });
+
       return {
         ok: true as const,
         duplicate: false as const,
@@ -967,7 +1067,11 @@ export async function completeWalletPaymentByPublicToken(
   );
 }
 
-export async function completeWalletPaymentForOrder(orderId: string, businessId: string) {
+export async function completeWalletPaymentForOrder(
+  orderId: string,
+  businessId: string,
+  staffUserId: string,
+) {
   const payment = await prisma.payment.findFirst({
     where: {
       orderId,
@@ -990,6 +1094,8 @@ export async function completeWalletPaymentForOrder(orderId: string, businessId:
 
   return completeWalletPaymentByPublicToken(payment.publicToken, {
     externalEventId: `sim-staff-${payment.id}-${Date.now()}`,
+    settledByStaffUserId: staffUserId,
+    settlementSource: "staff_simulate",
   });
 }
 
@@ -1116,6 +1222,7 @@ export async function listPaymentsForBusiness(
       include: {
         order: { select: { id: true, publicCode: true } },
         salesInvoice: { select: { id: true, publicCode: true } },
+        recordedBy: { select: { id: true, name: true, email: true } },
       },
     }),
   ]);

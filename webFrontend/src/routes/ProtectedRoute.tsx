@@ -12,6 +12,7 @@ export function ProtectedRoute({
   requiredPermission,
   requiredAnyOfPermissions,
   allowedRoles,
+  requireBusinessOwner,
 }: {
   children: ReactNode
   /** Use this or `requiredAnyOfPermissions` (not both required, but one should be set). */
@@ -19,6 +20,8 @@ export function ProtectedRoute({
   /** User passes if they satisfy any of these (e.g. move users OR legacy system users view). */
   requiredAnyOfPermissions?: PermissionKey[]
   allowedRoles: UserRole[]
+  /** When true, only the selected organization’s business owner may open this route. */
+  requireBusinessOwner?: boolean
 }) {
   const {
     user,
@@ -94,6 +97,24 @@ export function ProtectedRoute({
             <p className="mt-3 text-slate-600">
               Your role or subscription plan does not currently allow this module. Platform owners
               can update plan permissions from the plan controls screen.
+            </p>
+          </div>
+        </div>
+      </AppLayout>
+    )
+  }
+
+  if (requireBusinessOwner && !currentOrganization?.isOwner) {
+    return (
+      <AppLayout>
+        <div className="flex min-h-full items-center justify-center">
+          <div className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+            <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
+              <Lock className="h-7 w-7" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900">Owner only</h2>
+            <p className="mt-3 text-slate-600">
+              The activity log is only available to the business owner for this organization.
             </p>
           </div>
         </div>

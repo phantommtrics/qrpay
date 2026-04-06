@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 
 import type { CartItem, Product } from '../../types'
 import { productSellableUnits } from '../../utils/productStock'
@@ -39,17 +40,14 @@ export function useCart(options?: {
   const catalogStockSignature = options?.catalogStockSignature
 
   const getProductByIdRef = useRef(getProductById)
-  getProductByIdRef.current = getProductById
+  useLayoutEffect(() => {
+    getProductByIdRef.current = getProductById
+  }, [getProductById])
 
   /** Always read the latest catalog resolver (avoids stale closures inside setCart). */
   const resolveProduct = useCallback((p: Product): Product => {
     return getProductByIdRef.current?.(p.id) ?? p
   }, [])
-
-  const addResultRef: MutableRefObject<AddToCartResult> = useRef({
-    ok: false,
-    reason: 'out_of_stock',
-  })
 
   const total = useMemo(
     () =>
@@ -118,54 +116,61 @@ export function useCart(options?: {
     })
     // getProductById is read via ref only so this effect runs when catalog numbers change,
     // not when the callback identity changes each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- merge keyed by catalogStockSignature; resolver via ref
   }, [catalogStockSignature, minQuantity, removeWhenZero])
 
   const addToCart = useCallback((product: Product): AddToCartResult => {
-    addResultRef.current = { ok: false, reason: 'out_of_stock' }
-    setCart((current) => {
-      const latest = resolveProduct(product)
-      const cap = sellableUnits(latest)
+    /**
+     * Must not use a ref for the return value: React may invoke the state updater
+     * asynchronously or twice (Strict Mode). The ref could still read the initial
+     * `{ ok: false }` while the cart state actually updates — wrong toast + item added.
+     */
+    let outcome: AddToCartResult = { ok: false, reason: 'out_of_stock' }
+    flushSync(() => {
+      setCart((current) => {
+        const latest = resolveProduct(product)
+        const cap = sellableUnits(latest)
 
-      const merged = new Map<string, CartItem>()
-      for (const item of current) {
-        const id = item.product.id
-        const live = resolveProduct(item.product)
-        const prev = merged.get(id)
-        if (prev) {
-          merged.set(id, {
-            product: live,
-            quantity: prev.quantity + item.quantity,
-          })
-        } else {
-          merged.set(id, { product: live, quantity: item.quantity })
+        const merged = new Map<string, CartItem>()
+        for (const item of current) {
+          const id = item.product.id
+          const live = resolveProduct(item.product)
+          const prev = merged.get(id)
+          if (prev) {
+            merged.set(id, {
+              product: live,
+              quantity: prev.quantity + item.quantity,
+            })
+          } else {
+            merged.set(id, { product: live, quantity: item.quantity })
+          }
         }
-      }
 
-      const list = [...merged.values()]
-      const existing = list.find((item) => item.product.id === latest.id)
-      const currentQty = existing?.quantity ?? 0
+        const list = [...merged.values()]
+        const existing = list.find((item) => item.product.id === latest.id)
+        const currentQty = existing?.quantity ?? 0
 
-      if (cap <= 0) {
-        if (currentQty > 0) {
-          addResultRef.current = { ok: false, reason: 'max_in_cart' }
-        } else {
-          addResultRef.current = { ok: false, reason: 'out_of_stock' }
+        if (cap <= 0) {
+          outcome =
+            currentQty > 0
+              ? { ok: false, reason: 'max_in_cart' }
+              : { ok: false, reason: 'out_of_stock' }
+          return current
         }
-        return current
-      }
 
-      if (currentQty >= cap) {
-        addResultRef.current = { ok: false, reason: 'max_in_cart' }
-        return current
-      }
+        if (currentQty >= cap) {
+          outcome = { ok: false, reason: 'max_in_cart' }
+          return current
+        }
 
-      addResultRef.current = { ok: true }
+        outcome = { ok: true }
 
-      const rest = list.filter((item) => item.product.id !== latest.id)
-      const nextQty = currentQty + 1
-      return [...rest, { product: latest, quantity: nextQty }]
+        const rest = list.filter((item) => item.product.id !== latest.id)
+        const nextQty = currentQty + 1
+        return [...rest, { product: latest, quantity: nextQty }]
+      })
     })
-    return addResultRef.current
+    return outcome
   }, [resolveProduct])
 
   const updateQuantity = (productId: string, delta: number) => {

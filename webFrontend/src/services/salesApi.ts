@@ -131,6 +131,12 @@ export type SaleOrder = {
   receipt?: { id: string; publicCode: string; receiptNumber: number } | null
 }
 
+export type SalePaymentRecordedBy = {
+  id: string
+  name: string
+  email: string
+}
+
 export type SalePayment = {
   id: string
   orderId: string | null
@@ -150,6 +156,8 @@ export type SalePayment = {
   gatewayCode?: string | null
   createdAt: string
   completedAt: string | null
+  /** Staff who recorded cash or started wallet checkout from POS; null for guest-only flows. */
+  recordedBy?: SalePaymentRecordedBy | null
 }
 
 export type OrderCheckoutWalletRow = {
@@ -351,6 +359,99 @@ export async function fetchBusinessPayments(
   const pageSize = params?.pageSize ?? 50
   const res = await apiRequest<{ data: PaymentsListResponse }>(
     `/businesses/${businessId}/payments?page=${page}&pageSize=${pageSize}`,
+    { businessId },
+  )
+  return res.data
+}
+
+export type ActivityLogActor = {
+  id: string
+  name: string
+  email: string
+}
+
+export type ActivityLogRow = {
+  id: string
+  eventType: string
+  resourceType: string
+  resourceId: string | null
+  actorKind: 'user' | 'system'
+  actor: ActivityLogActor | null
+  metadata: unknown
+  createdAt: string
+}
+
+export type ActivityLogListResponse = {
+  total: number
+  page: number
+  pageSize: number
+  logs: ActivityLogRow[]
+}
+
+export type DashboardRevenueDay = {
+  date: string
+  label: string
+  revenue: number
+}
+
+export type DashboardRecentOrder = {
+  id: string
+  publicCode: string
+  total: number
+  currency: string
+  status: 'pending_payment' | 'paid' | 'cancelled'
+  createdAt: string
+  lineCount: number
+  tableLabel: string | null
+}
+
+export type DashboardSummary = {
+  industry: string | null
+  catalogEnabled: boolean
+  revenueCompletedLast7Days: number
+  revenueCompletedPrior7Days: number
+  ordersCreatedToday: number
+  openOrdersCount: number
+  revenueByDayLast7: DashboardRevenueDay[]
+  recentOrders: DashboardRecentOrder[]
+  productCount: number | null
+  lowStockCount: number | null
+}
+
+export async function fetchDashboardSummary(businessId: string): Promise<DashboardSummary> {
+  const res = await apiRequest<{ data: DashboardSummary }>(
+    `/businesses/${businessId}/dashboard/summary`,
+    { method: 'GET', businessId },
+  )
+  return res.data
+}
+
+export async function fetchBusinessActivityLog(
+  businessId: string,
+  params?: {
+    page?: number
+    pageSize?: number
+    /** Exact backend eventType */
+    eventType?: string
+    actorKind?: 'user' | 'system' | ''
+  },
+): Promise<ActivityLogListResponse> {
+  const page = params?.page ?? 1
+  const pageSize = params?.pageSize ?? 50
+  const qs = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  })
+  const et = params?.eventType?.trim()
+  if (et) {
+    qs.set('eventType', et)
+  }
+  const ak = params?.actorKind?.trim()
+  if (ak === 'user' || ak === 'system') {
+    qs.set('actorKind', ak)
+  }
+  const res = await apiRequest<{ data: ActivityLogListResponse }>(
+    `/businesses/${businessId}/activity-log?${qs.toString()}`,
     { businessId },
   )
   return res.data

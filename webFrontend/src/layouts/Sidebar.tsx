@@ -312,6 +312,9 @@ export function Sidebar({
     if (item.path === APP_PATHS.staffStatus && !currentOrganization?.isOwner) {
       return false
     }
+    if (item.path === APP_PATHS.activityLog && !currentOrganization?.isOwner) {
+      return false
+    }
     return true
   })
 
@@ -330,6 +333,9 @@ export function Sidebar({
       return false
     }
     if (item.path === APP_PATHS.staffStatus && !currentOrganization?.isOwner) {
+      return false
+    }
+    if (item.path === APP_PATHS.activityLog && !currentOrganization?.isOwner) {
       return false
     }
     return true
@@ -580,22 +586,27 @@ export function Sidebar({
                   </button>
                   {open ? (
                     <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
-                      {svc.items.map((item) => (
-                        <NavLink
-                          key={item.slug}
-                          to={item.navPath}
-                          onClick={() => setIsOpen(false)}
-                          className={({ isActive }) =>
-                            `flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
-                              isActive
-                                ? 'bg-teal-500/10 text-teal-300'
-                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                            }`
-                          }
-                        >
-                          <span className="font-medium">{item.navLabel}</span>
-                        </NavLink>
-                      ))}
+                      {svc.items
+                        .filter(
+                          (item) =>
+                            item.navPath !== APP_PATHS.activityLog || currentOrganization?.isOwner,
+                        )
+                        .map((item) => (
+                          <NavLink
+                            key={item.slug}
+                            to={item.navPath}
+                            onClick={() => setIsOpen(false)}
+                            className={({ isActive }) =>
+                              `flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
+                                isActive
+                                  ? 'bg-teal-500/10 text-teal-300'
+                                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                              }`
+                            }
+                          >
+                            <span className="font-medium">{item.navLabel}</span>
+                          </NavLink>
+                        ))}
                     </div>
                   ) : null}
                 </div>

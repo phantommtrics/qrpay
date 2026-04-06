@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 import { useParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -62,105 +63,18 @@ function GuestProductImageFrame({
   )
 }
 
+type GuestMenuBanner = { message: string; variant: 'success' | 'warning' } | null
+
 function GuestMenuProductCard({
   item,
   onAdd,
-<<<<<<< HEAD
-  getProductById,
-  menuHint,
-=======
->>>>>>> a3b8ff8ece2a07d7d62126992c5bc1b1fdd3425b
   setMenuHint,
 }: {
   item: Product
   onAdd: (item: Product) => AddToCartResult
-<<<<<<< HEAD
-  getProductById: (id: string) => Product | undefined
-  menuHint: string | null
-=======
->>>>>>> a3b8ff8ece2a07d7d62126992c5bc1b1fdd3425b
-  setMenuHint: (v: string | null) => void
+  setMenuHint: Dispatch<SetStateAction<GuestMenuBanner>>
 }) {
   return (
-<<<<<<< HEAD
-    <div className="mb-3" style={{ paddingLeft: pad ? pad - (depth > 0 ? 8 : 0) : 0 }}>
-      {hasChildren || hasProducts ? (
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="mb-2 flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm"
-        >
-          <span className="font-semibold text-slate-800">{node.name}</span>
-          <ChevronDown
-            className={`h-5 w-5 shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
-          />
-        </button>
-      ) : null}
-
-      {open && hasProducts ? (
-        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {node.products.map((item) => {
-            const live = getProductById(item.id) ?? item
-            const cap = productSellableUnits(live)
-            return (
-            <motion.div
-              key={item.id}
-              layout
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex gap-3 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm"
-            >
-              <ProductThumb product={item} className="h-20 w-20 flex-shrink-0" />
-              <div className="flex min-w-0 flex-1 flex-col justify-between">
-                <div>
-                  <h3 className="font-bold leading-tight text-slate-800">{item.name}</h3>
-                  <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{item.description ?? ''}</p>
-                </div>
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="font-bold text-teal-600">{formatMoney(item.price)}</span>
-                  {cap <= 0 ? (
-                    <span className="text-xs font-medium text-red-600">Sold out</span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const r = onAdd(item)
-                        if (!r.ok) {
-                          setMenuHint(
-                            r.reason === 'out_of_stock'
-                              ? `${item.name} is out of stock.`
-                              : `Maximum quantity for ${item.name} is already in your cart.`,
-                          )
-                        }
-                      }}
-                      aria-label={`Add ${item.name}`}
-                      className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-50 text-teal-600 hover:bg-teal-100"
-                    >
-                      <Plus className="h-5 w-5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </motion.div>
-            )
-          })}
-        </div>
-      ) : null}
-
-      {open &&
-        node.children.map((child) => (
-          <MenuBranch
-            key={child.id}
-            node={child}
-            depth={depth + 1}
-            onAdd={onAdd}
-            getProductById={getProductById}
-            menuHint={menuHint}
-            setMenuHint={setMenuHint}
-          />
-        ))}
-    </div>
-=======
     <motion.div
       layout
       initial={{ opacity: 0, y: 12 }}
@@ -175,7 +89,7 @@ function GuestMenuProductCard({
         </div>
         <div className="mt-2 flex items-center justify-between">
           <span className="font-bold text-teal-600">{formatMoney(item.price)}</span>
-          {(item.availableStock ?? item.stock) <= 0 ? (
+          {productSellableUnits(item) <= 0 ? (
             <span className="text-xs font-medium text-red-600">Sold out</span>
           ) : (
             <button
@@ -183,11 +97,18 @@ function GuestMenuProductCard({
               onClick={() => {
                 const r = onAdd(item)
                 if (!r.ok) {
-                  setMenuHint(
-                    r.reason === 'out_of_stock'
-                      ? `${item.name} is out of stock.`
-                      : `Maximum quantity for ${item.name} is already in your cart.`,
-                  )
+                  setMenuHint({
+                    message:
+                      r.reason === 'out_of_stock'
+                        ? `${item.name} is out of stock.`
+                        : `Maximum quantity for ${item.name} is already in your cart.`,
+                    variant: 'warning',
+                  })
+                } else {
+                  setMenuHint({
+                    message: `${item.name} added to your cart.`,
+                    variant: 'success',
+                  })
                 }
               }}
               aria-label={`Add ${item.name}`}
@@ -199,7 +120,6 @@ function GuestMenuProductCard({
         </div>
       </div>
     </motion.div>
->>>>>>> a3b8ff8ece2a07d7d62126992c5bc1b1fdd3425b
   )
 }
 
@@ -217,7 +137,7 @@ export function RestaurantGuestMenuPage() {
   const [orderStatus, setOrderStatus] = useState<'browsing' | 'paying' | 'success'>('browsing')
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [menuHint, setMenuHint] = useState<string | null>(null)
+  const [menuHint, setMenuHint] = useState<GuestMenuBanner>(null)
   /** Drill-down path: empty = top-level categories only. */
   const [navStack, setNavStack] = useState<GuestMenuTreeNode[]>([])
 
@@ -542,79 +462,16 @@ export function RestaurantGuestMenuPage() {
         {menuHint ? (
           <p
             role="status"
-            className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-900"
+            className={
+              menuHint.variant === 'success'
+                ? 'mb-4 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-center text-sm text-teal-900'
+                : 'mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-900'
+            }
           >
-            {menuHint}
+            {menuHint.message}
           </p>
         ) : null}
 
-<<<<<<< HEAD
-        {categories.map((node) => (
-          <MenuBranch
-            key={node.id}
-            node={node}
-            depth={0}
-            onAdd={handleAdd}
-            getProductById={getProductById}
-            menuHint={menuHint}
-            setMenuHint={setMenuHint}
-          />
-        ))}
-
-        {uncategorized.length > 0 ? (
-          <div className="mt-6">
-            <h2 className="mb-3 px-1 text-sm font-semibold tracking-wide text-slate-500 uppercase">
-              Other
-            </h2>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {uncategorized.map((item) => {
-                const live = getProductById(item.id) ?? item
-                const cap = productSellableUnits(live)
-                return (
-                <motion.div
-                  key={item.id}
-                  layout
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex gap-3 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm"
-                >
-                  <ProductThumb product={item} className="h-20 w-20 flex-shrink-0" />
-                  <div className="flex min-w-0 flex-1 flex-col justify-between">
-                    <div>
-                      <h3 className="font-bold text-slate-800">{item.name}</h3>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{item.description ?? ''}</p>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between">
-                      <span className="font-bold text-teal-600">{formatMoney(item.price)}</span>
-                      {cap <= 0 ? (
-                        <span className="text-xs font-medium text-red-600">Sold out</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const r = handleAdd(item)
-                            if (!r.ok) {
-                              setMenuHint(
-                                r.reason === 'out_of_stock'
-                                  ? `${item.name} is out of stock.`
-                                  : `Maximum quantity for ${item.name} is already in your cart.`,
-                              )
-                            }
-                          }}
-                          className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-50 text-teal-600 hover:bg-teal-100"
-                        >
-                          <Plus className="h-5 w-5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </motion.div>
-                )
-              })}
-            </div>
-          </div>
-        ) : null}
-=======
         <AnimatePresence mode="wait">
           <motion.div
             key={navStack.map((n) => n.id).join('/') || 'root'}
@@ -764,7 +621,6 @@ export function RestaurantGuestMenuPage() {
             )}
           </motion.div>
         </AnimatePresence>
->>>>>>> a3b8ff8ece2a07d7d62126992c5bc1b1fdd3425b
 
         {!loading && categories.length === 0 && uncategorized.length === 0 ? (
           <p className="py-12 text-center text-sm text-slate-500">No items in this section.</p>

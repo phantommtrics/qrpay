@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Request } from "express";
-import { Prisma, SalesInvoiceStatus } from "@prisma/client";
+import { ActivityActorKind, Prisma, SalesInvoiceStatus } from "@prisma/client";
 
 import { buildPayUrl, spaHashRoute } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
@@ -28,6 +28,7 @@ import {
   type WaveGatewaySecrets,
   type YonnaGatewaySecrets,
 } from "./business-gateway-credential.service.js";
+import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
 
 function buildBusinessCodePrefix(name: string): string {
   const sanitized = name.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -168,6 +169,8 @@ export async function startGatewayWalletCheckout(input: {
   businessId: string;
   gatewayCode: string;
   payerPhone?: string;
+  /** Staff who started QR checkout from POS */
+  recordedByUserId?: string;
   req: Request;
 }): Promise<GatewayWalletCheckoutResult> {
   const order = await prisma.order.findFirst({
@@ -246,6 +249,7 @@ export async function startGatewayWalletCheckout(input: {
       client_reference: order.id,
     });
 
+    const recordedByUserId = input.recordedByUserId?.trim() || undefined;
     const payment = await prisma.payment.create({
       data: {
         businessId: input.businessId,
@@ -259,8 +263,27 @@ export async function startGatewayWalletCheckout(input: {
         currency: order.currency,
         providerRef: session.id,
         publicToken,
+        recordedByUserId,
       },
     });
+
+    if (recordedByUserId) {
+      await appendActivityLog(prisma, {
+        businessId: input.businessId,
+        actorUserId: recordedByUserId,
+        actorKind: ActivityActorKind.USER,
+        eventType: ACTIVITY_EVENT.PAYMENT_WALLET_INITIATED,
+        resourceType: "payment",
+        resourceId: payment.id,
+        metadata: {
+          orderId: input.orderId,
+          orderPublicCode: order.publicCode,
+          paymentPublicCode: payment.publicCode,
+          provider: "wave_gambia",
+          gatewayCode: gateway.code,
+        },
+      });
+    }
 
     const launchUrl = session.wave_launch_url;
     return {
@@ -318,6 +341,7 @@ export async function startGatewayWalletCheckout(input: {
   const payUrl = result.paymentUrl?.trim();
   const qrPayload = payUrl && payUrl.length > 0 ? payUrl : buildPayUrl(publicToken);
 
+  const recordedByUserIdY = input.recordedByUserId?.trim() || undefined;
   const payment = await prisma.payment.create({
     data: {
       businessId: input.businessId,
@@ -331,8 +355,27 @@ export async function startGatewayWalletCheckout(input: {
       currency: order.currency,
       providerRef: result.transactionId || transactionId,
       publicToken,
+      recordedByUserId: recordedByUserIdY,
     },
   });
+
+  if (recordedByUserIdY) {
+    await appendActivityLog(prisma, {
+      businessId: input.businessId,
+      actorUserId: recordedByUserIdY,
+      actorKind: ActivityActorKind.USER,
+      eventType: ACTIVITY_EVENT.PAYMENT_WALLET_INITIATED,
+      resourceType: "payment",
+      resourceId: payment.id,
+      metadata: {
+        orderId: input.orderId,
+        orderPublicCode: order.publicCode,
+        paymentPublicCode: payment.publicCode,
+        provider: "yonna_wallet",
+        gatewayCode: gateway.code,
+      },
+    });
+  }
 
   const launchUrl =
     payUrl && payUrl.length > 0 ? payUrl : result.paymentHtml ? "" : buildPayUrl(publicToken);

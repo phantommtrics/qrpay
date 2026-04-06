@@ -167,6 +167,33 @@ export function requireSubscriptionsInvoicesOrPlatform() {
   };
 }
 
+/**
+ * Strict: only a user with `BusinessMembership.isOwner` for the route `businessId`.
+ * Platform operators are not exempt (activity log and similar owner-only surfaces).
+ */
+export function requireBusinessOwnerOnly() {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        throw new HttpError(401, "Authentication required");
+      }
+      const businessId = (req.params as { businessId?: string }).businessId;
+      if (!businessId) {
+        throw new HttpError(400, "Business id required");
+      }
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user.id, businessId, isOwner: true },
+      });
+      if (!membership) {
+        throw new HttpError(403, "Only the business owner can access the activity log.");
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
 /** Business owner or platform owner only (staff management and other owner-only actions). */
 export function requireBusinessOwnerOrPlatform() {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
