@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import QRCode from 'react-qr-code'
 
 import { SalesDocumentPaper } from '../components/sales/SalesDocumentPaper'
 import {
@@ -24,6 +25,7 @@ export function GuestInvoicePage() {
   const [payerPhone, setPayerPhone] = useState('')
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [launchUrl, setLaunchUrl] = useState<string | null>(null)
+  const [qrPayload, setQrPayload] = useState<string | null>(null)
   const [paymentHtml, setPaymentHtml] = useState<string | null>(null)
   const [checkoutAdapter, setCheckoutAdapter] = useState<string | null>(null)
   const [payPublicToken, setPayPublicToken] = useState<string | null>(null)
@@ -56,6 +58,7 @@ export function GuestInvoicePage() {
     setWalletsLoading(true)
     setError(null)
     setLaunchUrl(null)
+    setQrPayload(null)
     setPaymentHtml(null)
     setCheckoutAdapter(null)
     setPayPublicToken(null)
@@ -95,9 +98,7 @@ export function GuestInvoicePage() {
       setPayPublicToken(r.payment.publicToken)
       const url = r.launchUrl?.trim() ? r.launchUrl.trim() : null
       setLaunchUrl(url)
-      if (url && (r.checkoutAdapter !== 'yonna_wallet' || !r.paymentHtml)) {
-        window.location.href = url
-      }
+      setQrPayload(r.qrPayload?.trim() ? r.qrPayload.trim() : null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not start payment.')
     } finally {
@@ -212,6 +213,7 @@ export function GuestInvoicePage() {
                     onClick={() => {
                       setPayOpen(false)
                       setLaunchUrl(null)
+                      setQrPayload(null)
                       setPaymentHtml(null)
                       setCheckoutAdapter(null)
                       setPayPublicToken(null)
@@ -222,33 +224,63 @@ export function GuestInvoicePage() {
                   </button>
                   <button
                     type="button"
-                    disabled={checkoutBusy || !selectedGatewayCode}
+                    disabled={checkoutBusy || !selectedGatewayCode || Boolean(payPublicToken)}
                     onClick={() => void startCheckout()}
                     className="rounded-xl bg-teal-600 px-6 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
                   >
-                    {checkoutBusy ? 'Starting…' : 'Continue'}
+                    {checkoutBusy ? 'Starting…' : payPublicToken ? 'Checkout started' : 'Continue'}
                   </button>
                 </div>
-                {paymentHtml && checkoutAdapter === 'yonna_wallet' ? (
-                  <iframe title="Wallet checkout" className="h-[420px] w-full rounded-lg border" srcDoc={paymentHtml} />
-                ) : null}
-                {launchUrl && checkoutAdapter !== 'yonna_wallet' && checkoutAdapter !== 'simulator' ? (
-                  <p className="text-center text-sm text-slate-600">
-                    If you were not redirected,{' '}
-                    <a href={launchUrl} className="font-medium text-teal-700 underline">
-                      open the wallet payment page
-                    </a>
-                    .
-                  </p>
-                ) : null}
-                {checkoutAdapter === 'simulator' && payPublicToken ? (
-                  <p className="text-center text-sm text-slate-600">
-                    Demo: complete payment on the{' '}
-                    <Link to={`/pay/${encodeURIComponent(payPublicToken)}`} className="font-medium text-teal-700 underline">
-                      public pay page
-                    </Link>
-                    .
-                  </p>
+                {payPublicToken ? (
+                  <div className="space-y-4 border-t border-slate-100 pt-4">
+                    <p className="text-center text-sm text-slate-700">
+                      Complete payment in your wallet. Stay on this page — scan the QR or open the link on your phone.
+                    </p>
+                    {paymentHtml && checkoutAdapter === 'yonna_wallet' ? (
+                      <iframe
+                        title="Wallet checkout"
+                        className="mx-auto h-[min(420px,50vh)] w-full max-w-md rounded-lg border border-slate-200 bg-white"
+                        srcDoc={paymentHtml}
+                        sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+                      />
+                    ) : null}
+                    {qrPayload && !(paymentHtml && checkoutAdapter === 'yonna_wallet') ? (
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="flex justify-center rounded-lg bg-white p-2">
+                          <QRCode value={qrPayload} size={200} level="M" />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void navigator.clipboard.writeText(qrPayload)}
+                          className="text-sm font-medium text-teal-700 hover:underline"
+                        >
+                          Copy payment link
+                        </button>
+                      </div>
+                    ) : null}
+                    {launchUrl && checkoutAdapter !== 'simulator' ? (
+                      <a
+                        href={launchUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-center text-sm font-medium text-teal-700 hover:underline"
+                      >
+                        Open payment page in new tab
+                      </a>
+                    ) : null}
+                    {checkoutAdapter === 'simulator' && payPublicToken ? (
+                      <p className="text-center text-sm text-slate-600">
+                        Demo: complete payment on the{' '}
+                        <Link
+                          to={`/pay/${encodeURIComponent(payPublicToken)}`}
+                          className="font-medium text-teal-700 underline"
+                        >
+                          public pay page
+                        </Link>
+                        .
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             )}

@@ -9,6 +9,7 @@ import {
   PaymentProvider,
   PaymentStatus,
 } from "../lib/prisma-sales-enums.js";
+import { buildPayUrl } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
 import {
   recordCustomerSaleJournalAndLedger,
@@ -135,16 +136,6 @@ async function releaseReservedStockForCancelledOrder(
       throw new HttpError(500, "Could not release stock reservation.");
     }
   }
-}
-
-export function getPublicWebAppBaseUrl(): string {
-  const raw =
-    process.env.PUBLIC_WEB_APP_URL || process.env.FRONTEND_URL || "http://localhost:5173";
-  return raw.replace(/\/$/, "");
-}
-
-export function buildPayUrl(publicToken: string): string {
-  return `${getPublicWebAppBaseUrl()}/pay/${publicToken}`;
 }
 
 function genPublicToken(): string {

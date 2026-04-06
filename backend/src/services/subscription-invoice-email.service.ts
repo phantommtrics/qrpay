@@ -6,6 +6,7 @@ import {
 } from "@prisma/client";
 
 import { env } from "../config/env.js";
+import { spaHashRoute } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
 import { generateSubscriptionInvoicePdf } from "./subscription-invoice-pdf.service.js";
 
@@ -18,8 +19,7 @@ export type SubscriptionInvoiceEmailContent = {
 };
 
 function billingUrl() {
-  const base = env.PLATFORM_URL.replace(/\/$/, "");
-  return `${base}/billing`;
+  return spaHashRoute(env.PLATFORM_URL.replace(/\/$/, ""), "/billing");
 }
 
 export function buildSubscriptionInvoiceEmailContent(input: {

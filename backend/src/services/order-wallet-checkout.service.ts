@@ -2,12 +2,15 @@ import { randomBytes } from "node:crypto";
 import type { Request } from "express";
 import { Prisma, SalesInvoiceStatus } from "@prisma/client";
 
+import { buildPayUrl, spaHashRoute } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
 import {
   OrderStatus,
   PaymentMethod,
+  PaymentMethodType,
   PaymentProvider,
+  PaymentProviderType,
   PaymentStatus,
 } from "../lib/prisma-sales-enums.js";
 import { resolveAppPublicBaseForBrowserReturns } from "../config/app-public-url.js";
@@ -65,14 +68,63 @@ function genPublicToken(): string {
   return randomBytes(16).toString("base64url");
 }
 
-function getPublicWebAppBaseUrl(): string {
-  const raw =
-    process.env.PUBLIC_WEB_APP_URL || process.env.FRONTEND_URL || "http://localhost:5173";
-  return raw.replace(/\/$/, "");
-}
-
-function buildPayUrl(publicToken: string): string {
-  return `${getPublicWebAppBaseUrl()}/pay/${publicToken}`;
+/**
+ * `Payment.salesInvoiceId` is @unique — only one row per invoice. Reuse/update it on retries
+ * (e.g. switch Wave → Yonna) instead of inserting again.
+ */
+async function upsertSalesInvoiceWalletPayment(
+  invoiceId: string,
+  businessId: string,
+  businessName: string,
+  input: {
+    total: Prisma.Decimal;
+    currency: string;
+    method: PaymentMethodType;
+    provider: PaymentProviderType;
+    gatewayCode: string;
+    providerRef: string;
+    publicToken: string;
+  },
+) {
+  const existing = await prisma.payment.findFirst({
+    where: { salesInvoiceId: invoiceId },
+  });
+  if (existing?.status === PaymentStatus.COMPLETED) {
+    throw new HttpError(400, "This invoice payment is already completed.");
+  }
+  if (existing) {
+    return prisma.payment.update({
+      where: { id: existing.id },
+      data: {
+        orderId: null,
+        status: PaymentStatus.PENDING,
+        amount: input.total,
+        currency: input.currency,
+        method: input.method,
+        provider: input.provider,
+        gatewayCode: input.gatewayCode,
+        providerRef: input.providerRef,
+        publicToken: input.publicToken,
+        completedAt: null,
+      },
+    });
+  }
+  return prisma.payment.create({
+    data: {
+      businessId,
+      orderId: null,
+      salesInvoiceId: invoiceId,
+      publicCode: await nextPaymentPublicCode(prisma, businessId, businessName),
+      method: input.method,
+      provider: input.provider,
+      gatewayCode: input.gatewayCode,
+      status: PaymentStatus.PENDING,
+      amount: input.total,
+      currency: input.currency,
+      providerRef: input.providerRef,
+      publicToken: input.publicToken,
+    },
+  });
 }
 
 export type OrderCheckoutWalletRow = {
@@ -177,8 +229,8 @@ export async function startGatewayWalletCheckout(input: {
     }
 
     const publicToken = genPublicToken();
-    const successUrl = `${appBase}/pay/${encodeURIComponent(publicToken)}`;
-    const errorUrl = `${appBase}/pay/${encodeURIComponent(publicToken)}?error=1`;
+    const successUrl = spaHashRoute(appBase, `/pay/${encodeURIComponent(publicToken)}`);
+    const errorUrl = spaHashRoute(appBase, `/pay/${encodeURIComponent(publicToken)}?error=1`);
 
     const wave = new WavePaymentService({
       baseUrl: waveApiBaseUrl(),
@@ -370,8 +422,8 @@ export async function startGatewayWalletCheckoutForInvoice(input: {
     }
 
     const publicToken = genPublicToken();
-    const successUrl = `${appBase}/pay/${encodeURIComponent(publicToken)}`;
-    const errorUrl = `${appBase}/pay/${encodeURIComponent(publicToken)}?error=1`;
+    const successUrl = spaHashRoute(appBase, `/pay/${encodeURIComponent(publicToken)}`);
+    const errorUrl = spaHashRoute(appBase, `/pay/${encodeURIComponent(publicToken)}?error=1`);
 
     const wave = new WavePaymentService({
       baseUrl: waveApiBaseUrl(),
@@ -387,21 +439,14 @@ export async function startGatewayWalletCheckoutForInvoice(input: {
       client_reference: invoice.id,
     });
 
-    const payment = await prisma.payment.create({
-      data: {
-        businessId: input.businessId,
-        orderId: null,
-        salesInvoiceId: invoice.id,
-        publicCode: await nextPaymentPublicCode(prisma, input.businessId, invoice.business.name),
-        method: PaymentMethod.QR_WALLET,
-        provider: PaymentProvider.WAVE_GAMBIA,
-        gatewayCode: gateway.code,
-        status: PaymentStatus.PENDING,
-        amount: total,
-        currency: invoice.currency,
-        providerRef: session.id,
-        publicToken,
-      },
+    const payment = await upsertSalesInvoiceWalletPayment(invoice.id, input.businessId, invoice.business.name, {
+      total,
+      currency: invoice.currency,
+      method: PaymentMethod.QR_WALLET,
+      provider: PaymentProvider.WAVE_GAMBIA,
+      gatewayCode: gateway.code,
+      providerRef: session.id,
+      publicToken,
     });
 
     const launchUrl = session.wave_launch_url;
@@ -460,21 +505,14 @@ export async function startGatewayWalletCheckoutForInvoice(input: {
   const payUrl = result.paymentUrl?.trim();
   const qrPayload = payUrl && payUrl.length > 0 ? payUrl : buildPayUrl(publicToken);
 
-  const payment = await prisma.payment.create({
-    data: {
-      businessId: input.businessId,
-      orderId: null,
-      salesInvoiceId: invoice.id,
-      publicCode: await nextPaymentPublicCode(prisma, input.businessId, invoice.business.name),
-      method: PaymentMethod.QR_WALLET,
-      provider: PaymentProvider.YONNA_WALLET,
-      gatewayCode: gateway.code,
-      status: PaymentStatus.PENDING,
-      amount: total,
-      currency: invoice.currency,
-      providerRef: result.transactionId || transactionId,
-      publicToken,
-    },
+  const payment = await upsertSalesInvoiceWalletPayment(invoice.id, input.businessId, invoice.business.name, {
+    total,
+    currency: invoice.currency,
+    method: PaymentMethod.QR_WALLET,
+    provider: PaymentProvider.YONNA_WALLET,
+    gatewayCode: gateway.code,
+    providerRef: result.transactionId || transactionId,
+    publicToken,
   });
 
   const launchUrl =

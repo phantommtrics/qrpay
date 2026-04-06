@@ -6,7 +6,7 @@
 - **JWT** — Secret(s) for signing tokens (see `backend/.env.example` and `config/env.ts`).
 - **Resend** — `RESEND_API_KEY`, `RESEND_FROM_EMAIL` for transactional email when configured.
 - **Payment providers** — Wave/Yonna base URLs and subscription-related keys as applicable (`payment-provider-env.ts`, subscription checkout).
-- **Public app URL** — Used for Wave success/error URLs and guest links (`app-public-url`, `public-guest-urls`).
+- **`PLATFORM_URL`** — Required. Base URL of the customer-facing web app; drives guest quotation/invoice links, `/pay/:token` links, and (when `APP_PUBLIC_BASE_URL` is unset) wallet return URLs. The SPA uses **HashRouter**, so those links are emitted as `https://host/#/guest/...` and `https://host/#/pay/...` (see `lib/public-guest-urls.ts`).
 - **Simulator** — Flags such as `SIMULATOR_ALLOW_PUBLIC_PAY`, `SIMULATOR_WEBHOOK_SECRET` for dev/test flows.
 
 Always copy from **`.env.example`** and never commit real secrets.
