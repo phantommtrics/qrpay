@@ -658,7 +658,7 @@ export const CASH_ACCOUNT_BALANCES: CashAccountBalance[] = [
   {
     id: 'cash-b1-merchant',
     businessId: 'b1',
-    name: 'QRPay Merchant Wallet',
+    name: 'EASYPay Merchant Wallet',
     type: 'merchant',
     balance: 28420,
     lastUpdatedAt: '2026-03-20T09:30:00.000Z',
@@ -674,7 +674,7 @@ export const CASH_ACCOUNT_BALANCES: CashAccountBalance[] = [
   {
     id: 'cash-b2-merchant',
     businessId: 'b2',
-    name: 'QRPay Merchant Wallet',
+    name: 'EASYPay Merchant Wallet',
     type: 'merchant',
     balance: 51240,
     lastUpdatedAt: '2026-03-20T09:30:00.000Z',
@@ -690,7 +690,7 @@ export const CASH_ACCOUNT_BALANCES: CashAccountBalance[] = [
   {
     id: 'cash-b3-merchant',
     businessId: 'b3',
-    name: 'QRPay Merchant Wallet',
+    name: 'EASYPay Merchant Wallet',
     type: 'merchant',
     balance: 132900,
     lastUpdatedAt: '2026-03-20T09:30:00.000Z',
@@ -1170,7 +1170,7 @@ export const ACCOUNTING_TRANSACTIONS: AccountingTransaction[] = [
     amount: 8200,
     toAccountId: 'cash-b1-merchant',
     reference: 'RCV-1001',
-    description: 'QRPay wallet collections',
+    description: 'EASYPay wallet collections',
     createdAt: '2026-03-18T09:30:00.000Z',
   },
   {

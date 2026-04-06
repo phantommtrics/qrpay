@@ -2908,7 +2908,8 @@ app.patch(
 app.delete(
   "/api/businesses/:businessId/menu-categories/:categoryId",
   authenticateToken,
-  requireEntitlement("products.delete"),
+  /** Same gate as POST menu-categories: editing the tree is part of menu setup, not product SKU delete. */
+  requireEntitlement("products.create"),
   async (req, res, next) => {
     try {
       const { businessId, categoryId } = req.params;

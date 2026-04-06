@@ -112,6 +112,35 @@ export async function updateMenuCategory(input: {
   });
 }
 
+/** Post-order IDs: children first, then parent (safe for FK Restrict on parentId). */
+function subtreePostOrderDeletionIds(
+  rootId: string,
+  rows: { id: string; parentId: string | null }[],
+): string[] {
+  const childrenByParent = new Map<string | null, string[]>();
+  for (const r of rows) {
+    const p = r.parentId;
+    if (!childrenByParent.has(p)) {
+      childrenByParent.set(p, []);
+    }
+    childrenByParent.get(p)!.push(r.id);
+  }
+  const ordered: string[] = [];
+  const dfs = (id: string) => {
+    const kids = childrenByParent.get(id) ?? [];
+    for (const k of kids) {
+      dfs(k);
+    }
+    ordered.push(id);
+  };
+  dfs(rootId);
+  return ordered;
+}
+
+/**
+ * Deletes one category. If it has subcategories, deletes the whole subtree (deepest first).
+ * Products on deleted categories get menuCategoryId cleared (schema onDelete: SetNull).
+ */
 export async function deleteMenuCategory(businessId: string, categoryId: string) {
   await assertRestaurantBusiness(businessId);
   const row = await prisma.menuCategory.findFirst({
@@ -121,23 +150,14 @@ export async function deleteMenuCategory(businessId: string, categoryId: string)
     throw new HttpError(404, "Category not found.");
   }
 
-  const child = await prisma.menuCategory.findFirst({
-    where: { parentId: row.id },
-    select: { id: true },
+  const allRows = await prisma.menuCategory.findMany({
+    where: { businessId },
+    select: { id: true, parentId: true },
   });
-  if (child) {
-    throw new HttpError(400, "Remove or reassign subcategories before deleting this category.");
-  }
 
-  const product = await prisma.product.findFirst({
-    where: { menuCategoryId: row.id },
-    select: { id: true },
-  });
-  if (product) {
-    throw new HttpError(400, "Reassign or remove products in this category before deleting.");
-  }
+  const ordered = subtreePostOrderDeletionIds(row.id, allRows);
 
-  await prisma.menuCategory.delete({ where: { id: row.id } });
+  await prisma.$transaction(ordered.map((id) => prisma.menuCategory.delete({ where: { id } })));
 }
 
 /** Menu categories that have no children (products may only use these). */

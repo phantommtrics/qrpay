@@ -17,7 +17,7 @@ export function PlatformOwnerDashboard() {
         <div>
           <h1 className="text-3xl font-bold">Platform Dashboard</h1>
           <p className="text-muted-foreground">
-            Welcome back, {user.name}. Manage your entire QRPay platform from here.
+            Welcome back, {user.name}. Manage your entire EASYPAY platform from here.
           </p>
         </div>
       </div>

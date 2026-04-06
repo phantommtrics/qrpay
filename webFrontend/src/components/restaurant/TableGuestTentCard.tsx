@@ -422,7 +422,7 @@ export const TableGuestTentCard = forwardRef<HTMLDivElement, TableGuestTentCardP
               <div className="border-t border-slate-200/80 pt-4">
                 <p className="text-[0.6rem] font-medium tracking-[0.24em] text-slate-500 uppercase">Powered by</p>
                 <p className="mt-1 bg-gradient-to-r from-teal-800 to-emerald-800 bg-clip-text text-sm font-semibold tracking-tight text-transparent print:bg-none print:text-teal-900">
-                  QRPay
+                  EASYPAY
                 </p>
               </div>
             </div>

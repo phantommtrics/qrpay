@@ -443,7 +443,7 @@ export function getPageTitle(pathname: string) {
   const matchedItem = [...MAIN_NAV_ITEMS].sort((a, b) => b.path.length - a.path.length).find(
     (item) => pathname === item.path || pathname.startsWith(`${item.path}/`),
   )
-  return matchedItem?.title ?? 'QRPay'
+  return matchedItem?.title ?? 'EASYPAY'
 }
 
 export function getDefaultProtectedPath(role: User['role']) {

@@ -1,6 +1,6 @@
-# QRPay Backend
+# EASYPay Backend
 
-Starter backend for QRPay using `Express`, `Postgres`, and `Prisma`.
+Starter backend for EASYPay using `Express`, `Postgres`, and `Prisma`.
 
 ## Subscription model
 
@@ -36,7 +36,7 @@ The backend stores:
 
 ## Why this model works
 
-- plans stay centralized, so QRPay can change pricing in one place
+- plans stay centralized, so EASYPay can change pricing in one place
 - invoices give a clean monthly billing trail
 - subscriptions remain tenant-scoped, which supports future upgrades, downgrades, and webhooks
 - the schema is ready for adding payment gateway references later

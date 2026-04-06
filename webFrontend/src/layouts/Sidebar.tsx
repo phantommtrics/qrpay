@@ -363,7 +363,7 @@ export function Sidebar({
       >
         <div className="flex h-16 items-center border-b border-slate-800 px-6">
           <QrCode className="mr-3 h-8 w-8 text-teal-500" />
-          <span className="text-xl font-bold tracking-tight text-white">QRPay</span>
+          <span className="text-xl font-bold tracking-tight text-white">EASYPay</span>
         </div>
 
         <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-6">
