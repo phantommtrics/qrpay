@@ -1,5 +1,4 @@
--- CreateEnum
-CREATE TYPE "ChartAccountCategory" AS ENUM ('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE');
+-- ChartAccountCategory created in 20260405120000_platform_accounting
 
 -- CreateEnum
 CREATE TYPE "JournalSourceType" AS ENUM ('CUSTOMER_SALE_PAYMENT');

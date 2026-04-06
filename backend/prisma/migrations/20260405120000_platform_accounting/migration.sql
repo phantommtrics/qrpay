@@ -1,3 +1,10 @@
+-- Shared chart enums (must exist before PlatformChartOfAccount; merchant chart migration runs next day)
+-- CreateEnum
+CREATE TYPE "ChartAccountCategory" AS ENUM ('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE');
+
+-- CreateEnum
+CREATE TYPE "ChartAccountKind" AS ENUM ('LEDGER', 'BANK');
+
 -- CreateEnum
 CREATE TYPE "PlatformJournalSourceType" AS ENUM ('MANUAL', 'SUBSCRIPTION_INVOICE_PAYMENT');
 
