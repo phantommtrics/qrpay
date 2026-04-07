@@ -183,6 +183,7 @@ import {
   postManualMoneyOut,
 } from "./services/manual-journal.service.js";
 import {
+  formatBillApi,
   formatSalesInvoiceApi,
   formatSalesQuotationApi,
 } from "./services/sales-document-api-format.js";
@@ -195,6 +196,15 @@ import {
   sendSalesQuotation,
   updateSalesQuotationDraft,
 } from "./services/sales-quotation.service.js";
+import {
+  approveBill,
+  createBill,
+  getBillById,
+  listBills,
+  markBillPaid,
+  updateBillDraft,
+  voidBill,
+} from "./services/bill.service.js";
 import {
   approveSalesInvoice,
   createSalesInvoice,
@@ -211,6 +221,7 @@ import {
   listGuestInvoiceWallets,
   startGuestInvoiceWalletCheckout,
 } from "./services/sales-public.service.js";
+import { renderBillPdfDownload } from "./services/bill-document-pdf.service.js";
 import {
   renderSalesInvoicePdfDownload,
   renderSalesQuotationPdfDownload,
@@ -4678,6 +4689,7 @@ app.get(
     "accounting.chart.view",
     "sales.quotation",
     "sales.invoice",
+    "sales.bill",
   ]),
   async (request, response, next) => {
     try {
@@ -5019,6 +5031,22 @@ const salesInvoiceMarkPaidBodySchema = z.object({
   postedAt: z.string().min(1),
 });
 
+const billCreateBodySchema = z.object({
+  contactId: z.string().min(1),
+  issueDate: z.string().min(1),
+  dueDate: z.string().optional().nullable(),
+  reference: z.string().trim().max(200).optional().nullable(),
+  currency: z.string().trim().max(8).optional().nullable(),
+  lines: z.array(manualJournalLineSchema).min(1),
+});
+
+const billPatchBodySchema = billCreateBodySchema.partial();
+
+const billMarkPaidBodySchema = z.object({
+  settlementChartAccountId: z.string().min(1),
+  postedAt: z.string().min(1),
+});
+
 function mapSalesLineInputs(lines: z.infer<typeof manualJournalLineSchema>[]) {
   return lines.map((l) => ({
     chartOfAccountId: l.chartOfAccountId,
@@ -5035,6 +5063,7 @@ const CONTACTS_ENTITLEMENTS = [
   "accounting.view",
   "sales.quotation",
   "sales.invoice",
+  "sales.bill",
   "contacts.manage",
   "organization.manage",
 ] as const;
@@ -5681,6 +5710,196 @@ app.post(
       }
       const row = await voidSalesInvoice(businessId as string, invoiceId as string);
       response.json({ data: formatSalesInvoiceApi(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/bills",
+  authenticateToken,
+  requireEntitlement("sales.bill"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const rows = await listBills(businessId as string);
+      response.json({ data: rows.map((r) => formatBillApi(r)) });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/bills",
+  authenticateToken,
+  requireEntitlement("sales.bill"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const body = billCreateBodySchema.parse(request.body);
+      const row = await createBill(businessId as string, {
+        contactId: body.contactId,
+        issueDate: parsePostedAt(body.issueDate),
+        dueDate: parseOptionalIsoDate(body.dueDate),
+        reference: body.reference ?? null,
+        currency: body.currency ?? undefined,
+        lines: mapSalesLineInputs(body.lines),
+      });
+      response.status(201).json({ data: formatBillApi(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/bills/:billId",
+  authenticateToken,
+  requireEntitlement("sales.bill"),
+  async (request, response, next) => {
+    try {
+      const { businessId, billId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const row = await getBillById(businessId as string, billId as string);
+      response.json({ data: formatBillApi(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/bills/:billId/pdf",
+  authenticateToken,
+  requireEntitlement("sales.bill"),
+  async (request, response, next) => {
+    try {
+      const { businessId, billId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const { buffer, filename } = await renderBillPdfDownload(businessId as string, billId as string);
+      response.setHeader("Content-Type", "application/pdf");
+      response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      response.send(buffer);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.patch(
+  "/api/businesses/:businessId/bills/:billId",
+  authenticateToken,
+  requireEntitlement("sales.bill"),
+  async (request, response, next) => {
+    try {
+      const { businessId, billId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const body = billPatchBodySchema.parse(request.body);
+      const row = await updateBillDraft(businessId as string, billId as string, {
+        ...(body.contactId !== undefined ? { contactId: body.contactId } : {}),
+        ...(body.issueDate !== undefined ? { issueDate: parsePostedAt(body.issueDate) } : {}),
+        ...(body.dueDate !== undefined ? { dueDate: parseOptionalIsoDate(body.dueDate) } : {}),
+        ...(body.reference !== undefined ? { reference: body.reference } : {}),
+        ...(body.currency !== undefined ? { currency: body.currency ?? undefined } : {}),
+        ...(body.lines !== undefined ? { lines: mapSalesLineInputs(body.lines) } : {}),
+      });
+      response.json({ data: formatBillApi(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/bills/:billId/approve",
+  authenticateToken,
+  requireEntitlement("sales.bill"),
+  async (request, response, next) => {
+    try {
+      const { businessId, billId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const row = await approveBill(businessId as string, billId as string);
+      response.json({ data: formatBillApi(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/bills/:billId/mark-paid",
+  authenticateToken,
+  requireEntitlement("sales.bill"),
+  async (request, response, next) => {
+    try {
+      const { businessId, billId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const body = billMarkPaidBodySchema.parse(request.body);
+      const row = await markBillPaid(businessId as string, billId as string, {
+        settlementChartAccountId: body.settlementChartAccountId,
+        postedAt: parsePostedAt(body.postedAt),
+      });
+      response.json({ data: formatBillApi(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/bills/:billId/void",
+  authenticateToken,
+  requireEntitlement("sales.bill"),
+  async (request, response, next) => {
+    try {
+      const { businessId, billId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const row = await voidBill(businessId as string, billId as string);
+      response.json({ data: formatBillApi(row) });
     } catch (error) {
       next(error);
     }

@@ -59,6 +59,28 @@ export type SalesInvoiceRow = {
   lines: SalesDocumentLine[]
 }
 
+/** Supplier purchase bill (accounts payable); ledger posts on mark paid (money out). */
+export type BillRow = {
+  id: string
+  businessId: string
+  contactId: string
+  publicCode: string
+  status: string
+  issueDate: string
+  dueDate: string | null
+  reference: string | null
+  currency: string
+  settlementChartAccountId: string | null
+  journalEntryId: string | null
+  approvedAt: string | null
+  paidAt: string | null
+  createdAt: string
+  updatedAt: string
+  contact: SalesQuotationContact
+  journalEntry: { id: string; postedAt: string } | null
+  lines: SalesDocumentLine[]
+}
+
 export type SalesDocumentLinePayload = {
   chartOfAccountId: string
   narration?: string | null
@@ -93,6 +115,10 @@ export type MarkSalesInvoicePaidBody = {
   settlementChartAccountId: string
   postedAt: string
 }
+
+export type CreateBillBody = CreateSalesInvoiceBody
+export type PatchBillBody = Partial<CreateBillBody>
+export type MarkBillPaidBody = MarkSalesInvoicePaidBody
 
 export async function fetchSalesQuotations(businessId: string): Promise<SalesQuotationRow[]> {
   const res = await apiRequest<{ data: SalesQuotationRow[] }>(
@@ -272,4 +298,81 @@ export async function downloadSalesQuotationPdf(
     { method: 'GET', businessId },
   )
   triggerBlobDownload(blob, filename ?? `quotation-${quotationId.slice(0, 8)}.pdf`)
+}
+
+export async function fetchBills(businessId: string): Promise<BillRow[]> {
+  const res = await apiRequest<{ data: BillRow[] }>(`/businesses/${businessId}/bills`, {
+    method: 'GET',
+    businessId,
+  })
+  return res.data
+}
+
+export async function fetchBill(businessId: string, billId: string): Promise<BillRow> {
+  const res = await apiRequest<{ data: BillRow }>(`/businesses/${businessId}/bills/${billId}`, {
+    method: 'GET',
+    businessId,
+  })
+  return res.data
+}
+
+export async function createBill(
+  businessId: string,
+  body: CreateBillBody,
+): Promise<BillRow> {
+  const res = await apiRequest<{ data: BillRow }>(`/businesses/${businessId}/bills`, {
+    method: 'POST',
+    businessId,
+    body: JSON.stringify(body),
+  })
+  return res.data
+}
+
+export async function patchBill(
+  businessId: string,
+  billId: string,
+  body: PatchBillBody,
+): Promise<BillRow> {
+  const res = await apiRequest<{ data: BillRow }>(`/businesses/${businessId}/bills/${billId}`, {
+    method: 'PATCH',
+    businessId,
+    body: JSON.stringify(body),
+  })
+  return res.data
+}
+
+export async function approveBill(businessId: string, billId: string): Promise<BillRow> {
+  const res = await apiRequest<{ data: BillRow }>(
+    `/businesses/${businessId}/bills/${billId}/approve`,
+    { method: 'POST', businessId },
+  )
+  return res.data
+}
+
+export async function markBillPaid(
+  businessId: string,
+  billId: string,
+  body: MarkBillPaidBody,
+): Promise<BillRow> {
+  const res = await apiRequest<{ data: BillRow }>(
+    `/businesses/${businessId}/bills/${billId}/mark-paid`,
+    { method: 'POST', businessId, body: JSON.stringify(body) },
+  )
+  return res.data
+}
+
+export async function voidBill(businessId: string, billId: string): Promise<BillRow> {
+  const res = await apiRequest<{ data: BillRow }>(
+    `/businesses/${businessId}/bills/${billId}/void`,
+    { method: 'POST', businessId },
+  )
+  return res.data
+}
+
+export async function downloadBillPdf(businessId: string, billId: string): Promise<void> {
+  const { blob, filename } = await apiFetchBinary(
+    `/businesses/${businessId}/bills/${billId}/pdf`,
+    { method: 'GET', businessId },
+  )
+  triggerBlobDownload(blob, filename ?? `bill-${billId.slice(0, 8)}.pdf`)
 }

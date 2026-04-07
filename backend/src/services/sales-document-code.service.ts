@@ -39,3 +39,20 @@ export async function allocateInvoicePublicCode(
   }
   throw new HttpError(500, "Could not allocate an invoice reference.");
 }
+
+export async function allocateBillPublicCode(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+): Promise<string> {
+  for (let i = 0; i < ATTEMPTS; i++) {
+    const publicCode = `BILL-${randomBytes(4).toString("hex").toUpperCase()}`;
+    const clash = await tx.bill.findFirst({
+      where: { businessId, publicCode },
+      select: { id: true },
+    });
+    if (!clash) {
+      return publicCode;
+    }
+  }
+  throw new HttpError(500, "Could not allocate a bill reference.");
+}

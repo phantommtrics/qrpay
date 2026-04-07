@@ -1,4 +1,4 @@
-import type { SalesInvoiceRow, SalesQuotationRow } from '../../services/salesDocumentsApi'
+import type { BillRow, SalesInvoiceRow, SalesQuotationRow } from '../../services/salesDocumentsApi'
 import { formatMoney } from '../../utils/formatMoney'
 
 function formatDocDate(iso: string | null): string {
@@ -35,6 +35,11 @@ type PaperProps =
       document: SalesInvoiceRow
       businessName: string
     }
+  | {
+      variant: 'bill'
+      document: BillRow
+      businessName: string
+    }
 
 /** Printable A4-style document body (no modal shell). */
 export function SalesDocumentPaper(props: PaperProps) {
@@ -44,7 +49,12 @@ export function SalesDocumentPaper(props: PaperProps) {
   const sub = subtotalExTax(lines)
   const total = totalInclTax(lines)
 
-  const title = props.variant === 'quotation' ? 'Quotation' : 'Sales invoice'
+  const title =
+    props.variant === 'quotation'
+      ? 'Quotation'
+      : props.variant === 'bill'
+        ? 'Purchase bill'
+        : 'Sales invoice'
   const code = doc.publicCode
 
   const statusLabel =
@@ -78,7 +88,9 @@ export function SalesDocumentPaper(props: PaperProps) {
       <div className="space-y-8 px-6 py-8 sm:px-10">
         <div className="grid gap-8 sm:grid-cols-2">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bill to</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {props.variant === 'bill' ? 'Supplier' : 'Bill to'}
+            </p>
             <p className="mt-2 text-base font-semibold text-slate-900">{doc.contact.name}</p>
             {doc.contact.email ? (
               <p className="mt-1 text-sm text-slate-600">{doc.contact.email}</p>
@@ -91,6 +103,27 @@ export function SalesDocumentPaper(props: PaperProps) {
                   <span className="text-slate-500">Valid until</span>
                   <span className="font-medium tabular-nums text-slate-900">
                     {formatDocDate(props.document.validUntil)}
+                  </span>
+                </div>
+                {props.document.reference ? (
+                  <div className="flex justify-between gap-4 sm:ml-auto sm:flex-col sm:items-end">
+                    <span className="text-slate-500">Reference</span>
+                    <span className="font-medium text-slate-900">{props.document.reference}</span>
+                  </div>
+                ) : null}
+              </>
+            ) : props.variant === 'bill' ? (
+              <>
+                <div className="flex justify-between gap-4 sm:ml-auto sm:flex-col sm:items-end">
+                  <span className="text-slate-500">Issue date</span>
+                  <span className="font-medium tabular-nums text-slate-900">
+                    {formatDocDate(props.document.issueDate)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4 sm:ml-auto sm:flex-col sm:items-end">
+                  <span className="text-slate-500">Due date</span>
+                  <span className="font-medium tabular-nums text-slate-900">
+                    {formatDocDate(props.document.dueDate)}
                   </span>
                 </div>
                 {props.document.reference ? (
@@ -192,7 +225,7 @@ export function SalesDocumentPaper(props: PaperProps) {
           </div>
         </div>
 
-        {props.variant === 'invoice' && props.document.journalEntry ? (
+        {(props.variant === 'invoice' || props.variant === 'bill') && props.document.journalEntry ? (
           <p className="border-t border-slate-100 pt-4 text-xs text-slate-500">
             Ledger posted {formatDocDate(props.document.journalEntry.postedAt)}.
           </p>

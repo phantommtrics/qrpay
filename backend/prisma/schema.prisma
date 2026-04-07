@@ -82,6 +82,8 @@ enum StaffCreationNotificationType {
   SUBSCRIPTION_INVOICE
   /** Merchant-issued sales invoice approved / sent to customer contact. */
   SALES_INVOICE_APPROVED
+  /** Purchase bill approved / sent to supplier contact (PDF attached). */
+  PURCHASE_BILL_APPROVED
   /** Sales quotation sent to customer contact (PDF + guest link). */
   SALES_QUOTATION_SENT
   /** Business notified that a subscription invoice refund is under platform review (PDF attached). */
@@ -145,6 +147,8 @@ enum JournalSourceType {
   MANUAL_BANK_TRANSFER
   /** Cash-basis GL when a business sales invoice is marked paid. */
   SALES_INVOICE_PAYMENT
+  /** Cash-basis GL when a purchase bill is marked paid (money out). */
+  PURCHASE_BILL_PAYMENT
   /** Balanced debit/credit lines only; no settlement asset leg. */
   MANUAL_GENERAL_JOURNAL
 }
@@ -204,6 +208,13 @@ enum SalesInvoiceStatus {
   VOID
 }
 
+enum BillStatus {
+  DRAFT
+  APPROVED
+  PAID
+  VOID
+}
+
 model Business {
   id                            String                         @id @default(cuid())
   name                          String
@@ -233,6 +244,7 @@ model Business {
   gatewayCredentials            BusinessGatewayCredential[]
   salesQuotations               SalesQuotation[]
   salesInvoices                 SalesInvoice[]
+  bills                         Bill[]
   activityLogs                  ActivityLog[]
 }
 
@@ -305,6 +317,7 @@ model BusinessContact {
   journalEntries   JournalEntry[]
   salesQuotations  SalesQuotation[]
   salesInvoices    SalesInvoice[]
+  bills            Bill[]
 
   @@index([businessId])
   @@index([businessId, name])
@@ -331,7 +344,9 @@ model ChartOfAccount {
   lines               JournalLine[]
   salesQuotationLines SalesQuotationLine[]
   salesInvoiceLines   SalesInvoiceLine[]
+  billLines           BillLine[]
   salesInvoicesSettledHere SalesInvoice[]  @relation("InvoiceSettlementAccount")
+  billsSettledHere    Bill[]              @relation("BillSettlementAccount")
 
   @@unique([businessId, code])
   @@index([businessId])
@@ -354,6 +369,7 @@ model JournalEntry {
   lines                    JournalLine[]
   salesLedger              SalesLedgerEntry[]
   salesInvoiceFromPayment  SalesInvoice?      @relation("SalesInvoiceJournal")
+  billFromPayment          Bill?              @relation("BillJournal")
 
   @@index([businessId, postedAt])
   @@index([businessId, sourceType, sourceId])
@@ -466,6 +482,53 @@ model SalesInvoiceLine {
   chartOfAccount   ChartOfAccount @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
 
   @@index([invoiceId])
+}
+
+/**
+ * Supplier / accounts-payable bill. General ledger posts only when status becomes PAID (cash-basis, money out).
+ * Approving notifies the supplier contact by email when they have an email on file.
+ */
+model Bill {
+  id                       String     @id @default(cuid())
+  businessId               String
+  contactId                String
+  publicCode               String
+  status                   BillStatus @default(DRAFT)
+  issueDate                DateTime
+  dueDate                  DateTime?
+  reference                String?
+  currency                 String     @default("GMD")
+  settlementChartAccountId String?
+  journalEntryId           String?    @unique
+  approvedAt               DateTime?
+  paidAt                   DateTime?
+  createdAt                DateTime   @default(now())
+  updatedAt                DateTime   @updatedAt
+  business                 Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact                  BusinessContact @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  settlementAccount        ChartOfAccount? @relation("BillSettlementAccount", fields: [settlementChartAccountId], references: [id], onDelete: SetNull)
+  journalEntry             JournalEntry? @relation("BillJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+  lines                    BillLine[]
+  payments                 Payment[]
+
+  @@unique([businessId, publicCode])
+  @@index([businessId, status])
+}
+
+model BillLine {
+  id               String         @id @default(cuid())
+  billId           String
+  chartOfAccountId String
+  narration        String         @default("")
+  quantity         Decimal        @db.Decimal(18, 6)
+  unitLabel        String?
+  unitAmount       Decimal        @db.Decimal(12, 2)
+  taxAmount        Decimal        @default(0) @db.Decimal(12, 2)
+  sortOrder        Int            @default(0)
+  bill             Bill           @relation(fields: [billId], references: [id], onDelete: Cascade)
+  chartOfAccount   ChartOfAccount @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
+
+  @@index([billId])
 }
 
 /** Platform (EasyPay) chart — one global ledger, not per merchant Business. */
@@ -943,6 +1006,7 @@ model Payment {
   businessId      String
   orderId         String?
   salesInvoiceId  String?         @unique
+  billId          String?         @unique
   publicCode      String
   method          PaymentMethod
   provider        PaymentProvider @default(SIMULATOR)
@@ -960,6 +1024,7 @@ model Payment {
   updatedAt       DateTime        @updatedAt
   order           Order?           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   salesInvoice    SalesInvoice?    @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
+  bill            Bill?            @relation(fields: [billId], references: [id], onDelete: Cascade)
   business             Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
   recordedBy           User?              @relation("PaymentRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
   salesLedgerEntries   SalesLedgerEntry[]

@@ -296,6 +296,96 @@ export async function postMoneyInJournalForSalesInvoice(
 }
 
 /**
+ * Cash-basis GL when a purchase bill is marked paid: same shape as manual money out, different source.
+ */
+export async function postMoneyOutJournalForBill(
+  businessId: string,
+  input: {
+    billId: string;
+    contactId: string;
+    postedAt: Date;
+    reference?: string | null;
+    settlementChartAccountId: string;
+    lines: ManualJournalLineInput[];
+    memo: string;
+  },
+  db: DbClient = prisma,
+) {
+  if (!input.lines.length) {
+    throw new HttpError(400, "Add at least one line.");
+  }
+
+  const settlement = await loadChartAccount(businessId, input.settlementChartAccountId, db);
+  assertAssetSettlement(settlement);
+
+  const lineRows: Array<{
+    chartOfAccountId: string;
+    debitAmount: Prisma.Decimal;
+    description: string;
+    quantity: Prisma.Decimal | null;
+    unitLabel: string | null;
+    taxAmount: Prisma.Decimal;
+  }> = [];
+  let debitSum = dec(0);
+
+  for (const line of input.lines) {
+    const narration = line.narration?.trim() || "Bill line";
+    if (narration.length > 4000) {
+      throw new HttpError(400, "Narration is too long.");
+    }
+    await loadChartAccount(businessId, line.chartOfAccountId, db);
+    const total = lineTotal(line);
+    if (total.lte(0)) {
+      throw new HttpError(400, "Each line total must be greater than zero.");
+    }
+    debitSum = debitSum.add(total);
+    lineRows.push({
+      chartOfAccountId: line.chartOfAccountId,
+      debitAmount: total,
+      description: narration,
+      quantity: dec(line.quantity),
+      unitLabel: line.unitLabel?.trim() || null,
+      taxAmount: roundMoney(dec(line.taxAmount)),
+    });
+  }
+
+  debitSum = roundMoney(debitSum);
+
+  return db.journalEntry.create({
+    data: {
+      businessId,
+      postedAt: input.postedAt,
+      memo: input.memo,
+      reference: input.reference?.trim() || null,
+      contactId: input.contactId,
+      sourceType: JournalSourceType.PURCHASE_BILL_PAYMENT,
+      sourceId: input.billId,
+      lines: {
+        create: [
+          ...lineRows.map((r) => ({
+            chartOfAccountId: r.chartOfAccountId,
+            debitAmount: r.debitAmount,
+            creditAmount: dec(0),
+            description: r.description,
+            quantity: r.quantity,
+            unitLabel: r.unitLabel,
+            taxAmount: r.taxAmount,
+          })),
+          {
+            chartOfAccountId: settlement.id,
+            debitAmount: dec(0),
+            creditAmount: debitSum,
+            description: `Payment from ${settlement.name} (${settlement.code}).`,
+            taxAmount: dec(0),
+          },
+        ],
+      },
+    },
+    include: { lines: { include: { chartOfAccount: { select: { code: true, name: true } } } } },
+  });
+}
+
+/**
  * Money out: Dr detail lines (expense, etc.) · Cr settlement (cash/bank).
  */
 export async function postManualMoneyOut(

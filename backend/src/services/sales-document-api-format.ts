@@ -127,3 +127,57 @@ export function formatSalesInvoiceApi(inv: {
     lines: inv.lines.map(formatSalesLineRow),
   };
 }
+
+export function formatBillApi(bill: {
+  id: string;
+  businessId: string;
+  contactId: string;
+  publicCode: string;
+  status: string;
+  issueDate: Date;
+  dueDate: Date | null;
+  reference: string | null;
+  currency: string;
+  settlementChartAccountId: string | null;
+  journalEntryId: string | null;
+  approvedAt: Date | null;
+  paidAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  contact: { id: string; name: string; email: string | null };
+  journalEntry?: { id: string; postedAt: Date } | null;
+  lines: Array<{
+    id: string;
+    chartOfAccountId: string;
+    narration: string;
+    quantity: Prisma.Decimal;
+    unitLabel: string | null;
+    unitAmount: Prisma.Decimal;
+    taxAmount: Prisma.Decimal;
+    sortOrder: number;
+    chartOfAccount: { id: string; code: string; name: string };
+  }>;
+}) {
+  return {
+    id: bill.id,
+    businessId: bill.businessId,
+    contactId: bill.contactId,
+    publicCode: bill.publicCode,
+    status: bill.status,
+    issueDate: bill.issueDate.toISOString(),
+    dueDate: bill.dueDate?.toISOString() ?? null,
+    reference: bill.reference,
+    currency: bill.currency,
+    settlementChartAccountId: bill.settlementChartAccountId,
+    journalEntryId: bill.journalEntryId,
+    approvedAt: bill.approvedAt?.toISOString() ?? null,
+    paidAt: bill.paidAt?.toISOString() ?? null,
+    createdAt: bill.createdAt.toISOString(),
+    updatedAt: bill.updatedAt.toISOString(),
+    contact: bill.contact,
+    journalEntry: bill.journalEntry
+      ? { id: bill.journalEntry.id, postedAt: bill.journalEntry.postedAt.toISOString() }
+      : null,
+    lines: bill.lines.map(formatSalesLineRow),
+  };
+}

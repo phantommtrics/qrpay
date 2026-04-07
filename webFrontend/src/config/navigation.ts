@@ -33,10 +33,13 @@ export const APP_PATHS = {
   subscriptionsBillingActivity: '/subscriptions/billing-activity',
   salesQuotations: '/sales/quotations',
   salesInvoices: '/sales/invoices',
+  salesBills: '/sales/bills',
   /** Dynamic: `/sales/quotations/${quotationId}` */
   salesQuotationDetail: '/sales/quotations/:quotationId',
   /** Dynamic: `/sales/invoices/${invoiceId}` */
   salesInvoiceDetail: '/sales/invoices/:invoiceId',
+  /** Dynamic: `/sales/bills/${billId}` */
+  salesBillDetail: '/sales/bills/:billId',
   accounting: '/accounting',
   accountingBalances: '/accounting/balances',
   accountingProfitLoss: '/accounting/profit-loss',
@@ -94,6 +97,10 @@ export function salesQuotationDetailPath(quotationId: string) {
 
 export function salesInvoiceDetailPath(invoiceId: string) {
   return `/sales/invoices/${encodeURIComponent(invoiceId)}`
+}
+
+export function salesBillDetailPath(billId: string) {
+  return `/sales/bills/${encodeURIComponent(billId)}`
 }
 
 export const PLATFORM_SECURITY_SUBNAV = [
@@ -479,6 +486,9 @@ export function getPageTitle(pathname: string) {
   }
   if (pathname.includes(APP_PATHS.salesQuotations)) {
     return 'Sales quotations'
+  }
+  if (pathname.includes(APP_PATHS.salesBills)) {
+    return 'Bills'
   }
   if (pathname.includes(APP_PATHS.salesInvoices)) {
     return 'Sales invoices'

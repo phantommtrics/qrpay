@@ -65,6 +65,7 @@ export type PermissionKey =
   | 'accounting.journals.general'
   | 'sales.quotation'
   | 'sales.invoice'
+  | 'sales.bill'
   | 'pos.access'
   | 'dashboard.view'
   | 'organization.manage'

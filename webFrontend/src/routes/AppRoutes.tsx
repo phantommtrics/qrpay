@@ -143,6 +143,16 @@ const SalesInvoiceDetailPage = lazy(() =>
     default: module.SalesInvoiceDetailPage,
   })),
 )
+const BillsPage = lazy(() =>
+  import('../screens/BillsPage').then((module) => ({
+    default: module.BillsPage,
+  })),
+)
+const BillDetailPage = lazy(() =>
+  import('../screens/BillDetailPage').then((module) => ({
+    default: module.BillDetailPage,
+  })),
+)
 const ContactsPage = lazy(() =>
   import('../screens/ContactsPage').then((module) => ({
     default: module.ContactsPage,
@@ -590,6 +600,12 @@ export function AppRoutes() {
       permission: 'sales.invoice' as const,
     },
     {
+      path: APP_PATHS.salesBills,
+      element: <BillsPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'sales.bill' as const,
+    },
+    {
       path: APP_PATHS.salesQuotationDetail,
       element: <SalesQuotationDetailPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
@@ -600,6 +616,12 @@ export function AppRoutes() {
       element: <SalesInvoiceDetailPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
       permission: 'sales.invoice' as const,
+    },
+    {
+      path: APP_PATHS.salesBillDetail,
+      element: <BillDetailPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'sales.bill' as const,
     },
     {
       path: APP_PATHS.accountingReportGlBalance,
