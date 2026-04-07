@@ -101,3 +101,30 @@ export async function postBankTransferJournal(
   )
   return res.data
 }
+
+export type GeneralJournalLinePayload = {
+  chartOfAccountId: string
+  description?: string | null
+  debit: number
+  credit: number
+}
+
+export async function postGeneralJournal(
+  businessId: string,
+  body: {
+    contactId?: string | null
+    newContactName?: string | null
+    newContactEmail?: string | null
+    newContactPhone?: string | null
+    postedAt: string
+    reference?: string | null
+    memo?: string | null
+    lines: GeneralJournalLinePayload[]
+  },
+): Promise<PostJournalResponse> {
+  const res = await apiRequest<{ data: PostJournalResponse }>(
+    `/businesses/${businessId}/journals/general`,
+    { method: 'POST', businessId, body: JSON.stringify(body) },
+  )
+  return res.data
+}

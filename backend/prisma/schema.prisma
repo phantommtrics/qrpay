@@ -145,6 +145,8 @@ enum JournalSourceType {
   MANUAL_BANK_TRANSFER
   /** Cash-basis GL when a business sales invoice is marked paid. */
   SALES_INVOICE_PAYMENT
+  /** Balanced debit/credit lines only; no settlement asset leg. */
+  MANUAL_GENERAL_JOURNAL
 }
 
 /** Easypay operator GL — merchant subscription cash vs manual platform costs. */

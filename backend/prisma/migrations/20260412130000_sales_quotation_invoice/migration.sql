@@ -1,17 +1,43 @@
--- CreateEnum
-CREATE TYPE "SalesQuotationStatus" AS ENUM ('DRAFT', 'SENT', 'ACCEPTED', 'REJECTED');
+-- Idempotent: safe when enums/tables already exist (e.g. after a failed or partial apply).
 
 -- CreateEnum
-CREATE TYPE "SalesInvoiceStatus" AS ENUM ('DRAFT', 'APPROVED', 'PAID', 'VOID');
+DO $do$ BEGIN
+  CREATE TYPE "SalesQuotationStatus" AS ENUM ('DRAFT', 'SENT', 'ACCEPTED', 'REJECTED');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;
+
+-- CreateEnum
+DO $do$ BEGIN
+  CREATE TYPE "SalesInvoiceStatus" AS ENUM ('DRAFT', 'APPROVED', 'PAID', 'VOID');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;
 
 -- AlterEnum
-ALTER TYPE "JournalSourceType" ADD VALUE 'SALES_INVOICE_PAYMENT';
+DO $do$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_enum e
+    JOIN pg_type t ON e.enumtypid = t.oid
+    WHERE t.typname = 'JournalSourceType' AND e.enumlabel = 'SALES_INVOICE_PAYMENT'
+  ) THEN
+    ALTER TYPE "JournalSourceType" ADD VALUE 'SALES_INVOICE_PAYMENT';
+  END IF;
+END $do$;
 
 -- AlterEnum
-ALTER TYPE "StaffCreationNotificationType" ADD VALUE 'SALES_INVOICE_APPROVED';
+DO $do$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_enum e
+    JOIN pg_type t ON e.enumtypid = t.oid
+    WHERE t.typname = 'StaffCreationNotificationType' AND e.enumlabel = 'SALES_INVOICE_APPROVED'
+  ) THEN
+    ALTER TYPE "StaffCreationNotificationType" ADD VALUE 'SALES_INVOICE_APPROVED';
+  END IF;
+END $do$;
 
 -- CreateTable
-CREATE TABLE "SalesQuotation" (
+CREATE TABLE IF NOT EXISTS "SalesQuotation" (
     "id" TEXT NOT NULL,
     "businessId" TEXT NOT NULL,
     "contactId" TEXT NOT NULL,
@@ -27,7 +53,7 @@ CREATE TABLE "SalesQuotation" (
 );
 
 -- CreateTable
-CREATE TABLE "SalesQuotationLine" (
+CREATE TABLE IF NOT EXISTS "SalesQuotationLine" (
     "id" TEXT NOT NULL,
     "quotationId" TEXT NOT NULL,
     "chartOfAccountId" TEXT NOT NULL,
@@ -42,7 +68,7 @@ CREATE TABLE "SalesQuotationLine" (
 );
 
 -- CreateTable
-CREATE TABLE "SalesInvoice" (
+CREATE TABLE IF NOT EXISTS "SalesInvoice" (
     "id" TEXT NOT NULL,
     "businessId" TEXT NOT NULL,
     "contactId" TEXT NOT NULL,
@@ -64,7 +90,7 @@ CREATE TABLE "SalesInvoice" (
 );
 
 -- CreateTable
-CREATE TABLE "SalesInvoiceLine" (
+CREATE TABLE IF NOT EXISTS "SalesInvoiceLine" (
     "id" TEXT NOT NULL,
     "invoiceId" TEXT NOT NULL,
     "chartOfAccountId" TEXT NOT NULL,
@@ -79,58 +105,102 @@ CREATE TABLE "SalesInvoiceLine" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "SalesQuotation_businessId_publicCode_key" ON "SalesQuotation"("businessId", "publicCode");
+CREATE UNIQUE INDEX IF NOT EXISTS "SalesQuotation_businessId_publicCode_key" ON "SalesQuotation"("businessId", "publicCode");
 
 -- CreateIndex
-CREATE INDEX "SalesQuotation_businessId_status_idx" ON "SalesQuotation"("businessId", "status");
+CREATE INDEX IF NOT EXISTS "SalesQuotation_businessId_status_idx" ON "SalesQuotation"("businessId", "status");
 
 -- CreateIndex
-CREATE INDEX "SalesQuotationLine_quotationId_idx" ON "SalesQuotationLine"("quotationId");
+CREATE INDEX IF NOT EXISTS "SalesQuotationLine_quotationId_idx" ON "SalesQuotationLine"("quotationId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "SalesInvoice_sourceQuotationId_key" ON "SalesInvoice"("sourceQuotationId");
+CREATE UNIQUE INDEX IF NOT EXISTS "SalesInvoice_sourceQuotationId_key" ON "SalesInvoice"("sourceQuotationId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "SalesInvoice_journalEntryId_key" ON "SalesInvoice"("journalEntryId");
+CREATE UNIQUE INDEX IF NOT EXISTS "SalesInvoice_journalEntryId_key" ON "SalesInvoice"("journalEntryId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "SalesInvoice_businessId_publicCode_key" ON "SalesInvoice"("businessId", "publicCode");
+CREATE UNIQUE INDEX IF NOT EXISTS "SalesInvoice_businessId_publicCode_key" ON "SalesInvoice"("businessId", "publicCode");
 
 -- CreateIndex
-CREATE INDEX "SalesInvoice_businessId_status_idx" ON "SalesInvoice"("businessId", "status");
+CREATE INDEX IF NOT EXISTS "SalesInvoice_businessId_status_idx" ON "SalesInvoice"("businessId", "status");
 
 -- CreateIndex
-CREATE INDEX "SalesInvoiceLine_invoiceId_idx" ON "SalesInvoiceLine"("invoiceId");
+CREATE INDEX IF NOT EXISTS "SalesInvoiceLine_invoiceId_idx" ON "SalesInvoiceLine"("invoiceId");
 
 -- AddForeignKey
-ALTER TABLE "SalesQuotation" ADD CONSTRAINT "SalesQuotation_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $do$ BEGIN
+  ALTER TABLE "SalesQuotation" ADD CONSTRAINT "SalesQuotation_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;
 
 -- AddForeignKey
-ALTER TABLE "SalesQuotation" ADD CONSTRAINT "SalesQuotation_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "BusinessContact"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $do$ BEGIN
+  ALTER TABLE "SalesQuotation" ADD CONSTRAINT "SalesQuotation_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "BusinessContact"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;
 
 -- AddForeignKey
-ALTER TABLE "SalesQuotationLine" ADD CONSTRAINT "SalesQuotationLine_quotationId_fkey" FOREIGN KEY ("quotationId") REFERENCES "SalesQuotation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $do$ BEGIN
+  ALTER TABLE "SalesQuotationLine" ADD CONSTRAINT "SalesQuotationLine_quotationId_fkey" FOREIGN KEY ("quotationId") REFERENCES "SalesQuotation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;
 
 -- AddForeignKey
-ALTER TABLE "SalesQuotationLine" ADD CONSTRAINT "SalesQuotationLine_chartOfAccountId_fkey" FOREIGN KEY ("chartOfAccountId") REFERENCES "ChartOfAccount"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $do$ BEGIN
+  ALTER TABLE "SalesQuotationLine" ADD CONSTRAINT "SalesQuotationLine_chartOfAccountId_fkey" FOREIGN KEY ("chartOfAccountId") REFERENCES "ChartOfAccount"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;
 
 -- AddForeignKey
-ALTER TABLE "SalesInvoice" ADD CONSTRAINT "SalesInvoice_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $do$ BEGIN
+  ALTER TABLE "SalesInvoice" ADD CONSTRAINT "SalesInvoice_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;
 
 -- AddForeignKey
-ALTER TABLE "SalesInvoice" ADD CONSTRAINT "SalesInvoice_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "BusinessContact"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $do$ BEGIN
+  ALTER TABLE "SalesInvoice" ADD CONSTRAINT "SalesInvoice_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "BusinessContact"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;
 
 -- AddForeignKey
-ALTER TABLE "SalesInvoice" ADD CONSTRAINT "SalesInvoice_sourceQuotationId_fkey" FOREIGN KEY ("sourceQuotationId") REFERENCES "SalesQuotation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $do$ BEGIN
+  ALTER TABLE "SalesInvoice" ADD CONSTRAINT "SalesInvoice_sourceQuotationId_fkey" FOREIGN KEY ("sourceQuotationId") REFERENCES "SalesQuotation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;
 
 -- AddForeignKey
-ALTER TABLE "SalesInvoice" ADD CONSTRAINT "SalesInvoice_settlementChartAccountId_fkey" FOREIGN KEY ("settlementChartAccountId") REFERENCES "ChartOfAccount"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $do$ BEGIN
+  ALTER TABLE "SalesInvoice" ADD CONSTRAINT "SalesInvoice_settlementChartAccountId_fkey" FOREIGN KEY ("settlementChartAccountId") REFERENCES "ChartOfAccount"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;
 
 -- AddForeignKey
-ALTER TABLE "SalesInvoice" ADD CONSTRAINT "SalesInvoice_journalEntryId_fkey" FOREIGN KEY ("journalEntryId") REFERENCES "JournalEntry"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $do$ BEGIN
+  ALTER TABLE "SalesInvoice" ADD CONSTRAINT "SalesInvoice_journalEntryId_fkey" FOREIGN KEY ("journalEntryId") REFERENCES "JournalEntry"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;
 
 -- AddForeignKey
-ALTER TABLE "SalesInvoiceLine" ADD CONSTRAINT "SalesInvoiceLine_invoiceId_fkey" FOREIGN KEY ("invoiceId") REFERENCES "SalesInvoice"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $do$ BEGIN
+  ALTER TABLE "SalesInvoiceLine" ADD CONSTRAINT "SalesInvoiceLine_invoiceId_fkey" FOREIGN KEY ("invoiceId") REFERENCES "SalesInvoice"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;
 
 -- AddForeignKey
-ALTER TABLE "SalesInvoiceLine" ADD CONSTRAINT "SalesInvoiceLine_chartOfAccountId_fkey" FOREIGN KEY ("chartOfAccountId") REFERENCES "ChartOfAccount"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $do$ BEGIN
+  ALTER TABLE "SalesInvoiceLine" ADD CONSTRAINT "SalesInvoiceLine_chartOfAccountId_fkey" FOREIGN KEY ("chartOfAccountId") REFERENCES "ChartOfAccount"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $do$;

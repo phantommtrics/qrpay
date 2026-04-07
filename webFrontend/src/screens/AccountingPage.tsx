@@ -15,6 +15,7 @@ import {
   FileSpreadsheet,
   NotebookPen,
   Scale,
+  ScrollText,
   Wallet,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -39,6 +40,7 @@ export function AccountingPage() {
   const canGlReport = canAccess('accounting.reports.gl')
   const canPnlReport = canAccess('accounting.reports.pnl')
   const canStatement = canAccess('accounting.reports.statement')
+  const canGeneralJournal = canAccess('accounting.journals.general')
   const hasFinanceReports = canGlReport || canPnlReport || canStatement
   const [data, setData] = useState<AccountingSummary | null>(null)
   const [loading, setLoading] = useState(false)
@@ -100,7 +102,7 @@ export function AccountingPage() {
           {error ? <p className="mt-4 text-sm font-medium text-red-700">{error}</p> : null}
         </PageCard>
 
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <button
             type="button"
             onClick={() => navigate(APP_PATHS.accountingBalances)}
@@ -185,6 +187,28 @@ export function AccountingPage() {
               </p>
             </div>
           </button>
+
+          {canGeneralJournal ? (
+            <button
+              type="button"
+              onClick={() => navigate(APP_PATHS.accountingGeneralJournal)}
+              className="text-left"
+            >
+              <div className={tileCard}>
+                <ScrollText className="h-5 w-5 text-qb-heading" strokeWidth={1.5} />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                    General journal
+                  </p>
+                  <p className="mt-2 text-3xl font-semibold text-qb-heading">GL</p>
+                </div>
+                <p className="flex items-center text-sm text-qb-muted">
+                  Debit / credit only
+                  <ArrowRight className="ml-1 h-4 w-4 text-qb-heading" />
+                </p>
+              </div>
+            </button>
+          ) : null}
         </div>
 
         {hasFinanceReports ? (

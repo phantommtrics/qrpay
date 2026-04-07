@@ -42,6 +42,7 @@ export const APP_PATHS = {
   accountingProfitLoss: '/accounting/profit-loss',
   accountingChart: '/accounting/chart-of-accounts',
   accountingJournals: '/accounting/journals',
+  accountingGeneralJournal: '/accounting/journals/general',
   accountingReportGlBalance: '/accounting/reports/gl-balance',
   accountingReportProfitLoss: '/accounting/reports/profit-loss',
   accountingReportAccountStatement: '/accounting/reports/account-statement',
@@ -461,6 +462,12 @@ export function getPageTitle(pathname: string) {
     return 'Restaurant'
   }
 
+  if (pathname.includes(APP_PATHS.accountingGeneralJournal)) {
+    return 'General journal'
+  }
+  if (pathname.includes(APP_PATHS.accountingJournals)) {
+    return 'Journal entries'
+  }
   if (pathname.includes(APP_PATHS.accountingReportGlBalance)) {
     return 'GL balance report'
   }

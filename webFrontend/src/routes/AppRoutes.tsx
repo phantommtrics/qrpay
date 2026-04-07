@@ -118,6 +118,11 @@ const AccountingJournalsPage = lazy(() =>
     default: module.AccountingJournalsPage,
   })),
 )
+const AccountingGeneralJournalPage = lazy(() =>
+  import('../screens/AccountingGeneralJournalPage').then((module) => ({
+    default: module.AccountingGeneralJournalPage,
+  })),
+)
 const SalesQuotationsPage = lazy(() =>
   import('../screens/SalesQuotationsPage').then((module) => ({
     default: module.SalesQuotationsPage,
@@ -565,6 +570,12 @@ export function AppRoutes() {
       element: <AccountingJournalsPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
       permission: 'accounting.view' as const,
+    },
+    {
+      path: APP_PATHS.accountingGeneralJournal,
+      element: <AccountingGeneralJournalPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'accounting.journals.general' as const,
     },
     {
       path: APP_PATHS.salesQuotations,

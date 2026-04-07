@@ -62,6 +62,7 @@ export type PermissionKey =
   | 'accounting.reports.pnl'
   | 'accounting.reports.statement'
   | 'accounting.reports.export'
+  | 'accounting.journals.general'
   | 'sales.quotation'
   | 'sales.invoice'
   | 'pos.access'

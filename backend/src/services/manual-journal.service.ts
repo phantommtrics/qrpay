@@ -458,3 +458,109 @@ export async function postManualBankTransfer(
     include: { lines: { include: { chartOfAccount: { select: { code: true, name: true } } } } },
   });
 }
+
+export type GeneralJournalLineInput = {
+  chartOfAccountId: string;
+  description?: string | null;
+  debit: number;
+  credit: number;
+};
+
+/**
+ * Balanced general journal: each line is either debit or credit; totals must match.
+ * No settlement asset leg (unlike money in/out).
+ */
+export async function postManualGeneralJournal(
+  businessId: string,
+  input: {
+    postedAt: Date;
+    reference?: string | null;
+    memo?: string | null;
+    contactId?: string | null;
+    newContactName?: string | null;
+    newContactEmail?: string | null;
+    newContactPhone?: string | null;
+    lines: GeneralJournalLineInput[];
+  },
+) {
+  if (!input.lines.length || input.lines.length < 2) {
+    throw new HttpError(400, "At least two lines are required for a balanced journal.");
+  }
+
+  let dr = dec(0);
+  let cr = dec(0);
+  const normalized: Array<{
+    chartOfAccountId: string;
+    description: string;
+    debit: Prisma.Decimal;
+    credit: Prisma.Decimal;
+  }> = [];
+
+  for (const ln of input.lines) {
+    const d = roundMoney(dec(ln.debit));
+    const c = roundMoney(dec(ln.credit));
+    if (d.lt(0) || c.lt(0)) {
+      throw new HttpError(400, "Debits and credits cannot be negative.");
+    }
+    if ((d.eq(0) && c.eq(0)) || (!d.eq(0) && !c.eq(0))) {
+      throw new HttpError(400, "Each line must have either a debit or a credit, not both.");
+    }
+    dr = dr.add(d);
+    cr = cr.add(c);
+
+    const desc = ln.description?.trim() || "General journal line";
+    if (desc.length > 4000) {
+      throw new HttpError(400, "Description is too long.");
+    }
+    await loadChartAccount(businessId, ln.chartOfAccountId);
+    normalized.push({
+      chartOfAccountId: ln.chartOfAccountId,
+      description: desc,
+      debit: d,
+      credit: c,
+    });
+  }
+
+  dr = roundMoney(dr);
+  cr = roundMoney(cr);
+  if (!dr.equals(cr)) {
+    throw new HttpError(400, "Total debits must equal total credits.");
+  }
+
+  let contactId: string | null = null;
+  if (input.contactId?.trim() || input.newContactName?.trim()) {
+    contactId = await resolveContactId(businessId, {
+      contactId: input.contactId ?? null,
+      newContactName: input.newContactName ?? null,
+      newContactEmail: input.newContactEmail ?? null,
+      newContactPhone: input.newContactPhone ?? null,
+    });
+  }
+
+  const memoParts = [
+    input.memo?.trim() || "General journal",
+    input.reference?.trim() ? `Ref: ${input.reference.trim()}` : null,
+  ].filter(Boolean);
+
+  return prisma.journalEntry.create({
+    data: {
+      businessId,
+      postedAt: input.postedAt,
+      memo: memoParts.join(" | "),
+      reference: input.reference?.trim() || null,
+      contactId,
+      sourceType: JournalSourceType.MANUAL_GENERAL_JOURNAL,
+      sourceId: null,
+      lines: {
+        create: normalized.map((ln) => ({
+          chartOfAccountId: ln.chartOfAccountId,
+          debitAmount: ln.debit,
+          creditAmount: ln.credit,
+          description: ln.description,
+          taxAmount: dec(0),
+        })),
+      },
+    },
+    include: { lines: { include: { chartOfAccount: { select: { code: true, name: true } } } } },
+  });
+}

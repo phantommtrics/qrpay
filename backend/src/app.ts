@@ -178,6 +178,7 @@ import {
 import { createChartOfAccountForBusiness } from "./services/chart-of-accounts.service.js";
 import {
   postManualBankTransfer,
+  postManualGeneralJournal,
   postManualMoneyIn,
   postManualMoneyOut,
 } from "./services/manual-journal.service.js";
@@ -4955,6 +4956,24 @@ const manualBankTransferBodySchema = z.object({
   reference: z.string().trim().max(200).optional().nullable(),
 });
 
+const manualGeneralJournalLineSchema = z.object({
+  chartOfAccountId: z.string().min(1),
+  description: z.string().trim().max(4000).optional().nullable(),
+  debit: z.coerce.number().min(0),
+  credit: z.coerce.number().min(0),
+});
+
+const manualGeneralJournalBodySchema = z.object({
+  contactId: z.string().optional().nullable(),
+  newContactName: z.string().trim().max(200).optional().nullable(),
+  newContactEmail: z.string().trim().max(320).optional().nullable(),
+  newContactPhone: z.string().trim().max(64).optional().nullable(),
+  postedAt: z.string().min(1),
+  reference: z.string().trim().max(200).optional().nullable(),
+  memo: z.string().trim().max(4000).optional().nullable(),
+  lines: z.array(manualGeneralJournalLineSchema).min(2),
+});
+
 function parsePostedAt(raw: string): Date {
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) {
@@ -5224,6 +5243,55 @@ app.post(
         amount: body.amount,
         postedAt: parsePostedAt(body.postedAt),
         reference: body.reference ?? null,
+      });
+
+      response.status(201).json({
+        data: {
+          journalEntryId: entry.id,
+          postedAt: entry.postedAt.toISOString(),
+          memo: entry.memo,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/journals/general",
+  authenticateToken,
+  requireEntitlement("accounting.journals.general"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const body = manualGeneralJournalBodySchema.parse(request.body);
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const entry = await postManualGeneralJournal(businessId as string, {
+        contactId: body.contactId ?? null,
+        newContactName: body.newContactName ?? null,
+        newContactEmail: body.newContactEmail ?? null,
+        newContactPhone: body.newContactPhone ?? null,
+        postedAt: parsePostedAt(body.postedAt),
+        reference: body.reference ?? null,
+        memo: body.memo ?? null,
+        lines: body.lines.map((l) => ({
+          chartOfAccountId: l.chartOfAccountId,
+          description: l.description ?? null,
+          debit: l.debit,
+          credit: l.credit,
+        })),
       });
 
       response.status(201).json({
