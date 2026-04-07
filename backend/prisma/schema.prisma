@@ -151,6 +151,8 @@ enum JournalSourceType {
   PURCHASE_BILL_PAYMENT
   /** Balanced debit/credit lines only; no settlement asset leg. */
   MANUAL_GENERAL_JOURNAL
+  /** Opposite debits/credits to undo a prior journal (audit trail). */
+  MANUAL_JOURNAL_REVERSAL
 }
 
 /** Easypay operator GL — merchant subscription cash vs manual platform costs. */
@@ -363,9 +365,16 @@ model JournalEntry {
   /** External reference (invoice no., cheque no., etc.). */
   reference   String?
   contactId   String?
+  /**
+   * When set, this entry is a reversal: it mirrors another entry with debits/credits swapped.
+   * Each source journal can have at most one reversal row pointing to it.
+   */
+  reversesJournalEntryId String?            @unique
   createdAt   DateTime           @default(now())
   business    Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
   contact                  BusinessContact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  reversesJournalEntry     JournalEntry?      @relation("JournalReversal", fields: [reversesJournalEntryId], references: [id], onDelete: Restrict)
+  reversedByEntry          JournalEntry?      @relation("JournalReversal")
   lines                    JournalLine[]
   salesLedger              SalesLedgerEntry[]
   salesInvoiceFromPayment  SalesInvoice?      @relation("SalesInvoiceJournal")

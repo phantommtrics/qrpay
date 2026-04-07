@@ -46,6 +46,9 @@ export const APP_PATHS = {
   accountingChart: '/accounting/chart-of-accounts',
   accountingJournals: '/accounting/journals',
   accountingGeneralJournal: '/accounting/journals/general',
+  accountingJournalsReversed: '/accounting/journals/reversed',
+  /** Dynamic: `/accounting/journals/reversed/${journalEntryId}` */
+  accountingReversedJournalDetail: '/accounting/journals/reversed/:journalEntryId',
   accountingReportGlBalance: '/accounting/reports/gl-balance',
   accountingReportProfitLoss: '/accounting/reports/profit-loss',
   accountingReportAccountStatement: '/accounting/reports/account-statement',
@@ -101,6 +104,10 @@ export function salesInvoiceDetailPath(invoiceId: string) {
 
 export function salesBillDetailPath(billId: string) {
   return `/sales/bills/${encodeURIComponent(billId)}`
+}
+
+export function accountingReversedJournalDetailPath(journalEntryId: string) {
+  return `/accounting/journals/reversed/${encodeURIComponent(journalEntryId)}`
 }
 
 export const PLATFORM_SECURITY_SUBNAV = [
@@ -471,6 +478,12 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.accountingGeneralJournal)) {
     return 'General journal'
+  }
+  if (pathname.includes('/accounting/journals/reversed/') && pathname !== APP_PATHS.accountingJournalsReversed) {
+    return 'Journal reversal'
+  }
+  if (pathname.includes(APP_PATHS.accountingJournalsReversed)) {
+    return 'Reversed journal'
   }
   if (pathname.includes(APP_PATHS.accountingJournals)) {
     return 'Journal entries'

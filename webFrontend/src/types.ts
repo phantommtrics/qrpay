@@ -63,6 +63,7 @@ export type PermissionKey =
   | 'accounting.reports.statement'
   | 'accounting.reports.export'
   | 'accounting.journals.general'
+  | 'accounting.journals.reversal'
   | 'sales.quotation'
   | 'sales.invoice'
   | 'sales.bill'

@@ -143,6 +143,16 @@ const SalesInvoiceDetailPage = lazy(() =>
     default: module.SalesInvoiceDetailPage,
   })),
 )
+const AccountingReversedJournalPage = lazy(() =>
+  import('../screens/AccountingReversedJournalPage').then((module) => ({
+    default: module.AccountingReversedJournalPage,
+  })),
+)
+const AccountingReversedJournalDetailPage = lazy(() =>
+  import('../screens/AccountingReversedJournalDetailPage').then((module) => ({
+    default: module.AccountingReversedJournalDetailPage,
+  })),
+)
 const BillsPage = lazy(() =>
   import('../screens/BillsPage').then((module) => ({
     default: module.BillsPage,
@@ -586,6 +596,18 @@ export function AppRoutes() {
       element: <AccountingGeneralJournalPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
       permission: 'accounting.journals.general' as const,
+    },
+    {
+      path: APP_PATHS.accountingJournalsReversed,
+      element: <AccountingReversedJournalPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'accounting.journals.reversal' as const,
+    },
+    {
+      path: APP_PATHS.accountingReversedJournalDetail,
+      element: <AccountingReversedJournalDetailPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'accounting.journals.reversal' as const,
     },
     {
       path: APP_PATHS.salesQuotations,

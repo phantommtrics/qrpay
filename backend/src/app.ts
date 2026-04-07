@@ -10,6 +10,7 @@ import {
   ChartAccountCategory,
   ChartAccountKind,
   InvoiceStatus,
+  JournalSourceType,
   ManualRefundReviewStatus,
   PlanCode,
   Prisma,
@@ -176,6 +177,12 @@ import {
   listBusinessContacts,
 } from "./services/business-contact.service.js";
 import { createChartOfAccountForBusiness } from "./services/chart-of-accounts.service.js";
+import {
+  getJournalEntryForReversalDetail,
+  listJournalEntriesPaginated,
+  utcDayBoundsFromYmd,
+  reverseJournalEntry,
+} from "./services/journal-reversal.service.js";
 import {
   postManualBankTransfer,
   postManualGeneralJournal,
@@ -4986,6 +4993,11 @@ const manualGeneralJournalBodySchema = z.object({
   lines: z.array(manualGeneralJournalLineSchema).min(2),
 });
 
+const journalReverseBodySchema = z.object({
+  postedAt: z.string().min(1),
+  memo: z.string().trim().max(2000).optional().nullable(),
+});
+
 function parsePostedAt(raw: string): Date {
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) {
@@ -5328,6 +5340,124 @@ app.post(
           journalEntryId: entry.id,
           postedAt: entry.postedAt.toISOString(),
           memo: entry.memo,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/journal-entries",
+  authenticateToken,
+  requireEntitlement("accounting.journals.reversal"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const pageRaw = request.query.page;
+      const page =
+        typeof pageRaw === "string" && pageRaw.trim() !== ""
+          ? Number.parseInt(pageRaw, 10)
+          : 1;
+      const pageSizeRaw = request.query.pageSize;
+      const pageSize =
+        typeof pageSizeRaw === "string" && pageSizeRaw.trim() !== ""
+          ? Number.parseInt(pageSizeRaw, 10)
+          : 20;
+
+      let startDate: Date | null = null;
+      let endDate: Date | null = null;
+      const startStr = typeof request.query.startDate === "string" ? request.query.startDate.trim() : "";
+      const endStr = typeof request.query.endDate === "string" ? request.query.endDate.trim() : "";
+      if (startStr) {
+        startDate = utcDayBoundsFromYmd(startStr).start;
+      }
+      if (endStr) {
+        endDate = utcDayBoundsFromYmd(endStr).end;
+      }
+      if (startDate && endDate && startDate.getTime() > endDate.getTime()) {
+        throw new HttpError(400, "Start date must be on or before end date.");
+      }
+
+      const stRaw = typeof request.query.sourceType === "string" ? request.query.sourceType.trim() : "";
+      let sourceType: (typeof JournalSourceType)[keyof typeof JournalSourceType] | null = null;
+      if (stRaw) {
+        const allowed = Object.values(JournalSourceType) as string[];
+        if (!allowed.includes(stRaw)) {
+          throw new HttpError(400, "Invalid journal source type.");
+        }
+        sourceType = stRaw as (typeof JournalSourceType)[keyof typeof JournalSourceType];
+      }
+
+      const result = await listJournalEntriesPaginated(businessId as string, {
+        page: Number.isFinite(page) ? page : 1,
+        pageSize: Number.isFinite(pageSize) ? pageSize : 20,
+        startDate,
+        endDate,
+        sourceType: sourceType ?? undefined,
+      });
+
+      response.json({ data: result });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/journal-entries/:journalEntryId",
+  authenticateToken,
+  requireEntitlement("accounting.journals.reversal"),
+  async (request, response, next) => {
+    try {
+      const { businessId, journalEntryId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const detail = await getJournalEntryForReversalDetail(businessId as string, journalEntryId as string);
+      response.json({ data: detail });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/journal-entries/:journalEntryId/reverse",
+  authenticateToken,
+  requireEntitlement("accounting.journals.reversal"),
+  async (request, response, next) => {
+    try {
+      const { businessId, journalEntryId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const body = journalReverseBodySchema.parse(request.body);
+      const reversal = await reverseJournalEntry(businessId as string, journalEntryId as string, {
+        postedAt: parsePostedAt(body.postedAt),
+        memo: body.memo ?? null,
+      });
+      response.status(201).json({
+        data: {
+          journalEntryId: reversal.id,
+          postedAt: reversal.postedAt.toISOString(),
+          memo: reversal.memo,
+          reversesJournalEntryId: journalEntryId as string,
+          lineCount: reversal.lines.length,
         },
       });
     } catch (error) {
