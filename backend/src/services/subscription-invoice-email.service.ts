@@ -6,8 +6,9 @@ import {
 } from "@prisma/client";
 
 import { env } from "../config/env.js";
-import { spaHashRoute } from "../lib/public-guest-urls.js";
+import { guestSubscriptionInvoiceUrl, spaHashRoute } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
+import { newGuestToken } from "../lib/guest-token.js";
 import { generateSubscriptionInvoicePdf } from "./subscription-invoice-pdf.service.js";
 
 const PLATFORM_NAME = "EasyPay";
@@ -22,6 +23,14 @@ function billingUrl() {
   return spaHashRoute(env.PLATFORM_URL.replace(/\/$/, ""), "/billing");
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 export function buildSubscriptionInvoiceEmailContent(input: {
   businessName: string;
   ownerFirstName: string;
@@ -29,8 +38,17 @@ export function buildSubscriptionInvoiceEmailContent(input: {
   amountLabel: string;
   dueDateLabel: string;
   invoiceRef: string;
+  /** Guest portal: view invoice and pay (Wave/Yonna), like customer sales invoices. */
+  payOnlineUrl?: string | null;
 }): SubscriptionInvoiceEmailContent {
   const subject = `${PLATFORM_NAME} — subscription invoice ${input.invoiceRef}`;
+  const portalBlock =
+    input.payOnlineUrl && input.payOnlineUrl.trim()
+      ? `<p style="margin:16px 0;">
+      <a href="${escapeHtml(input.payOnlineUrl.trim())}" style="display:inline-block;padding:12px 20px;background:#0d9488;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">View invoice &amp; pay online</a>
+    </p>
+    <p style="margin:0 0 16px;font-size:13px;color:#64748b;">Or open this link: <a href="${escapeHtml(input.payOnlineUrl.trim())}" style="color:#0d9488;word-break:break-all;">${escapeHtml(input.payOnlineUrl.trim())}</a></p>`
+      : "";
   const htmlBody = `
     <p>Dear ${input.ownerFirstName},</p>
     <p>
@@ -46,6 +64,7 @@ export function buildSubscriptionInvoiceEmailContent(input: {
     <p>
       A PDF copy of this invoice is attached for your records.
     </p>
+    ${portalBlock}
     <p>
       <a href="${billingUrl()}" style="color:#0d9488;font-weight:600;">Open billing</a>
       to pay online (where your plan supports it) or manage payment methods.
@@ -68,6 +87,9 @@ export function buildSubscriptionInvoiceEmailContent(input: {
     "",
     "A PDF copy is attached.",
     "",
+    ...(input.payOnlineUrl?.trim()
+      ? [`Pay online: ${input.payOnlineUrl.trim()}`, ""]
+      : []),
     `Billing: ${billingUrl()}`,
     "",
     `— ${PLATFORM_NAME}`,
@@ -124,6 +146,25 @@ async function dispatchSubscriptionInvoiceOwnerEmail(invoiceId: string): Promise
     return;
   }
 
+  let guestToken = row.guestToken?.trim() || null;
+  if (!guestToken) {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const candidate = newGuestToken();
+      const clash = await prisma.subscriptionInvoice.findFirst({
+        where: { guestToken: candidate },
+        select: { id: true },
+      });
+      if (!clash) {
+        guestToken = candidate;
+        await prisma.subscriptionInvoice.update({
+          where: { id: row.id },
+          data: { guestToken: candidate },
+        });
+        break;
+      }
+    }
+  }
+
   const ownerMembership = await prisma.businessMembership.findFirst({
     where: { businessId: row.businessId, isOwner: true },
     include: { user: { select: { id: true, email: true, name: true } } },
@@ -140,6 +181,7 @@ async function dispatchSubscriptionInvoiceOwnerEmail(invoiceId: string): Promise
   }
 
   const invoiceRef = row.externalReference?.trim() || row.id;
+  const payOnlineUrl = guestToken ? guestSubscriptionInvoiceUrl(guestToken) : null;
   const content = buildSubscriptionInvoiceEmailContent({
     businessName: row.business.name,
     ownerFirstName: firstName(recipientName),
@@ -147,6 +189,7 @@ async function dispatchSubscriptionInvoiceOwnerEmail(invoiceId: string): Promise
     amountLabel: moneyLabel(row.amount, row.currency),
     dueDateLabel: fmtDue(row.dueDate),
     invoiceRef,
+    payOnlineUrl,
   });
 
   const log = await prisma.staffCreationNotificationLog.create({

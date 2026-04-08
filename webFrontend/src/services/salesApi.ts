@@ -654,6 +654,107 @@ export async function startGuestInvoiceWalletCheckout(
   return (payload as { data: StartWalletCheckoutResponse }).data
 }
 
+export type GuestSubscriptionInvoicePayload = {
+  businessName: string
+  canPay: boolean
+  invoice: {
+    id: string
+    amount: number
+    currency: string
+    status: string
+    dueDate: string
+    billingPeriodStart: string
+    billingPeriodEnd: string
+    externalReference: string | null
+    planName: string
+    planCode: string
+  }
+}
+
+export async function fetchGuestSubscriptionInvoice(
+  guestToken: string,
+): Promise<GuestSubscriptionInvoicePayload> {
+  const response = await fetch(
+    `${API_BASE_URL}/public/guest/subscription-invoice/${encodeURIComponent(guestToken)}`,
+  )
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  return (payload as { data: GuestSubscriptionInvoicePayload }).data
+}
+
+export async function fetchGuestSubscriptionInvoiceWallets(
+  guestToken: string,
+): Promise<OrderCheckoutWalletRow[]> {
+  const response = await fetch(
+    `${API_BASE_URL}/public/guest/subscription-invoice/${encodeURIComponent(guestToken)}/wallets`,
+  )
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  const envelope = payload as { data: { wallets: OrderCheckoutWalletRow[] } }
+  return Array.isArray(envelope.data?.wallets) ? envelope.data.wallets : []
+}
+
+export type GuestSubscriptionCheckoutData = {
+  sessionId: string
+  launchUrl: string
+  paymentHtml: string | null
+  amount: number
+  currency: string
+  gatewayCode: string
+  paymentStatus: string
+  checkoutStatus: string
+}
+
+export async function startGuestSubscriptionInvoiceWalletCheckout(
+  guestToken: string,
+  body?: { gatewayCode?: string; payerPhone?: string },
+): Promise<GuestSubscriptionCheckoutData> {
+  const response = await fetch(
+    `${API_BASE_URL}/public/guest/subscription-invoice/${encodeURIComponent(guestToken)}/payments/wallet`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    },
+  )
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  return (payload as { data: GuestSubscriptionCheckoutData }).data
+}
+
 export async function simulatePublicWalletPay(publicToken: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/public/pay/${publicToken}/simulate`, {
     method: 'POST',

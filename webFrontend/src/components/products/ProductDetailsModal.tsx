@@ -15,7 +15,7 @@ import {
   type MenuCategoryRow,
 } from '../../services/subscriptionApi'
 import { inferBarcodeFormat, type RetailBarcodeFormat } from '../../utils/barcodeFormat'
-import { isRestaurantIndustry } from '../../utils/businessIndustry'
+import { isProductCatalogIndustry, isRestaurantIndustry } from '../../utils/businessIndustry'
 import { categoryBreadcrumb, leafMenuCategories } from '../../utils/menuCategoryTree'
 import { ProductThumb } from './ProductThumb'
 import { downloadSvgAsPng, sanitizeDownloadBasename } from '../../utils/downloadSvgAsPng'
@@ -52,6 +52,7 @@ export function ProductDetailsModal({
   const barcodeHostRef = useRef<HTMLDivElement>(null)
   const { currentOrganization } = useAuth()
   const isRestaurantProduct = isRestaurantIndustry(currentOrganization?.industry)
+  const usesCatalogMenuCategories = isProductCatalogIndustry(currentOrganization?.industry)
 
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(product.name)
@@ -88,7 +89,7 @@ export function ProductDetailsModal({
   }, [product])
 
   useEffect(() => {
-    if (!editing || !isRestaurantProduct || !businessId) {
+    if (!editing || !usesCatalogMenuCategories || !businessId) {
       return
     }
     let cancelled = false
@@ -109,7 +110,7 @@ export function ProductDetailsModal({
     return () => {
       cancelled = true
     }
-  }, [editing, businessId, isRestaurantProduct])
+  }, [editing, businessId, usesCatalogMenuCategories])
 
   const leafRows = useMemo(() => leafMenuCategories(menuRows), [menuRows])
   const leafPickerOptions = useMemo(
@@ -128,7 +129,7 @@ export function ProductDetailsModal({
     ? {
         ...product,
         name: name.trim() || product.name,
-        category: isRestaurantProduct
+        category: usesCatalogMenuCategories
           ? menuCategoryIdEdit.trim()
             ? categoryBreadcrumb(menuRows, menuCategoryIdEdit) || product.category
             : product.category
@@ -137,7 +138,7 @@ export function ProductDetailsModal({
         stock: Number.parseInt(stock, 10) || product.stock,
         description: description.trim() || undefined,
         imageUrl: packImageUrl || null,
-        menuCategoryId: isRestaurantProduct ? menuCategoryIdEdit.trim() || null : product.menuCategoryId,
+        menuCategoryId: usesCatalogMenuCategories ? menuCategoryIdEdit.trim() || null : product.menuCategoryId,
       }
     : product
 
@@ -149,7 +150,7 @@ export function ProductDetailsModal({
     const d1 = description.trim()
     const img0 = product.imageUrl ?? ''
     const img1 = packImageUrl.trim()
-    const catDirty = isRestaurantProduct
+    const catDirty = usesCatalogMenuCategories
       ? menuCategoryIdEdit !== (product.menuCategoryId ?? '')
       : category.trim() !== product.category
     return (
@@ -170,7 +171,7 @@ export function ProductDetailsModal({
     stock,
     packImageUrl,
     product,
-    isRestaurantProduct,
+    usesCatalogMenuCategories,
   ])
 
   const baseName = sanitizeDownloadBasename(product.name)
@@ -241,9 +242,9 @@ export function ProductDetailsModal({
       setSaveError('Name is required.')
       return
     }
-    if (isRestaurantProduct) {
+    if (usesCatalogMenuCategories) {
       if (!menuCategoryIdEdit.trim()) {
-        setSaveError('Select a menu category (leaf).')
+        setSaveError('Select a category (leaf).')
         return
       }
     } else if (!category.trim()) {
@@ -263,7 +264,7 @@ export function ProductDetailsModal({
     try {
       const updated = await updateBusinessProduct(businessId, product.id, {
         name: name.trim(),
-        ...(isRestaurantProduct
+        ...(usesCatalogMenuCategories
           ? { menuCategoryId: menuCategoryIdEdit.trim() }
           : { category: category.trim() }),
         description: description.trim() ? description.trim() : null,
@@ -349,10 +350,11 @@ export function ProductDetailsModal({
           {!editing ? (
             <>
               <h2 className="mb-1 text-2xl font-bold text-slate-800">{product.name}</h2>
-              {isRestaurantProduct && !product.menuCategoryId ? (
+              {usesCatalogMenuCategories && !product.menuCategoryId ? (
                 <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  This item has no menu category (for example if the category was deleted). Edit the product
-                  and choose a leaf category to put it back on the menu.
+                  {isRestaurantProduct
+                    ? 'This item has no menu category (for example if the category was deleted). Edit the product and choose a leaf category to put it back on the guest menu.'
+                    : 'This item has no category (for example if the category was deleted). Edit the product and choose a leaf category.'}
                 </p>
               ) : null}
               <p className="mb-6 text-slate-500">{product.category}</p>
@@ -412,15 +414,17 @@ export function ProductDetailsModal({
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
                   />
                 </label>
-                {isRestaurantProduct ? (
+                {usesCatalogMenuCategories ? (
                   <div>
                     {!product.menuCategoryId ? (
                       <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                        Select a leaf category so this product appears on the guest menu again.
+                        {isRestaurantProduct
+                          ? 'Select a leaf category so this product appears on the guest menu again.'
+                          : 'Select a leaf category for this product.'}
                       </p>
                     ) : null}
                     <SearchableListbox
-                      fieldLabel="Menu category (leaf)"
+                      fieldLabel={isRestaurantProduct ? 'Menu category (leaf)' : 'Product category (leaf)'}
                       fieldLabelClassName="text-xs font-medium text-slate-600"
                       options={leafPickerOptions}
                       value={menuCategoryIdEdit}
@@ -433,7 +437,9 @@ export function ProductDetailsModal({
                       <p className="mt-1 text-xs text-red-600">{menuLoadError}</p>
                     ) : leafRows.length === 0 && !menuLoadError ? (
                       <p className="mt-1 text-xs text-amber-700">
-                        Create a leaf category under Restaurant menu setup first.
+                        {isRestaurantProduct
+                          ? 'Create a leaf category under Menu setup first.'
+                          : 'Create a leaf category under Catalog → Categories first.'}
                       </p>
                     ) : null}
                   </div>

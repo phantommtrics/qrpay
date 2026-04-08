@@ -30,7 +30,8 @@ export function PlatformAccountingHomePage() {
   const navigate = useNavigate()
   const { canAccess } = useAuth()
   const canChart = canAccess('platform.accounting.chart.view')
-  const canJournals = canAccess('platform.accounting.view')
+  const canJournals =
+    canAccess('platform.accounting.view') || canAccess('platform.accounting.journals.access')
   const canGl = canAccess('platform.accounting.reports.gl')
   const canPnl = canAccess('platform.accounting.reports.pnl')
   const canStatement = canAccess('platform.accounting.reports.statement')

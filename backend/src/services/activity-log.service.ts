@@ -14,12 +14,16 @@ export const ACTIVITY_EVENT = {
   PRODUCT_UPDATED: "product.updated",
   STAFF_USER_INVITED: "staff.user_invited",
   STAFF_MEMBERSHIP_STATUS_CHANGED: "staff.membership_status_changed",
+  PLATFORM_JOURNAL_MANUAL_POSTED: "platform.journal.manual_posted",
+  PLATFORM_JOURNAL_REVERSED: "platform.journal.reversed",
+  PLATFORM_BILL_PAID: "platform.bill.paid",
 } as const;
 
 export async function appendActivityLog(
   db: ActivityDb,
   input: {
-    businessId: string;
+    /** Omit or null for platform-scoped events (no tenant). */
+    businessId?: string | null;
     actorUserId: string | null;
     actorKind: ActivityActorKind;
     eventType: string;
@@ -30,7 +34,7 @@ export async function appendActivityLog(
 ): Promise<void> {
   await db.activityLog.create({
     data: {
-      businessId: input.businessId,
+      businessId: input.businessId ?? null,
       actorUserId: input.actorUserId ?? undefined,
       actorKind: input.actorKind,
       eventType: input.eventType,
@@ -55,6 +59,36 @@ export async function listActivityLogsForBusiness(businessId: string, params: Li
   const skip = (page - 1) * pageSize;
 
   const where: Prisma.ActivityLogWhereInput = { businessId };
+  const et = params.eventType?.trim();
+  if (et) {
+    where.eventType = et;
+  }
+  if (params.actorKind === ActivityActorKind.USER || params.actorKind === ActivityActorKind.SYSTEM) {
+    where.actorKind = params.actorKind;
+  }
+
+  const [total, rows] = await prisma.$transaction([
+    prisma.activityLog.count({ where }),
+    prisma.activityLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: pageSize,
+      include: {
+        actorUser: { select: { id: true, name: true, email: true } },
+      },
+    }),
+  ]);
+
+  return { total, page, pageSize, logs: rows };
+}
+
+export async function listActivityLogsForPlatform(params: ListActivityLogsParams) {
+  const page = Math.max(1, params.page);
+  const pageSize = Math.min(Math.max(params.pageSize, 1), 100);
+  const skip = (page - 1) * pageSize;
+
+  const where: Prisma.ActivityLogWhereInput = { businessId: { equals: null } };
   const et = params.eventType?.trim();
   if (et) {
     where.eventType = et;

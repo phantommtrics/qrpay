@@ -376,3 +376,12 @@ export async function downloadBillPdf(businessId: string, billId: string): Promi
   )
   triggerBlobDownload(blob, filename ?? `bill-${billId.slice(0, 8)}.pdf`)
 }
+
+/** Platform operator AP bill PDF (no business header). */
+export async function downloadPlatformBillPdf(billId: string): Promise<void> {
+  const { blob, filename } = await apiFetchBinary(
+    `/platform/bills/${encodeURIComponent(billId)}/pdf`,
+    { method: 'GET' },
+  )
+  triggerBlobDownload(blob, filename ?? `bill-${billId.slice(0, 8)}.pdf`)
+}

@@ -363,6 +363,12 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     description: 'Configure encrypted Wave and Yonna credentials for customer payments',
     category: 'Integrations',
   },
+  {
+    key: 'activity.log',
+    label: 'Activity log',
+    description: 'View business audit trail: payments, product changes, and staff actions',
+    category: 'Administration',
+  },
 ]
 
 export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
@@ -402,6 +408,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'subscriptions.billing_activity': true,
     'merchant.api': true,
     'contacts.manage': true,
+    'activity.log': true,
   },
   pro: {
     'dashboard.view': true,
@@ -439,6 +446,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'subscriptions.billing_activity': true,
     'merchant.api': true,
     'contacts.manage': true,
+    'activity.log': true,
   },
   business_pro: {
     'dashboard.view': true,
@@ -476,6 +484,7 @@ export const INITIAL_PLAN_PERMISSIONS: PlanPermissions = {
     'subscriptions.billing_activity': true,
     'merchant.api': true,
     'contacts.manage': true,
+    'activity.log': true,
   },
 }
 

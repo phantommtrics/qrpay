@@ -115,6 +115,8 @@ export function BillingPage() {
   const [selectedPayMethodId, setSelectedPayMethodId] = useState<string | null>(null)
   const [checkoutPaidBanner, setCheckoutPaidBanner] = useState(false)
   const [checkoutLinkCopied, setCheckoutLinkCopied] = useState(false)
+  const [planChangeGuestUrl, setPlanChangeGuestUrl] = useState<string | null>(null)
+  const [planChangeGuestUrlCopied, setPlanChangeGuestUrlCopied] = useState(false)
   const [devSubscriptionInvoicePayAllowed, setDevSubscriptionInvoicePayAllowed] = useState(false)
 
   const gatewaysWithCheckout = useMemo(
@@ -409,10 +411,12 @@ export function BillingPage() {
     setPlanChangeLoading(true)
     setError(null)
     try {
-      await changeBusinessSubscriptionPlan(businessId, {
+      const out = await changeBusinessSubscriptionPlan(businessId, {
         planCode: targetPlanCode,
         billingInterval: targetBillingInterval,
       })
+      setPlanChangeGuestUrl(out.pendingInvoice?.guestPayUrl?.trim() || null)
+      setPlanChangeGuestUrlCopied(false)
       await load()
       await refreshBusinessSubscriptionSnapshot(businessId)
     } catch (e) {
@@ -461,6 +465,43 @@ export function BillingPage() {
       {error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {error}
+        </div>
+      ) : null}
+
+      {planChangeGuestUrl ? (
+        <div className="flex flex-col gap-3 rounded-2xl border border-teal-200 bg-teal-50/90 px-4 py-3 text-sm text-teal-950 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-semibold">Plan updated — pay this invoice on the guest page</p>
+            <p className="mt-1 text-teal-900/90">
+              Share or open this link (no login) to view the invoice and pay online, same as the email we send to
+              the business owner.
+            </p>
+            <a
+              href={planChangeGuestUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-flex items-center gap-1 font-medium text-teal-800 underline decoration-teal-400 underline-offset-2 hover:text-teal-950"
+            >
+              Open guest pay page
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(planChangeGuestUrl)
+                setPlanChangeGuestUrlCopied(true)
+                window.setTimeout(() => setPlanChangeGuestUrlCopied(false), 2000)
+              } catch {
+                setPlanChangeGuestUrlCopied(false)
+              }
+            }}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-teal-300 bg-white px-4 py-2.5 text-sm font-semibold text-teal-900 shadow-sm hover:bg-teal-50"
+          >
+            <Copy className="h-4 w-4" />
+            {planChangeGuestUrlCopied ? 'Copied' : 'Copy link'}
+          </button>
         </div>
       ) : null}
 

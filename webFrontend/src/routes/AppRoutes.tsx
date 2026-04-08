@@ -58,6 +58,11 @@ const ProductsPage = lazy(() =>
     default: module.ProductsPage,
   })),
 )
+const ProductCatalogCategoriesPage = lazy(() =>
+  import('../screens/ProductCatalogCategoriesPage').then((module) => ({
+    default: module.ProductCatalogCategoriesPage,
+  })),
+)
 const POSPage = lazy(() =>
   import('../screens/POSPage').then((module) => ({
     default: module.POSPage,
@@ -328,6 +333,27 @@ const PlatformAccountingStatementPage = lazy(() =>
     default: module.PlatformAccountingStatementPage,
   })),
 )
+const PlatformBillsPage = lazy(() =>
+  import('../screens/PlatformBillsPage').then((module) => ({ default: module.PlatformBillsPage })),
+)
+const PlatformBillNewPage = lazy(() =>
+  import('../screens/PlatformBillNewPage').then((module) => ({ default: module.PlatformBillNewPage })),
+)
+const PlatformBillDetailPage = lazy(() =>
+  import('../screens/PlatformBillDetailPage').then((module) => ({
+    default: module.PlatformBillDetailPage,
+  })),
+)
+const PlatformActivityLogPage = lazy(() =>
+  import('../screens/PlatformActivityLogPage').then((module) => ({
+    default: module.PlatformActivityLogPage,
+  })),
+)
+const GuestSubscriptionInvoicePage = lazy(() =>
+  import('../screens/GuestSubscriptionInvoicePage').then((module) => ({
+    default: module.GuestSubscriptionInvoicePage,
+  })),
+)
 const BillingPage = lazy(() =>
   import('../screens/BillingPage').then((module) => ({
     default: module.BillingPage,
@@ -440,7 +466,10 @@ export function AppRoutes() {
       path: APP_PATHS.platformAccountingJournals,
       element: <PlatformAccountingJournalsPage />,
       roles: PLATFORM_OPERATOR_ROLES,
-      permission: 'platform.accounting.view' as const,
+      anyOfPermissions: [
+        'platform.accounting.view',
+        'platform.accounting.journals.access',
+      ] satisfies PermissionKey[],
     },
     {
       path: APP_PATHS.platformAccountingReportGl,
@@ -459,6 +488,30 @@ export function AppRoutes() {
       element: <PlatformAccountingStatementPage />,
       roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.accounting.reports.statement' as const,
+    },
+    {
+      path: APP_PATHS.platformBills,
+      element: <PlatformBillsPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.bills.view' as const,
+    },
+    {
+      path: APP_PATHS.platformBillNew,
+      element: <PlatformBillNewPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.bills.manage' as const,
+    },
+    {
+      path: APP_PATHS.platformBillDetail,
+      element: <PlatformBillDetailPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.bills.view' as const,
+    },
+    {
+      path: APP_PATHS.platformActivityLog,
+      element: <PlatformActivityLogPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.activity.log' as const,
     },
     {
       path: APP_PATHS.billing,
@@ -495,6 +548,12 @@ export function AppRoutes() {
       element: <ProductsPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.roles,
       permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.permission,
+    },
+    {
+      path: APP_PATHS.catalogCategories,
+      element: <ProductCatalogCategoriesPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.roles,
+      permission: 'products.categories' as const,
     },
     {
       path: APP_PATHS.restaurantSetup,
@@ -538,7 +597,6 @@ export function AppRoutes() {
       element: <ActivityLogPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.activityLog)!.roles,
       permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.activityLog)!.permission,
-      requireBusinessOwner: true,
     },
     {
       path: APP_PATHS.reports,
@@ -767,6 +825,10 @@ export function AppRoutes() {
         <Route path="/pay/:publicToken" element={<PublicPayPage />} />
         <Route path="/guest/quotation/:guestToken" element={<GuestQuotationPage />} />
         <Route path="/guest/invoice/:guestToken" element={<GuestInvoicePage />} />
+        <Route
+          path="/guest/subscription-invoice/:guestToken"
+          element={<GuestSubscriptionInvoicePage />}
+        />
         <Route
           path={APP_PATHS.changePassword}
           element={

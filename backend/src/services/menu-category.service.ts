@@ -1,9 +1,9 @@
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
-import { assertRestaurantBusiness } from "./restaurant-guard.service.js";
+import { assertMenuCategoryCatalogBusiness } from "./restaurant-guard.service.js";
 
 export async function listMenuCategoriesFlat(businessId: string) {
-  await assertRestaurantBusiness(businessId);
+  await assertMenuCategoryCatalogBusiness(businessId);
   return prisma.menuCategory.findMany({
     where: { businessId },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
@@ -46,7 +46,7 @@ export async function createMenuCategory(input: {
   parentId?: string | null;
   sortOrder?: number;
 }) {
-  await assertRestaurantBusiness(input.businessId);
+  await assertMenuCategoryCatalogBusiness(input.businessId);
   const name = input.name.trim();
   if (name.length < 1) {
     throw new HttpError(400, "Category name is required.");
@@ -75,7 +75,7 @@ export async function updateMenuCategory(input: {
   parentId?: string | null;
   sortOrder?: number;
 }) {
-  await assertRestaurantBusiness(input.businessId);
+  await assertMenuCategoryCatalogBusiness(input.businessId);
   const row = await prisma.menuCategory.findFirst({
     where: { id: input.categoryId, businessId: input.businessId },
   });
@@ -142,7 +142,7 @@ function subtreePostOrderDeletionIds(
  * Products on deleted categories get menuCategoryId cleared (schema onDelete: SetNull).
  */
 export async function deleteMenuCategory(businessId: string, categoryId: string) {
-  await assertRestaurantBusiness(businessId);
+  await assertMenuCategoryCatalogBusiness(businessId);
   const row = await prisma.menuCategory.findFirst({
     where: { id: categoryId, businessId },
   });

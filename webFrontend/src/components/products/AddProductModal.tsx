@@ -41,7 +41,6 @@ export function AddProductModal({
   const [step, setStep] = useState<Step>(isRestaurant ? 2 : 1)
 
   const [name, setName] = useState('')
-  const [category, setCategory] = useState('')
   const [menuCategoryId, setMenuCategoryId] = useState('')
   const [menuRows, setMenuRows] = useState<MenuCategoryRow[]>([])
   const [menuLoadError, setMenuLoadError] = useState<string | null>(null)
@@ -61,11 +60,6 @@ export function AddProductModal({
   const previewBarcodeFormat = inferBarcodeFormat(previewBarcodeValue)
 
   useEffect(() => {
-    if (!isRestaurant) {
-      setMenuRows([])
-      setMenuLoadError(null)
-      return
-    }
     let cancelled = false
     void (async () => {
       try {
@@ -78,7 +72,7 @@ export function AddProductModal({
         if (!cancelled) {
           setMenuRows([])
           setMenuLoadError(
-            e instanceof ApiError ? e.message : 'Could not load menu categories.',
+            e instanceof ApiError ? e.message : 'Could not load categories.',
           )
         }
       }
@@ -86,7 +80,7 @@ export function AddProductModal({
     return () => {
       cancelled = true
     }
-  }, [businessId, isRestaurant])
+  }, [businessId])
 
   const leafRows = useMemo(() => leafMenuCategories(menuRows), [menuRows])
 
@@ -108,11 +102,8 @@ export function AddProductModal({
       priceNum > 0 &&
       Number.isFinite(stockNum) &&
       stockNum >= 0
-    if (isRestaurant) {
-      return base && menuCategoryId.length > 0 && !menuLoadError
-    }
-    return base && category.trim().length > 0
-  }, [name, category, price, stock, isRestaurant, menuCategoryId, menuLoadError])
+    return base && menuCategoryId.length > 0 && !menuLoadError
+  }, [name, price, stock, menuCategoryId, menuLoadError])
 
   const canSaveProduct = detailsComplete && !uploadingImage && !submitting
 
@@ -181,9 +172,7 @@ export function AddProductModal({
     try {
       await createBusinessProduct(businessId, {
         name: name.trim(),
-        ...(isRestaurant
-          ? { menuCategoryId: menuCategoryId.trim() }
-          : { category: category.trim() }),
+        menuCategoryId: menuCategoryId.trim(),
         description: description.trim() || undefined,
         price: priceNum,
         stock: stockNum,
@@ -209,9 +198,7 @@ export function AddProductModal({
     businessId,
     name: name.trim() || 'Product name',
     price: Number(price) && Number(price) > 0 ? Number(price) : 0,
-    category: isRestaurant
-      ? (menuCategoryId ? categoryBreadcrumb(menuRows, menuCategoryId) : 'Category')
-      : category.trim() || 'Category',
+    category: menuCategoryId ? categoryBreadcrumb(menuRows, menuCategoryId) : 'Category',
     stock: Number.isFinite(Number.parseInt(stock, 10)) ? Number.parseInt(stock, 10) : 0,
     imageColor: 'bg-slate-100',
     imageEmoji: '📦',
@@ -452,37 +439,27 @@ export function AddProductModal({
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-teal-500"
               />
             </label>
-            {isRestaurant ? (
-              <div>
-                <SearchableListbox
-                  fieldLabel="Menu category (leaf)"
-                  fieldLabelClassName="text-sm font-medium text-slate-700"
-                  options={leafPickerOptions}
-                  value={menuCategoryId}
-                  onChange={setMenuCategoryId}
-                  placeholder="Search categories…"
-                  listId="add-product-menu-category-list"
-                  disabled={Boolean(menuLoadError)}
-                />
-                {menuLoadError ? (
-                  <p className="mt-1 text-xs text-red-600">{menuLoadError}</p>
-                ) : leafRows.length === 0 && !menuLoadError ? (
-                  <p className="mt-1 text-xs text-amber-700">
-                    Create a leaf category under Restaurant setup first.
-                  </p>
-                ) : null}
-              </div>
-            ) : (
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">Category</span>
-                <input
-                  required
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-teal-500"
-                />
-              </label>
-            )}
+            <div>
+              <SearchableListbox
+                fieldLabel={isRestaurant ? 'Menu category (leaf)' : 'Product category (leaf)'}
+                fieldLabelClassName="text-sm font-medium text-slate-700"
+                options={leafPickerOptions}
+                value={menuCategoryId}
+                onChange={setMenuCategoryId}
+                placeholder="Search categories…"
+                listId="add-product-menu-category-list"
+                disabled={Boolean(menuLoadError)}
+              />
+              {menuLoadError ? (
+                <p className="mt-1 text-xs text-red-600">{menuLoadError}</p>
+              ) : leafRows.length === 0 && !menuLoadError ? (
+                <p className="mt-1 text-xs text-amber-700">
+                  {isRestaurant
+                    ? 'Create a leaf category under Menu setup first.'
+                    : 'Create a leaf category under Catalog → Categories first.'}
+                </p>
+              ) : null}
+            </div>
             <label className="block">
               <span className="mb-1 block text-sm font-medium text-slate-700">Description (optional)</span>
               <textarea

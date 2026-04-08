@@ -224,12 +224,15 @@ export async function getBusinessNavigationMenu(
     }
   }
 
-  const isBusinessOwner = await prisma.businessMembership.findFirst({
-    where: { userId, businessId, isOwner: true },
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { industry: true },
   });
-  if (!isBusinessOwner) {
+  const industryNorm = (business?.industry ?? "").trim().toLowerCase();
+  /** Retail catalog uses "Categories"; restaurants use Menu setup instead (same underlying table). */
+  if (industryNorm === "restaurant") {
     for (const g of byService.values()) {
-      g.items = g.items.filter((item) => item.navPath !== "/activity-log");
+      g.items = g.items.filter((item) => item.slug !== "products.categories");
     }
   }
 

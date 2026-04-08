@@ -86,6 +86,7 @@ import {
   getPublicBusinessMenu,
   getPublicProductById,
   listProductsForBusiness,
+  listProductsForBusinessPaged,
   updateProduct,
 } from "./services/product.service.js";
 import {
@@ -135,6 +136,7 @@ import {
   ACTIVITY_EVENT,
   appendActivityLog,
   listActivityLogsForBusiness,
+  listActivityLogsForPlatform,
 } from "./services/activity-log.service.js";
 import { listOrderCheckoutWallets } from "./services/order-wallet-checkout.service.js";
 import {
@@ -170,6 +172,10 @@ import {
   listPlatformChartAccounts,
   updatePlatformChartAccount,
 } from "./services/platform-chart-of-accounts.service.js";
+import {
+  getPlatformJournalEntryForReversalDetail,
+  reversePlatformJournalEntry,
+} from "./services/platform-journal-reversal.service.js";
 import { createPlatformManualJournal, listPlatformJournalEntries } from "./services/platform-journal.service.js";
 import { getAccountingSummaryForBusiness } from "./services/accounting-summary.service.js";
 import {
@@ -191,6 +197,7 @@ import {
 } from "./services/manual-journal.service.js";
 import {
   formatBillApi,
+  formatPlatformBillApi,
   formatSalesInvoiceApi,
   formatSalesQuotationApi,
 } from "./services/sales-document-api-format.js";
@@ -228,7 +235,25 @@ import {
   listGuestInvoiceWallets,
   startGuestInvoiceWalletCheckout,
 } from "./services/sales-public.service.js";
+import {
+  getGuestSubscriptionInvoiceByToken,
+  listGuestSubscriptionInvoiceWallets,
+  startGuestSubscriptionInvoiceWalletCheckout,
+} from "./services/subscription-guest-public.service.js";
+import {
+  approvePlatformBill,
+  createPlatformBill,
+  createPlatformSupplier,
+  getPlatformBillById,
+  listPlatformBills,
+  listPlatformSuppliers,
+  markPlatformBillPaid,
+  updatePlatformBillDraft,
+  voidPlatformBill,
+} from "./services/platform-bill.service.js";
 import { renderBillPdfDownload } from "./services/bill-document-pdf.service.js";
+import { renderPlatformBillPdfDownload } from "./services/platform-bill-document-pdf.service.js";
+import { guestSubscriptionInvoiceUrl } from "./lib/public-guest-urls.js";
 import {
   renderSalesInvoicePdfDownload,
   renderSalesQuotationPdfDownload,
@@ -473,7 +498,7 @@ const createProductSchema = z
     if (!hasMenu && !hasCat) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Provide category (retail/wholesale/pharmacy) or menuCategoryId (restaurant).",
+        message: "Provide menuCategoryId for all catalog products, or legacy category text only for old integrations.",
         path: ["category"],
       });
     }
@@ -483,7 +508,7 @@ const updateProductSchema = z
   .object({
     name: z.string().min(1).optional(),
     category: z.string().min(1).optional(),
-    menuCategoryId: z.string().min(1).optional(),
+    menuCategoryId: z.union([z.string().min(1), z.null()]).optional(),
     description: z.union([z.string(), z.null()]).optional(),
     price: z.coerce.number().positive().optional(),
     stock: z.coerce.number().int().min(0).optional(),
@@ -1878,6 +1903,47 @@ const platformFinanceLegacyViewGate = {
   action: "view" as const,
 };
 
+const platformFinanceLegacyCreateGate = {
+  moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING,
+  action: "create" as const,
+};
+
+const platformJournalListGates = [
+  platformFinanceLegacyViewGate,
+  { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_JOURNALS_POST, action: "view" as const },
+];
+
+const platformManualJournalPostGates = [
+  platformFinanceLegacyCreateGate,
+  { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_JOURNALS_POST, action: "create" as const },
+];
+
+const platformJournalReversalPostGates = [
+  platformFinanceLegacyCreateGate,
+  { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_JOURNALS_REVERSAL, action: "create" as const },
+];
+
+const platformPurchaseBillsViewGates = [
+  platformFinanceLegacyViewGate,
+  { moduleSlug: PLATFORM_MODULE_SLUGS.PURCHASE_BILLS, action: "view" as const },
+];
+
+const platformPurchaseBillsCreateGates = [
+  platformFinanceLegacyCreateGate,
+  { moduleSlug: PLATFORM_MODULE_SLUGS.PURCHASE_BILLS, action: "create" as const },
+];
+
+const platformPurchaseBillsEditGates = [
+  platformFinanceLegacyCreateGate,
+  { moduleSlug: PLATFORM_MODULE_SLUGS.PURCHASE_BILLS, action: "edit" as const },
+];
+
+const platformActivityLogGates = [
+  platformFinanceLegacyViewGate,
+  { moduleSlug: PLATFORM_MODULE_SLUGS.ACTIVITY_LOG, action: "view" as const },
+  { moduleSlug: PLATFORM_MODULE_SLUGS.PURCHASE_BILLS, action: "view" as const },
+];
+
 app.get(
   "/api/platform/accounting/chart-of-accounts",
   authenticateToken,
@@ -2023,7 +2089,7 @@ app.get(
   "/api/platform/accounting/journal-entries",
   authenticateToken,
   requirePlatformOperator,
-  requirePlatformAccess(PLATFORM_MODULE_SLUGS.ACCOUNTING, "view"),
+  requirePlatformAccessAny(platformJournalListGates),
   async (req, res, next) => {
     try {
       const page = clampPage(Number(req.query.page));
@@ -2037,6 +2103,11 @@ app.get(
           reference: e.reference,
           sourceType: e.sourceType,
           sourceId: e.sourceId,
+          reversesPlatformJournalEntryId: e.reversesPlatformJournalEntryId,
+          hasReversal: Boolean(e.reversedByPlatformEntry),
+          billPayment: e.billFromPayment
+            ? { id: e.billFromPayment.id, publicCode: e.billFromPayment.publicCode }
+            : null,
           createdAt: e.createdAt.toISOString(),
           lines: e.lines.map((ln) => ({
             id: ln.id,
@@ -2059,15 +2130,40 @@ app.get(
   },
 );
 
+app.get(
+  "/api/platform/accounting/journal-entries/:journalEntryId/reversal-preview",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformJournalListGates),
+  async (req, res, next) => {
+    try {
+      const data = await getPlatformJournalEntryForReversalDetail(req.params.journalEntryId as string);
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 app.post(
   "/api/platform/accounting/journal-entries/manual",
   authenticateToken,
   requirePlatformOperator,
-  requirePlatformAccess(PLATFORM_MODULE_SLUGS.ACCOUNTING, "create"),
+  requirePlatformAccessAny(platformManualJournalPostGates),
   async (req, res, next) => {
     try {
       const body = platformManualJournalBodySchema.parse(req.body);
       const created = await createPlatformManualJournal(body);
+      if (req.user?.id) {
+        await appendActivityLog(prisma, {
+          businessId: null,
+          actorUserId: req.user.id,
+          actorKind: ActivityActorKind.USER,
+          eventType: ACTIVITY_EVENT.PLATFORM_JOURNAL_MANUAL_POSTED,
+          resourceType: "platform_journal_entry",
+          resourceId: created.id,
+        });
+      }
       res.status(201).json({
         data: {
           id: created.id,
@@ -2078,6 +2174,51 @@ app.post(
           lines: created.lines.map((ln) => ({
             id: ln.id,
             chartOfAccountId: ln.chartOfAccountId,
+            debit: Number(ln.debitAmount),
+            credit: Number(ln.creditAmount),
+            description: ln.description,
+          })),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/accounting/journal-entries/:journalEntryId/reverse",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformJournalReversalPostGates),
+  async (req, res, next) => {
+    try {
+      const body = platformJournalReverseBodySchema.parse(req.body);
+      const reversal = await reversePlatformJournalEntry(req.params.journalEntryId as string, body);
+      if (req.user?.id) {
+        await appendActivityLog(prisma, {
+          businessId: null,
+          actorUserId: req.user.id,
+          actorKind: ActivityActorKind.USER,
+          eventType: ACTIVITY_EVENT.PLATFORM_JOURNAL_REVERSED,
+          resourceType: "platform_journal_entry",
+          resourceId: reversal.id,
+          metadata: { reversesJournalId: req.params.journalEntryId },
+        });
+      }
+      res.status(201).json({
+        data: {
+          id: reversal.id,
+          postedAt: reversal.postedAt.toISOString(),
+          memo: reversal.memo,
+          reference: reversal.reference,
+          sourceType: reversal.sourceType,
+          reversesPlatformJournalEntryId: reversal.reversesPlatformJournalEntryId,
+          lines: reversal.lines.map((ln) => ({
+            id: ln.id,
+            chartOfAccountId: ln.chartOfAccountId,
+            code: ln.chartOfAccount.code,
+            name: ln.chartOfAccount.name,
             debit: Number(ln.debitAmount),
             credit: Number(ln.creditAmount),
             description: ln.description,
@@ -2168,6 +2309,255 @@ app.get(
       }
       const data = await getPlatformAccountStatementsReports(chartOfAccountIds, from, to);
       res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/activity-log",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformActivityLogGates),
+  async (req, res, next) => {
+    try {
+      const page = clampPage(Number(req.query.page ?? 1));
+      const pageSize = clampPageSize(Number(req.query.pageSize ?? 50));
+      const eventType = typeof req.query.eventType === "string" ? req.query.eventType.trim() : "";
+      const actorKindRaw =
+        typeof req.query.actorKind === "string" ? req.query.actorKind.trim().toLowerCase() : "";
+      let actorKind: ActivityActorKind | null = null;
+      if (actorKindRaw === "user") {
+        actorKind = ActivityActorKind.USER;
+      } else if (actorKindRaw === "system") {
+        actorKind = ActivityActorKind.SYSTEM;
+      }
+      const result = await listActivityLogsForPlatform({
+        page,
+        pageSize,
+        eventType: eventType || undefined,
+        actorKind,
+      });
+      res.json({
+        data: {
+          total: result.total,
+          page: result.page,
+          pageSize: result.pageSize,
+          logs: result.logs.map((row) => ({
+            id: row.id,
+            eventType: row.eventType,
+            resourceType: row.resourceType,
+            resourceId: row.resourceId,
+            actorKind: row.actorKind === "USER" ? "user" : "system",
+            actor: row.actorUser
+              ? { id: row.actorUser.id, name: row.actorUser.name, email: row.actorUser.email }
+              : null,
+            metadata: row.metadata,
+            createdAt: row.createdAt.toISOString(),
+          })),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/suppliers",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsViewGates),
+  async (_req, res, next) => {
+    try {
+      const rows = await listPlatformSuppliers();
+      res.json({
+        data: rows.map((s) => ({
+          id: s.id,
+          name: s.name,
+          email: s.email,
+          phone: s.phone,
+          createdAt: s.createdAt.toISOString(),
+        })),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/suppliers",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsCreateGates),
+  async (req, res, next) => {
+    try {
+      const body = platformSupplierCreateBodySchema.parse(req.body);
+      const row = await createPlatformSupplier(body);
+      res.status(201).json({
+        data: {
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          phone: row.phone,
+          createdAt: row.createdAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/bills",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsViewGates),
+  async (_req, res, next) => {
+    try {
+      const rows = await listPlatformBills();
+      res.json({ data: rows.map((r) => formatPlatformBillApi(r)) });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/bills",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsCreateGates),
+  async (req, res, next) => {
+    try {
+      const body = platformBillCreateBodySchema.parse(req.body);
+      const row = await createPlatformBill({
+        supplierId: body.supplierId,
+        issueDate: parsePostedAt(body.issueDate),
+        dueDate: parseOptionalIsoDate(body.dueDate),
+        reference: body.reference ?? null,
+        currency: body.currency ?? undefined,
+        lines: mapSalesLineInputs(body.lines),
+      });
+      res.status(201).json({ data: formatPlatformBillApi(row) });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/bills/:billId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsViewGates),
+  async (req, res, next) => {
+    try {
+      const row = await getPlatformBillById(req.params.billId as string);
+      res.json({ data: formatPlatformBillApi(row) });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/bills/:billId/pdf",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsViewGates),
+  async (req, res, next) => {
+    try {
+      const { buffer, filename } = await renderPlatformBillPdfDownload(req.params.billId as string);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(buffer);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.patch(
+  "/api/platform/bills/:billId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsEditGates),
+  async (req, res, next) => {
+    try {
+      const body = platformBillPatchBodySchema.parse(req.body);
+      const row = await updatePlatformBillDraft(req.params.billId as string, {
+        ...(body.supplierId ? { supplierId: body.supplierId } : {}),
+        ...(body.issueDate ? { issueDate: parsePostedAt(body.issueDate) } : {}),
+        ...(body.dueDate !== undefined ? { dueDate: parseOptionalIsoDate(body.dueDate) } : {}),
+        ...(body.reference !== undefined ? { reference: body.reference ?? null } : {}),
+        ...(body.currency !== undefined ? { currency: body.currency ?? undefined } : {}),
+        ...(body.lines ? { lines: mapSalesLineInputs(body.lines) } : {}),
+      });
+      res.json({ data: formatPlatformBillApi(row) });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/bills/:billId/approve",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsEditGates),
+  async (req, res, next) => {
+    try {
+      const row = await approvePlatformBill(req.params.billId as string);
+      res.json({ data: formatPlatformBillApi(row) });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/bills/:billId/mark-paid",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsEditGates),
+  async (req, res, next) => {
+    try {
+      const body = billMarkPaidBodySchema.parse(req.body);
+      const row = await markPlatformBillPaid(req.params.billId as string, {
+        settlementChartAccountId: body.settlementChartAccountId,
+        postedAt: parsePostedAt(body.postedAt),
+      });
+      if (req.user?.id) {
+        await appendActivityLog(prisma, {
+          businessId: null,
+          actorUserId: req.user.id,
+          actorKind: ActivityActorKind.USER,
+          eventType: ACTIVITY_EVENT.PLATFORM_BILL_PAID,
+          resourceType: "platform_bill",
+          resourceId: row.id,
+          metadata: { publicCode: row.publicCode, journalEntryId: row.platformJournalEntryId },
+        });
+      }
+      res.json({ data: formatPlatformBillApi(row) });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/bills/:billId/void",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsEditGates),
+  async (req, res, next) => {
+    try {
+      const row = await voidPlatformBill(req.params.billId as string);
+      res.json({ data: formatPlatformBillApi(row) });
     } catch (e) {
       next(e);
     }
@@ -2653,9 +3043,36 @@ app.get(
       throw new HttpError(403, "Access denied to this business");
     }
 
-    const products = await listProductsForBusiness(businessId as string);
+    const limitRaw = req.query.limit;
+    if (limitRaw === undefined || limitRaw === "") {
+      const products = await listProductsForBusiness(businessId as string);
+      res.json({
+        data: products.map(formatProductResponse),
+      });
+      return;
+    }
+
+    const parsedLimit = Number(limitRaw);
+    const limit = Number.isFinite(parsedLimit)
+      ? Math.min(100, Math.max(1, Math.floor(parsedLimit)))
+      : 20;
+    const parsedOffset = Number(req.query.offset ?? 0);
+    const offset = Number.isFinite(parsedOffset) ? Math.max(0, Math.floor(parsedOffset)) : 0;
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+    const menuCategoryId =
+      typeof req.query.menuCategoryId === "string" && req.query.menuCategoryId.length > 0
+        ? req.query.menuCategoryId
+        : undefined;
+
+    const { items, hasMore } = await listProductsForBusinessPaged(businessId as string, {
+      limit,
+      offset,
+      q,
+      menuCategoryId,
+    });
     res.json({
-      data: products.map(formatProductResponse),
+      data: items.map(formatProductResponse),
+      meta: { hasMore, limit, offset },
     });
   },
 );
@@ -2719,7 +3136,7 @@ app.post(
       businessId: businessId as string,
       name: payload.name,
       category: payload.category ?? "",
-      menuCategoryId: payload.menuCategoryId,
+      menuCategoryId: payload.menuCategoryId ?? null,
       description: payload.description,
       price: payload.price,
       stock: payload.stock,
@@ -3881,14 +4298,19 @@ app.patch(
     try {
       const businessId = request.params.businessId as string;
       const body = changeSubscriptionPlanBodySchema.parse(request.body);
-      const updated = await changeSubscriptionPlan({
+      const { subscription: updated, issuedInvoice } = await changeSubscriptionPlan({
         businessId,
         planCode: body.planCode,
         billingInterval: body.billingInterval,
       });
+      const guestToken = issuedInvoice.guestToken?.trim() ?? null;
       response.json({
         data: {
           currentSubscription: formatSubscriptionResponse(updated),
+          pendingInvoice: {
+            ...formatInvoiceResponse(issuedInvoice),
+            guestPayUrl: guestToken ? guestSubscriptionInvoiceUrl(guestToken) : null,
+          },
         },
       });
     } catch (error) {
@@ -4214,6 +4636,59 @@ app.post("/api/public/guest/invoice/:guestToken/payments/wallet", async (request
     next(error);
   }
 });
+
+app.get("/api/public/guest/subscription-invoice/:guestToken", async (request, response, next) => {
+  try {
+    const data = await getGuestSubscriptionInvoiceByToken(request.params.guestToken as string);
+    response.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get(
+  "/api/public/guest/subscription-invoice/:guestToken/wallets",
+  async (request, response, next) => {
+    try {
+      const wallets = await listGuestSubscriptionInvoiceWallets(request.params.guestToken as string);
+      response.json({ data: { wallets } });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/public/guest/subscription-invoice/:guestToken/payments/wallet",
+  async (request, response, next) => {
+    try {
+      const body = orderWalletPaymentBodySchema.parse(request.body ?? {});
+      const gatewayCode = body.gatewayCode?.trim();
+      if (!gatewayCode) {
+        throw new HttpError(400, "gatewayCode is required.");
+      }
+      const result = await startGuestSubscriptionInvoiceWalletCheckout(
+        request.params.guestToken as string,
+        { gatewayCode, payerPhone: body.payerPhone },
+        request,
+      );
+      response.json({
+        data: {
+          sessionId: result.sessionId,
+          launchUrl: result.launchUrl,
+          paymentHtml: result.paymentHtml ?? null,
+          amount: result.amount,
+          currency: result.currency,
+          gatewayCode: result.gatewayCode,
+          paymentStatus: result.paymentStatus,
+          checkoutStatus: result.checkoutStatus,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 app.post("/api/public/pay/:publicToken/simulate", async (request, response, next) => {
   try {
@@ -4639,7 +5114,7 @@ app.get(
 app.get(
   "/api/businesses/:businessId/activity-log",
   authenticateToken,
-  requireBusinessOwnerOnly(),
+  requireAnyEntitlement(["activity.log"]),
   async (request, response, next) => {
     try {
       const { businessId } = request.params;
@@ -5053,6 +5528,28 @@ const billCreateBodySchema = z.object({
 });
 
 const billPatchBodySchema = billCreateBodySchema.partial();
+
+const platformBillCreateBodySchema = z.object({
+  supplierId: z.string().min(1),
+  issueDate: z.string().min(1),
+  dueDate: z.string().optional().nullable(),
+  reference: z.string().trim().max(200).optional().nullable(),
+  currency: z.string().trim().max(8).optional().nullable(),
+  lines: z.array(manualJournalLineSchema).min(1),
+});
+
+const platformBillPatchBodySchema = platformBillCreateBodySchema.partial();
+
+const platformSupplierCreateBodySchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  email: z.string().trim().email().optional().nullable(),
+  phone: z.string().trim().max(64).optional().nullable(),
+});
+
+const platformJournalReverseBodySchema = z.object({
+  postedAt: z.string().trim().min(1),
+  memo: z.string().trim().max(4000).optional().nullable(),
+});
 
 const billMarkPaidBodySchema = z.object({
   settlementChartAccountId: z.string().min(1),

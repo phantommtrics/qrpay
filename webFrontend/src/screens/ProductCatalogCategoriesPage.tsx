@@ -16,12 +16,16 @@ import {
   type MenuCategoryRow,
 } from '../services/subscriptionApi'
 import { categoryBreadcrumb, orderedCategoryTree } from '../utils/menuCategoryTree'
-import { isRestaurantIndustry } from '../utils/businessIndustry'
+import { isRetailOrWholesaleIndustry, isRestaurantIndustry } from '../utils/businessIndustry'
 
-export function RestaurantMenuSetupPage() {
+/** Retail / wholesale / pharmacy: same category tree as restaurants, managed here (not under Menu setup). */
+export function ProductCatalogCategoriesPage() {
   const { currentOrganization, canAccess, user } = useAuth()
   const businessId = currentOrganization?.id
-  const allowed = Boolean(currentOrganization && isRestaurantIndustry(currentOrganization.industry))
+  const industry = currentOrganization?.industry
+  const retailLike = Boolean(currentOrganization && isRetailOrWholesaleIndustry(industry))
+  const isRestaurant = Boolean(currentOrganization && isRestaurantIndustry(industry))
+  const allowed = retailLike && canAccess('products.categories')
 
   const [categories, setCategories] = useState<MenuCategoryRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -39,7 +43,6 @@ export function RestaurantMenuSetupPage() {
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
   const canCreate = canAccess('products.create')
-  /** Menu categories use the same permission as adding categories (not `products.delete`, which is for SKU removal on many plans). */
   const canDeleteCategory = canCreate
 
   const load = useCallback(async () => {
@@ -54,7 +57,7 @@ export function RestaurantMenuSetupPage() {
       const c = await fetchMenuCategories(businessId)
       setCategories(c)
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Could not load menu categories.')
+      setError(e instanceof ApiError ? e.message : 'Could not load categories.')
     } finally {
       setLoading(false)
     }
@@ -76,8 +79,20 @@ export function RestaurantMenuSetupPage() {
     [treeOrdered, categories],
   )
 
-  const showGate =
-    Boolean(currentOrganization) && !allowed && !user?.isPlatformOwner && !user?.isPlatformAdmin
+  const showWrongIndustry =
+    Boolean(currentOrganization) &&
+    !retailLike &&
+    !isRestaurant &&
+    !user?.isPlatformOwner &&
+    !user?.isPlatformAdmin
+
+  const showRestaurantHint =
+    Boolean(currentOrganization) &&
+    isRestaurant &&
+    !user?.isPlatformOwner &&
+    !user?.isPlatformAdmin
+
+  const showPlanGate = retailLike && !canAccess('products.categories')
 
   const closeDeleteModal = () => {
     if (!deleteSubmitting) {
@@ -125,36 +140,49 @@ export function RestaurantMenuSetupPage() {
         {deleteTarget?.hasChildren ? (
           <p>
             This removes the whole branch under this category. Products in any of those categories will be
-            unassigned from the menu until you assign a category again when editing each product.
+            unassigned until you pick a category again when editing each product.
           </p>
         ) : (
           <p>
-            Products that use this category will be unassigned from the menu until you assign another
-            category.
+            Products that use this category will be unassigned until you assign another category when
+            editing each product.
           </p>
         )}
       </ConfirmModal>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Menu setup</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Build your menu tree: top-level sections and nested sub-menus. Products are added under{' '}
-            <span className="font-medium text-slate-800">leaf</span> categories (no children below them).
-          </p>
+          <h1 className="text-2xl font-bold text-slate-900">Categories</h1>
         </div>
         {allowed ? (
           <Link
-            to={APP_PATHS.restaurantTables}
+            to={APP_PATHS.products}
             className="shrink-0 text-sm font-medium text-teal-600 hover:text-teal-700 hover:underline"
           >
-            Dining tables &amp; QR →
+            Products →
           </Link>
         ) : null}
       </div>
 
-      {showGate ? (
+      {showWrongIndustry ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Menu setup is only available when your business industry is Restaurant.
+          Categories are available for Retail, Wholesale, and Pharmacy businesses.
+        </div>
+      ) : null}
+
+      {showRestaurantHint ? (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          Restaurant businesses manage categories under{' '}
+          <Link to={APP_PATHS.restaurantMenuSetup} className="font-medium text-teal-600 hover:underline">
+            Menu setup
+          </Link>
+          .
+        </div>
+      ) : null}
+
+      {showPlanGate ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Your plan or assigned features do not include the Categories module. Ask the business owner to
+          enable <strong>Categories</strong> in configuration.
         </div>
       ) : null}
 
@@ -168,7 +196,8 @@ export function RestaurantMenuSetupPage() {
 
       {!loading && allowed ? (
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900">Categories</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Category tree</h2>
+
           <form
             className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end"
             onSubmit={async (e) => {
@@ -189,22 +218,22 @@ export function RestaurantMenuSetupPage() {
             }}
           >
             <label className="block flex-1">
-              <span className="mb-1 block text-xs font-medium text-slate-600">Menu name</span>
+              <span className="mb-1 block text-xs font-medium text-slate-600">Category name</span>
               <input
                 value={newCatName}
                 onChange={(ev) => setNewCatName(ev.target.value)}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
-                placeholder="e.g. Starters"
+                placeholder="e.g. Beverages"
               />
             </label>
             <div className="w-full sm:w-64 sm:shrink-0">
               <SearchableListbox
-                fieldLabel="Main menu"
+                fieldLabel="Under category"
                 options={parentPickerOptions}
                 value={newCatParent}
                 onChange={setNewCatParent}
-                placeholder="Top level — leave empty, or search to nest under…"
-                listId="restaurant-menu-parent-picker"
+                placeholder="Top level — or search to nest under…"
+                listId="catalog-category-parent-picker"
                 disabled={!canCreate}
               />
             </div>

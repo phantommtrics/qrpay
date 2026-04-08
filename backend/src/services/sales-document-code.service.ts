@@ -56,3 +56,17 @@ export async function allocateBillPublicCode(
   }
   throw new HttpError(500, "Could not allocate a bill reference.");
 }
+
+export async function allocatePlatformBillPublicCode(tx: Prisma.TransactionClient): Promise<string> {
+  for (let i = 0; i < ATTEMPTS; i++) {
+    const publicCode = `PBILL-${randomBytes(4).toString("hex").toUpperCase()}`;
+    const clash = await tx.platformBill.findFirst({
+      where: { publicCode },
+      select: { id: true },
+    });
+    if (!clash) {
+      return publicCode;
+    }
+  }
+  throw new HttpError(500, "Could not allocate a platform bill reference.");
+}

@@ -36,6 +36,12 @@ export type PermissionKey =
   | 'platform.accounting.reports.gl'
   | 'platform.accounting.reports.pnl'
   | 'platform.accounting.reports.statement'
+  | 'platform.accounting.journals.access'
+  | 'platform.accounting.journals.post'
+  | 'platform.accounting.journals.reverse'
+  | 'platform.bills.view'
+  | 'platform.bills.manage'
+  | 'platform.activity.log'
   | 'platform.system.view'
   | 'platform.security.roles.view'
   | 'platform.security.function_groups.view'
@@ -46,6 +52,7 @@ export type PermissionKey =
   | 'status.change.view'
   | 'products.manage'
   | 'products.view'
+  | 'products.categories'
   | 'products.create'
   | 'products.edit'
   | 'products.delete'
@@ -76,6 +83,7 @@ export type PermissionKey =
   | 'subscriptions.invoices'
   | 'subscriptions.billing_activity'
   | 'merchant.api'
+  | 'activity.log'
 
 export interface User {
   id: string

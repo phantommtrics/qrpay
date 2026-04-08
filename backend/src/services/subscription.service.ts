@@ -23,6 +23,7 @@ import {
 } from "../utils/billing.js";
 import { queueSubscriptionInvoiceOwnerEmail } from "./subscription-invoice-email.service.js";
 import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
+import { newGuestToken } from "../lib/guest-token.js";
 
 /**
  * True when the user owns at least one business whose latest subscription is expired or past due.
@@ -310,6 +311,7 @@ export async function createSubscriptionForBusinessTx(
       billingPeriodEnd,
       dueDate: trialEndsAt,
       externalReference: createInvoiceReference(),
+      guestToken: newGuestToken(),
     },
   });
 
@@ -330,7 +332,7 @@ export async function changeSubscriptionPlan(input: {
   planCode: PlanCode;
   billingInterval?: BillingInterval;
 }) {
-  return prisma.$transaction(async (tx) => {
+  const { subscription, issuedInvoice } = await prisma.$transaction(async (tx) => {
     const sub = await tx.subscription.findFirst({
       where: {
         businessId: input.businessId,
@@ -402,7 +404,7 @@ export async function changeSubscriptionPlan(input: {
       },
     });
 
-    await tx.subscriptionInvoice.create({
+    const issuedInvoice = await tx.subscriptionInvoice.create({
       data: {
         businessId: refreshed.businessId,
         subscriptionId: refreshed.id,
@@ -414,10 +416,11 @@ export async function changeSubscriptionPlan(input: {
         billingPeriodEnd: refreshed.currentPeriodEnd,
         dueDate: dueInDays(new Date(), 7),
         externalReference: createInvoiceReference(),
+        guestToken: newGuestToken(),
       },
     });
 
-    return tx.subscription.findUniqueOrThrow({
+    const updated = await tx.subscription.findUniqueOrThrow({
       where: { id: sub.id },
       include: {
         plan: true,
@@ -427,13 +430,10 @@ export async function changeSubscriptionPlan(input: {
         },
       },
     });
-  }).then((updated) => {
-    const newest = updated.invoices[0];
-    if (newest) {
-      queueSubscriptionInvoiceOwnerEmail(newest.id);
-    }
-    return updated;
+    return { subscription: updated, issuedInvoice };
   });
+  queueSubscriptionInvoiceOwnerEmail(issuedInvoice.id);
+  return { subscription, issuedInvoice };
 }
 
 export async function renewSubscription(subscriptionId: string) {
@@ -494,6 +494,7 @@ export async function renewSubscription(subscriptionId: string) {
         billingPeriodEnd: nextEnd,
         dueDate: dueInDays(nextStart, 7),
         externalReference: createInvoiceReference(),
+        guestToken: newGuestToken(),
       },
     });
 

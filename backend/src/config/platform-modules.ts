@@ -15,6 +15,10 @@ export const PLATFORM_MODULE_SLUGS = {
   BILLING_REVIEW: "platform.billing_review",
   /** EasyPay operator: overview, journals, manual entries (legacy “full finance” uses this view). */
   ACCOUNTING: "platform.accounting",
+  /** Post manual GL journals (mirrors merchant `accounting.journals.general`). */
+  ACCOUNTING_JOURNALS_POST: "platform.accounting.journals_post",
+  /** Reverse manual platform journals (mirrors merchant `accounting.journals.reversal`). */
+  ACCOUNTING_JOURNALS_REVERSAL: "platform.accounting.journals_reversal",
   /** Chart of accounts (view / create / edit / delete on template). */
   ACCOUNTING_CHART: "platform.accounting.chart",
   ACCOUNTING_REPORTS_GL: "platform.accounting.reports_gl",
@@ -28,6 +32,10 @@ export const PLATFORM_MODULE_SLUGS = {
   SECURITY_MOVE_USERS: "platform.security_move_users",
   /** Enable payment gateways (e.g. Wave) for business checkout flows. */
   PAYMENT_GATEWAYS: "platform.payment_gateways",
+  /** Platform supplier bills (accounts payable). */
+  PURCHASE_BILLS: "platform.purchase_bills",
+  /** Operator audit trail (tenant-independent events). */
+  ACTIVITY_LOG: "platform.activity_log",
 } as const;
 
 export type PlatformModuleSlug = (typeof PLATFORM_MODULE_SLUGS)[keyof typeof PLATFORM_MODULE_SLUGS];
@@ -55,6 +63,16 @@ export const PLATFORM_MODULES_SEED: { slug: string; label: string; sortOrder: nu
     slug: PLATFORM_MODULE_SLUGS.ACCOUNTING,
     label: "Finance — Overview & journals",
     sortOrder: 73,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.ACCOUNTING_JOURNALS_POST,
+    label: "Finance — Post manual journals (GL)",
+    sortOrder: 77,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.ACCOUNTING_JOURNALS_REVERSAL,
+    label: "Finance — Journal reversal",
+    sortOrder: 78,
   },
   {
     slug: PLATFORM_MODULE_SLUGS.ACCOUNTING_CHART,
@@ -97,5 +115,15 @@ export const PLATFORM_MODULES_SEED: { slug: string; label: string; sortOrder: nu
     slug: PLATFORM_MODULE_SLUGS.PAYMENT_GATEWAYS,
     label: "Payment gateways",
     sortOrder: 58,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.PURCHASE_BILLS,
+    label: "Finance — Supplier bills",
+    sortOrder: 79,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.ACTIVITY_LOG,
+    label: "Platform activity log",
+    sortOrder: 81,
   },
 ];

@@ -181,3 +181,55 @@ export function formatBillApi(bill: {
     lines: bill.lines.map(formatSalesLineRow),
   };
 }
+
+export function formatPlatformBillApi(bill: {
+  id: string;
+  supplierId: string;
+  publicCode: string;
+  status: string;
+  issueDate: Date;
+  dueDate: Date | null;
+  reference: string | null;
+  currency: string;
+  settlementChartAccountId: string | null;
+  platformJournalEntryId: string | null;
+  approvedAt: Date | null;
+  paidAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  supplier: { id: string; name: string; email: string | null };
+  journalEntry?: { id: string; postedAt: Date } | null;
+  lines: Array<{
+    id: string;
+    chartOfAccountId: string;
+    narration: string;
+    quantity: Prisma.Decimal;
+    unitLabel: string | null;
+    unitAmount: Prisma.Decimal;
+    taxAmount: Prisma.Decimal;
+    sortOrder: number;
+    chartOfAccount: { id: string; code: string; name: string };
+  }>;
+}) {
+  return {
+    id: bill.id,
+    supplierId: bill.supplierId,
+    publicCode: bill.publicCode,
+    status: bill.status,
+    issueDate: bill.issueDate.toISOString(),
+    dueDate: bill.dueDate?.toISOString() ?? null,
+    reference: bill.reference,
+    currency: bill.currency,
+    settlementChartAccountId: bill.settlementChartAccountId,
+    platformJournalEntryId: bill.platformJournalEntryId,
+    approvedAt: bill.approvedAt?.toISOString() ?? null,
+    paidAt: bill.paidAt?.toISOString() ?? null,
+    createdAt: bill.createdAt.toISOString(),
+    updatedAt: bill.updatedAt.toISOString(),
+    supplier: bill.supplier,
+    journalEntry: bill.journalEntry
+      ? { id: bill.journalEntry.id, postedAt: bill.journalEntry.postedAt.toISOString() }
+      : null,
+    lines: bill.lines.map(formatSalesLineRow),
+  };
+}

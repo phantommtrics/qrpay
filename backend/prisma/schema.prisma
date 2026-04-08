@@ -15,7 +15,9 @@ enum PlanCode {
 
 enum UserRole {
   PLATFORM_OWNER
-  /** Delegated platform operator; permissions come from PlatformFunctionGroup + role templates. */
+  /**
+   * Delegated platform operator; permissions come from PlatformFunctionGroup + role templates.
+   */
   PLATFORM_ADMIN
   ADMIN
   MERCHANT
@@ -38,7 +40,9 @@ enum InvoiceStatus {
   VOID
 }
 
-/** Admin-only workflow: no money movement in-app; tracks external refund decisions. */
+/**
+ * Admin-only workflow: no money movement in-app; tracks external refund decisions.
+ */
 enum ManualRefundReviewStatus {
   NONE
   PENDING_REVIEW
@@ -51,7 +55,9 @@ enum BillingLedgerEntryType {
   INVOICE_PAYMENT
   REFUND
   ADJUSTMENT
-  /** Platform-paid wallet rail fee (e.g. Wave) on successful subscription checkout. */
+  /**
+   * Platform-paid wallet rail fee (e.g. Wave) on successful subscription checkout.
+   */
   WALLET_FEE
 }
 
@@ -76,19 +82,33 @@ enum StaffCreationNotificationType {
   EXISTING_USER
   NEW_USER
   OWNER_SIGNUP
-  /** Platform staff invite email (no business context; businessId on log is null). */
+  /**
+   * Platform staff invite email (no business context; businessId on log is null).
+   */
   PLATFORM_ADMIN_INVITE
-  /** Subscription invoice issued to business owner (PDF attached). */
+  /**
+   * Subscription invoice issued to business owner (PDF attached).
+   */
   SUBSCRIPTION_INVOICE
-  /** Merchant-issued sales invoice approved / sent to customer contact. */
+  /**
+   * Merchant-issued sales invoice approved / sent to customer contact.
+   */
   SALES_INVOICE_APPROVED
-  /** Purchase bill approved / sent to supplier contact (PDF attached). */
+  /**
+   * Purchase bill approved / sent to supplier contact (PDF attached).
+   */
   PURCHASE_BILL_APPROVED
-  /** Sales quotation sent to customer contact (PDF + guest link). */
+  /**
+   * Sales quotation sent to customer contact (PDF + guest link).
+   */
   SALES_QUOTATION_SENT
-  /** Business notified that a subscription invoice refund is under platform review (PDF attached). */
+  /**
+   * Business notified that a subscription invoice refund is under platform review (PDF attached).
+   */
   SUBSCRIPTION_INVOICE_REFUND_REVIEW
-  /** Business notified that a refund was approved; includes expected refund date (PDF attached). */
+  /**
+   * Business notified that a refund was approved; includes expected refund date (PDF attached).
+   */
   SUBSCRIPTION_INVOICE_REFUND_APPROVED
 }
 
@@ -132,7 +152,9 @@ enum ChartAccountCategory {
   EXPENSE
 }
 
-/** General ledger line vs operating bank account record on the chart. */
+/**
+ * General ledger line vs operating bank account record on the chart.
+ */
 enum ChartAccountKind {
   LEDGER
   BANK
@@ -140,32 +162,60 @@ enum ChartAccountKind {
 
 enum JournalSourceType {
   CUSTOMER_SALE_PAYMENT
-  /** Merchant wallet/processor fee on a completed customer QR payment (pairs with SalesLedger WALLET_FEE). */
+  /**
+   * Merchant wallet/processor fee on a completed customer QR payment (pairs with SalesLedger WALLET_FEE).
+   */
   CUSTOMER_SALE_WALLET_FEE
   MANUAL_MONEY_IN
   MANUAL_MONEY_OUT
   MANUAL_BANK_TRANSFER
-  /** Cash-basis GL when a business sales invoice is marked paid. */
+  /**
+   * Cash-basis GL when a business sales invoice is marked paid.
+   */
   SALES_INVOICE_PAYMENT
-  /** Cash-basis GL when a purchase bill is marked paid (money out). */
+  /**
+   * Cash-basis GL when a purchase bill is marked paid (money out).
+   */
   PURCHASE_BILL_PAYMENT
-  /** Balanced debit/credit lines only; no settlement asset leg. */
+  /**
+   * Balanced debit/credit lines only; no settlement asset leg.
+   */
   MANUAL_GENERAL_JOURNAL
-  /** Opposite debits/credits to undo a prior journal (audit trail). */
+  /**
+   * Opposite debits/credits to undo a prior journal (audit trail).
+   */
   MANUAL_JOURNAL_REVERSAL
 }
 
-/** Easypay operator GL — merchant subscription cash vs manual platform costs. */
+/**
+ * Easypay operator GL — merchant subscription cash vs manual platform costs.
+ */
 enum PlatformJournalSourceType {
   MANUAL
+  /**
+   * Swapped debits/credits to undo a prior manual (or reversal) entry.
+   */
+  MANUAL_JOURNAL_REVERSAL
+  /**
+   * Cash-basis AP when a platform purchase bill is marked paid.
+   */
+  PURCHASE_BILL_PAYMENT
   SUBSCRIPTION_INVOICE_PAYMENT
-  /** Checkout started: receivable vs deferred revenue until payment succeeds. */
+  /**
+   * Checkout started: receivable vs deferred revenue until payment succeeds.
+   */
   SUBSCRIPTION_CHECKOUT_PENDING
-  /** Payment captured: clear receivable, recognize revenue (pairs with pending). */
+  /**
+   * Payment captured: clear receivable, recognize revenue (pairs with pending).
+   */
   SUBSCRIPTION_CHECKOUT_SETTLEMENT
-  /** Refund paid to merchant (billing ledger REFUND row). */
+  /**
+   * Refund paid to merchant (billing ledger REFUND row).
+   */
   SUBSCRIPTION_REFUND
-  /** Wallet/processor fee on subscription payment (billing ledger WALLET_FEE row). */
+  /**
+   * Wallet/processor fee on subscription payment (billing ledger WALLET_FEE row).
+   */
   SUBSCRIPTION_WALLET_FEE
 }
 
@@ -183,7 +233,9 @@ enum SalesLedgerStatus {
   SUCCEEDED
 }
 
-/** Audit log: who performed an action (staff user vs automated system). */
+/**
+ * Audit log: who performed an action (staff user vs automated system).
+ */
 enum ActivityActorKind {
   USER
   SYSTEM
@@ -255,130 +307,148 @@ enum BusinessPaymentMethodStatus {
   ARCHIVED
 }
 
-/** Platform-configured payment providers businesses may attach as payment methods. */
+/**
+ * Platform-configured payment providers businesses may attach as payment methods.
+ */
 model PaymentGateway {
-  id          String                 @id @default(cuid())
-  code        String                 @unique
-  name        String
-  description String?
-  isEnabled   Boolean                @default(false)
-  sortOrder   Int                    @default(0)
-  /** When set (e.g. wave_gambia, yonna_wallet), subscription checkout can open a hosted payment flow. */
+  id              String                      @id @default(cuid())
+  code            String                      @unique
+  name            String
+  description     String?
+  isEnabled       Boolean                     @default(false)
+  sortOrder       Int                         @default(0)
+  /**
+   * When set (e.g. wave_gambia, yonna_wallet), subscription checkout can open a hosted payment flow.
+   */
   checkoutAdapter String?
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
-  methods     BusinessPaymentMethod[]
-  credentials BusinessGatewayCredential[]
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+  methods         BusinessPaymentMethod[]
+  credentials     BusinessGatewayCredential[]
 }
 
 model BusinessPaymentMethod {
-  id          String                      @id @default(cuid())
-  businessId  String
-  gatewayId   String
-  label       String
-  metadata    Json?
-  isDefault   Boolean                     @default(false)
-  status      BusinessPaymentMethodStatus @default(ACTIVE)
-  createdAt   DateTime                    @default(now())
-  updatedAt   DateTime                    @updatedAt
-  business    Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  gateway     PaymentGateway              @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  id         String                      @id @default(cuid())
+  businessId String
+  gatewayId  String
+  label      String
+  metadata   Json?
+  isDefault  Boolean                     @default(false)
+  status     BusinessPaymentMethodStatus @default(ACTIVE)
+  createdAt  DateTime                    @default(now())
+  updatedAt  DateTime                    @updatedAt
+  business   Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  gateway    PaymentGateway              @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
 
   @@index([businessId, status])
   @@index([gatewayId])
 }
 
-/** Per-tenant API secrets for checkout adapters (ciphertext; decrypted only server-side). */
+/**
+ * Per-tenant API secrets for checkout adapters (ciphertext; decrypted only server-side).
+ */
 model BusinessGatewayCredential {
-  id          String         @id @default(cuid())
-  businessId  String
-  gatewayId   String
-  keyVersion  Int            @default(1)
-  iv          String
-  ciphertext  String         @db.Text
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  business    Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  gateway     PaymentGateway @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  id         String         @id @default(cuid())
+  businessId String
+  gatewayId  String
+  keyVersion Int            @default(1)
+  iv         String
+  ciphertext String         @db.Text
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  business   Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  gateway    PaymentGateway @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, gatewayId])
   @@index([businessId])
 }
 
-/** Counterparties for manual journal entries (received from / paid to). */
+/**
+ * Counterparties for manual journal entries (received from / paid to).
+ */
 model BusinessContact {
-  id         String   @id @default(cuid())
-  businessId String
-  name       String
-  email      String?
-  phone      String?
-  notes      String?  @db.Text
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  journalEntries   JournalEntry[]
-  salesQuotations  SalesQuotation[]
-  salesInvoices    SalesInvoice[]
-  bills            Bill[]
+  id              String           @id @default(cuid())
+  businessId      String
+  name            String
+  email           String?
+  phone           String?
+  notes           String?          @db.Text
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  journalEntries  JournalEntry[]
+  salesQuotations SalesQuotation[]
+  salesInvoices   SalesInvoice[]
+  bills           Bill[]
 
   @@index([businessId])
   @@index([businessId, name])
 }
 
 model ChartOfAccount {
-  id          String               @id @default(cuid())
-  businessId  String
-  code        String
-  name        String
-  /** Guidance for bookkeepers: what transactions belong in this account. */
-  description String?              @db.Text
-  category    ChartAccountCategory
-  kind        ChartAccountKind     @default(LEDGER)
-  /** For kind BANK: number as shown on statements / IBAN tail. */
-  bankAccountNumber String?
-  bankName          String?
-  /** Branch, SWIFT, notes — optional. */
-  bankDetails       String?        @db.Text
-  isSystem    Boolean              @default(false)
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
-  business            Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  lines               JournalLine[]
-  salesQuotationLines SalesQuotationLine[]
-  salesInvoiceLines   SalesInvoiceLine[]
-  billLines           BillLine[]
-  salesInvoicesSettledHere SalesInvoice[]  @relation("InvoiceSettlementAccount")
-  billsSettledHere    Bill[]              @relation("BillSettlementAccount")
+  id                       String               @id @default(cuid())
+  businessId               String
+  code                     String
+  name                     String
+  /**
+   * Guidance for bookkeepers: what transactions belong in this account.
+   */
+  description              String?              @db.Text
+  category                 ChartAccountCategory
+  kind                     ChartAccountKind     @default(LEDGER)
+  /**
+   * For kind BANK: number as shown on statements / IBAN tail.
+   */
+  bankAccountNumber        String?
+  bankName                 String?
+  /**
+   * Branch, SWIFT, notes — optional.
+   */
+  bankDetails              String?              @db.Text
+  isSystem                 Boolean              @default(false)
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  business                 Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lines                    JournalLine[]
+  salesQuotationLines      SalesQuotationLine[]
+  salesInvoiceLines        SalesInvoiceLine[]
+  billLines                BillLine[]
+  salesInvoicesSettledHere SalesInvoice[]       @relation("InvoiceSettlementAccount")
+  billsSettledHere         Bill[]               @relation("BillSettlementAccount")
 
   @@unique([businessId, code])
   @@index([businessId])
 }
 
 model JournalEntry {
-  id          String             @id @default(cuid())
-  businessId  String
-  postedAt    DateTime           @default(now())
-  memo        String?
-  sourceType  JournalSourceType?
-  /** e.g. Payment.id when sourceType is CUSTOMER_SALE_PAYMENT */
-  sourceId    String?
-  /** External reference (invoice no., cheque no., etc.). */
-  reference   String?
-  contactId   String?
+  id                      String             @id @default(cuid())
+  businessId              String
+  postedAt                DateTime           @default(now())
+  memo                    String?
+  sourceType              JournalSourceType?
+  /**
+   * e.g. Payment.id when sourceType is CUSTOMER_SALE_PAYMENT
+   */
+  sourceId                String?
+  /**
+   * External reference (invoice no., cheque no., etc.).
+   */
+  reference               String?
+  contactId               String?
   /**
    * When set, this entry is a reversal: it mirrors another entry with debits/credits swapped.
    * Each source journal can have at most one reversal row pointing to it.
    */
-  reversesJournalEntryId String?            @unique
-  createdAt   DateTime           @default(now())
-  business    Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  contact                  BusinessContact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  reversesJournalEntry     JournalEntry?      @relation("JournalReversal", fields: [reversesJournalEntryId], references: [id], onDelete: Restrict)
-  reversedByEntry          JournalEntry?      @relation("JournalReversal")
-  lines                    JournalLine[]
-  salesLedger              SalesLedgerEntry[]
-  salesInvoiceFromPayment  SalesInvoice?      @relation("SalesInvoiceJournal")
-  billFromPayment          Bill?              @relation("BillJournal")
+  reversesJournalEntryId  String?            @unique
+  createdAt               DateTime           @default(now())
+  business                Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact                 BusinessContact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  reversesJournalEntry    JournalEntry?      @relation("JournalReversal", fields: [reversesJournalEntryId], references: [id], onDelete: Restrict)
+  reversedByEntry         JournalEntry?      @relation("JournalReversal")
+  lines                   JournalLine[]
+  salesLedger             SalesLedgerEntry[]
+  salesInvoiceFromPayment SalesInvoice?      @relation("SalesInvoiceJournal")
+  billFromPayment         Bill?              @relation("BillJournal")
 
   @@index([businessId, postedAt])
   @@index([businessId, sourceType, sourceId])
@@ -391,7 +461,9 @@ model JournalLine {
   chartOfAccountId String
   debitAmount      Decimal        @default(0) @db.Decimal(12, 2)
   creditAmount     Decimal        @default(0) @db.Decimal(12, 2)
-  /** Line narration for financial review (IFRS-style clarity). */
+  /**
+   * Line narration for financial review (IFRS-style clarity).
+   */
   description      String?        @db.Text
   quantity         Decimal?       @db.Decimal(18, 6)
   unitLabel        String?
@@ -403,24 +475,28 @@ model JournalLine {
   @@index([chartOfAccountId])
 }
 
-/** Customer quote (Xero-style); accepting creates a sales invoice draft. */
+/**
+ * Customer quote (Xero-style); accepting creates a sales invoice draft.
+ */
 model SalesQuotation {
-  id         String               @id @default(cuid())
-  businessId String
-  contactId  String
-  publicCode String
-  status     SalesQuotationStatus @default(DRAFT)
-  validUntil DateTime?
-  reference  String?
-  currency   String               @default("GMD")
-  /** Secret token for guest view / accept / reject (set when sent). */
-  guestToken String?              @unique
-  createdAt  DateTime             @default(now())
-  updatedAt  DateTime             @updatedAt
-  business   Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  contact    BusinessContact      @relation(fields: [contactId], references: [id], onDelete: Restrict)
-  lines      SalesQuotationLine[]
-  invoiceFromQuote SalesInvoice?  @relation("QuotationToInvoice")
+  id               String               @id @default(cuid())
+  businessId       String
+  contactId        String
+  publicCode       String
+  status           SalesQuotationStatus @default(DRAFT)
+  validUntil       DateTime?
+  reference        String?
+  currency         String               @default("GMD")
+  /**
+   * Secret token for guest view / accept / reject (set when sent).
+   */
+  guestToken       String?              @unique
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  business         Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact          BusinessContact      @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  lines            SalesQuotationLine[]
+  invoiceFromQuote SalesInvoice?        @relation("QuotationToInvoice")
 
   @@unique([businessId, publicCode])
   @@index([businessId, status])
@@ -457,7 +533,9 @@ model SalesInvoice {
   dueDate                  DateTime?
   reference                String?
   currency                 String             @default("GMD")
-  /** Secret token for guest view / wallet pay (set when approved). */
+  /**
+   * Secret token for guest view / wallet pay (set when approved).
+   */
   guestToken               String?            @unique
   settlementChartAccountId String?
   journalEntryId           String?            @unique
@@ -498,25 +576,25 @@ model SalesInvoiceLine {
  * Approving notifies the supplier contact by email when they have an email on file.
  */
 model Bill {
-  id                       String     @id @default(cuid())
+  id                       String          @id @default(cuid())
   businessId               String
   contactId                String
   publicCode               String
-  status                   BillStatus @default(DRAFT)
+  status                   BillStatus      @default(DRAFT)
   issueDate                DateTime
   dueDate                  DateTime?
   reference                String?
-  currency                 String     @default("GMD")
+  currency                 String          @default("GMD")
   settlementChartAccountId String?
-  journalEntryId           String?    @unique
+  journalEntryId           String?         @unique
   approvedAt               DateTime?
   paidAt                   DateTime?
-  createdAt                DateTime   @default(now())
-  updatedAt                DateTime   @updatedAt
-  business                 Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
+  business                 Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
   contact                  BusinessContact @relation(fields: [contactId], references: [id], onDelete: Restrict)
   settlementAccount        ChartOfAccount? @relation("BillSettlementAccount", fields: [settlementChartAccountId], references: [id], onDelete: SetNull)
-  journalEntry             JournalEntry? @relation("BillJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+  journalEntry             JournalEntry?   @relation("BillJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
   lines                    BillLine[]
   payments                 Payment[]
 
@@ -540,34 +618,46 @@ model BillLine {
   @@index([billId])
 }
 
-/** Platform (EasyPay) chart — one global ledger, not per merchant Business. */
+/**
+ * Platform (EasyPay) chart — one global ledger, not per merchant Business.
+ */
 model PlatformChartOfAccount {
-  id                String                @id @default(cuid())
-  code              String                @unique
-  name              String
-  description       String?               @db.Text
-  category          ChartAccountCategory
-  kind              ChartAccountKind      @default(LEDGER)
-  bankAccountNumber String?
-  bankName          String?
-  bankDetails       String?               @db.Text
-  isSystem          Boolean               @default(false)
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-  lines             PlatformJournalLine[]
+  id                       String                @id @default(cuid())
+  code                     String                @unique
+  name                     String
+  description              String?               @db.Text
+  category                 ChartAccountCategory
+  kind                     ChartAccountKind      @default(LEDGER)
+  bankAccountNumber        String?
+  bankName                 String?
+  bankDetails              String?               @db.Text
+  isSystem                 Boolean               @default(false)
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+  lines                    PlatformJournalLine[]
+  platformBillLines        PlatformBillLine[]
+  platformBillsSettledHere PlatformBill[]        @relation("PlatformBillSettlement")
 
   @@index([category])
 }
 
 model PlatformJournalEntry {
-  id         String                     @id @default(cuid())
-  postedAt   DateTime                   @default(now())
-  memo       String?
-  sourceType PlatformJournalSourceType?
-  sourceId   String?
-  reference  String?
-  createdAt  DateTime                   @default(now())
-  lines      PlatformJournalLine[]
+  id                             String                     @id @default(cuid())
+  postedAt                       DateTime                   @default(now())
+  memo                           String?
+  sourceType                     PlatformJournalSourceType?
+  sourceId                       String?
+  reference                      String?
+  /**
+   * When set, this entry reverses another platform journal (debits/credits swapped).
+   * Each source journal can have at most one reversal row pointing to it.
+   */
+  reversesPlatformJournalEntryId String?                    @unique
+  createdAt                      DateTime                   @default(now())
+  lines                          PlatformJournalLine[]
+  reversesPlatformJournalEntry   PlatformJournalEntry?      @relation("PlatformJournalReversal", fields: [reversesPlatformJournalEntryId], references: [id], onDelete: Restrict)
+  reversedByPlatformEntry        PlatformJournalEntry?      @relation("PlatformJournalReversal")
+  billFromPayment                PlatformBill?              @relation("PlatformBillJournal")
 
   @@index([postedAt])
   @@index([sourceType, sourceId])
@@ -590,44 +680,100 @@ model PlatformJournalLine {
   @@index([chartOfAccountId])
 }
 
-model SalesLedgerEntry {
-  id                   String               @id @default(cuid())
-  businessId           String
-  orderId              String?
-  paymentId            String?
-  journalEntryId       String
-  type                 SalesLedgerEntryType
-  direction            SalesLedgerDirection
-  status               SalesLedgerStatus    @default(SUCCEEDED)
-  amount               Decimal              @db.Decimal(12, 2)
-  currency             String               @default("GMD")
-  provider             String
-  providerPaymentRef   String?
-  metadata             Json?
-  succeededAt          DateTime             @default(now())
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
-  business             Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  journalEntry         JournalEntry         @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
-  order                Order?               @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  payment              Payment?             @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+/**
+ * Platform operator supplier / vendor (accounts payable contact).
+ */
+model PlatformSupplier {
+  id        String         @id @default(cuid())
+  name      String
+  email     String?
+  phone     String?
+  notes     String?        @db.Text
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  bills     PlatformBill[]
+}
 
+/**
+ * Platform purchase bill (pay suppliers). GL posts to platform chart when marked paid (cash basis), like merchant Bill.
+ */
+model PlatformBill {
+  id                       String                  @id @default(cuid())
+  supplierId               String
+  publicCode               String                  @unique
+  status                   BillStatus              @default(DRAFT)
+  issueDate                DateTime
+  dueDate                  DateTime?
+  reference                String?
+  currency                 String                  @default("GMD")
+  settlementChartAccountId String?
+  platformJournalEntryId   String?                 @unique
+  approvedAt               DateTime?
+  paidAt                   DateTime?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+  supplier                 PlatformSupplier        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  settlementAccount        PlatformChartOfAccount? @relation("PlatformBillSettlement", fields: [settlementChartAccountId], references: [id], onDelete: SetNull)
+  journalEntry             PlatformJournalEntry?   @relation("PlatformBillJournal", fields: [platformJournalEntryId], references: [id], onDelete: SetNull)
+  lines                    PlatformBillLine[]
+
+  @@index([supplierId, status])
+}
+
+model PlatformBillLine {
+  id               String                 @id @default(cuid())
+  billId           String
+  chartOfAccountId String
+  narration        String                 @default("")
+  quantity         Decimal                @db.Decimal(18, 6)
+  unitLabel        String?
+  unitAmount       Decimal                @db.Decimal(12, 2)
+  taxAmount        Decimal                @default(0) @db.Decimal(12, 2)
+  sortOrder        Int                    @default(0)
+  bill             PlatformBill           @relation(fields: [billId], references: [id], onDelete: Cascade)
+  chartOfAccount   PlatformChartOfAccount @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
+
+  @@index([billId])
+}
+
+model SalesLedgerEntry {
+  id                 String               @id @default(cuid())
+  businessId         String
+  orderId            String?
+  paymentId          String?
+  journalEntryId     String
+  type               SalesLedgerEntryType
+  direction          SalesLedgerDirection
+  status             SalesLedgerStatus    @default(SUCCEEDED)
+  amount             Decimal              @db.Decimal(12, 2)
+  currency           String               @default("GMD")
+  provider           String
+  providerPaymentRef String?
+  metadata           Json?
+  succeededAt        DateTime             @default(now())
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  business           Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  journalEntry       JournalEntry         @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  order              Order?               @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  payment            Payment?             @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@unique([paymentId, type])
   @@index([businessId, createdAt])
   @@index([orderId])
-  @@unique([paymentId, type])
 }
 
 model MenuCategory {
-  id         String          @id @default(cuid())
+  id         String         @id @default(cuid())
   businessId String
   name       String
   parentId   String?
-  sortOrder  Int             @default(0)
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
-  business   Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  parent     MenuCategory?   @relation("MenuCategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
-  children   MenuCategory[]  @relation("MenuCategoryHierarchy")
+  sortOrder  Int            @default(0)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  business   Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  parent     MenuCategory?  @relation("MenuCategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children   MenuCategory[] @relation("MenuCategoryHierarchy")
   products   Product[]
 
   @@index([businessId, parentId])
@@ -650,28 +796,32 @@ model DiningTable {
 }
 
 model Product {
-  id           String        @id @default(cuid())
-  businessId   String
-  name         String
-  category     String
-  description  String?
-  price        Decimal       @db.Decimal(10, 2)
-  /** Physical units on hand (not yet sold). */
-  stock        Int           @default(0)
-  /** Units held for unpaid orders; released on cancel or applied on payment. */
-  reservedStock Int          @default(0)
-  barcodeType  String        @default("CODE128")
-  barcodeValue String
-  qrUrl        String
-  imageUrl     String?
-  imageColor   String        @default("bg-slate-100")
-  imageEmoji   String        @default("")
+  id             String        @id @default(cuid())
+  businessId     String
+  name           String
+  category       String
+  description    String?
+  price          Decimal       @db.Decimal(10, 2)
+  /**
+   * Physical units on hand (not yet sold).
+   */
+  stock          Int           @default(0)
+  /**
+   * Units held for unpaid orders; released on cancel or applied on payment.
+   */
+  reservedStock  Int           @default(0)
+  barcodeType    String        @default("CODE128")
+  barcodeValue   String
+  qrUrl          String
+  imageUrl       String?
+  imageColor     String        @default("bg-slate-100")
+  imageEmoji     String        @default("")
   menuCategoryId String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  menuCategory MenuCategory? @relation(fields: [menuCategoryId], references: [id], onDelete: SetNull)
-  orderLines   OrderLine[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  business       Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  menuCategory   MenuCategory? @relation(fields: [menuCategoryId], references: [id], onDelete: SetNull)
+  orderLines     OrderLine[]
 
   @@unique([businessId, barcodeValue])
   @@unique([businessId, qrUrl])
@@ -680,30 +830,32 @@ model Product {
 }
 
 model User {
-  id                            String                         @id @default(cuid())
-  name                          String
-  email                         String                         @unique
-  passwordHash                  String
-  role                          UserRole                       @default(MERCHANT)
-  isActive                      Boolean                        @default(true)
-  mustChangePassword            Boolean                        @default(false)
-  passwordResetIssuedAt         DateTime?
-  createdAt                     DateTime                       @default(now())
-  updatedAt                     DateTime                       @updatedAt
-  platformFunctionGroupId       String?
-  memberships                   BusinessMembership[]
-  staffCreationNotificationLogs StaffCreationNotificationLog[]
-  businessSystemProducts        BusinessUserSystemProduct[]
-  ordersCreated                 Order[]                        @relation("OrderCreatedBy")
-  subscriptionInvoicesRefundReviewed SubscriptionInvoice[]     @relation("SubscriptionInvoiceRefundReviewedBy")
-  platformFunctionGroup         PlatformFunctionGroup?         @relation(fields: [platformFunctionGroupId], references: [id], onDelete: SetNull)
-  paymentsRecorded              Payment[]                      @relation("PaymentRecordedBy")
-  activityLogsAsActor           ActivityLog[]                 @relation("ActivityLogActor")
+  id                                 String                         @id @default(cuid())
+  name                               String
+  email                              String                         @unique
+  passwordHash                       String
+  role                               UserRole                       @default(MERCHANT)
+  isActive                           Boolean                        @default(true)
+  mustChangePassword                 Boolean                        @default(false)
+  passwordResetIssuedAt              DateTime?
+  createdAt                          DateTime                       @default(now())
+  updatedAt                          DateTime                       @updatedAt
+  platformFunctionGroupId            String?
+  memberships                        BusinessMembership[]
+  staffCreationNotificationLogs      StaffCreationNotificationLog[]
+  businessSystemProducts             BusinessUserSystemProduct[]
+  ordersCreated                      Order[]                        @relation("OrderCreatedBy")
+  subscriptionInvoicesRefundReviewed SubscriptionInvoice[]          @relation("SubscriptionInvoiceRefundReviewedBy")
+  platformFunctionGroup              PlatformFunctionGroup?         @relation(fields: [platformFunctionGroupId], references: [id], onDelete: SetNull)
+  paymentsRecorded                   Payment[]                      @relation("PaymentRecordedBy")
+  activityLogsAsActor                ActivityLog[]                  @relation("ActivityLogActor")
 
   @@index([platformFunctionGroupId])
 }
 
-/** Sidebar / platform feature identifiers for RBAC templates (seeded). */
+/**
+ * Sidebar / platform feature identifiers for RBAC templates (seeded).
+ */
 model PlatformModule {
   id           String                           @id @default(cuid())
   slug         String                           @unique
@@ -714,14 +866,16 @@ model PlatformModule {
   templateRows PlatformRoleTemplatePermission[]
 }
 
-/** Named permission matrix (one row per module: view/create/edit/delete/export). */
+/**
+ * Named permission matrix (one row per module: view/create/edit/delete/export).
+ */
 model PlatformRoleTemplate {
-  id            String                           @id @default(cuid())
-  name          String
-  description   String?
-  createdAt     DateTime                         @default(now())
-  updatedAt     DateTime                         @updatedAt
-  permissions   PlatformRoleTemplatePermission[]
+  id             String                           @id @default(cuid())
+  name           String
+  description    String?
+  createdAt      DateTime                         @default(now())
+  updatedAt      DateTime                         @updatedAt
+  permissions    PlatformRoleTemplatePermission[]
   functionGroups PlatformFunctionGroup[]
 }
 
@@ -741,7 +895,9 @@ model PlatformRoleTemplatePermission {
   @@index([moduleId])
 }
 
-/** Bundles a role template; assigned to platform staff users. */
+/**
+ * Bundles a role template; assigned to platform staff users.
+ */
 model PlatformFunctionGroup {
   id             String               @id @default(cuid())
   name           String
@@ -756,15 +912,15 @@ model PlatformFunctionGroup {
 }
 
 model BusinessMembership {
-  id         String                    @id @default(cuid())
+  id         String                   @id @default(cuid())
   userId     String
   businessId String
-  isOwner    Boolean                   @default(false)
-  status     BusinessMembershipStatus  @default(ACTIVE)
-  createdAt  DateTime                  @default(now())
-  updatedAt  DateTime                  @updatedAt
-  user       User                      @relation(fields: [userId], references: [id])
-  business   Business                  @relation(fields: [businessId], references: [id])
+  isOwner    Boolean                  @default(false)
+  status     BusinessMembershipStatus @default(ACTIVE)
+  createdAt  DateTime                 @default(now())
+  updatedAt  DateTime                 @updatedAt
+  user       User                     @relation(fields: [userId], references: [id])
+  business   Business                 @relation(fields: [businessId], references: [id])
 
   @@unique([userId, businessId])
   @@index([businessId])
@@ -783,25 +939,29 @@ model SystemService {
 }
 
 model SystemProduct {
-  id          String              @id @default(cuid())
+  id          String                      @id @default(cuid())
   serviceId   String
   name        String
-  slug        String              @unique
+  slug        String                      @unique
   description String?
-  sortOrder   Int                 @default(0)
-  /** When set, product appears in the business sidebar under its service (must match app route path). */
+  sortOrder   Int                         @default(0)
+  /**
+   * When set, product appears in the business sidebar under its service (must match app route path).
+   */
   navPath     String?
   navLabel    String?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  service     SystemService       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime                    @default(now())
+  updatedAt   DateTime                    @updatedAt
+  service     SystemService               @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   planLinks   PlanSystemProduct[]
   userGrants  BusinessUserSystemProduct[]
 
   @@index([serviceId])
 }
 
-/** Per-user assigned system products. Non-owners with no rows have no plan features until the owner assigns products. */
+/**
+ * Per-user assigned system products. Non-owners with no rows have no plan features until the owner assigns products.
+ */
 model BusinessUserSystemProduct {
   id              String        @id @default(cuid())
   businessId      String
@@ -850,22 +1010,22 @@ model Plan {
 }
 
 model Subscription {
-  id                  String                @id @default(cuid())
-  businessId          String
-  planId              String
-  billingInterval     BillingInterval       @default(MONTHLY)
-  status              SubscriptionStatus    @default(ACTIVE)
-  startDate           DateTime
-  currentPeriodStart  DateTime
-  currentPeriodEnd    DateTime
-  cancelAtPeriodEnd   Boolean               @default(false)
-  cancelledAt         DateTime?
-  endedAt             DateTime?
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
-  business            Business              @relation(fields: [businessId], references: [id])
-  plan                Plan                  @relation(fields: [planId], references: [id])
-  invoices            SubscriptionInvoice[]
+  id                   String                @id @default(cuid())
+  businessId           String
+  planId               String
+  billingInterval      BillingInterval       @default(MONTHLY)
+  status               SubscriptionStatus    @default(ACTIVE)
+  startDate            DateTime
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean               @default(false)
+  cancelledAt          DateTime?
+  endedAt              DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  business             Business              @relation(fields: [businessId], references: [id])
+  plan                 Plan                  @relation(fields: [planId], references: [id])
+  invoices             SubscriptionInvoice[]
   billingLedgerEntries BillingLedgerEntry[]
 
   @@index([businessId, status])
@@ -873,36 +1033,46 @@ model Subscription {
 }
 
 model SubscriptionInvoice {
-  id                  String             @id @default(cuid())
-  businessId          String
-  subscriptionId      String
-  planId              String
-  amount              Decimal            @db.Decimal(10, 2)
-  currency            String             @default("GMD")
-  status              InvoiceStatus      @default(PENDING)
-  billingPeriodStart  DateTime
-  billingPeriodEnd    DateTime
-  dueDate             DateTime
-  paidAt              DateTime?
-  externalReference   String?            @unique
-  /** Last checkout session id (e.g. Wave) for webhook correlation. */
-  checkoutSessionId   String?
-  checkoutProvider    String?
+  id                           String                   @id @default(cuid())
+  businessId                   String
+  subscriptionId               String
+  planId                       String
+  amount                       Decimal                  @db.Decimal(10, 2)
+  currency                     String                   @default("GMD")
+  status                       InvoiceStatus            @default(PENDING)
+  billingPeriodStart           DateTime
+  billingPeriodEnd             DateTime
+  dueDate                      DateTime
+  paidAt                       DateTime?
+  externalReference            String?                  @unique
+  /**
+   * Last checkout session id (e.g. Wave) for webhook correlation.
+   */
+  checkoutSessionId            String?
+  checkoutProvider             String?
+  /**
+   * Guest pay link (email) — same idea as sales invoice guest portal.
+   */
+  guestToken                   String?                  @unique
   manualRefundReviewStatus     ManualRefundReviewStatus @default(NONE)
   manualRefundNote             String?
   manualRefundReviewedAt       DateTime?
   manualRefundReviewedByUserId String?
-  /** Target date by which finance aims to complete the refund (set when status is APPROVED_FOR_REFUND). */
+  /**
+   * Target date by which finance aims to complete the refund (set when status is APPROVED_FOR_REFUND).
+   */
   manualRefundExpectedBy       DateTime?
-  /** Approved refund amount when partial; null means full invoice amount. */
-  manualRefundApprovedAmount   Decimal?           @db.Decimal(10, 2)
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
-  business            Business           @relation(fields: [businessId], references: [id])
-  subscription        Subscription       @relation(fields: [subscriptionId], references: [id])
-  plan                Plan               @relation(fields: [planId], references: [id])
-  manualRefundReviewedBy User?             @relation("SubscriptionInvoiceRefundReviewedBy", fields: [manualRefundReviewedByUserId], references: [id], onDelete: SetNull)
-  ledgerEntries       BillingLedgerEntry[]
+  /**
+   * Approved refund amount when partial; null means full invoice amount.
+   */
+  manualRefundApprovedAmount   Decimal?                 @db.Decimal(10, 2)
+  createdAt                    DateTime                 @default(now())
+  updatedAt                    DateTime                 @updatedAt
+  business                     Business                 @relation(fields: [businessId], references: [id])
+  subscription                 Subscription             @relation(fields: [subscriptionId], references: [id])
+  plan                         Plan                     @relation(fields: [planId], references: [id])
+  manualRefundReviewedBy       User?                    @relation("SubscriptionInvoiceRefundReviewedBy", fields: [manualRefundReviewedByUserId], references: [id], onDelete: SetNull)
+  ledgerEntries                BillingLedgerEntry[]
 
   @@index([businessId, status])
   @@index([subscriptionId])
@@ -911,38 +1081,42 @@ model SubscriptionInvoice {
 }
 
 model BillingLedgerEntry {
-  id                        String                  @id @default(cuid())
+  id                        String                 @id @default(cuid())
   businessId                String
   subscriptionId            String?
   subscriptionInvoiceId     String?
   type                      BillingLedgerEntryType
   direction                 BillingLedgerDirection
-  status                    BillingLedgerStatus     @default(PENDING)
-  amount                    Decimal                 @db.Decimal(10, 2)
-  currency                  String                  @default("GMD")
+  status                    BillingLedgerStatus    @default(PENDING)
+  amount                    Decimal                @db.Decimal(10, 2)
+  currency                  String                 @default("GMD")
   provider                  String
-  /** Shared by paired rows (invoice payment + wallet fee) for the same Wave/Yonna checkout. */
+  /**
+   * Shared by paired rows (invoice payment + wallet fee) for the same Wave/Yonna checkout.
+   */
   providerCheckoutSessionId String?
   providerPaymentRef        String?
-  idempotencyKey            String?                 @unique
+  idempotencyKey            String?                @unique
   metadata                  Json?
   succeededAt               DateTime?
   failedAt                  DateTime?
-  createdAt                 DateTime                @default(now())
-  updatedAt                 DateTime                @updatedAt
-  business                  Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  subscription              Subscription?           @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
-  subscriptionInvoice       SubscriptionInvoice?    @relation(fields: [subscriptionInvoiceId], references: [id], onDelete: SetNull)
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+  business                  Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  subscription              Subscription?          @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  subscriptionInvoice       SubscriptionInvoice?   @relation(fields: [subscriptionInvoiceId], references: [id], onDelete: SetNull)
 
+  @@unique([providerCheckoutSessionId, type])
   @@index([businessId, createdAt])
   @@index([subscriptionInvoiceId])
   @@index([subscriptionId])
-  @@unique([providerCheckoutSessionId, type])
 }
 
 model StaffCreationNotificationLog {
   id               String                          @id @default(cuid())
-  /** Null when the notification is platform-scoped (e.g. platform admin invite). */
+  /**
+   * Null when the notification is platform-scoped (e.g. platform admin invite).
+   */
   businessId       String?
   userId           String?
   recipientName    String
@@ -969,85 +1143,92 @@ model StaffCreationNotificationLog {
 }
 
 model Order {
-  id                   String       @id @default(cuid())
-  businessId           String
-  publicCode           String
-  status               OrderStatus  @default(PENDING_PAYMENT)
-  subtotal             Decimal      @db.Decimal(10, 2)
-  taxAmount            Decimal      @default(0) @db.Decimal(10, 2)
-  total                Decimal      @db.Decimal(10, 2)
-  currency             String       @default("GMD")
-  createdByUserId      String?
-  diningTableId        String?
-  tableLabelSnapshot   String?
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
-  business             Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  createdBy            User?        @relation("OrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  diningTable          DiningTable? @relation(fields: [diningTableId], references: [id], onDelete: SetNull)
-  lines                OrderLine[]
-  payments             Payment[]
-  receipt              Receipt?
-  salesLedgerEntries   SalesLedgerEntry[]
+  id                 String             @id @default(cuid())
+  businessId         String
+  publicCode         String
+  status             OrderStatus        @default(PENDING_PAYMENT)
+  subtotal           Decimal            @db.Decimal(10, 2)
+  taxAmount          Decimal            @default(0) @db.Decimal(10, 2)
+  total              Decimal            @db.Decimal(10, 2)
+  currency           String             @default("GMD")
+  createdByUserId    String?
+  diningTableId      String?
+  tableLabelSnapshot String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  business           Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdBy          User?              @relation("OrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  diningTable        DiningTable?       @relation(fields: [diningTableId], references: [id], onDelete: SetNull)
+  lines              OrderLine[]
+  payments           Payment[]
+  receipt            Receipt?
+  salesLedgerEntries SalesLedgerEntry[]
 
+  @@unique([businessId, publicCode])
   @@index([businessId, status])
   @@index([businessId, createdAt])
   @@index([diningTableId])
-  @@unique([businessId, publicCode])
 }
 
 model OrderLine {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   orderId     String
   productId   String
   productName String
   quantity    Int
-  unitPrice   Decimal  @db.Decimal(10, 2)
-  lineTotal   Decimal  @db.Decimal(10, 2)
-  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  unitPrice   Decimal @db.Decimal(10, 2)
+  lineTotal   Decimal @db.Decimal(10, 2)
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@index([orderId])
 }
 
 model Payment {
-  id              String          @id @default(cuid())
-  businessId      String
-  orderId         String?
-  salesInvoiceId  String?         @unique
-  billId          String?         @unique
-  publicCode      String
-  method          PaymentMethod
-  provider        PaymentProvider @default(SIMULATOR)
-  /** When set, identifies which business PaymentGateway credentials were used for QR wallet checkout. */
-  gatewayCode     String?
-  status          PaymentStatus   @default(PENDING)
-  amount          Decimal         @db.Decimal(10, 2)
-  currency        String          @default("GMD")
-  providerRef     String          @unique
-  publicToken     String          @unique
-  completedAt     DateTime?
-  /** Staff member who recorded cash or initiated wallet checkout from POS (guest-paid wallet may still show this). */
-  recordedByUserId String?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  order           Order?           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  salesInvoice    SalesInvoice?    @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
-  bill            Bill?            @relation(fields: [billId], references: [id], onDelete: Cascade)
-  business             Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  recordedBy           User?              @relation("PaymentRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
-  salesLedgerEntries   SalesLedgerEntry[]
+  id                 String             @id @default(cuid())
+  businessId         String
+  orderId            String?
+  salesInvoiceId     String?            @unique
+  billId             String?            @unique
+  publicCode         String
+  method             PaymentMethod
+  provider           PaymentProvider    @default(SIMULATOR)
+  /**
+   * When set, identifies which business PaymentGateway credentials were used for QR wallet checkout.
+   */
+  gatewayCode        String?
+  status             PaymentStatus      @default(PENDING)
+  amount             Decimal            @db.Decimal(10, 2)
+  currency           String             @default("GMD")
+  providerRef        String             @unique
+  publicToken        String             @unique
+  completedAt        DateTime?
+  /**
+   * Staff member who recorded cash or initiated wallet checkout from POS (guest-paid wallet may still show this).
+   */
+  recordedByUserId   String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  order              Order?             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  salesInvoice       SalesInvoice?      @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
+  bill               Bill?              @relation(fields: [billId], references: [id], onDelete: Cascade)
+  business           Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recordedBy         User?              @relation("PaymentRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+  salesLedgerEntries SalesLedgerEntry[]
 
+  @@unique([businessId, publicCode])
   @@index([orderId])
   @@index([businessId, status])
   @@index([publicToken])
   @@index([recordedByUserId])
-  @@unique([businessId, publicCode])
 }
 
 model ActivityLog {
   id           String            @id @default(cuid())
-  businessId   String
+  /**
+   * Null = platform-scoped event (operator actions outside a tenant).
+   */
+  businessId   String?
   actorUserId  String?
   actorKind    ActivityActorKind @default(USER)
   eventType    String
@@ -1055,15 +1236,16 @@ model ActivityLog {
   resourceId   String?
   metadata     Json?
   createdAt    DateTime          @default(now())
-  business     Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business     Business?         @relation(fields: [businessId], references: [id], onDelete: Cascade)
   actorUser    User?             @relation("ActivityLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([businessId, createdAt])
+  @@index([createdAt])
 }
 
 model Receipt {
   id            String   @id @default(cuid())
-  businessId     String
+  businessId    String
   orderId       String   @unique
   publicCode    String
   receiptNumber Int
@@ -1082,10 +1264,10 @@ model Receipt {
 }
 
 model WebhookEventLog {
-  id          String   @id @default(cuid())
-  provider    String
-  eventKey    String
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  provider  String
+  eventKey  String
+  createdAt DateTime @default(now())
 
   @@unique([provider, eventKey])
 }

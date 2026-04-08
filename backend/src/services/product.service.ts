@@ -78,8 +78,8 @@ async function assertWithinProductLimit(businessId: string): Promise<void> {
 export type CreateProductInput = {
   businessId: string;
   name: string;
-  /** Required for retail/wholesale/pharmacy; for restaurant, derived from menu category when menuCategoryId is set. */
-  category: string;
+  /** Legacy free-text category (ignored when menuCategoryId is set for retail/wholesale/pharmacy). */
+  category?: string;
   menuCategoryId?: string | null;
   description?: string | null;
   price: number;
@@ -158,10 +158,16 @@ export async function createProduct(input: CreateProductInput) {
     categoryName = leaf.name;
     menuCategoryId = leaf.id;
   } else {
-    categoryName = input.category.trim();
-    if (categoryName.length < 1) {
-      throw new HttpError(400, "Category is required.");
+    const mcId = input.menuCategoryId?.trim();
+    if (!mcId) {
+      throw new HttpError(
+        400,
+        "menuCategoryId is required. Create leaf categories under Catalog → Categories first.",
+      );
     }
+    const leaf = await assertMenuCategoryIsLeafForBusiness(input.businessId, mcId);
+    categoryName = leaf.name;
+    menuCategoryId = leaf.id;
   }
 
   const trimmedBarcode = input.barcodeValue?.trim();
@@ -275,19 +281,34 @@ export async function updateProduct(input: UpdateProductInput) {
   if (input.name !== undefined) {
     data.name = input.name.trim();
   }
-  if (input.menuCategoryId !== undefined && isRestaurant) {
+  if (input.menuCategoryId !== undefined && (isRestaurant || isRetailWholesale)) {
     if (input.menuCategoryId === null) {
-      throw new HttpError(400, "menuCategoryId cannot be cleared for restaurant items.");
+      if (isRestaurant) {
+        throw new HttpError(400, "menuCategoryId cannot be cleared for restaurant items.");
+      }
+      data.menuCategory = { disconnect: true };
+      if (input.category !== undefined) {
+        data.category = input.category.trim();
+      } else {
+        data.category = "Uncategorized";
+      }
+    } else {
+      const leaf = await assertMenuCategoryIsLeafForBusiness(
+        input.businessId,
+        input.menuCategoryId.trim(),
+      );
+      data.menuCategory = { connect: { id: leaf.id } };
+      data.category = leaf.name;
     }
-    const leaf = await assertMenuCategoryIsLeafForBusiness(
-      input.businessId,
-      input.menuCategoryId.trim(),
-    );
-    data.menuCategory = { connect: { id: leaf.id } };
-    data.category = leaf.name;
   } else if (input.category !== undefined) {
     if (isRestaurant) {
       throw new HttpError(400, "Use menuCategoryId to change category for restaurant items.");
+    }
+    if (isRetailWholesale && product.menuCategoryId) {
+      throw new HttpError(
+        400,
+        "Use menuCategoryId to change category. Manage categories under Catalog → Categories.",
+      );
     }
     data.category = input.category.trim();
   }
@@ -322,11 +343,60 @@ export async function updateProduct(input: UpdateProductInput) {
   });
 }
 
+const productCatalogOrderBy = [{ createdAt: "desc" as const }, { id: "desc" as const }];
+
+function buildProductListWhere(
+  businessId: string,
+  filters: { q?: string; menuCategoryId?: string },
+): Prisma.ProductWhereInput {
+  const where: Prisma.ProductWhereInput = { businessId };
+
+  if (filters.q?.trim()) {
+    const term = filters.q.trim();
+    where.AND = [
+      {
+        OR: [
+          { name: { contains: term, mode: "insensitive" } },
+          { category: { contains: term, mode: "insensitive" } },
+        ],
+      },
+    ];
+  }
+
+  if (filters.menuCategoryId === "__uncategorized__") {
+    where.menuCategoryId = null;
+  } else if (filters.menuCategoryId?.trim()) {
+    where.menuCategoryId = filters.menuCategoryId.trim();
+  }
+
+  return where;
+}
+
 export async function listProductsForBusiness(businessId: string) {
   return prisma.product.findMany({
     where: { businessId },
-    orderBy: { createdAt: "desc" },
+    orderBy: productCatalogOrderBy,
   });
+}
+
+export async function listProductsForBusinessPaged(
+  businessId: string,
+  params: { limit: number; offset: number; q?: string; menuCategoryId?: string },
+) {
+  const where = buildProductListWhere(businessId, {
+    q: params.q,
+    menuCategoryId: params.menuCategoryId,
+  });
+  const take = params.limit + 1;
+  const items = await prisma.product.findMany({
+    where,
+    orderBy: productCatalogOrderBy,
+    skip: params.offset,
+    take,
+  });
+  const hasMore = items.length > params.limit;
+  const slice = hasMore ? items.slice(0, params.limit) : items;
+  return { items: slice, hasMore };
 }
 
 export async function getPublicBusinessMenu(businessId: string) {

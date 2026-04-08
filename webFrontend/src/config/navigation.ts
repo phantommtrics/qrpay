@@ -25,6 +25,8 @@ export const APP_PATHS = {
   dashboard: '/dashboard',
   pos: '/pos',
   products: '/products',
+  /** Retail / wholesale / pharmacy product category tree (restaurants use Menu setup). */
+  catalogCategories: '/catalog/categories',
   orders: '/orders',
   payments: '/payments',
   /** Staff / system audit trail (payment events, etc.) */
@@ -71,6 +73,10 @@ export const APP_PATHS = {
   platformAccountingReportGl: '/platform/accounting/reports/gl-balance',
   platformAccountingReportPnl: '/platform/accounting/reports/profit-loss',
   platformAccountingReportStatement: '/platform/accounting/reports/account-statement',
+  platformBills: '/platform/bills',
+  platformBillNew: '/platform/bills/new',
+  platformBillDetail: '/platform/bills/:billId',
+  platformActivityLog: '/platform/activity-log',
   platformSystemConfiguration: '/platform/system-configuration',
   platformBusinesses: '/platform/businesses',
   platformBusinessDetail: '/platform/businesses/:businessId',
@@ -104,6 +110,10 @@ export function salesInvoiceDetailPath(invoiceId: string) {
 
 export function salesBillDetailPath(billId: string) {
   return `/sales/bills/${encodeURIComponent(billId)}`
+}
+
+export function platformBillDetailPath(billId: string) {
+  return `/platform/bills/${encodeURIComponent(billId)}`
 }
 
 export function accountingReversedJournalDetailPath(journalEntryId: string) {
@@ -199,6 +209,18 @@ export const PLATFORM_FINANCE_SUBNAV: PlatformBusinessesSubNavItem[] = [
     path: APP_PATHS.platformAccountingReportStatement,
     title: 'Account statement',
     permission: 'platform.accounting.reports.statement',
+  },
+  {
+    name: 'finance-platform-bills',
+    path: APP_PATHS.platformBills,
+    title: 'Supplier bills',
+    permission: 'platform.bills.view',
+  },
+  {
+    name: 'finance-platform-activity',
+    path: APP_PATHS.platformActivityLog,
+    title: 'Activity log',
+    permission: 'platform.activity.log',
   },
 ]
 
@@ -302,10 +324,10 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Activity log',
     path: APP_PATHS.activityLog,
     icon: History,
-    /** Shown in sidebar only when `currentOrganization.isOwner`; route and API are owner-only. */
+    /** Plan entitlement `activity.log` (Organization service); assignable to staff like other products. */
     roles: ['platform_owner', 'platform_admin', 'admin', 'merchant', 'cashier'],
     title: 'Activity log',
-    permission: 'payments.view',
+    permission: 'activity.log',
   },
   {
     name: 'Reports',
@@ -418,6 +440,15 @@ export function getPageTitle(pathname: string) {
   if (pathname.includes(APP_PATHS.platformAccountingReportStatement)) {
     return 'Account statement'
   }
+  if (pathname.includes('/platform/bills/') && pathname !== APP_PATHS.platformBills) {
+    return 'Supplier bill'
+  }
+  if (pathname.includes(APP_PATHS.platformBills)) {
+    return 'Supplier bills'
+  }
+  if (pathname.includes(APP_PATHS.platformActivityLog)) {
+    return 'Activity log'
+  }
   if (pathname.includes(APP_PATHS.platformAccounting)) {
     return 'Accounting'
   }
@@ -467,6 +498,10 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.contacts)) {
     return 'Contacts'
+  }
+
+  if (pathname.includes(APP_PATHS.catalogCategories)) {
+    return 'Categories'
   }
 
   if (pathname.startsWith('/b/')) {

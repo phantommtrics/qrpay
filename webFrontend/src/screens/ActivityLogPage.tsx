@@ -117,7 +117,8 @@ export function ActivityLogPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Activity log</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Owner-only audit trail: payments, products, and staff actions. Filter by event type or actor.
+          Audit trail for this business: payments, product changes, and staff actions. Filter by event
+          type or actor.
         </p>
       </div>
 

@@ -910,6 +910,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const m = user.platformPermissions?.['platform.payment_gateways']
             return Boolean(m?.view || m?.create || m?.edit || m?.delete)
           }
+          const m = user.platformPermissions
+          if (permission === 'platform.accounting.journals.access') {
+            return Boolean(
+              m?.['platform.accounting']?.view ||
+                m?.['platform.accounting.journals_post']?.view ||
+                m?.['platform.accounting.journals_post']?.create,
+            )
+          }
+          if (permission === 'platform.accounting.journals.post') {
+            return Boolean(
+              m?.['platform.accounting']?.create || m?.['platform.accounting.journals_post']?.create,
+            )
+          }
+          if (permission === 'platform.accounting.journals.reverse') {
+            return Boolean(
+              m?.['platform.accounting']?.create ||
+                m?.['platform.accounting.journals_reversal']?.create,
+            )
+          }
+          if (permission === 'platform.bills.view') {
+            return Boolean(m?.['platform.accounting']?.view || m?.['platform.purchase_bills']?.view)
+          }
+          if (permission === 'platform.bills.manage') {
+            return Boolean(
+              m?.['platform.accounting']?.create ||
+                m?.['platform.purchase_bills']?.create ||
+                m?.['platform.purchase_bills']?.edit,
+            )
+          }
+          if (permission === 'platform.activity.log') {
+            return Boolean(
+              m?.['platform.accounting']?.view ||
+                m?.['platform.activity_log']?.view ||
+                m?.['platform.purchase_bills']?.view,
+            )
+          }
           const finance = platformAdminFinancePermission(permission, user.platformPermissions)
           if (finance !== null) {
             return finance
@@ -969,6 +1005,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (permission === 'platform.payment_gateways.manage') {
               const m = user.platformPermissions?.['platform.payment_gateways']
               return Boolean(m?.view || m?.create || m?.edit || m?.delete)
+            }
+            const m = user.platformPermissions
+            if (permission === 'platform.accounting.journals.access') {
+              return Boolean(
+                m?.['platform.accounting']?.view ||
+                  m?.['platform.accounting.journals_post']?.view ||
+                  m?.['platform.accounting.journals_post']?.create,
+              )
+            }
+            if (permission === 'platform.accounting.journals.post') {
+              return Boolean(
+                m?.['platform.accounting']?.create || m?.['platform.accounting.journals_post']?.create,
+              )
+            }
+            if (permission === 'platform.accounting.journals.reverse') {
+              return Boolean(
+                m?.['platform.accounting']?.create ||
+                  m?.['platform.accounting.journals_reversal']?.create,
+              )
+            }
+            if (permission === 'platform.bills.view') {
+              return Boolean(m?.['platform.accounting']?.view || m?.['platform.purchase_bills']?.view)
+            }
+            if (permission === 'platform.bills.manage') {
+              return Boolean(
+                m?.['platform.accounting']?.create ||
+                  m?.['platform.purchase_bills']?.create ||
+                  m?.['platform.purchase_bills']?.edit,
+              )
+            }
+            if (permission === 'platform.activity.log') {
+              return Boolean(
+                m?.['platform.accounting']?.view ||
+                  m?.['platform.activity_log']?.view ||
+                  m?.['platform.purchase_bills']?.view,
+              )
             }
             const finance = platformAdminFinancePermission(permission, user.platformPermissions)
             if (finance !== null) {

@@ -24,6 +24,8 @@ export async function listPlatformJournalEntries(pagination: { page: number; pag
         lines: {
           include: { chartOfAccount: { select: { id: true, code: true, name: true, category: true } } },
         },
+        reversedByPlatformEntry: { select: { id: true } },
+        billFromPayment: { select: { id: true, publicCode: true } },
       },
     }),
   ]);

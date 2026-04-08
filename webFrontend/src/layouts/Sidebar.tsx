@@ -26,7 +26,12 @@ import {
 } from '../config/navigation'
 
 /** Plan menu service ids that start expanded so nested links (e.g. Organization) are visible. */
-const DEFAULT_EXPANDED_PLAN_SERVICE_IDS = ['svc_org', 'svc_subscriptions', 'svc_merchant'] as const
+const DEFAULT_EXPANDED_PLAN_SERVICE_IDS = [
+  'svc_catalog',
+  'svc_org',
+  'svc_subscriptions',
+  'svc_merchant',
+] as const
 import { useAuth } from '../features/auth/AuthContext'
 import {
   ApiError,
@@ -86,7 +91,11 @@ export function Sidebar({
       return stored === 'true'
     }
     const p = window.location.hash.replace(/^#/, '') || window.location.pathname
-    return p.startsWith('/platform/accounting')
+    return (
+      p.startsWith('/platform/accounting') ||
+      p.startsWith('/platform/bills') ||
+      p.startsWith('/platform/activity-log')
+    )
   })
   const [isPlatformSecurityOpen, setIsPlatformSecurityOpen] = useState(() => {
     if (typeof window === 'undefined') {
@@ -232,6 +241,9 @@ export function Sidebar({
     if (p.startsWith('/accounting/reports')) {
       setOpenServiceIds((prev) => ({ ...prev, svc_finance: true }))
     }
+    if (p.startsWith('/catalog/')) {
+      setOpenServiceIds((prev) => ({ ...prev, svc_catalog: true }))
+    }
   }, [location.pathname])
 
   function isPlatformBusinessesSubActive(path: string) {
@@ -280,6 +292,12 @@ export function Sidebar({
     if (path === APP_PATHS.platformAccountingReportStatement) {
       return p.startsWith('/platform/accounting/reports/account-statement')
     }
+    if (path === APP_PATHS.platformBills) {
+      return p.startsWith('/platform/bills')
+    }
+    if (path === APP_PATHS.platformActivityLog) {
+      return p.startsWith('/platform/activity-log')
+    }
     return false
   }
 
@@ -312,9 +330,6 @@ export function Sidebar({
     if (item.path === APP_PATHS.staffStatus && !currentOrganization?.isOwner) {
       return false
     }
-    if (item.path === APP_PATHS.activityLog && !currentOrganization?.isOwner) {
-      return false
-    }
     return true
   })
 
@@ -333,9 +348,6 @@ export function Sidebar({
       return false
     }
     if (item.path === APP_PATHS.staffStatus && !currentOrganization?.isOwner) {
-      return false
-    }
-    if (item.path === APP_PATHS.activityLog && !currentOrganization?.isOwner) {
       return false
     }
     return true
@@ -586,12 +598,7 @@ export function Sidebar({
                   </button>
                   {open ? (
                     <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
-                      {svc.items
-                        .filter(
-                          (item) =>
-                            item.navPath !== APP_PATHS.activityLog || currentOrganization?.isOwner,
-                        )
-                        .map((item) => (
+                      {svc.items.map((item) => (
                           <NavLink
                             key={item.slug}
                             to={item.navPath}

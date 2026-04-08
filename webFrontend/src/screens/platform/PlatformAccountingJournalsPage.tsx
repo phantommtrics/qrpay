@@ -10,6 +10,7 @@ import {
   ApiError,
   fetchPlatformAccountingChart,
   fetchPlatformJournalEntries,
+  postPlatformJournalReverse,
   postPlatformManualJournal,
   type PlatformChartAccountDetail,
   type PlatformJournalEntryRow,
@@ -29,7 +30,9 @@ function emptyLine(): LineDraft {
 
 export function PlatformAccountingJournalsPage() {
   const { canAccess } = useAuth()
-  const canCreate = canAccess('platform.accounting.create')
+  const canCreate =
+    canAccess('platform.accounting.create') || canAccess('platform.accounting.journals.post')
+  const canReverse = canAccess('platform.accounting.journals.reverse')
 
   const [accounts, setAccounts] = useState<PlatformChartAccountDetail[]>([])
   const [entries, setEntries] = useState<PlatformJournalEntryRow[]>([])
@@ -63,6 +66,18 @@ export function PlatformAccountingJournalsPage() {
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load journals.'))
       .finally(() => setLoading(false))
   }, [page])
+
+  const reverseEntry = async (journalEntryId: string) => {
+    if (!confirm('Post a reversing journal (swap debits and credits)?')) return
+    setError(null)
+    try {
+      const postedAt = new Date().toISOString().slice(0, 10)
+      await postPlatformJournalReverse(journalEntryId, { postedAt })
+      loadEntries()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not reverse journal.')
+    }
+  }
 
   useEffect(() => {
     loadAccounts()
@@ -272,13 +287,31 @@ export function PlatformAccountingJournalsPage() {
           <div className="mt-4 space-y-6">
             {entries.map((e) => (
               <div key={e.id} className="rounded-sm border border-qb-border">
-                <div className="flex flex-wrap gap-2 border-b border-qb-border bg-qb-surface/50 px-3 py-2 text-xs text-qb-muted">
-                  <span className="font-mono text-qb-heading">{e.postedAt.slice(0, 10)}</span>
-                  {e.sourceType ? (
-                    <span className="rounded bg-white px-1.5 py-0.5">{e.sourceType}</span>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-qb-border bg-qb-surface/50 px-3 py-2 text-xs text-qb-muted">
+                  <div className="flex flex-wrap gap-2">
+                    <span className="font-mono text-qb-heading">{e.postedAt.slice(0, 10)}</span>
+                    {e.sourceType ? (
+                      <span className="rounded bg-white px-1.5 py-0.5">{e.sourceType}</span>
+                    ) : null}
+                    {e.memo ? <span>{e.memo}</span> : null}
+                    {e.reference ? <span className="font-mono">ref {e.reference}</span> : null}
+                    {e.hasReversal ? (
+                      <span className="text-amber-800">Reversed</span>
+                    ) : null}
+                  </div>
+                  {canReverse &&
+                  e.sourceType === 'MANUAL' &&
+                  !e.reversesPlatformJournalEntryId &&
+                  !e.hasReversal &&
+                  !e.billPayment ? (
+                    <button
+                      type="button"
+                      onClick={() => void reverseEntry(e.id)}
+                      className="rounded-sm border border-qb-border bg-white px-2 py-1 text-xs font-medium text-qb-heading hover:bg-qb-surface"
+                    >
+                      Reverse
+                    </button>
                   ) : null}
-                  {e.memo ? <span>{e.memo}</span> : null}
-                  {e.reference ? <span className="font-mono">ref {e.reference}</span> : null}
                 </div>
                 <table className="w-full text-sm">
                   <tbody>

@@ -603,6 +603,41 @@ export async function fetchBusinessProducts(businessId: string) {
   return response.data.map(mapBackendProductToProduct)
 }
 
+export type FetchBusinessProductsPagedParams = {
+  limit: number
+  offset: number
+  q?: string
+  /** Restaurant menu category id, or `__uncategorized__` for items with no menu category. */
+  menuCategoryId?: string
+}
+
+export async function fetchBusinessProductsPaged(
+  businessId: string,
+  params: FetchBusinessProductsPagedParams,
+): Promise<{ items: Product[]; hasMore: boolean }> {
+  const sp = new URLSearchParams()
+  sp.set('limit', String(params.limit))
+  sp.set('offset', String(params.offset))
+  if (params.q?.trim()) {
+    sp.set('q', params.q.trim())
+  }
+  if (params.menuCategoryId) {
+    sp.set('menuCategoryId', params.menuCategoryId)
+  }
+  const response = await apiRequest<{
+    data: BackendProduct[]
+    meta: { hasMore: boolean; limit: number; offset: number }
+  }>(`/businesses/${businessId}/products?${sp.toString()}`, {
+    headers: {
+      'x-business-id': businessId,
+    },
+  })
+  return {
+    items: response.data.map(mapBackendProductToProduct),
+    hasMore: response.meta?.hasMore ?? false,
+  }
+}
+
 export type PublicBusinessMenuPayload = {
   business: { id: string; name: string; slug: string }
   products: BackendProduct[]
@@ -2020,12 +2055,19 @@ export async function startSubscriptionInvoiceCheckout(
   return response.data
 }
 
+export type PlanChangePendingInvoice = BackendInvoice & {
+  guestPayUrl: string | null
+}
+
 export async function changeBusinessSubscriptionPlan(
   businessId: string,
   body: { planCode: BackendPlanCode; billingInterval?: SubscriptionBillingInterval },
 ) {
   const response = await apiRequest<{
-    data: { currentSubscription: BackendSubscription & { invoices: BackendInvoice[] } }
+    data: {
+      currentSubscription: BackendSubscription & { invoices: BackendInvoice[] }
+      pendingInvoice: PlanChangePendingInvoice
+    }
   }>(`/businesses/${businessId}/subscription`, {
     method: 'PATCH',
     headers: { 'x-business-id': businessId },
@@ -2175,6 +2217,9 @@ export type PlatformJournalEntryRow = {
   reference: string | null
   sourceType: string | null
   sourceId: string | null
+  reversesPlatformJournalEntryId?: string | null
+  hasReversal?: boolean
+  billPayment?: { id: string; publicCode: string } | null
   createdAt: string
   lines: PlatformJournalLineRow[]
 }
@@ -2304,4 +2349,153 @@ export async function updatePlatformChartAccount(
 
 export async function deletePlatformChartAccount(accountId: string) {
   await apiRequest(`/platform/accounting/chart-of-accounts/${accountId}`, { method: 'DELETE' })
+}
+
+export async function postPlatformJournalReverse(journalEntryId: string, body: { postedAt: string; memo?: string | null }) {
+  const res = await apiRequest<{ data: { id: string } }>(
+    `/platform/accounting/journal-entries/${encodeURIComponent(journalEntryId)}/reverse`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+  return res.data
+}
+
+export type PlatformActivityLogRow = {
+  id: string
+  eventType: string
+  resourceType: string
+  resourceId: string | null
+  actorKind: 'user' | 'system'
+  actor: { id: string; name: string; email: string } | null
+  metadata: unknown
+  createdAt: string
+}
+
+export async function fetchPlatformActivityLog(params: {
+  page?: number
+  pageSize?: number
+  eventType?: string
+  actorKind?: 'user' | 'system' | ''
+}) {
+  const qs = new URLSearchParams()
+  if (params.page) qs.set('page', String(params.page))
+  if (params.pageSize) qs.set('pageSize', String(params.pageSize))
+  if (params.eventType) qs.set('eventType', params.eventType)
+  if (params.actorKind) qs.set('actorKind', params.actorKind)
+  return apiRequest<{
+    data: { total: number; page: number; pageSize: number; logs: PlatformActivityLogRow[] }
+  }>(`/platform/activity-log?${qs}`)
+}
+
+export type PlatformSupplierRow = {
+  id: string
+  name: string
+  email: string | null
+  phone: string | null
+  createdAt: string
+}
+
+export async function fetchPlatformSuppliers(): Promise<PlatformSupplierRow[]> {
+  const res = await apiRequest<{ data: PlatformSupplierRow[] }>('/platform/suppliers')
+  return res.data
+}
+
+export async function createPlatformSupplier(body: {
+  name: string
+  email?: string | null
+  phone?: string | null
+}): Promise<PlatformSupplierRow> {
+  const res = await apiRequest<{ data: PlatformSupplierRow }>('/platform/suppliers', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  return res.data
+}
+
+export type PlatformBillRow = {
+  id: string
+  supplierId: string
+  publicCode: string
+  status: string
+  issueDate: string
+  dueDate: string | null
+  reference: string | null
+  currency: string
+  settlementChartAccountId: string | null
+  platformJournalEntryId: string | null
+  approvedAt: string | null
+  paidAt: string | null
+  createdAt: string
+  updatedAt: string
+  supplier: { id: string; name: string; email: string | null }
+  journalEntry: { id: string; postedAt: string } | null
+  lines: Array<{
+    id: string
+    chartOfAccountId: string
+    narration: string
+    quantity: number
+    unitLabel: string | null
+    unitAmount: number
+    taxAmount: number
+    sortOrder: number
+    chartOfAccount: { id: string; code: string; name: string }
+  }>
+}
+
+export async function fetchPlatformBills(): Promise<PlatformBillRow[]> {
+  const res = await apiRequest<{ data: PlatformBillRow[] }>('/platform/bills')
+  return res.data
+}
+
+export async function fetchPlatformBillDetail(billId: string): Promise<PlatformBillRow> {
+  const res = await apiRequest<{ data: PlatformBillRow }>(`/platform/bills/${encodeURIComponent(billId)}`)
+  return res.data
+}
+
+export async function createPlatformBillApi(body: {
+  supplierId: string
+  issueDate: string
+  dueDate?: string | null
+  reference?: string | null
+  currency?: string | null
+  lines: Array<{
+    chartOfAccountId: string
+    narration: string
+    quantity: number
+    unitLabel?: string | null
+    unitAmount: number
+    taxAmount: number
+  }>
+}): Promise<PlatformBillRow> {
+  const res = await apiRequest<{ data: PlatformBillRow }>('/platform/bills', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  return res.data
+}
+
+export async function approvePlatformBillApi(billId: string): Promise<PlatformBillRow> {
+  const res = await apiRequest<{ data: PlatformBillRow }>(
+    `/platform/bills/${encodeURIComponent(billId)}/approve`,
+    { method: 'POST', body: '{}' },
+  )
+  return res.data
+}
+
+export async function markPlatformBillPaidApi(
+  billId: string,
+  body: { settlementChartAccountId: string; postedAt: string },
+): Promise<PlatformBillRow> {
+  const res = await apiRequest<{ data: PlatformBillRow }>(
+    `/platform/bills/${encodeURIComponent(billId)}/mark-paid`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+  return res.data
+}
+
+export async function voidPlatformBillApi(billId: string): Promise<PlatformBillRow> {
+  const res = await apiRequest<{ data: PlatformBillRow }>(
+    `/platform/bills/${encodeURIComponent(billId)}/void`,
+    { method: 'POST', body: '{}' },
+  )
+  return res.data
 }

@@ -102,26 +102,28 @@ export function generateSubscriptionInvoicePdf(payload: InvoicePdfPayload): Prom
     doc.text("SUBSCRIPTION", margin + colW + colGap, y, { width: colW, characterSpacing: 0.5 });
 
     const rightX = margin + colW + colGap;
-    let yL = y;
-    let yR = y;
+    /** Place body text below the section labels so labels never overlap names/plan. */
+    const sectionLabelGap = 14;
+    let yL = y + sectionLabelGap;
+    let yR = y + sectionLabelGap;
 
     doc.font("Helvetica-Bold").fontSize(12).fillColor(COL.slate900);
     doc.text(business.name, margin, yL, { width: colW });
-    yL += 20;
+    yL += doc.heightOfString(business.name, { width: colW }) + 6;
 
     doc.font("Helvetica").fontSize(11).fillColor(COL.slate800);
     doc.text(plan.name, rightX, yR, { width: colW });
-    yR += 18;
+    yR += doc.heightOfString(plan.name, { width: colW }) + 4;
 
     doc.fontSize(10).fillColor(COL.slate600);
     doc.text(business.ownerName, margin, yL, { width: colW });
+    yL += doc.heightOfString(business.ownerName, { width: colW }) + 4;
     const planDescH = doc.heightOfString(plan.description, { width: colW });
     doc.text(plan.description, rightX, yR, { width: colW });
-    yL += 14;
     yR += planDescH + 8;
 
     doc.text(business.ownerEmail, margin, yL, { width: colW });
-    yL += 14;
+    yL += doc.heightOfString(business.ownerEmail, { width: colW }) + 4;
 
     doc.fontSize(8).fillColor(COL.slate500);
     doc.text(`Subscription status: ${subStatusHuman}`, rightX, yR, { width: colW });

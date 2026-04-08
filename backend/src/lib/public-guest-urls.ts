@@ -32,3 +32,10 @@ export function guestQuotationUrl(guestToken: string): string {
 export function guestInvoiceUrl(guestToken: string): string {
   return spaHashRoute(getPublicWebAppBaseUrl(), `/guest/invoice/${encodeURIComponent(guestToken)}`);
 }
+
+export function guestSubscriptionInvoiceUrl(guestToken: string): string {
+  return spaHashRoute(
+    getPublicWebAppBaseUrl(),
+    `/guest/subscription-invoice/${encodeURIComponent(guestToken)}`,
+  );
+}
