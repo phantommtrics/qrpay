@@ -849,7 +849,9 @@ export function AppRoutes() {
                 }
                 allowedRoles={route.roles}
                 requireBusinessOwner={
-                  'requireBusinessOwner' in route ? route.requireBusinessOwner : undefined
+                  'requireBusinessOwner' in route
+                    ? route.requireBusinessOwner === true
+                    : undefined
                 }
               >
                 {route.element}
