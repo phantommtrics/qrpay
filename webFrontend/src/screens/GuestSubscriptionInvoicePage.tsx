@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
+import { EasypayLogoMark } from '../components/branding/EasypayLogoMark'
 import {
   fetchGuestSubscriptionInvoice,
   fetchGuestSubscriptionInvoiceWallets,
@@ -126,7 +127,8 @@ export function GuestSubscriptionInvoicePage() {
   return (
     <div className="min-h-screen bg-slate-100 p-4 sm:p-8">
       <div className="mx-auto flex max-w-lg flex-col gap-6">
-        <header className="text-center">
+        <header className="flex flex-col items-center text-center">
+          <EasypayLogoMark className="mb-4 h-10 w-auto max-w-[min(100%,260px)] object-contain" />
           <h1 className="text-lg font-semibold text-slate-900">{payload.businessName}</h1>
           <p className="mt-1 text-sm text-slate-500">Subscription invoice</p>
         </header>

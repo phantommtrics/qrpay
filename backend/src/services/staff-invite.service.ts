@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { env } from "../config/env.js";
 import { HttpError } from "../lib/http-error.js";
+import { easypayEmailLogoHtml } from "../lib/easypay-logo.js";
 
 type StaffInviteContext = {
   staffName: string;
@@ -119,11 +120,14 @@ export function buildStaffInviteEmailContent(
   return {
     subject,
     htmlBody: `
-      ${intro}
-      <p>Here are your business details:</p>
-      ${businessDetails}
-      ${loginBlock}
-      <p>If you were not expecting this invitation, please contact ${input.businessOwnerEmail}.</p>
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0f172a;max-width:560px;">
+        ${easypayEmailLogoHtml()}
+        ${intro}
+        <p>Here are your business details:</p>
+        ${businessDetails}
+        ${loginBlock}
+        <p>If you were not expecting this invitation, please contact ${input.businessOwnerEmail}.</p>
+      </div>
     `,
     textBody:
       input.type === "existing-user"

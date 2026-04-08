@@ -3,6 +3,7 @@ import PDFDocument from "pdfkit";
 
 type PdfDoc = InstanceType<typeof PDFDocument>;
 
+import { drawEasypayLogoPdfHeader } from "../lib/easypay-logo.js";
 import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -88,6 +89,7 @@ export function buildSalesInvoicePdfBuffer(row: SalesInvoicePdfRow): Promise<Buf
     }
 
     let y = margin;
+    y = drawEasypayLogoPdfHeader(doc, margin, y);
 
     doc.font("Helvetica-Bold").fontSize(8).fillColor(COL.teal600);
     doc.text("SALES INVOICE", margin, y, { characterSpacing: 2 });
@@ -223,6 +225,7 @@ export function buildSalesQuotationPdfBuffer(row: SalesQuotationPdfRow): Promise
     }
 
     let y = margin;
+    y = drawEasypayLogoPdfHeader(doc, margin, y);
 
     doc.font("Helvetica-Bold").fontSize(8).fillColor(COL.teal600);
     doc.text("QUOTATION", margin, y, { characterSpacing: 2 });

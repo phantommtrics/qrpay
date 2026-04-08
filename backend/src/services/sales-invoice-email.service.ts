@@ -7,6 +7,7 @@ import {
 } from "@prisma/client";
 
 import { env } from "../config/env.js";
+import { easypayEmailLogoHtml } from "../lib/easypay-logo.js";
 import { guestInvoiceUrl } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
 import { buildSalesInvoicePdfBuffer, loadSalesInvoiceForPdfById } from "./sales-document-pdf.service.js";
@@ -70,9 +71,9 @@ export function buildSalesInvoiceApprovedEmailContent(input: {
 
   const htmlBody = `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0f172a;max-width:560px;">
+    ${easypayEmailLogoHtml()}
     <div style="border-bottom:2px solid #0d9488;padding-bottom:16px;margin-bottom:20px;">
-      <p style="margin:0;font-size:12px;letter-spacing:0.12em;color:#0d9488;font-weight:700;">${PLATFORM_NAME}</p>
-      <p style="margin:8px 0 0;font-size:20px;font-weight:700;color:#0f172a;">${escapeHtml(input.businessName)}</p>
+      <p style="margin:0;font-size:20px;font-weight:700;color:#0f172a;">${escapeHtml(input.businessName)}</p>
       ${businessEmailRow}
     </div>
 

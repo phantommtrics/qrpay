@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import PDFDocument from "pdfkit";
 
+import { drawEasypayLogoPdfHeader } from "../lib/easypay-logo.js";
 import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -76,6 +77,7 @@ export function buildBillPdfBuffer(row: BillPdfRow): Promise<Buffer> {
     }
 
     let y = margin;
+    y = drawEasypayLogoPdfHeader(doc, margin, y);
 
     doc.font("Helvetica-Bold").fontSize(8).fillColor(COL.teal600);
     doc.text("PURCHASE BILL", margin, y, { characterSpacing: 2 });

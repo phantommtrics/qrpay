@@ -1,3 +1,4 @@
+import { EasypayLogoMark } from '../branding/EasypayLogoMark'
 import type { BillRow, SalesInvoiceRow, SalesQuotationRow } from '../../services/salesDocumentsApi'
 import { formatMoney } from '../../utils/formatMoney'
 
@@ -69,7 +70,8 @@ export function SalesDocumentPaper(props: PaperProps) {
     >
       <div className="border-b border-slate-200 px-6 pb-6 pt-8 sm:px-10 sm:pb-8 sm:pt-10">
         <div className="flex flex-wrap items-start justify-between gap-6">
-          <div>
+          <div className="min-w-0 max-w-full">
+            <EasypayLogoMark className="mb-4 h-10 w-auto max-w-[min(100%,260px)] object-contain object-left sm:h-11" />
             <p className="font-serif text-xl font-semibold tracking-tight text-slate-900">
               {props.businessName}
             </p>

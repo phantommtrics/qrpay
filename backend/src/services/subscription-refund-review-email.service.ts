@@ -7,6 +7,7 @@ import {
 } from "@prisma/client";
 
 import { env } from "../config/env.js";
+import { easypayEmailLogoHtml } from "../lib/easypay-logo.js";
 import { prisma } from "../lib/prisma.js";
 import { generateSubscriptionInvoicePdf } from "./subscription-invoice-pdf.service.js";
 
@@ -195,6 +196,8 @@ async function dispatchRefundReviewEmail(invoiceId: string): Promise<void> {
 
   const subject = `${PLATFORM_NAME} — refund review in progress (${invoiceRef})`;
   const htmlBody = `
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0f172a;max-width:560px;">
+    ${easypayEmailLogoHtml()}
     <p>Dear ${ownerFirst},</p>
     <p>
       Thank you for your patience. We are reviewing a refund request relating to your subscription
@@ -218,6 +221,7 @@ async function dispatchRefundReviewEmail(invoiceId: string): Promise<void> {
       will be processed separately according to our procedures.
     </p>
     <p>Kind regards,<br/>The ${PLATFORM_NAME} billing team</p>
+  </div>
   `;
 
   const textBody = [
@@ -283,6 +287,8 @@ async function dispatchRefundApprovedEmail(invoiceId: string): Promise<void> {
 
   const subject = `${PLATFORM_NAME} — refund approved (${invoiceRef})`;
   const htmlBody = `
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0f172a;max-width:560px;">
+    ${easypayEmailLogoHtml()}
     <p>Dear ${ownerFirst},</p>
     <p>
       Following our review, we are pleased to confirm a refund decision for
@@ -309,6 +315,7 @@ async function dispatchRefundApprovedEmail(invoiceId: string): Promise<void> {
       If you have any questions, please reply to this email or contact your platform administrator.
     </p>
     <p>Kind regards,<br/>The ${PLATFORM_NAME} billing team</p>
+  </div>
   `;
 
   const textBody = [

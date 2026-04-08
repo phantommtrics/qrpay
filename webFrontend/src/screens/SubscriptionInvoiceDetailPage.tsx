@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, Download } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 
+import { EasypayLogoMark } from '../components/branding/EasypayLogoMark'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { APP_PATHS } from '../config/navigation'
@@ -110,12 +111,10 @@ export function SubscriptionInvoiceDetailPage() {
           className="mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-white p-8 shadow-sm print:max-w-none print:border-0 print:p-0 print:shadow-none"
         >
           <header className="flex flex-col gap-6 border-b border-slate-200 pb-8 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-teal-600">
-                EasyPay / EASYPay
-              </p>
-              <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">Invoice</h1>
-              <p className="mt-1 font-mono text-sm text-slate-500">{inv.id}</p>
+            <div className="min-w-0 max-w-full">
+              <EasypayLogoMark className="mb-4 h-10 w-auto max-w-[min(100%,280px)] object-contain object-left sm:h-11" />
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">Invoice</h1>
+              <p className="mt-2 font-mono text-sm text-slate-500">{inv.id}</p>
             </div>
             <div className="text-right text-sm text-slate-600">
               <p className="font-semibold text-slate-900">Status</p>

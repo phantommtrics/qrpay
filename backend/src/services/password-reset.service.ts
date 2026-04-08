@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { env } from "../config/env.js";
 import { HttpError } from "../lib/http-error.js";
+import { easypayEmailLogoHtml } from "../lib/easypay-logo.js";
 
 const PLATFORM_NAME = "EasyPay";
 
@@ -31,12 +32,15 @@ export async function sendPasswordResetEmail(input: PasswordResetEmailInput) {
   const resend = getResendClient();
   const subject = `${PLATFORM_NAME} temporary password`;
   const htmlBody = `
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0f172a;max-width:560px;">
+    ${easypayEmailLogoHtml()}
     <p>Hello ${input.userName},</p>
     <p>We received a password reset request for your ${PLATFORM_NAME} account.</p>
     <p>Your temporary password is:</p>
     <p><strong>${input.temporaryPassword}</strong></p>
     <p>Visit <a href="${env.PLATFORM_URL}">${env.PLATFORM_URL}</a> to sign in. You will be asked to create a new password immediately.</p>
     <p>If you did not request this reset, please contact support as soon as possible.</p>
+  </div>
   `;
   const textBody = [
     `Hello ${input.userName},`,
@@ -77,12 +81,15 @@ export function buildSignUpTemporaryPasswordEmailContent(
 ): SignUpTemporaryPasswordEmailContent {
   const subject = `Your ${PLATFORM_NAME} account is ready`;
   const htmlBody = `
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0f172a;max-width:560px;">
+    ${easypayEmailLogoHtml()}
     <p>Hello ${input.userName},</p>
     <p>Welcome to ${PLATFORM_NAME}. Your organization has been created.</p>
     <p>Your temporary password is:</p>
     <p><strong>${input.temporaryPassword}</strong></p>
     <p>Visit <a href="${env.PLATFORM_URL}">${env.PLATFORM_URL}</a> to sign in. You will be asked to create a new password after you log in.</p>
     <p>If you did not create this account, please contact support.</p>
+  </div>
   `;
   const textBody = [
     `Hello ${input.userName},`,
@@ -137,12 +144,15 @@ export function buildPlatformAdminTemporaryPasswordEmailContent(
 ): SignUpTemporaryPasswordEmailContent {
   const subject = `Your ${PLATFORM_NAME} platform access is ready`;
   const htmlBody = `
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0f172a;max-width:560px;">
+    ${easypayEmailLogoHtml()}
     <p>Hello ${input.userName},</p>
     <p>You have been granted platform administration access to ${PLATFORM_NAME}.</p>
     <p>Your temporary password is:</p>
     <p><strong>${input.temporaryPassword}</strong></p>
     <p>Visit <a href="${env.PLATFORM_URL}">${env.PLATFORM_URL}</a> to sign in. You will be asked to create a new password after you log in.</p>
     <p>If you were not expecting this, contact the platform owner immediately.</p>
+  </div>
   `;
   const textBody = [
     `Hello ${input.userName},`,

@@ -1,6 +1,8 @@
 import type { Business, Plan, Subscription, SubscriptionInvoice } from "@prisma/client";
 import PDFDocument from "pdfkit";
 
+import { drawEasypayLogoPdfHeader } from "../lib/easypay-logo.js";
+
 /** Tailwind-aligned palette (matches subscription invoice detail page). */
 const COL = {
   teal600: "#0d9488",
@@ -56,21 +58,16 @@ export function generateSubscriptionInvoicePdf(payload: InvoicePdfPayload): Prom
     const subStatusHuman = subscription.status.replace(/_/g, " ");
 
     let y = margin;
+    y = drawEasypayLogoPdfHeader(doc, margin, y);
 
-    // —— Header: left block (EasyPay, Invoice, id) + right block (status, dates) ——
+    // —— Header: left block (Invoice title, id) + right block (status, dates) ——
     const headerTop = y;
 
-    doc.font("Helvetica-Bold").fontSize(8).fillColor(COL.teal600);
-    doc.text("EASYPAY", margin, headerTop, {
-      characterSpacing: 2,
-      width: midX - margin - 12,
-    });
-
     doc.font("Helvetica-Bold").fontSize(26).fillColor(COL.slate900);
-    doc.text("Invoice", margin, headerTop + 16, { width: midX - margin - 12 });
+    doc.text("Invoice", margin, headerTop, { width: midX - margin - 12 });
 
     doc.font("Courier").fontSize(9).fillColor(COL.slate500);
-    doc.text(payload.id, margin, headerTop + 48, { width: midX - margin - 12 });
+    doc.text(payload.id, margin, headerTop + 32, { width: midX - margin - 12 });
 
     const ry = headerTop;
     doc.font("Helvetica").fontSize(10).fillColor(COL.slate600);

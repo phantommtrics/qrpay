@@ -6,6 +6,7 @@ import {
 } from "@prisma/client";
 
 import { env } from "../config/env.js";
+import { easypayEmailLogoHtml } from "../lib/easypay-logo.js";
 import { guestSubscriptionInvoiceUrl, spaHashRoute } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
 import { newGuestToken } from "../lib/guest-token.js";
@@ -50,6 +51,8 @@ export function buildSubscriptionInvoiceEmailContent(input: {
     <p style="margin:0 0 16px;font-size:13px;color:#64748b;">Or open this link: <a href="${escapeHtml(input.payOnlineUrl.trim())}" style="color:#0d9488;word-break:break-all;">${escapeHtml(input.payOnlineUrl.trim())}</a></p>`
       : "";
   const htmlBody = `
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0f172a;max-width:560px;">
+    ${easypayEmailLogoHtml()}
     <p>Dear ${input.ownerFirstName},</p>
     <p>
       A new subscription invoice has been issued for <strong>${input.businessName}</strong>.
@@ -73,6 +76,7 @@ export function buildSubscriptionInvoiceEmailContent(input: {
       If you have questions about this invoice, reply to this email or contact your platform administrator.
     </p>
     <p>Kind regards,<br/>The ${PLATFORM_NAME} team</p>
+  </div>
   `;
 
   const textBody = [
