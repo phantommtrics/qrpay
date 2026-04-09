@@ -3,6 +3,8 @@ import { useParams } from 'react-router-dom'
 
 import { EasypayLogoMark } from '../components/branding/EasypayLogoMark'
 import {
+  authorizeGuestSubscriptionInvoiceApsCheckout,
+  completeGuestSubscriptionInvoiceApsCheckout,
   fetchGuestSubscriptionInvoice,
   fetchGuestSubscriptionInvoiceWallets,
   startGuestSubscriptionInvoiceWalletCheckout,
@@ -28,6 +30,8 @@ export function GuestSubscriptionInvoicePage() {
   const [launchUrl, setLaunchUrl] = useState<string | null>(null)
   const [paymentHtml, setPaymentHtml] = useState<string | null>(null)
   const [checkoutAdapter, setCheckoutAdapter] = useState<string | null>(null)
+  const [apsAuthState, setApsAuthState] = useState<string | null>(null)
+  const [apsOtp, setApsOtp] = useState('')
 
   const load = useCallback(async () => {
     if (!guestToken) {
@@ -51,6 +55,11 @@ export function GuestSubscriptionInvoicePage() {
     void load()
   }, [load])
 
+  useEffect(() => {
+    setApsAuthState(null)
+    setApsOtp('')
+  }, [selectedGatewayCode])
+
   const openPay = async () => {
     if (!guestToken) return
     setPayOpen(true)
@@ -59,6 +68,8 @@ export function GuestSubscriptionInvoicePage() {
     setLaunchUrl(null)
     setPaymentHtml(null)
     setCheckoutAdapter(null)
+    setApsAuthState(null)
+    setApsOtp('')
     try {
       const list = await fetchGuestSubscriptionInvoiceWallets(guestToken)
       setWallets(list)
@@ -79,9 +90,40 @@ export function GuestSubscriptionInvoicePage() {
       setError('Enter the wallet phone number to pay.')
       return
     }
+    if (sel.checkoutAdapter === 'aps_wallet' && !payerPhone.trim()) {
+      setError('Enter the APS mobile number to receive the OTP.')
+      return
+    }
+    if (sel.checkoutAdapter === 'aps_wallet' && apsAuthState && apsOtp.trim().length < 4) {
+      setError('Enter the OTP from your SMS.')
+      return
+    }
     setCheckoutBusy(true)
     setError(null)
     try {
+      if (sel.checkoutAdapter === 'aps_wallet') {
+        if (!apsAuthState) {
+          const { authState } = await authorizeGuestSubscriptionInvoiceApsCheckout(guestToken, {
+            gatewayCode: selectedGatewayCode,
+            payerMobile: payerPhone.trim(),
+          })
+          setApsAuthState(authState)
+          setCheckoutAdapter('aps_wallet')
+          return
+        }
+        await completeGuestSubscriptionInvoiceApsCheckout(guestToken, {
+          gatewayCode: selectedGatewayCode,
+          otp: apsOtp.trim(),
+          authState: apsAuthState,
+        })
+        setPayOpen(false)
+        setApsAuthState(null)
+        setApsOtp('')
+        setPayerPhone('')
+        await load()
+        return
+      }
+
       const body: { gatewayCode: string; payerPhone?: string } = {
         gatewayCode: selectedGatewayCode,
       }
@@ -223,6 +265,37 @@ export function GuestSubscriptionInvoicePage() {
                     />
                   </label>
                 ) : null}
+                {selectedGatewayCode &&
+                wallets.find((x) => x.code === selectedGatewayCode)?.checkoutAdapter === 'aps_wallet' ? (
+                  <label className="block text-sm">
+                    <span className="text-slate-600">APS mobile number</span>
+                    <input
+                      type="tel"
+                      value={payerPhone}
+                      onChange={(e) => setPayerPhone(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                      placeholder="2XXXXXXX"
+                      autoComplete="tel"
+                      disabled={Boolean(apsAuthState)}
+                    />
+                  </label>
+                ) : null}
+                {selectedGatewayCode &&
+                wallets.find((x) => x.code === selectedGatewayCode)?.checkoutAdapter === 'aps_wallet' &&
+                apsAuthState ? (
+                  <label className="block text-sm">
+                    <span className="text-slate-600">OTP from SMS</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={apsOtp}
+                      onChange={(e) => setApsOtp(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                      placeholder="Enter the code"
+                      autoComplete="one-time-code"
+                    />
+                  </label>
+                ) : null}
                 <div className="flex flex-wrap justify-center gap-3">
                   <button
                     type="button"
@@ -231,6 +304,8 @@ export function GuestSubscriptionInvoicePage() {
                       setLaunchUrl(null)
                       setPaymentHtml(null)
                       setCheckoutAdapter(null)
+                      setApsAuthState(null)
+                      setApsOtp('')
                     }}
                     className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
                   >
@@ -238,11 +313,39 @@ export function GuestSubscriptionInvoicePage() {
                   </button>
                   <button
                     type="button"
-                    disabled={checkoutBusy || !selectedGatewayCode || Boolean(launchUrl || paymentHtml)}
+                    disabled={(() => {
+                      const gate = wallets.find((w) => w.code === selectedGatewayCode)
+                      const isAps = gate?.checkoutAdapter === 'aps_wallet'
+                      if (checkoutBusy || !selectedGatewayCode) {
+                        return true
+                      }
+                      if (isAps) {
+                        if (!apsAuthState) {
+                          return !payerPhone.trim()
+                        }
+                        return apsOtp.trim().length < 4
+                      }
+                      return Boolean(launchUrl || paymentHtml)
+                    })()}
                     onClick={() => void startCheckout()}
                     className="rounded-xl bg-teal-600 px-6 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
                   >
-                    {checkoutBusy ? 'Starting…' : launchUrl || paymentHtml ? 'Started' : 'Continue'}
+                    {checkoutBusy
+                      ? wallets.find((w) => w.code === selectedGatewayCode)?.checkoutAdapter === 'aps_wallet' &&
+                          !apsAuthState
+                        ? 'Sending…'
+                        : wallets.find((w) => w.code === selectedGatewayCode)?.checkoutAdapter === 'aps_wallet'
+                          ? 'Paying…'
+                          : 'Starting…'
+                      : wallets.find((w) => w.code === selectedGatewayCode)?.checkoutAdapter === 'aps_wallet' &&
+                          !apsAuthState
+                        ? 'Send OTP'
+                        : wallets.find((w) => w.code === selectedGatewayCode)?.checkoutAdapter === 'aps_wallet' &&
+                            apsAuthState
+                          ? 'Pay now'
+                          : launchUrl || paymentHtml
+                            ? 'Started'
+                            : 'Continue'}
                   </button>
                 </div>
                 {paymentHtml && checkoutAdapter === 'yonna_wallet' ? (
@@ -253,7 +356,9 @@ export function GuestSubscriptionInvoicePage() {
                     sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
                   />
                 ) : null}
-                {launchUrl && checkoutAdapter !== 'yonna_wallet' ? (
+                {launchUrl &&
+                checkoutAdapter !== 'yonna_wallet' &&
+                checkoutAdapter !== 'aps_wallet' ? (
                   <a
                     href={launchUrl}
                     target="_blank"

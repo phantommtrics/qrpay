@@ -21,6 +21,7 @@ const CHECKOUT_ADAPTER_PRESETS: { value: string; label: string }[] = [
   { value: '', label: 'None — saved payment methods only' },
   { value: 'wave_gambia', label: 'Wave hosted checkout (Gambia)' },
   { value: 'yonna_wallet', label: 'Yonna Wallet / Yonna Forex checkout' },
+  { value: 'aps_wallet', label: 'APS Wallet (OTP) checkout' },
 ]
 
 function checkoutAdapterLabel(adapter: string | null) {
@@ -226,7 +227,13 @@ export function PlatformPaymentGatewaysPage() {
                 <code className="rounded bg-white px-1 py-0.5 text-xs">YONNA_FOREX_CLIENT_ID</code>, and
                 optionally{' '}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">YONNA_FOREX_WEBHOOK_SECRET</code>{' '}
-                for <code className="rounded bg-white px-1 py-0.5 text-xs">/api/webhooks/yonna-forex</code>.
+                for <code className="rounded bg-white px-1 py-0.5 text-xs">/api/webhooks/yonna-forex</code>. The APS
+                Wallet adapter expects{' '}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">APS_WALLET_BASE_URL</code>,{' '}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">APS_WALLET_MOBILE</code>,{' '}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">APS_WALLET_PASSWORD</code>, and optionally{' '}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">APS_WALLET_ACCESS_CHANNEL</code> (merchant login
+                for API Bearer tokens; customers confirm via SMS OTP in the billing UI).
               </p>
             </div>
           ) : null}

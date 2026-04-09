@@ -50,6 +50,12 @@ import {
   updatePlanPricing,
 } from "./services/subscription.service.js";
 import { createSubscriptionInvoiceCheckout } from "./services/subscription-invoice-checkout.service.js";
+import {
+  authorizeGuestSubscriptionInvoiceApsCheckout,
+  authorizeSubscriptionInvoiceApsCheckout,
+  completeGuestSubscriptionInvoiceApsCheckout,
+  completeSubscriptionInvoiceApsCheckout,
+} from "./services/subscription-aps-wallet-checkout.service.js";
 import { processWaveSubscriptionWebhook } from "./services/wave-subscription-webhook.service.js";
 import { processYonnaSubscriptionWebhook } from "./services/yonna-subscription-webhook.service.js";
 import {
@@ -678,6 +684,17 @@ const subscriptionCheckoutBodySchema = z.object({
   gatewayCode: z.string().min(1),
   restrictPayerMobile: z.string().optional(),
   payerPhone: z.string().optional(),
+});
+
+const apsWalletAuthorizeBodySchema = z.object({
+  gatewayCode: z.string().min(1),
+  payerMobile: z.string().min(1),
+});
+
+const apsWalletCompleteBodySchema = z.object({
+  gatewayCode: z.string().min(1),
+  otp: z.string().min(1),
+  authState: z.string().min(1),
 });
 
 const addBusinessPaymentMethodBodySchema = z.object({
@@ -4519,6 +4536,55 @@ app.post(
   },
 );
 
+app.post(
+  "/api/businesses/:businessId/invoices/:invoiceId/checkout/aps-wallet/authorize",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireSubscriptionsBillingOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId, invoiceId } = req.params;
+      const body = apsWalletAuthorizeBodySchema.parse(req.body ?? {});
+      const data = await authorizeSubscriptionInvoiceApsCheckout({
+        invoiceId: invoiceId as string,
+        businessId: businessId as string,
+        userId: req.user!.id,
+        gatewayCode: body.gatewayCode,
+        payerMobile: body.payerMobile,
+        req,
+      });
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/invoices/:invoiceId/checkout/aps-wallet/complete",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireSubscriptionsBillingOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const { businessId, invoiceId } = req.params;
+      const body = apsWalletCompleteBodySchema.parse(req.body ?? {});
+      const data = await completeSubscriptionInvoiceApsCheckout({
+        invoiceId: invoiceId as string,
+        businessId: businessId as string,
+        userId: req.user!.id,
+        gatewayCode: body.gatewayCode,
+        otp: body.otp,
+        authState: body.authState,
+        req,
+      });
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 app.post("/api/subscriptions/:subscriptionId/renew", async (request, response, next) => {
   try {
     const result = await renewSubscription(request.params.subscriptionId);
@@ -4684,6 +4750,43 @@ app.post(
           checkoutStatus: result.checkoutStatus,
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/public/guest/subscription-invoice/:guestToken/payments/aps-wallet/authorize",
+  async (request, response, next) => {
+    try {
+      const body = apsWalletAuthorizeBodySchema.parse(request.body ?? {});
+      const data = await authorizeGuestSubscriptionInvoiceApsCheckout({
+        guestToken: request.params.guestToken as string,
+        gatewayCode: body.gatewayCode,
+        payerMobile: body.payerMobile,
+        req: request,
+      });
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/public/guest/subscription-invoice/:guestToken/payments/aps-wallet/complete",
+  async (request, response, next) => {
+    try {
+      const body = apsWalletCompleteBodySchema.parse(request.body ?? {});
+      const data = await completeGuestSubscriptionInvoiceApsCheckout({
+        guestToken: request.params.guestToken as string,
+        gatewayCode: body.gatewayCode,
+        otp: body.otp,
+        authState: body.authState,
+        req: request,
+      });
+      response.json({ data });
     } catch (error) {
       next(error);
     }

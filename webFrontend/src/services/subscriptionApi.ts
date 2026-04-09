@@ -2055,6 +2055,38 @@ export async function startSubscriptionInvoiceCheckout(
   return response.data
 }
 
+export async function authorizeSubscriptionInvoiceApsCheckout(
+  businessId: string,
+  invoiceId: string,
+  body: { gatewayCode: string; payerMobile: string },
+) {
+  const response = await apiRequest<{ data: { authState: string } }>(
+    `/businesses/${businessId}/invoices/${invoiceId}/checkout/aps-wallet/authorize`,
+    {
+      method: 'POST',
+      headers: { 'x-business-id': businessId },
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export async function completeSubscriptionInvoiceApsCheckout(
+  businessId: string,
+  invoiceId: string,
+  body: { gatewayCode: string; otp: string; authState: string },
+) {
+  const response = await apiRequest<{ data: { paid: true } }>(
+    `/businesses/${businessId}/invoices/${invoiceId}/checkout/aps-wallet/complete`,
+    {
+      method: 'POST',
+      headers: { 'x-business-id': businessId },
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
 export type PlanChangePendingInvoice = BackendInvoice & {
   guestPayUrl: string | null
 }

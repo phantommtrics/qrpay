@@ -34,10 +34,20 @@ const yonnaRate = parseWalletFeeRate(
   "SUBSCRIPTION_CHECKOUT_YONNA_WALLET_FEE_RATE",
 );
 
+const apsRate = parseWalletFeeRate(
+  process.env.SUBSCRIPTION_CHECKOUT_APS_WALLET_FEE_RATE,
+  "0",
+  "SUBSCRIPTION_CHECKOUT_APS_WALLET_FEE_RATE",
+);
+
 export function subscriptionCheckoutWaveWalletFeeRate(): Prisma.Decimal {
   return waveRate;
 }
 
 export function subscriptionCheckoutYonnaWalletFeeRate(): Prisma.Decimal {
   return yonnaRate;
+}
+
+export function subscriptionCheckoutApsWalletFeeRate(): Prisma.Decimal {
+  return apsRate;
 }

@@ -205,6 +205,23 @@ async function main() {
     },
   });
 
+  await prisma.paymentGateway.upsert({
+    where: { code: "aps_wallet" },
+    create: {
+      code: "aps_wallet",
+      name: "APS Wallet",
+      description: "APS Money wallet (OTP) checkout for subscription invoices",
+      isEnabled: false,
+      sortOrder: 12,
+      checkoutAdapter: "aps_wallet",
+    },
+    update: {
+      name: "APS Wallet",
+      description: "APS Money wallet (OTP) checkout for subscription invoices",
+      checkoutAdapter: "aps_wallet",
+    },
+  });
+
   const platformOwnerEmailRaw = process.env.PLATFORM_OWNER_EMAIL?.trim().toLowerCase();
   const platformOwnerEmail =
     platformOwnerEmailRaw && platformOwnerEmailRaw.length > 0

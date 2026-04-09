@@ -755,6 +755,62 @@ export async function startGuestSubscriptionInvoiceWalletCheckout(
   return (payload as { data: GuestSubscriptionCheckoutData }).data
 }
 
+export async function authorizeGuestSubscriptionInvoiceApsCheckout(
+  guestToken: string,
+  body: { gatewayCode: string; payerMobile: string },
+): Promise<{ authState: string }> {
+  const response = await fetch(
+    `${API_BASE_URL}/public/guest/subscription-invoice/${encodeURIComponent(guestToken)}/payments/aps-wallet/authorize`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  return (payload as { data: { authState: string } }).data
+}
+
+export async function completeGuestSubscriptionInvoiceApsCheckout(
+  guestToken: string,
+  body: { gatewayCode: string; otp: string; authState: string },
+): Promise<{ paid: true }> {
+  const response = await fetch(
+    `${API_BASE_URL}/public/guest/subscription-invoice/${encodeURIComponent(guestToken)}/payments/aps-wallet/complete`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  return (payload as { data: { paid: true } }).data
+}
+
 export async function simulatePublicWalletPay(publicToken: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/public/pay/${publicToken}/simulate`, {
     method: 'POST',

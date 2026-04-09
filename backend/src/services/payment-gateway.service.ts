@@ -3,10 +3,12 @@ import { HttpError } from "../lib/http-error.js";
 
 export const GATEWAY_CODE_WAVE_GAMBIA = "wave_gambia";
 export const GATEWAY_CODE_YONNA_WALLET = "yonna_wallet";
+export const GATEWAY_CODE_APS_WALLET = "aps_wallet";
 
 /** Subscription checkout integrations (gateway.checkoutAdapter). */
 export const CHECKOUT_ADAPTER_WAVE_GAMBIA = "wave_gambia";
 export const CHECKOUT_ADAPTER_YONNA_WALLET = "yonna_wallet";
+export const CHECKOUT_ADAPTER_APS_WALLET = "aps_wallet";
 
 const GATEWAY_CODE_PATTERN = /^[a-z][a-z0-9_]{0,62}$/;
 

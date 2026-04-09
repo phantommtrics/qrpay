@@ -13,6 +13,7 @@ import { WavePaymentService } from "./wave-payment.service.js";
 import { YonnaForexPaymentService } from "./yonna-forex-payment.service.js";
 import { resolveAppPublicBaseForBrowserReturns } from "../config/app-public-url.js";
 import {
+  CHECKOUT_ADAPTER_APS_WALLET,
   CHECKOUT_ADAPTER_WAVE_GAMBIA,
   CHECKOUT_ADAPTER_YONNA_WALLET,
   getPaymentGatewayByCode,
@@ -82,6 +83,12 @@ export async function runSubscriptionInvoiceGatewayCheckout(input: {
   }
 
   const adapter = gateway.checkoutAdapter?.trim() || "";
+  if (adapter === CHECKOUT_ADAPTER_APS_WALLET) {
+    throw new HttpError(
+      400,
+      "APS Wallet checkout uses SMS OTP: authorize, then complete in the billing UI (or guest pay page).",
+    );
+  }
   if (adapter !== CHECKOUT_ADAPTER_WAVE_GAMBIA && adapter !== CHECKOUT_ADAPTER_YONNA_WALLET) {
     throw new HttpError(
       400,

@@ -31,6 +31,8 @@ import {
   fetchBusinessSubscription,
   fetchPlansRaw,
   paySubscriptionInvoice,
+  authorizeSubscriptionInvoiceApsCheckout,
+  completeSubscriptionInvoiceApsCheckout,
   startSubscriptionInvoiceCheckout,
   type BackendInvoice,
   type BackendPlanCode,
@@ -118,6 +120,8 @@ export function BillingPage() {
   const [planChangeGuestUrl, setPlanChangeGuestUrl] = useState<string | null>(null)
   const [planChangeGuestUrlCopied, setPlanChangeGuestUrlCopied] = useState(false)
   const [devSubscriptionInvoicePayAllowed, setDevSubscriptionInvoicePayAllowed] = useState(false)
+  const [apsAuthState, setApsAuthState] = useState<string | null>(null)
+  const [apsOtp, setApsOtp] = useState('')
 
   const gatewaysWithCheckout = useMemo(
     () => gateways.filter((g) => Boolean(g.checkoutAdapter)),
@@ -197,8 +201,11 @@ export function BillingPage() {
     return gateways.find((g) => g.code === m.gateway.code)?.checkoutAdapter ?? null
   }, [selectedPayMethodId, methods, gateways])
 
-  const needsYonnaPayerPhone = selectedPayMethodCheckoutAdapter === 'yonna_wallet'
-  const yonnaPhoneOk = !needsYonnaPayerPhone || yonnaPayerPhone.replace(/\s/g, '').length >= 8
+  const needsPhoneForSubscriptionWallet =
+    selectedPayMethodCheckoutAdapter === 'yonna_wallet' ||
+    selectedPayMethodCheckoutAdapter === 'aps_wallet'
+  const walletPhoneOk =
+    !needsPhoneForSubscriptionWallet || yonnaPayerPhone.replace(/\s/g, '').length >= 8
 
   useEffect(() => {
     setCheckoutLinkCopied(false)
@@ -207,8 +214,15 @@ export function BillingPage() {
   useEffect(() => {
     if (!payInvoicePicker) {
       setYonnaPayerPhone(DEFAULT_YONNA_PHONE_PREFIX)
+      setApsAuthState(null)
+      setApsOtp('')
     }
   }, [payInvoicePicker])
+
+  useEffect(() => {
+    setApsAuthState(null)
+    setApsOtp('')
+  }, [selectedPayMethodId])
 
   useEffect(() => {
     if (!payInvoicePicker) {
@@ -330,12 +344,50 @@ export function BillingPage() {
     if (!method || !checkoutGatewayCodeSet.has(method.gateway.code)) {
       return
     }
+    const adapter =
+      gateways.find((g) => g.code === method.gateway.code)?.checkoutAdapter ?? null
+
+    if (adapter === 'aps_wallet') {
+      setCheckoutLoadingKey(`pay:${payInvoicePicker.invoiceId}`)
+      setError(null)
+      try {
+        if (!apsAuthState) {
+          const { authState } = await authorizeSubscriptionInvoiceApsCheckout(
+            businessId,
+            payInvoicePicker.invoiceId,
+            {
+              gatewayCode: method.gateway.code,
+              payerMobile: yonnaPayerPhone.trim(),
+            },
+          )
+          setApsAuthState(authState)
+          return
+        }
+        await completeSubscriptionInvoiceApsCheckout(businessId, payInvoicePicker.invoiceId, {
+          gatewayCode: method.gateway.code,
+          otp: apsOtp.trim(),
+          authState: apsAuthState,
+        })
+        setPayInvoicePicker(null)
+        setApsAuthState(null)
+        setApsOtp('')
+        setCheckoutPaidBanner(true)
+        await load({ silent: true })
+        await refreshBusinessSubscriptionSnapshot(businessId)
+      } catch (e) {
+        setError(e instanceof ApiError ? e.message : 'Could not complete APS Wallet payment.')
+      } finally {
+        setCheckoutLoadingKey(null)
+      }
+      return
+    }
+
     await startCheckoutForMethod(
       payInvoicePicker.invoiceId,
       method.gateway.code,
       method.gateway.name,
       method.label,
-      needsYonnaPayerPhone ? yonnaPayerPhone : undefined,
+      selectedPayMethodCheckoutAdapter === 'yonna_wallet' ? yonnaPayerPhone : undefined,
     )
   }
 
@@ -947,22 +999,46 @@ export function BillingPage() {
                     })}
                   </div>
                 )}
-                {needsYonnaPayerPhone ? (
+                {needsPhoneForSubscriptionWallet ? (
                   <div className="mt-4">
                     <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Yonna wallet phone
+                      {selectedPayMethodCheckoutAdapter === 'aps_wallet'
+                        ? 'APS mobile number'
+                        : 'Yonna wallet phone'}
                     </label>
                     <input
                       type="tel"
                       autoComplete="tel"
-                      placeholder="e.g. +2207XXXXXXX"
+                      placeholder={
+                        selectedPayMethodCheckoutAdapter === 'aps_wallet'
+                          ? 'e.g. 2XXXXXXX'
+                          : 'e.g. +2207XXXXXXX'
+                      }
                       value={yonnaPayerPhone}
                       onChange={(e) => setYonnaPayerPhone(e.target.value)}
                       className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none ring-teal-500 focus:ring-2"
                     />
                     <p className="mt-1 text-xs text-slate-500">
-                      The number registered on the Yonna wallet that will pay this invoice.
+                      {selectedPayMethodCheckoutAdapter === 'aps_wallet'
+                        ? 'The APS wallet number that will receive the SMS code to confirm payment.'
+                        : 'The number registered on the Yonna wallet that will pay this invoice.'}
                     </p>
+                  </div>
+                ) : null}
+                {selectedPayMethodCheckoutAdapter === 'aps_wallet' && apsAuthState ? (
+                  <div className="mt-4">
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      OTP from SMS
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="Enter the code"
+                      value={apsOtp}
+                      onChange={(e) => setApsOtp(e.target.value)}
+                      className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none ring-teal-500 focus:ring-2"
+                    />
                   </div>
                 ) : null}
                 <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -975,20 +1051,39 @@ export function BillingPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={
-                      !selectedPayMethodId ||
-                      methodsEligibleForInvoicePay.length === 0 ||
-                      !yonnaPhoneOk ||
-                      checkoutLoadingKey === `pay:${payInvoicePicker.invoiceId}`
-                    }
+                    disabled={(() => {
+                      const payLoading = checkoutLoadingKey === `pay:${payInvoicePicker.invoiceId}`
+                      if (
+                        !selectedPayMethodId ||
+                        methodsEligibleForInvoicePay.length === 0 ||
+                        payLoading
+                      ) {
+                        return true
+                      }
+                      if (selectedPayMethodCheckoutAdapter === 'aps_wallet') {
+                        if (apsAuthState) {
+                          return apsOtp.trim().length < 4
+                        }
+                        return !walletPhoneOk
+                      }
+                      return !walletPhoneOk
+                    })()}
                     onClick={() => void handleProceedPayInvoice()}
                     className="rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {checkoutLoadingKey === `pay:${payInvoicePicker.invoiceId}` ? (
                       <span className="inline-flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Starting…
+                        {selectedPayMethodCheckoutAdapter === 'aps_wallet' && !apsAuthState
+                          ? 'Sending…'
+                          : selectedPayMethodCheckoutAdapter === 'aps_wallet'
+                            ? 'Paying…'
+                            : 'Starting…'}
                       </span>
+                    ) : selectedPayMethodCheckoutAdapter === 'aps_wallet' && !apsAuthState ? (
+                      'Send OTP'
+                    ) : selectedPayMethodCheckoutAdapter === 'aps_wallet' && apsAuthState ? (
+                      'Pay now'
                     ) : (
                       'Proceed to pay'
                     )}

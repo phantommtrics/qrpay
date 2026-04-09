@@ -19,10 +19,15 @@ import {
   PLATFORM_CHART_WALLET_FEES_SUBSCRIPTIONS,
 } from "./platform-chart-of-accounts.service.js";
 import {
+  subscriptionCheckoutApsWalletFeeRate,
   subscriptionCheckoutWaveWalletFeeRate,
   subscriptionCheckoutYonnaWalletFeeRate,
 } from "../config/subscription-checkout-wallet-fee-env.js";
-import { CHECKOUT_ADAPTER_WAVE_GAMBIA, CHECKOUT_ADAPTER_YONNA_WALLET } from "./payment-gateway.service.js";
+import {
+  CHECKOUT_ADAPTER_APS_WALLET,
+  CHECKOUT_ADAPTER_WAVE_GAMBIA,
+  CHECKOUT_ADAPTER_YONNA_WALLET,
+} from "./payment-gateway.service.js";
 
 type Tx = Omit<
   Prisma.TransactionClient,
@@ -331,11 +336,18 @@ function subscriptionCheckoutWalletFeeRate(provider: string): Prisma.Decimal {
   if (provider === CHECKOUT_ADAPTER_YONNA_WALLET) {
     return subscriptionCheckoutYonnaWalletFeeRate();
   }
+  if (provider === CHECKOUT_ADAPTER_APS_WALLET) {
+    return subscriptionCheckoutApsWalletFeeRate();
+  }
   return new Prisma.Decimal("0");
 }
 
 function isSubscriptionCheckoutWalletFeeRail(provider: string): boolean {
-  return provider === CHECKOUT_ADAPTER_WAVE_GAMBIA || provider === CHECKOUT_ADAPTER_YONNA_WALLET;
+  return (
+    provider === CHECKOUT_ADAPTER_WAVE_GAMBIA ||
+    provider === CHECKOUT_ADAPTER_YONNA_WALLET ||
+    provider === CHECKOUT_ADAPTER_APS_WALLET
+  );
 }
 
 /**
@@ -411,8 +423,8 @@ export async function postPlatformJournalForSubscriptionWalletFeeLedger(
 }
 
 /**
- * After a successful Wave/Yonna subscription payment: billing ledger WALLET_FEE (rate × gross) + platform GL.
- * Rates: SUBSCRIPTION_CHECKOUT_WAVE_WALLET_FEE_RATE / SUBSCRIPTION_CHECKOUT_YONNA_WALLET_FEE_RATE (fraction 0–1).
+ * After a successful Wave/Yonna/APS subscription payment: billing ledger WALLET_FEE (rate × gross) + platform GL.
+ * Rates: SUBSCRIPTION_CHECKOUT_WAVE_WALLET_FEE_RATE / SUBSCRIPTION_CHECKOUT_YONNA_WALLET_FEE_RATE / SUBSCRIPTION_CHECKOUT_APS_WALLET_FEE_RATE (fraction 0–1).
  * Other checkout providers no-op here.
  * Idempotent per invoice (one WALLET_FEE row per subscription invoice).
  */
