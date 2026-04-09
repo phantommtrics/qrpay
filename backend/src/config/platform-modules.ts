@@ -24,6 +24,8 @@ export const PLATFORM_MODULE_SLUGS = {
   ACCOUNTING_REPORTS_GL: "platform.accounting.reports_gl",
   ACCOUNTING_REPORTS_PNL: "platform.accounting.reports_pnl",
   ACCOUNTING_REPORTS_STATEMENT: "platform.accounting.reports_statement",
+  /** Merchant GL postings: list / approve before they appear on statements (exempt: customer sale QR/POS). */
+  ACCOUNTING_TRANSACTION_JOURNAL: "platform.accounting.transaction_journal",
   SYSTEM_CONFIGURATION: "platform.system_configuration",
   SECURITY_ROLES: "platform.security_roles",
   SECURITY_FUNCTION_GROUPS: "platform.security_function_groups",
@@ -93,6 +95,11 @@ export const PLATFORM_MODULES_SEED: { slug: string; label: string; sortOrder: nu
     slug: PLATFORM_MODULE_SLUGS.ACCOUNTING_REPORTS_STATEMENT,
     label: "Finance — Account statement",
     sortOrder: 77,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.ACCOUNTING_TRANSACTION_JOURNAL,
+    label: "Finance — Transaction journal (merchant approval)",
+    sortOrder: 78,
   },
   { slug: PLATFORM_MODULE_SLUGS.SYSTEM_CONFIGURATION, label: "System configuration", sortOrder: 80 },
   { slug: PLATFORM_MODULE_SLUGS.SECURITY_ROLES, label: "Security — Role templates", sortOrder: 90 },

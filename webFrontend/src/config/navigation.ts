@@ -54,6 +54,9 @@ export const APP_PATHS = {
   accountingReportGlBalance: '/accounting/reports/gl-balance',
   accountingReportProfitLoss: '/accounting/reports/profit-loss',
   accountingReportAccountStatement: '/accounting/reports/account-statement',
+  accountingTransactionJournal: '/accounting/transaction-journal',
+  /** Dynamic: `/accounting/transaction-journal/:journalEntryId` */
+  accountingTransactionJournalDetail: '/accounting/transaction-journal/:journalEntryId',
   staff: '/staff',
   staffStatus: '/staff/status',
   configuration: '/configuration',
@@ -73,6 +76,9 @@ export const APP_PATHS = {
   platformAccountingReportGl: '/platform/accounting/reports/gl-balance',
   platformAccountingReportPnl: '/platform/accounting/reports/profit-loss',
   platformAccountingReportStatement: '/platform/accounting/reports/account-statement',
+  platformAccountingMerchantJournalEntries: '/platform/accounting/merchant-journal-entries',
+  /** Dynamic: `/platform/accounting/merchant-journal-entries/:journalEntryId` */
+  platformAccountingMerchantJournalEntryDetail: '/platform/accounting/merchant-journal-entries/:journalEntryId',
   platformBills: '/platform/bills',
   platformBillNew: '/platform/bills/new',
   platformBillDetail: '/platform/bills/:billId',
@@ -118,6 +124,14 @@ export function platformBillDetailPath(billId: string) {
 
 export function accountingReversedJournalDetailPath(journalEntryId: string) {
   return `/accounting/journals/reversed/${encodeURIComponent(journalEntryId)}`
+}
+
+export function platformMerchantJournalDetailPath(journalEntryId: string) {
+  return `/platform/accounting/merchant-journal-entries/${encodeURIComponent(journalEntryId)}`
+}
+
+export function transactionJournalDetailPath(journalEntryId: string) {
+  return `/accounting/transaction-journal/${encodeURIComponent(journalEntryId)}`
 }
 
 export const PLATFORM_SECURITY_SUBNAV = [
@@ -209,6 +223,12 @@ export const PLATFORM_FINANCE_SUBNAV: PlatformBusinessesSubNavItem[] = [
     path: APP_PATHS.platformAccountingReportStatement,
     title: 'Account statement',
     permission: 'platform.accounting.reports.statement',
+  },
+  {
+    name: 'finance-transaction-journal',
+    path: APP_PATHS.platformAccountingMerchantJournalEntries,
+    title: 'Transaction journal',
+    permission: 'platform.accounting.transaction_journal',
   },
   {
     name: 'finance-platform-bills',
@@ -440,6 +460,9 @@ export function getPageTitle(pathname: string) {
   if (pathname.includes(APP_PATHS.platformAccountingReportStatement)) {
     return 'Account statement'
   }
+  if (pathname.includes('/platform/accounting/merchant-journal-entries')) {
+    return 'Transaction journal'
+  }
   if (pathname.includes('/platform/bills/') && pathname !== APP_PATHS.platformBills) {
     return 'Supplier bill'
   }
@@ -531,6 +554,9 @@ export function getPageTitle(pathname: string) {
   }
   if (pathname.includes(APP_PATHS.accountingReportAccountStatement)) {
     return 'Account statement'
+  }
+  if (pathname.includes('/accounting/transaction-journal')) {
+    return 'Transaction journal'
   }
   if (pathname.includes(APP_PATHS.salesQuotations)) {
     return 'Sales quotations'

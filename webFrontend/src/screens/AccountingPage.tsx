@@ -12,6 +12,7 @@ import {
   ArrowRight,
   BookOpenText,
   ChartNoAxesCombined,
+  ClipboardList,
   FileSpreadsheet,
   NotebookPen,
   Scale,
@@ -40,6 +41,7 @@ export function AccountingPage() {
   const canGlReport = canAccess('accounting.reports.gl')
   const canPnlReport = canAccess('accounting.reports.pnl')
   const canStatement = canAccess('accounting.reports.statement')
+  const canTransactionJournal = canAccess('accounting.transaction_journal')
   const canGeneralJournal = canAccess('accounting.journals.general')
   const hasFinanceReports = canGlReport || canPnlReport || canStatement
   const [data, setData] = useState<AccountingSummary | null>(null)
@@ -204,6 +206,28 @@ export function AccountingPage() {
                 </div>
                 <p className="flex items-center text-sm text-qb-muted">
                   Debit / credit only
+                  <ArrowRight className="ml-1 h-4 w-4 text-qb-heading" />
+                </p>
+              </div>
+            </button>
+          ) : null}
+
+          {canTransactionJournal ? (
+            <button
+              type="button"
+              onClick={() => navigate(APP_PATHS.accountingTransactionJournal)}
+              className="text-left"
+            >
+              <div className={tileCard}>
+                <ClipboardList className="h-5 w-5 text-qb-heading" strokeWidth={1.5} />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                    Transaction journal
+                  </p>
+                  <p className="mt-2 text-3xl font-semibold text-qb-heading">Review</p>
+                </div>
+                <p className="flex items-center text-sm text-qb-muted">
+                  Approve postings for statements
                   <ArrowRight className="ml-1 h-4 w-4 text-qb-heading" />
                 </p>
               </div>

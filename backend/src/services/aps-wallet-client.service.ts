@@ -195,9 +195,23 @@ export async function apsWalletMerchantBearer(): Promise<string> {
   return apsWalletLoginFresh();
 }
 
+/**
+ * APS customer wallet numbers must not be sent with a +220 prefix (per integration spec).
+ * Strips common Gambia international prefixes if the user pasted them; does not add a prefix.
+ */
+export function normalizeApsCustomerMobile(input: string): string {
+  let s = input.trim().replace(/\s+/g, "");
+  if (s.startsWith("+220")) {
+    s = s.slice(4);
+  } else if (s.startsWith("00220")) {
+    s = s.slice(5);
+  }
+  return s;
+}
+
 export async function apsWalletAuthorizeCustomer(mobile: string): Promise<string> {
   const bearer = await apsWalletMerchantBearer();
-  const normalized = mobile.trim().replace(/\s+/g, "");
+  const normalized = normalizeApsCustomerMobile(mobile);
   const raw = await postJson(
     "/api/v1/payment-gateway/wallet/authorize-customer",
     { mobile: normalized },

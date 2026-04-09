@@ -252,3 +252,98 @@ export async function postJournalReversal(
   )
   return res.data
 }
+
+/** Plan entitlement `accounting.transaction_journal` — list / detail / approve for current business. */
+export type TransactionJournalListRow = {
+  id: string
+  businessId: string
+  businessName: string
+  postedAt: string
+  memo: string | null
+  reference: string | null
+  sourceType: string | null
+  sourceId: string | null
+  journalApprovalExempt: boolean
+  approvedAt: string | null
+  approvedBy: { id: string; name: string; email: string } | null
+  cancelledAt: string | null
+  cancelledBy: { id: string; name: string; email: string } | null
+  reversesJournalEntryId: string | null
+  createdAt: string
+}
+
+export type TransactionJournalDetailData = {
+  id: string
+  businessId: string
+  businessName: string
+  postedAt: string
+  memo: string | null
+  reference: string | null
+  sourceType: string | null
+  sourceId: string | null
+  contactId: string | null
+  journalApprovalExempt: boolean
+  approvedAt: string | null
+  approvedBy: { id: string; name: string; email: string } | null
+  cancelledAt: string | null
+  cancelledBy: { id: string; name: string; email: string } | null
+  reversesJournalEntryId: string | null
+  createdAt: string
+  lines: Array<{
+    id: string
+    chartOfAccountId: string
+    code: string
+    name: string
+    category: string
+    debit: number
+    credit: number
+    description: string | null
+  }>
+}
+
+export async function fetchTransactionJournals(
+  businessId: string,
+  params: {
+    page: number
+    pageSize: number
+    from?: string
+    to?: string
+  },
+) {
+  const qs = new URLSearchParams({
+    page: String(params.page),
+    pageSize: String(params.pageSize),
+  })
+  if (params.from?.trim()) qs.set('from', params.from.trim())
+  if (params.to?.trim()) qs.set('to', params.to.trim())
+  return apiRequest<{
+    data: TransactionJournalListRow[]
+    total: number
+    page: number
+    pageSize: number
+  }>(`/businesses/${businessId}/accounting/transaction-journals?${qs}`, { method: 'GET', businessId })
+}
+
+export async function fetchTransactionJournalDetail(businessId: string, journalEntryId: string) {
+  const res = await apiRequest<{ data: TransactionJournalDetailData }>(
+    `/businesses/${businessId}/accounting/transaction-journals/${encodeURIComponent(journalEntryId)}`,
+    { method: 'GET', businessId },
+  )
+  return res.data
+}
+
+export async function postTransactionJournalApprove(businessId: string, journalEntryId: string) {
+  const res = await apiRequest<{ data: TransactionJournalDetailData }>(
+    `/businesses/${businessId}/accounting/transaction-journals/${encodeURIComponent(journalEntryId)}/approve`,
+    { method: 'POST', businessId },
+  )
+  return res.data
+}
+
+export async function postTransactionJournalCancel(businessId: string, journalEntryId: string) {
+  const res = await apiRequest<{ data: TransactionJournalDetailData }>(
+    `/businesses/${businessId}/accounting/transaction-journals/${encodeURIComponent(journalEntryId)}/cancel`,
+    { method: 'POST', businessId },
+  )
+  return res.data
+}

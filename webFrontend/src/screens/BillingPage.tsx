@@ -204,8 +204,20 @@ export function BillingPage() {
   const needsPhoneForSubscriptionWallet =
     selectedPayMethodCheckoutAdapter === 'yonna_wallet' ||
     selectedPayMethodCheckoutAdapter === 'aps_wallet'
-  const walletPhoneOk =
-    !needsPhoneForSubscriptionWallet || yonnaPayerPhone.replace(/\s/g, '').length >= 8
+  /** Yonna expects longer intl-style numbers; APS local numbers are often 7 digits (no +220), so do not use 8 for APS. */
+  const walletPhoneOk = (() => {
+    if (!needsPhoneForSubscriptionWallet) {
+      return true
+    }
+    const d = yonnaPayerPhone.replace(/\s/g, '')
+    if (selectedPayMethodCheckoutAdapter === 'aps_wallet') {
+      return d.length >= 6
+    }
+    if (selectedPayMethodCheckoutAdapter === 'yonna_wallet') {
+      return d.length >= 8
+    }
+    return d.length >= 8
+  })()
 
   useEffect(() => {
     setCheckoutLinkCopied(false)
@@ -213,11 +225,21 @@ export function BillingPage() {
 
   useEffect(() => {
     if (!payInvoicePicker) {
-      setYonnaPayerPhone(DEFAULT_YONNA_PHONE_PREFIX)
       setApsAuthState(null)
       setApsOtp('')
     }
   }, [payInvoicePicker])
+
+  useEffect(() => {
+    if (!payInvoicePicker) {
+      return
+    }
+    if (selectedPayMethodCheckoutAdapter === 'aps_wallet') {
+      setYonnaPayerPhone('')
+    } else if (selectedPayMethodCheckoutAdapter === 'yonna_wallet') {
+      setYonnaPayerPhone((prev) => (prev.trim() === '' ? DEFAULT_YONNA_PHONE_PREFIX : prev))
+    }
+  }, [payInvoicePicker, selectedPayMethodCheckoutAdapter])
 
   useEffect(() => {
     setApsAuthState(null)
@@ -1020,7 +1042,7 @@ export function BillingPage() {
                     />
                     <p className="mt-1 text-xs text-slate-500">
                       {selectedPayMethodCheckoutAdapter === 'aps_wallet'
-                        ? 'The APS wallet number that will receive the SMS code to confirm payment.'
+                        ? 'The APS wallet number that will receive the SMS code. Enter the local number only (do not use +220).'
                         : 'The number registered on the Yonna wallet that will pay this invoice.'}
                     </p>
                   </div>

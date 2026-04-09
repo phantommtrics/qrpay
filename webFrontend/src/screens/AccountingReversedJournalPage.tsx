@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
+import { SearchableSelect, type SearchableSelectOption } from '../components/ui/SearchableSelect'
 import { APP_PATHS, accountingReversedJournalDetailPath } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
 import {
@@ -12,8 +13,14 @@ import {
   type JournalEntriesPageResult,
 } from '../services/journalApi'
 import { formatMoney } from '../utils/formatMoney'
+import { localCalendarIsoDate } from '../utils/localCalendarDate'
 
 const PAGE_SIZE = 20
+
+const QB_SELECT_FORM =
+  '!rounded-sm !border-qb-border !px-3 !py-2 !text-sm !font-normal !text-qb-heading !shadow-sm focus:!border-qb-primary focus:!ring-1 focus:!ring-qb-primary/35'
+const QB_DROPDOWN = '!rounded-md !border-qb-border'
+const TYPE_LIST_MAX = 'max-h-[11rem]'
 
 function formatShortDate(iso: string): string {
   const d = new Date(iso)
@@ -27,11 +34,11 @@ export function AccountingReversedJournalPage() {
   const businessId = currentOrganization?.id
   const allowed = canAccess('accounting.journals.reversal')
 
-  const [draftStart, setDraftStart] = useState('')
-  const [draftEnd, setDraftEnd] = useState('')
+  const [draftStart, setDraftStart] = useState(() => localCalendarIsoDate())
+  const [draftEnd, setDraftEnd] = useState(() => localCalendarIsoDate())
   const [draftType, setDraftType] = useState('')
-  const [appliedStart, setAppliedStart] = useState('')
-  const [appliedEnd, setAppliedEnd] = useState('')
+  const [appliedStart, setAppliedStart] = useState(() => localCalendarIsoDate())
+  const [appliedEnd, setAppliedEnd] = useState(() => localCalendarIsoDate())
   const [appliedType, setAppliedType] = useState('')
   const [page, setPage] = useState(1)
 
@@ -96,8 +103,11 @@ export function AccountingReversedJournalPage() {
 
   const fieldInput =
     'w-full rounded-sm border border-qb-border bg-white px-3 py-2 text-sm text-qb-heading placeholder:text-qb-muted/60 focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35'
-  const selectInput =
-    'w-full rounded-sm border border-qb-border bg-white px-3 py-2 text-sm text-qb-heading focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35'
+
+  const journalTypeOptions = useMemo<SearchableSelectOption[]>(
+    () => JOURNAL_SOURCE_FILTER_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+    [],
+  )
 
   const totalPages = result?.totalPages ?? 1
   const canPrev = page > 1
@@ -155,20 +165,26 @@ export function AccountingReversedJournalPage() {
                 className={fieldInput}
               />
             </label>
-            <label className="block space-y-1.5 sm:col-span-2 lg:col-span-2">
+            <div className="space-y-1.5 sm:col-span-2 lg:col-span-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">Type</span>
-              <select
-                value={draftType}
-                onChange={(e) => setDraftType(e.target.value)}
-                className={selectInput}
-              >
-                {JOURNAL_SOURCE_FILTER_OPTIONS.map((o) => (
-                  <option key={o.value || 'all'} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <div className="mt-1">
+                <SearchableSelect
+                  value={draftType}
+                  onChange={setDraftType}
+                  options={journalTypeOptions}
+                  placeholder="All types"
+                  emptyMessage="No types"
+                  noResultsMessage="No matching type"
+                  ariaLabel="Journal source type"
+                  buttonClassName={QB_SELECT_FORM}
+                  listMaxHeightClass={TYPE_LIST_MAX}
+                  dropdownClassName={QB_DROPDOWN}
+                  matchOptionValue
+                  listWindowInitial={4}
+                  listWindowStep={4}
+                />
+              </div>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <button

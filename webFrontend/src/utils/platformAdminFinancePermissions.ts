@@ -15,6 +15,8 @@ export function platformAdminFinancePermission(
     'platform.accounting.reports.gl',
     'platform.accounting.reports.pnl',
     'platform.accounting.reports.statement',
+    'platform.accounting.transaction_journal',
+    'platform.accounting.transaction_journal.approve',
     'platform.accounting.export',
   ]
   if (!keys.includes(permission)) {
@@ -24,6 +26,7 @@ export function platformAdminFinancePermission(
     return false
   }
   const legacyView = Boolean(m['platform.accounting']?.view)
+  const legacyCreate = Boolean(m['platform.accounting']?.create)
   const legacyExport = Boolean(m['platform.accounting']?.export)
   switch (permission) {
     case 'platform.accounting.chart.view':
@@ -41,6 +44,10 @@ export function platformAdminFinancePermission(
       return Boolean(m['platform.accounting.reports_pnl']?.view || legacyView)
     case 'platform.accounting.reports.statement':
       return Boolean(m['platform.accounting.reports_statement']?.view || legacyView)
+    case 'platform.accounting.transaction_journal':
+      return Boolean(m['platform.accounting.transaction_journal']?.view || legacyView)
+    case 'platform.accounting.transaction_journal.approve':
+      return Boolean(m['platform.accounting.transaction_journal']?.edit || legacyCreate)
     case 'platform.accounting.export':
       return Boolean(
         legacyExport ||

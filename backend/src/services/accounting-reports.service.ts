@@ -1,5 +1,7 @@
 import { ChartAccountCategory } from "@prisma/client";
 
+import type { Prisma } from "@prisma/client";
+
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
 import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
@@ -30,6 +32,12 @@ function isCogsAccount(code: string): boolean {
   return u === "310" || u === "COGS" || u.startsWith("COGS_");
 }
 
+/** GL / P&L / account statement: only approved journals, except customer sale POS/QR postings (exempt). Removed postings never count. */
+export const merchantJournalReportingWhere: Prisma.JournalEntryWhereInput = {
+  cancelledAt: null,
+  OR: [{ journalApprovalExempt: true }, { approvedAt: { not: null } }],
+};
+
 export type GlBalanceRow = {
   chartOfAccountId: string;
   code: string;
@@ -55,6 +63,7 @@ export async function getGlBalanceReport(businessId: string, asOfRaw: string) {
       journalEntry: {
         businessId,
         postedAt: { lte: asOf },
+        ...merchantJournalReportingWhere,
       },
     },
     _sum: { debitAmount: true, creditAmount: true },
@@ -115,6 +124,7 @@ export async function getProfitLossReport(businessId: string, fromRaw: string, t
       journalEntry: {
         businessId,
         postedAt: { gte: from, lte: to },
+        ...merchantJournalReportingWhere,
       },
       chartOfAccount: {
         category: { in: [ChartAccountCategory.REVENUE, ChartAccountCategory.EXPENSE] },
@@ -146,32 +156,36 @@ export async function getProfitLossReport(businessId: string, fromRaw: string, t
     }
   }
 
+  /** Every P&L account appears in the report, including zero activity in the period. */
+  const pnlAccounts = await prisma.chartOfAccount.findMany({
+    where: {
+      businessId,
+      category: { in: [ChartAccountCategory.REVENUE, ChartAccountCategory.EXPENSE] },
+    },
+    orderBy: [{ code: "asc" }],
+  });
+
   const revenueLines: PnlLineRow[] = [];
   const cogsLines: PnlLineRow[] = [];
   const opexLines: PnlLineRow[] = [];
 
-  for (const [chartOfAccountId, v] of byAccount) {
-    if (v.category !== ChartAccountCategory.REVENUE && v.category !== ChartAccountCategory.EXPENSE) {
-      continue;
-    }
+  for (const a of pnlAccounts) {
+    const v = byAccount.get(a.id);
+    const amount = v?.net ?? 0;
     const row: PnlLineRow = {
-      chartOfAccountId,
-      code: v.code,
-      name: v.name,
-      amount: v.net,
+      chartOfAccountId: a.id,
+      code: a.code,
+      name: a.name,
+      amount,
     };
-    if (v.category === ChartAccountCategory.REVENUE) {
+    if (a.category === ChartAccountCategory.REVENUE) {
       revenueLines.push(row);
-    } else if (isCogsAccount(v.code)) {
+    } else if (isCogsAccount(a.code)) {
       cogsLines.push(row);
     } else {
       opexLines.push(row);
     }
   }
-
-  revenueLines.sort((a, b) => a.code.localeCompare(b.code));
-  cogsLines.sort((a, b) => a.code.localeCompare(b.code));
-  opexLines.sort((a, b) => a.code.localeCompare(b.code));
 
   const totalRevenue = revenueLines.reduce((s, r) => s + r.amount, 0);
   const totalCogs = cogsLines.reduce((s, r) => s + r.amount, 0);
@@ -237,6 +251,7 @@ export async function getAccountStatementReport(
       journalEntry: {
         businessId,
         postedAt: { lt: from },
+        ...merchantJournalReportingWhere,
       },
     },
   });
@@ -256,6 +271,7 @@ export async function getAccountStatementReport(
       journalEntry: {
         businessId,
         postedAt: { gte: from, lte: to },
+        ...merchantJournalReportingWhere,
       },
     },
     include: {

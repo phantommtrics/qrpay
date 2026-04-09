@@ -440,9 +440,23 @@ model JournalEntry {
    * Each source journal can have at most one reversal row pointing to it.
    */
   reversesJournalEntryId  String?            @unique
+  /**
+   * Platform (or delegated) approval before the posting is included in GL / P&L / account statements.
+   * Legacy rows are backfilled to postedAt; exempt postings (e.g. customer sale QR/POS) never require approval.
+   */
+  approvedAt              DateTime?
+  approvedByUserId        String?
+  journalApprovalExempt   Boolean            @default(false)
+  /**
+   * Pending posting removed from the approval pipeline; never included in GL / P&L / statements.
+   */
+  cancelledAt             DateTime?
+  cancelledByUserId       String?
   createdAt               DateTime           @default(now())
   business                Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
   contact                 BusinessContact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  approvedBy              User?              @relation("JournalEntryApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  cancelledBy             User?              @relation("JournalEntryCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
   reversesJournalEntry    JournalEntry?      @relation("JournalReversal", fields: [reversesJournalEntryId], references: [id], onDelete: Restrict)
   reversedByEntry         JournalEntry?      @relation("JournalReversal")
   lines                   JournalLine[]
@@ -453,6 +467,8 @@ model JournalEntry {
   @@index([businessId, postedAt])
   @@index([businessId, sourceType, sourceId])
   @@index([contactId])
+  @@index([approvedAt])
+  @@index([cancelledAt])
 }
 
 model JournalLine {
@@ -849,6 +865,8 @@ model User {
   platformFunctionGroup              PlatformFunctionGroup?         @relation(fields: [platformFunctionGroupId], references: [id], onDelete: SetNull)
   paymentsRecorded                   Payment[]                      @relation("PaymentRecordedBy")
   activityLogsAsActor                ActivityLog[]                  @relation("ActivityLogActor")
+  journalEntriesApproved             JournalEntry[]                 @relation("JournalEntryApprovedBy")
+  journalEntriesCancelled            JournalEntry[]                 @relation("JournalEntryCancelledBy")
 
   @@index([platformFunctionGroupId])
 }

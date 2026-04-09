@@ -158,6 +158,16 @@ const AccountingReversedJournalDetailPage = lazy(() =>
     default: module.AccountingReversedJournalDetailPage,
   })),
 )
+const TransactionJournalPage = lazy(() =>
+  import('../screens/TransactionJournalPage').then((module) => ({
+    default: module.TransactionJournalPage,
+  })),
+)
+const TransactionJournalDetailPage = lazy(() =>
+  import('../screens/TransactionJournalDetailPage').then((module) => ({
+    default: module.TransactionJournalDetailPage,
+  })),
+)
 const BillsPage = lazy(() =>
   import('../screens/BillsPage').then((module) => ({
     default: module.BillsPage,
@@ -333,6 +343,16 @@ const PlatformAccountingStatementPage = lazy(() =>
     default: module.PlatformAccountingStatementPage,
   })),
 )
+const PlatformMerchantJournalEntriesPage = lazy(() =>
+  import('../screens/platform/PlatformMerchantJournalEntriesPage').then((module) => ({
+    default: module.PlatformMerchantJournalEntriesPage,
+  })),
+)
+const PlatformMerchantJournalEntryDetailPage = lazy(() =>
+  import('../screens/platform/PlatformMerchantJournalEntryDetailPage').then((module) => ({
+    default: module.PlatformMerchantJournalEntryDetailPage,
+  })),
+)
 const PlatformBillsPage = lazy(() =>
   import('../screens/PlatformBillsPage').then((module) => ({ default: module.PlatformBillsPage })),
 )
@@ -488,6 +508,18 @@ export function AppRoutes() {
       element: <PlatformAccountingStatementPage />,
       roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.accounting.reports.statement' as const,
+    },
+    {
+      path: APP_PATHS.platformAccountingMerchantJournalEntries,
+      element: <PlatformMerchantJournalEntriesPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.accounting.transaction_journal' as const,
+    },
+    {
+      path: APP_PATHS.platformAccountingMerchantJournalEntryDetail,
+      element: <PlatformMerchantJournalEntryDetailPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.accounting.transaction_journal' as const,
     },
     {
       path: APP_PATHS.platformBills,
@@ -720,6 +752,18 @@ export function AppRoutes() {
       element: <AccountStatementReportPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
       permission: 'accounting.reports.statement' as const,
+    },
+    {
+      path: APP_PATHS.accountingTransactionJournal,
+      element: <TransactionJournalPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'accounting.transaction_journal' as const,
+    },
+    {
+      path: APP_PATHS.accountingTransactionJournalDetail,
+      element: <TransactionJournalDetailPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'accounting.transaction_journal' as const,
     },
     {
       path: APP_PATHS.businesses,

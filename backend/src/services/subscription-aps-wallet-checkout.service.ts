@@ -14,6 +14,7 @@ import {
   apsWalletAuthorizeCustomer,
   apsWalletConfirmCustomer,
   apsWalletProcessPayment,
+  normalizeApsCustomerMobile,
 } from "./aps-wallet-client.service.js";
 import { completeSubscriptionInvoicePayment } from "./subscription.service.js";
 
@@ -176,7 +177,7 @@ export async function authorizeSubscriptionInvoiceApsCheckout(input: {
   const code = input.gatewayCode.trim().toLowerCase();
   await assertGatewayAps(code);
 
-  const mobile = input.payerMobile?.trim();
+  const mobile = normalizeApsCustomerMobile(input.payerMobile ?? "");
   if (!mobile) {
     throw new HttpError(400, "APS mobile number is required.");
   }
@@ -212,7 +213,7 @@ export async function authorizeGuestSubscriptionInvoiceApsCheckout(input: {
   const code = input.gatewayCode.trim().toLowerCase();
   await assertGatewayAps(code);
 
-  const mobile = input.payerMobile?.trim();
+  const mobile = normalizeApsCustomerMobile(input.payerMobile ?? "");
   if (!mobile) {
     throw new HttpError(400, "APS mobile number is required.");
   }

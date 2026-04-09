@@ -238,7 +238,7 @@ export function Sidebar({
     if (p.startsWith('/platform/security')) {
       setIsPlatformSecurityOpen(true)
     }
-    if (p.startsWith('/accounting/reports')) {
+    if (p.startsWith('/accounting/reports') || p.startsWith('/accounting/transaction-journal')) {
       setOpenServiceIds((prev) => ({ ...prev, svc_finance: true }))
     }
     if (p.startsWith('/catalog/')) {
@@ -291,6 +291,9 @@ export function Sidebar({
     }
     if (path === APP_PATHS.platformAccountingReportStatement) {
       return p.startsWith('/platform/accounting/reports/account-statement')
+    }
+    if (path === APP_PATHS.platformAccountingMerchantJournalEntries) {
+      return p.startsWith('/platform/accounting/merchant-journal-entries')
     }
     if (path === APP_PATHS.platformBills) {
       return p.startsWith('/platform/bills')

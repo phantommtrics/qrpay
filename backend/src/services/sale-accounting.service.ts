@@ -222,6 +222,7 @@ export async function recordCustomerSaleJournalAndLedger(
       memo,
       sourceType: JournalSourceType.CUSTOMER_SALE_PAYMENT,
       sourceId: input.paymentId,
+      journalApprovalExempt: true,
       lines: {
         create: [
           {
@@ -343,6 +344,7 @@ export async function recordMerchantCustomerWalletFeeJournalAndLedger(
       memo,
       sourceType: JournalSourceType.CUSTOMER_SALE_WALLET_FEE,
       sourceId: input.paymentId,
+      journalApprovalExempt: true,
       lines: {
         create: [
           {

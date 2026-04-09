@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, Search } from 'lucide-react'
 
@@ -26,6 +26,11 @@ export function SearchableSelect({
   listMaxHeightClass = 'max-h-60',
   /** Extra classes on the floating dropdown panel (e.g. QB borders). */
   dropdownClassName = '',
+  /** Also match `option.value` (e.g. enum codes) when filtering. */
+  matchOptionValue = false,
+  /** Show only this many options at first; scrolling the list reveals more (reduces DOM for long lists). */
+  listWindowInitial,
+  listWindowStep,
 }: {
   id?: string
   value: string
@@ -40,11 +45,22 @@ export function SearchableSelect({
   buttonClassName?: string
   listMaxHeightClass?: string
   dropdownClassName?: string
+  matchOptionValue?: boolean
+  listWindowInitial?: number
+  listWindowStep?: number
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const windowed =
+    listWindowInitial != null && Number.isFinite(listWindowInitial) && listWindowInitial > 0
+  const step = listWindowStep ?? listWindowInitial ?? 4
+  const [listVisible, setListVisible] = useState(() =>
+    windowed ? (listWindowInitial as number) : Number.POSITIVE_INFINITY,
+  )
   const rootRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const listUlRef = useRef<HTMLUListElement>(null)
+  const loadMoreSentinelRef = useRef<HTMLLIElement | null>(null)
   const [panelBox, setPanelBox] = useState({ top: 0, left: 0, width: 0 })
 
   const placePanel = useCallback(() => {
@@ -97,11 +113,45 @@ export function SearchableSelect({
     return options.filter((o) => {
       if (o.label.toLowerCase().includes(q)) return true
       if (o.hint?.toLowerCase().includes(q)) return true
+      if (matchOptionValue && o.value.toLowerCase().includes(q)) return true
       return false
     })
-  }, [options, query])
+  }, [options, query, matchOptionValue])
+
+  useEffect(() => {
+    if (!windowed || !open) return
+    setListVisible(Math.min(listWindowInitial as number, filtered.length))
+  }, [windowed, listWindowInitial, query, filtered, open])
+
+  useEffect(() => {
+    if (!windowed || !open) return
+    const sentinel = loadMoreSentinelRef.current
+    const root = listUlRef.current
+    if (!sentinel || !root) return
+    if (listVisible >= filtered.length) return
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const hit = entries.some((e) => e.isIntersecting)
+        if (!hit) return
+        setListVisible((v) => Math.min(v + step, filtered.length))
+      },
+      { root, rootMargin: '0px', threshold: 0 },
+    )
+    obs.observe(sentinel)
+    return () => obs.disconnect()
+  }, [windowed, open, listVisible, filtered.length, step])
 
   const selected = options.find((o) => o.value === value)
+  const displayed = windowed ? filtered.slice(0, listVisible) : filtered
+
+  const onListScroll = (e: UIEvent<HTMLUListElement>) => {
+    if (!windowed) return
+    if (listVisible >= filtered.length) return
+    const t = e.currentTarget
+    if (t.scrollTop + t.clientHeight >= t.scrollHeight - 12) {
+      setListVisible((v) => Math.min(v + step, filtered.length))
+    }
+  }
 
   return (
     <div ref={rootRef} className={`relative min-w-0 ${className}`}>
@@ -153,40 +203,53 @@ export function SearchableSelect({
                   />
                 </div>
               </div>
-              <ul className={`min-h-0 flex-1 overflow-y-auto py-1 ${listMaxHeightClass}`}>
+              <ul
+                ref={listUlRef}
+                onScroll={onListScroll}
+                className={`min-h-0 flex-1 overflow-y-auto py-1 ${listMaxHeightClass}`}
+              >
                 {options.length === 0 ? (
                   <li className="px-4 py-3 text-sm text-slate-500">{emptyMessage}</li>
                 ) : filtered.length === 0 ? (
                   <li className="px-4 py-3 text-sm text-slate-500">{noResultsMessage}</li>
                 ) : (
-                  filtered.map((o) => {
-                    const active = o.value === value
-                    return (
-                      <li key={o.value} role="option" aria-selected={active} aria-disabled={o.disabled}>
-                        <button
-                          type="button"
-                          disabled={o.disabled}
-                          onClick={() => {
-                            if (o.disabled) return
-                            onChange(o.value)
-                            setOpen(false)
-                          }}
-                          className={`flex w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left text-sm transition ${
-                            o.disabled
-                              ? 'cursor-not-allowed text-slate-400'
-                              : active
-                                ? 'bg-teal-50 font-semibold text-teal-900'
-                                : 'text-slate-800 hover:bg-slate-50'
-                          }`}
-                        >
-                          <span className="w-full truncate">{o.label}</span>
-                          {o.hint ? (
-                            <span className="w-full truncate text-xs font-normal text-slate-500">{o.hint}</span>
-                          ) : null}
-                        </button>
-                      </li>
-                    )
-                  })
+                  <>
+                    {displayed.map((o) => {
+                      const active = o.value === value
+                      return (
+                        <li key={o.value} role="option" aria-selected={active} aria-disabled={o.disabled}>
+                          <button
+                            type="button"
+                            disabled={o.disabled}
+                            onClick={() => {
+                              if (o.disabled) return
+                              onChange(o.value)
+                              setOpen(false)
+                            }}
+                            className={`flex w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left text-sm transition ${
+                              o.disabled
+                                ? 'cursor-not-allowed text-slate-400'
+                                : active
+                                  ? 'bg-teal-50 font-semibold text-teal-900'
+                                  : 'text-slate-800 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span className="w-full truncate">{o.label}</span>
+                            {o.hint ? (
+                              <span className="w-full truncate text-xs font-normal text-slate-500">{o.hint}</span>
+                            ) : null}
+                          </button>
+                        </li>
+                      )
+                    })}
+                    {windowed && listVisible < filtered.length ? (
+                      <li
+                        ref={loadMoreSentinelRef}
+                        className="pointer-events-none h-px w-full p-0"
+                        aria-hidden
+                      />
+                    ) : null}
+                  </>
                 )}
               </ul>
             </div>,

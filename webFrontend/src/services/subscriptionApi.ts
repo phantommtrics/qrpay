@@ -2312,6 +2312,98 @@ export async function fetchPlatformJournalEntries(page: number, pageSize: number
   }>(`/platform/accounting/journal-entries?${qs}`)
 }
 
+export type MerchantJournalListRow = {
+  id: string
+  businessId: string
+  businessName: string
+  postedAt: string
+  memo: string | null
+  reference: string | null
+  sourceType: string | null
+  sourceId: string | null
+  journalApprovalExempt: boolean
+  approvedAt: string | null
+  approvedBy: { id: string; name: string; email: string } | null
+  cancelledAt: string | null
+  cancelledBy: { id: string; name: string; email: string } | null
+  reversesJournalEntryId: string | null
+  createdAt: string
+}
+
+export type MerchantJournalDetailData = {
+  id: string
+  businessId: string
+  businessName: string
+  postedAt: string
+  memo: string | null
+  reference: string | null
+  sourceType: string | null
+  sourceId: string | null
+  contactId: string | null
+  journalApprovalExempt: boolean
+  approvedAt: string | null
+  approvedBy: { id: string; name: string; email: string } | null
+  cancelledAt: string | null
+  cancelledBy: { id: string; name: string; email: string } | null
+  reversesJournalEntryId: string | null
+  createdAt: string
+  lines: Array<{
+    id: string
+    chartOfAccountId: string
+    code: string
+    name: string
+    category: string
+    debit: number
+    credit: number
+    description: string | null
+  }>
+}
+
+export async function fetchMerchantJournalEntries(params: {
+  page: number
+  pageSize: number
+  businessId?: string
+  from?: string
+  to?: string
+}) {
+  const qs = new URLSearchParams({
+    page: String(params.page),
+    pageSize: String(params.pageSize),
+  })
+  if (params.businessId?.trim()) qs.set('businessId', params.businessId.trim())
+  if (params.from?.trim()) qs.set('from', params.from.trim())
+  if (params.to?.trim()) qs.set('to', params.to.trim())
+  return apiRequest<{
+    data: MerchantJournalListRow[]
+    total: number
+    page: number
+    pageSize: number
+  }>(`/platform/accounting/merchant-journal-entries?${qs}`)
+}
+
+export async function fetchMerchantJournalEntryDetail(journalEntryId: string) {
+  const res = await apiRequest<{ data: MerchantJournalDetailData }>(
+    `/platform/accounting/merchant-journal-entries/${encodeURIComponent(journalEntryId)}`,
+  )
+  return res.data
+}
+
+export async function postMerchantJournalApprove(journalEntryId: string) {
+  const res = await apiRequest<{ data: MerchantJournalDetailData }>(
+    `/platform/accounting/merchant-journal-entries/${encodeURIComponent(journalEntryId)}/approve`,
+    { method: 'POST' },
+  )
+  return res.data
+}
+
+export async function postMerchantJournalCancel(journalEntryId: string) {
+  const res = await apiRequest<{ data: MerchantJournalDetailData }>(
+    `/platform/accounting/merchant-journal-entries/${encodeURIComponent(journalEntryId)}/cancel`,
+    { method: 'POST' },
+  )
+  return res.data
+}
+
 export async function postPlatformManualJournal(body: {
   postedAt: string
   memo?: string | null

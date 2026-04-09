@@ -229,6 +229,7 @@ export async function reverseJournalEntry(
         sourceType: JournalSourceType.MANUAL_JOURNAL_REVERSAL,
         sourceId: original.id,
         reversesJournalEntryId: original.id,
+        journalApprovalExempt: original.journalApprovalExempt,
         lines: {
           create: original.lines.map((ln) => {
             const desc = ln.description?.trim()

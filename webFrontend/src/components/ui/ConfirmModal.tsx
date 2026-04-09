@@ -20,7 +20,8 @@ export function ConfirmModal({
   children?: ReactNode
   confirmLabel?: string
   cancelLabel?: string
-  variant?: 'danger' | 'default'
+  /** `light` — soft neutral primary (e.g. approve workflows). */
+  variant?: 'danger' | 'default' | 'light'
   loading?: boolean
   onConfirm: () => void
   onCancel: () => void
@@ -72,10 +73,12 @@ export function ConfirmModal({
                   type="button"
                   disabled={loading}
                   onClick={onConfirm}
-                  className={`rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                    variant === 'danger'
-                      ? 'bg-red-600 hover:bg-red-500'
-                      : 'bg-teal-600 hover:bg-teal-500'
+                  className={`rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    variant === 'light'
+                      ? 'border border-slate-200/90 bg-slate-50 text-slate-800 hover:bg-slate-100/90'
+                      : variant === 'danger'
+                        ? 'bg-red-600 text-white hover:bg-red-500'
+                        : 'bg-teal-600 text-white hover:bg-teal-500'
                   }`}
                 >
                   {loading ? 'Please wait…' : confirmLabel}

@@ -278,6 +278,7 @@ export function GuestSubscriptionInvoicePage() {
                       autoComplete="tel"
                       disabled={Boolean(apsAuthState)}
                     />
+                    <p className="mt-1 text-xs text-slate-500">Local number only — do not add +220.</p>
                   </label>
                 ) : null}
                 {selectedGatewayCode &&

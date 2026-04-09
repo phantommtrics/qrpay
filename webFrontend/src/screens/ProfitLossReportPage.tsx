@@ -28,7 +28,7 @@ function pnlSectionRows(
   const headers = ['Code', 'Account', 'Amount']
   const rows =
     lines.length === 0
-      ? [['—', 'No activity', formatMoney(0, { decimals: 2 })]]
+      ? [['—', 'No P&L accounts', formatMoney(0, { decimals: 2 })]]
       : lines.map((l) => [l.code, l.name, formatMoney(l.amount, { decimals: 2 })])
   rows.push(['', `Total ${title}`, formatMoney(total, { decimals: 2 })])
   return {
@@ -77,10 +77,10 @@ export function ProfitLossReportPage() {
       }
       rows.push([section, '', 'Section total', total.toFixed(2)])
     }
-    push('Revenue', data.revenue.lines, data.revenue.total)
+    push('Total trading income', data.revenue.lines, data.revenue.total)
     push('Cost of sales', data.costOfSales.lines, data.costOfSales.total)
-    push('Operating expenses', data.operatingExpenses.lines, data.operatingExpenses.total)
     rows.push(['', '', 'Gross profit', data.grossProfit.toFixed(2)])
+    push('Total operating expenses', data.operatingExpenses.lines, data.operatingExpenses.total)
     rows.push(['', '', 'Net profit', data.netProfit.toFixed(2)])
     downloadCsv(`profit-loss-${from}-${to}.csv`, headers, rows)
   }
@@ -91,16 +91,20 @@ export function ProfitLossReportPage() {
       title: 'Profit & loss',
       subtitle: `${currentOrganization.name} · ${periodLabel}`,
       sections: [
-        pnlSectionRows('Revenue', data.revenue.lines, data.revenue.total),
+        pnlSectionRows('Total trading income', data.revenue.lines, data.revenue.total),
         pnlSectionRows('Cost of sales', data.costOfSales.lines, data.costOfSales.total),
-        pnlSectionRows('Operating expenses', data.operatingExpenses.lines, data.operatingExpenses.total),
         {
-          heading: 'Summary',
+          heading: 'Gross profit',
           headers: ['Line', 'Amount'],
-          rows: [
-            ['Gross profit', formatMoney(data.grossProfit, { decimals: 2 })],
-            ['Net profit', formatMoney(data.netProfit, { decimals: 2 })],
-          ],
+          rows: [['Gross profit', formatMoney(data.grossProfit, { decimals: 2 })]],
+          columnWeights: [2.6, 1.1],
+          columnAlign: ['left', 'right'],
+        },
+        pnlSectionRows('Total operating expenses', data.operatingExpenses.lines, data.operatingExpenses.total),
+        {
+          heading: 'Net profit',
+          headers: ['Line', 'Amount'],
+          rows: [['Net profit', formatMoney(data.netProfit, { decimals: 2 })]],
           columnWeights: [2.6, 1.1],
           columnAlign: ['left', 'right'],
         },
@@ -122,49 +126,36 @@ export function ProfitLossReportPage() {
   const fieldClass =
     'rounded-sm border border-qb-border bg-white px-3 py-2 text-sm text-qb-heading focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35'
 
-  function Section({
-    title,
+  const rowLabel = 'text-sm font-semibold text-qb-heading'
+  const rowValue = 'text-sm font-semibold tabular-nums text-qb-heading'
+
+  function AccountLines({
     lines,
-    total,
   }: {
-    title: string
     lines: ProfitLossReportData['revenue']['lines']
-    total: number
   }) {
+    if (lines.length === 0) {
+      return (
+        <p className="rounded-sm border border-dashed border-qb-border bg-qb-surface/30 px-3 py-3 text-sm text-qb-muted">
+          No income or expense accounts on the chart of accounts.
+        </p>
+      )
+    }
     return (
-      <div>
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-qb-muted">{title}</h3>
-        <div className="mt-2 overflow-x-auto rounded-sm border border-qb-border">
-          <table className="w-full min-w-[400px] text-sm">
-            <tbody className="divide-y divide-qb-border">
-              {lines.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="px-3 py-2 text-qb-muted">
-                    No activity in this period.
-                  </td>
-                </tr>
-              ) : (
-                lines.map((l) => (
-                  <tr key={l.chartOfAccountId} className="hover:bg-qb-surface/40">
-                    <td className="px-3 py-2 font-mono text-xs">{l.code}</td>
-                    <td className="px-3 py-2 text-qb-heading">{l.name}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-medium">
-                      {formatMoney(l.amount, { decimals: 2 })}
-                    </td>
-                  </tr>
-                ))
-              )}
-              <tr className="bg-qb-surface/60 font-semibold">
-                <td colSpan={2} className="px-3 py-2 text-qb-heading">
-                  Total
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">
-                  {formatMoney(total, { decimals: 2 })}
+      <div className="overflow-x-auto rounded-sm border border-qb-border">
+        <table className="w-full min-w-[400px] text-sm">
+          <tbody className="divide-y divide-qb-border">
+            {lines.map((l) => (
+              <tr key={l.chartOfAccountId} className="hover:bg-qb-surface/40">
+                <td className="px-3 py-2 font-mono text-xs">{l.code}</td>
+                <td className="px-3 py-2 text-qb-heading">{l.name}</td>
+                <td className="px-3 py-2 text-right tabular-nums font-medium">
+                  {formatMoney(l.amount, { decimals: 2 })}
                 </td>
               </tr>
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
     )
   }
@@ -173,7 +164,7 @@ export function ProfitLossReportPage() {
     <PageTransition>
       <FinanceReportChrome
         title="Profit & loss report"
-        description="Income and expense accounts for a date range, grouped like Xero: revenue, cost of sales, operating expenses, with gross and net profit."
+        description="Trading income, cost of sales, gross profit, and operating expenses for the selected period. All P&L accounts are listed, including accounts with no activity."
         toolbar={
           <ReportExportToolbar
             canExport={canExport}
@@ -226,31 +217,48 @@ export function ProfitLossReportPage() {
           ) : null}
           {data ? (
             <div className="space-y-8">
-              <Section title="Revenue" lines={data.revenue.lines} total={data.revenue.total} />
-              <Section
-                title="Cost of sales"
-                lines={data.costOfSales.lines}
-                total={data.costOfSales.total}
-              />
-              <Section
-                title="Operating expenses"
-                lines={data.operatingExpenses.lines}
-                total={data.operatingExpenses.total}
-              />
-              <div className="grid gap-4 border-t border-qb-border pt-6 sm:grid-cols-2">
-                <div className="rounded-md border border-qb-border bg-qb-surface/40 p-4">
-                  <p className="text-xs font-semibold uppercase text-qb-muted">Gross profit</p>
-                  <p className="mt-1 text-2xl font-semibold tabular-nums text-qb-heading">
-                    {formatMoney(data.grossProfit, { decimals: 2 })}
-                  </p>
-                </div>
-                <div className="rounded-md border border-qb-border bg-qb-primary-soft/50 p-4">
-                  <p className="text-xs font-semibold uppercase text-qb-heading">Net profit</p>
-                  <p className="mt-1 text-2xl font-semibold tabular-nums text-qb-heading">
-                    {formatMoney(data.netProfit, { decimals: 2 })}
-                  </p>
-                </div>
+              <div className="rounded-lg border border-qb-border bg-gradient-to-br from-qb-primary-soft/60 to-white px-5 py-6 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                  Net profit (loss)
+                </p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums text-qb-heading sm:text-4xl">
+                  {formatMoney(data.netProfit, { decimals: 2 })}
+                </p>
+                <p className="mt-2 text-xs text-qb-muted">Period: {periodLabel}</p>
               </div>
+
+              <section className="space-y-3">
+                <div className="flex items-baseline justify-between gap-4">
+                  <h3 className={rowLabel}>Total trading income</h3>
+                  <span className={rowValue}>{formatMoney(data.revenue.total, { decimals: 2 })}</span>
+                </div>
+                <AccountLines lines={data.revenue.lines} />
+              </section>
+
+              <section className="space-y-3">
+                <div className="flex items-baseline justify-between gap-4">
+                  <h3 className={rowLabel}>Cost of sales</h3>
+                  <span className={rowValue}>{formatMoney(data.costOfSales.total, { decimals: 2 })}</span>
+                </div>
+                <AccountLines lines={data.costOfSales.lines} />
+              </section>
+
+              <div className="flex items-baseline justify-between gap-4 border-y border-qb-border py-4">
+                <h3 className="text-base font-semibold text-qb-heading">Gross profit</h3>
+                <span className="text-base font-semibold tabular-nums text-qb-heading">
+                  {formatMoney(data.grossProfit, { decimals: 2 })}
+                </span>
+              </div>
+
+              <section className="space-y-3">
+                <div className="flex items-baseline justify-between gap-4">
+                  <h3 className={rowLabel}>Total operating expenses</h3>
+                  <span className={rowValue}>
+                    {formatMoney(data.operatingExpenses.total, { decimals: 2 })}
+                  </span>
+                </div>
+                <AccountLines lines={data.operatingExpenses.lines} />
+              </section>
             </div>
           ) : null}
         </PageCard>

@@ -196,6 +196,16 @@ import {
   reverseJournalEntry,
 } from "./services/journal-reversal.service.js";
 import {
+  approveMerchantJournalEntry,
+  approveMerchantJournalEntryForBusiness,
+  cancelMerchantJournalEntry,
+  cancelMerchantJournalEntryForBusiness,
+  getMerchantJournalEntryForBusiness,
+  getMerchantJournalEntryForPlatform,
+  listMerchantJournalEntriesForBusiness,
+  listMerchantJournalEntriesForPlatform,
+} from "./services/merchant-transaction-journal.service.js";
+import {
   postManualBankTransfer,
   postManualGeneralJournal,
   postManualMoneyIn,
@@ -1940,6 +1950,16 @@ const platformJournalReversalPostGates = [
   { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_JOURNALS_REVERSAL, action: "create" as const },
 ];
 
+const platformMerchantTransactionJournalViewGates = [
+  platformFinanceLegacyViewGate,
+  { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_TRANSACTION_JOURNAL, action: "view" as const },
+];
+
+const platformMerchantTransactionJournalApproveGates = [
+  platformFinanceLegacyCreateGate,
+  { moduleSlug: PLATFORM_MODULE_SLUGS.ACCOUNTING_TRANSACTION_JOURNAL, action: "edit" as const },
+];
+
 const platformPurchaseBillsViewGates = [
   platformFinanceLegacyViewGate,
   { moduleSlug: PLATFORM_MODULE_SLUGS.PURCHASE_BILLS, action: "view" as const },
@@ -2326,6 +2346,211 @@ app.get(
       }
       const data = await getPlatformAccountStatementsReports(chartOfAccountIds, from, to);
       res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/accounting/merchant-journal-entries",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformMerchantTransactionJournalViewGates),
+  async (req, res, next) => {
+    try {
+      const page = clampPage(Number(req.query.page ?? 1));
+      const pageSize = clampPageSize(Number(req.query.pageSize ?? 20));
+      const businessId =
+        typeof req.query.businessId === "string" && req.query.businessId.trim()
+          ? req.query.businessId.trim()
+          : undefined;
+      const from =
+        typeof req.query.from === "string" && req.query.from.trim() ? req.query.from.trim() : undefined;
+      const to =
+        typeof req.query.to === "string" && req.query.to.trim() ? req.query.to.trim() : undefined;
+      const result = await listMerchantJournalEntriesForPlatform({
+        page,
+        pageSize,
+        businessId,
+        from,
+        to,
+      });
+      res.json({
+        data: result.rows.map((e) => ({
+          id: e.id,
+          businessId: e.businessId,
+          businessName: e.business.name,
+          postedAt: e.postedAt.toISOString(),
+          memo: e.memo,
+          reference: e.reference,
+          sourceType: e.sourceType,
+          sourceId: e.sourceId,
+          journalApprovalExempt: e.journalApprovalExempt,
+          approvedAt: e.approvedAt?.toISOString() ?? null,
+          approvedBy: e.approvedBy
+            ? { id: e.approvedBy.id, name: e.approvedBy.name, email: e.approvedBy.email }
+            : null,
+          cancelledAt: e.cancelledAt?.toISOString() ?? null,
+          cancelledBy: e.cancelledBy
+            ? { id: e.cancelledBy.id, name: e.cancelledBy.name, email: e.cancelledBy.email }
+            : null,
+          reversesJournalEntryId: e.reversesJournalEntryId,
+          createdAt: e.createdAt.toISOString(),
+        })),
+        total: result.total,
+        page: result.page,
+        pageSize: result.pageSize,
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/accounting/merchant-journal-entries/:journalEntryId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformMerchantTransactionJournalViewGates),
+  async (req, res, next) => {
+    try {
+      const row = await getMerchantJournalEntryForPlatform(req.params.journalEntryId as string);
+      res.json({
+        data: {
+          id: row.id,
+          businessId: row.businessId,
+          businessName: row.business.name,
+          postedAt: row.postedAt.toISOString(),
+          memo: row.memo,
+          reference: row.reference,
+          sourceType: row.sourceType,
+          sourceId: row.sourceId,
+          contactId: row.contactId,
+          journalApprovalExempt: row.journalApprovalExempt,
+          approvedAt: row.approvedAt?.toISOString() ?? null,
+          approvedBy: row.approvedBy
+            ? { id: row.approvedBy.id, name: row.approvedBy.name, email: row.approvedBy.email }
+            : null,
+          cancelledAt: row.cancelledAt?.toISOString() ?? null,
+          cancelledBy: row.cancelledBy
+            ? { id: row.cancelledBy.id, name: row.cancelledBy.name, email: row.cancelledBy.email }
+            : null,
+          reversesJournalEntryId: row.reversesJournalEntryId,
+          createdAt: row.createdAt.toISOString(),
+          lines: row.lines.map((ln) => ({
+            id: ln.id,
+            chartOfAccountId: ln.chartOfAccountId,
+            code: ln.chartOfAccount.code,
+            name: ln.chartOfAccount.name,
+            category: ln.chartOfAccount.category,
+            debit: Number(ln.debitAmount),
+            credit: Number(ln.creditAmount),
+            description: ln.description,
+          })),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/accounting/merchant-journal-entries/:journalEntryId/approve",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformMerchantTransactionJournalApproveGates),
+  async (req, res, next) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        throw new HttpError(401, "Unauthorized.");
+      }
+      const row = await approveMerchantJournalEntry(req.params.journalEntryId as string, userId);
+      res.json({
+        data: {
+          id: row.id,
+          businessId: row.businessId,
+          businessName: row.business.name,
+          postedAt: row.postedAt.toISOString(),
+          memo: row.memo,
+          reference: row.reference,
+          sourceType: row.sourceType,
+          sourceId: row.sourceId,
+          journalApprovalExempt: row.journalApprovalExempt,
+          approvedAt: row.approvedAt?.toISOString() ?? null,
+          approvedBy: row.approvedBy
+            ? { id: row.approvedBy.id, name: row.approvedBy.name, email: row.approvedBy.email }
+            : null,
+          cancelledAt: row.cancelledAt?.toISOString() ?? null,
+          cancelledBy: row.cancelledBy
+            ? { id: row.cancelledBy.id, name: row.cancelledBy.name, email: row.cancelledBy.email }
+            : null,
+          lines: row.lines.map((ln) => ({
+            id: ln.id,
+            chartOfAccountId: ln.chartOfAccountId,
+            code: ln.chartOfAccount.code,
+            name: ln.chartOfAccount.name,
+            category: ln.chartOfAccount.category,
+            debit: Number(ln.debitAmount),
+            credit: Number(ln.creditAmount),
+            description: ln.description,
+          })),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/accounting/merchant-journal-entries/:journalEntryId/cancel",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformMerchantTransactionJournalApproveGates),
+  async (req, res, next) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        throw new HttpError(401, "Unauthorized.");
+      }
+      const row = await cancelMerchantJournalEntry(req.params.journalEntryId as string, userId);
+      res.json({
+        data: {
+          id: row.id,
+          businessId: row.businessId,
+          businessName: row.business.name,
+          postedAt: row.postedAt.toISOString(),
+          memo: row.memo,
+          reference: row.reference,
+          sourceType: row.sourceType,
+          sourceId: row.sourceId,
+          contactId: row.contactId,
+          journalApprovalExempt: row.journalApprovalExempt,
+          approvedAt: row.approvedAt?.toISOString() ?? null,
+          approvedBy: row.approvedBy
+            ? { id: row.approvedBy.id, name: row.approvedBy.name, email: row.approvedBy.email }
+            : null,
+          cancelledAt: row.cancelledAt?.toISOString() ?? null,
+          cancelledBy: row.cancelledBy
+            ? { id: row.cancelledBy.id, name: row.cancelledBy.name, email: row.cancelledBy.email }
+            : null,
+          reversesJournalEntryId: row.reversesJournalEntryId,
+          createdAt: row.createdAt.toISOString(),
+          lines: row.lines.map((ln) => ({
+            id: ln.id,
+            chartOfAccountId: ln.chartOfAccountId,
+            code: ln.chartOfAccount.code,
+            name: ln.chartOfAccount.name,
+            category: ln.chartOfAccount.category,
+            debit: Number(ln.debitAmount),
+            credit: Number(ln.creditAmount),
+            description: ln.description,
+          })),
+        },
+      });
     } catch (e) {
       next(e);
     }
@@ -5437,6 +5662,270 @@ app.get(
         to,
       );
       response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/accounting/transaction-journals",
+  authenticateToken,
+  requireEntitlement("accounting.transaction_journal"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const page = clampPage(Number(request.query.page ?? 1));
+      const pageSize = clampPageSize(Number(request.query.pageSize ?? 20));
+      const from =
+        typeof request.query.from === "string" && request.query.from.trim()
+          ? request.query.from.trim()
+          : undefined;
+      const to =
+        typeof request.query.to === "string" && request.query.to.trim()
+          ? request.query.to.trim()
+          : undefined;
+
+      const result = await listMerchantJournalEntriesForBusiness(businessId as string, {
+        page,
+        pageSize,
+        from,
+        to,
+      });
+
+      response.json({
+        data: result.rows.map((e) => ({
+          id: e.id,
+          businessId: e.businessId,
+          businessName: e.business.name,
+          postedAt: e.postedAt.toISOString(),
+          memo: e.memo,
+          reference: e.reference,
+          sourceType: e.sourceType,
+          sourceId: e.sourceId,
+          journalApprovalExempt: e.journalApprovalExempt,
+          approvedAt: e.approvedAt?.toISOString() ?? null,
+          approvedBy: e.approvedBy
+            ? { id: e.approvedBy.id, name: e.approvedBy.name, email: e.approvedBy.email }
+            : null,
+          cancelledAt: e.cancelledAt?.toISOString() ?? null,
+          cancelledBy: e.cancelledBy
+            ? { id: e.cancelledBy.id, name: e.cancelledBy.name, email: e.cancelledBy.email }
+            : null,
+          reversesJournalEntryId: e.reversesJournalEntryId,
+          createdAt: e.createdAt.toISOString(),
+        })),
+        total: result.total,
+        page: result.page,
+        pageSize: result.pageSize,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/accounting/transaction-journals/:journalEntryId",
+  authenticateToken,
+  requireEntitlement("accounting.transaction_journal"),
+  async (request, response, next) => {
+    try {
+      const { businessId, journalEntryId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const row = await getMerchantJournalEntryForBusiness(
+        businessId as string,
+        journalEntryId as string,
+      );
+      response.json({
+        data: {
+          id: row.id,
+          businessId: row.businessId,
+          businessName: row.business.name,
+          postedAt: row.postedAt.toISOString(),
+          memo: row.memo,
+          reference: row.reference,
+          sourceType: row.sourceType,
+          sourceId: row.sourceId,
+          contactId: row.contactId,
+          journalApprovalExempt: row.journalApprovalExempt,
+          approvedAt: row.approvedAt?.toISOString() ?? null,
+          approvedBy: row.approvedBy
+            ? { id: row.approvedBy.id, name: row.approvedBy.name, email: row.approvedBy.email }
+            : null,
+          cancelledAt: row.cancelledAt?.toISOString() ?? null,
+          cancelledBy: row.cancelledBy
+            ? { id: row.cancelledBy.id, name: row.cancelledBy.name, email: row.cancelledBy.email }
+            : null,
+          reversesJournalEntryId: row.reversesJournalEntryId,
+          createdAt: row.createdAt.toISOString(),
+          lines: row.lines.map((ln) => ({
+            id: ln.id,
+            chartOfAccountId: ln.chartOfAccountId,
+            code: ln.chartOfAccount.code,
+            name: ln.chartOfAccount.name,
+            category: ln.chartOfAccount.category,
+            debit: Number(ln.debitAmount),
+            credit: Number(ln.creditAmount),
+            description: ln.description,
+          })),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/accounting/transaction-journals/:journalEntryId/approve",
+  authenticateToken,
+  requireEntitlement("accounting.transaction_journal"),
+  async (request, response, next) => {
+    try {
+      const { businessId, journalEntryId } = request.params;
+      const userId = request.user?.id;
+      if (!userId) {
+        throw new HttpError(401, "Unauthorized.");
+      }
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const row = await approveMerchantJournalEntryForBusiness(
+        businessId as string,
+        journalEntryId as string,
+        userId,
+      );
+      response.json({
+        data: {
+          id: row.id,
+          businessId: row.businessId,
+          businessName: row.business.name,
+          postedAt: row.postedAt.toISOString(),
+          memo: row.memo,
+          reference: row.reference,
+          sourceType: row.sourceType,
+          sourceId: row.sourceId,
+          journalApprovalExempt: row.journalApprovalExempt,
+          approvedAt: row.approvedAt?.toISOString() ?? null,
+          approvedBy: row.approvedBy
+            ? { id: row.approvedBy.id, name: row.approvedBy.name, email: row.approvedBy.email }
+            : null,
+          cancelledAt: row.cancelledAt?.toISOString() ?? null,
+          cancelledBy: row.cancelledBy
+            ? { id: row.cancelledBy.id, name: row.cancelledBy.name, email: row.cancelledBy.email }
+            : null,
+          lines: row.lines.map((ln) => ({
+            id: ln.id,
+            chartOfAccountId: ln.chartOfAccountId,
+            code: ln.chartOfAccount.code,
+            name: ln.chartOfAccount.name,
+            category: ln.chartOfAccount.category,
+            debit: Number(ln.debitAmount),
+            credit: Number(ln.creditAmount),
+            description: ln.description,
+          })),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/accounting/transaction-journals/:journalEntryId/cancel",
+  authenticateToken,
+  requireEntitlement("accounting.transaction_journal"),
+  async (request, response, next) => {
+    try {
+      const { businessId, journalEntryId } = request.params;
+      const userId = request.user?.id;
+      if (!userId) {
+        throw new HttpError(401, "Unauthorized.");
+      }
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const row = await cancelMerchantJournalEntryForBusiness(
+        businessId as string,
+        journalEntryId as string,
+        userId,
+      );
+      response.json({
+        data: {
+          id: row.id,
+          businessId: row.businessId,
+          businessName: row.business.name,
+          postedAt: row.postedAt.toISOString(),
+          memo: row.memo,
+          reference: row.reference,
+          sourceType: row.sourceType,
+          sourceId: row.sourceId,
+          contactId: row.contactId,
+          journalApprovalExempt: row.journalApprovalExempt,
+          approvedAt: row.approvedAt?.toISOString() ?? null,
+          approvedBy: row.approvedBy
+            ? { id: row.approvedBy.id, name: row.approvedBy.name, email: row.approvedBy.email }
+            : null,
+          cancelledAt: row.cancelledAt?.toISOString() ?? null,
+          cancelledBy: row.cancelledBy
+            ? { id: row.cancelledBy.id, name: row.cancelledBy.name, email: row.cancelledBy.email }
+            : null,
+          reversesJournalEntryId: row.reversesJournalEntryId,
+          createdAt: row.createdAt.toISOString(),
+          lines: row.lines.map((ln) => ({
+            id: ln.id,
+            chartOfAccountId: ln.chartOfAccountId,
+            code: ln.chartOfAccount.code,
+            name: ln.chartOfAccount.name,
+            category: ln.chartOfAccount.category,
+            debit: Number(ln.debitAmount),
+            credit: Number(ln.creditAmount),
+            description: ln.description,
+          })),
+        },
+      });
     } catch (error) {
       next(error);
     }
