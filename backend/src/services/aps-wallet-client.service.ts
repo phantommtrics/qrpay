@@ -3,6 +3,43 @@ import axios from "axios";
 import { HttpError } from "../lib/http-error.js";
 import { apsWalletApiBaseUrl, apsWalletMerchantCredentials } from "../config/aps-wallet-env.js";
 
+/**
+ * APS Money Wallet API paths (must match APS docs). Full URL =
+ * `${APS_WALLET_BASE_URL}` + path, e.g. https://uat-wallet.apsmoney.gm/api/v1/login
+ *
+ * TLS/SSL handshake failures happen before any URL path is sent; a wrong path returns HTTP 4xx
+ * after TLS succeeds — not an SSL error.
+ */
+export const APS_WALLET_PATHS = {
+  login: "/api/v1/login",
+  authorizeCustomer: "/api/v1/payment-gateway/wallet/authorize-customer",
+  confirmCustomer: "/api/v1/payment-gateway/wallet/confirm-customer",
+  processPayment: "/api/v1/payment-gateway/wallet/process-payment",
+} as const;
+
+const LOG_PREFIX = "[APS Wallet]";
+
+function maskPhoneTail(value: string, visible = 3): string {
+  const t = value.replace(/\s/g, "");
+  if (t.length <= visible) {
+    return "(short)";
+  }
+  return `***${t.slice(-visible)}`;
+}
+
+function maskSecret(value: string, head = 4, tail = 4): string {
+  const t = value.trim();
+  if (t.length <= head + tail) {
+    return `(len=${t.length})`;
+  }
+  return `${t.slice(0, head)}…${t.slice(-tail)}`;
+}
+
+/** Debug logs (no passwords, full tokens, or OTP digits). */
+function logAps(step: string, detail: Record<string, string | number | boolean | undefined> = {}) {
+  console.log(LOG_PREFIX, step, detail);
+}
+
 type JsonRecord = Record<string, unknown>;
 
 function pickString(obj: unknown, keys: string[]): string | undefined {
@@ -101,6 +138,7 @@ const DEFAULT_TOKEN_TTL_MS = 50 * 60 * 1000;
  */
 function throwIfApsUnreachable(error: unknown, what: string): never {
   if (axios.isAxiosError(error) && !error.response) {
+    logAps("network_error", { what, code: error.code ? String(error.code) : "?", message: error.message });
     const code = error.code ? String(error.code) : "";
     const msg = error.message || "Request failed";
     throw new HttpError(
@@ -144,6 +182,11 @@ async function postJson(
     cachedMerchantToken = null;
   }
   if (response.status < 200 || response.status >= 300) {
+    const preview =
+      response.data && typeof response.data === "object"
+        ? JSON.stringify(response.data).slice(0, 400)
+        : String(response.data ?? "").slice(0, 200);
+    logAps("http_error", { path, status: response.status, bodyPreview: preview });
     const msg = errorMessageFromBody(response.data);
     throw new Error(response.status === 401 ? `Unauthorized: ${msg}` : msg);
   }
@@ -153,12 +196,27 @@ async function postJson(
 export async function apsWalletLoginFresh(): Promise<string> {
   const { mobile, password, accessChannel } = apsWalletMerchantCredentials();
   const base = apsWalletApiBaseUrl();
-  const url = `${base}/api/v1/login`;
+  const url = `${base}${APS_WALLET_PATHS.login}`;
+  logAps("1_login_start", {
+    path: APS_WALLET_PATHS.login,
+    baseUrl: base,
+    merchantMobile: maskPhoneTail(mobile),
+    accessChannel,
+  });
   let response;
   try {
     response = await axios.post(
       url,
-      { mobile, password, access_channel: accessChannel },
+      /**
+       * UAT returns 422 "username field is required" if only `mobile` is sent.
+       * `APS_WALLET_MOBILE` is the merchant login id and must be sent as `username` (and as `mobile` for doc compatibility).
+       */
+      {
+        username: mobile,
+        mobile,
+        password,
+        access_channel: accessChannel,
+      },
       {
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         timeout: 45_000,
@@ -166,14 +224,20 @@ export async function apsWalletLoginFresh(): Promise<string> {
       },
     );
   } catch (e) {
-    throwIfApsUnreachable(e, "POST /api/v1/login");
+    throwIfApsUnreachable(e, `POST ${APS_WALLET_PATHS.login}`);
   }
   if (response.status < 200 || response.status >= 300) {
+    const preview =
+      response.data && typeof response.data === "object"
+        ? JSON.stringify(response.data).slice(0, 400)
+        : String(response.data ?? "");
+    logAps("1_login_failed", { httpStatus: response.status, bodyPreview: preview });
     throw new Error(errorMessageFromBody(response.data));
   }
   const data = response.data;
   const token = pickStringDeep(data, ["token", "access_token", "accessToken", "bearer", "jwt"]);
   if (!token) {
+    logAps("1_login_failed", { reason: "no_token_in_body", bodyPreview: JSON.stringify(data).slice(0, 400) });
     throw new Error("APS Wallet login did not return a token. Check APS_WALLET_MOBILE / APS_WALLET_PASSWORD and API response shape.");
   }
   const exp =
@@ -181,6 +245,11 @@ export async function apsWalletLoginFresh(): Promise<string> {
       ? Date.now() + Number((data as JsonRecord).expires_in) * 1000
       : Date.now() + DEFAULT_TOKEN_TTL_MS;
   cachedMerchantToken = { token, expiresAtMs: exp };
+  logAps("1_login_ok", {
+    httpStatus: response.status,
+    bearerTokenChars: token.length,
+    cacheExpiresInSec: Math.round((exp - Date.now()) / 1000),
+  });
   return token;
 }
 
@@ -190,8 +259,12 @@ export async function apsWalletMerchantBearer(): Promise<string> {
     cachedMerchantToken &&
     now < cachedMerchantToken.expiresAtMs - TOKEN_REFRESH_SKEW_MS
   ) {
+    logAps("merchant_bearer_cache_hit", {
+      expiresInSec: Math.round((cachedMerchantToken.expiresAtMs - now) / 1000),
+    });
     return cachedMerchantToken.token;
   }
+  logAps("merchant_bearer_fresh_login", {});
   return apsWalletLoginFresh();
 }
 
@@ -212,8 +285,13 @@ export function normalizeApsCustomerMobile(input: string): string {
 export async function apsWalletAuthorizeCustomer(mobile: string): Promise<string> {
   const bearer = await apsWalletMerchantBearer();
   const normalized = normalizeApsCustomerMobile(mobile);
+  logAps("2_authorize_customer_start", {
+    customerMobile: maskPhoneTail(normalized),
+    path: APS_WALLET_PATHS.authorizeCustomer,
+  });
   const raw = await postJson(
-    "/api/v1/payment-gateway/wallet/authorize-customer",
+    APS_WALLET_PATHS.authorizeCustomer,
+    /** Bearer = merchant access token from login. Body: { mobile } */
     { mobile: normalized },
     bearer,
   );
@@ -231,10 +309,15 @@ export async function apsWalletAuthorizeCustomer(mobile: string): Promise<string
       raw && typeof raw === "object"
         ? JSON.stringify(raw).slice(0, 280)
         : String(raw);
+    logAps("2_authorize_customer_failed", { reason: "no_request_token", bodyPreview: preview });
     throw new Error(
       `APS Wallet did not return a request token for OTP. Check authorize-customer response keys. Body (truncated): ${preview}`,
     );
   }
+  logAps("2_authorize_customer_ok", {
+    requestTokenChars: requestToken.length,
+    requestTokenTail: maskSecret(requestToken, 4, 4),
+  });
   return requestToken;
 }
 
@@ -243,8 +326,16 @@ export async function apsWalletConfirmCustomer(
   requestToken: string,
 ): Promise<string> {
   const bearer = await apsWalletMerchantBearer();
+  const otpLen = otp.trim().length;
+  logAps("3_confirm_customer_start", {
+    path: APS_WALLET_PATHS.confirmCustomer,
+    otpDigits: otpLen,
+    requestTokenChars: requestToken.length,
+    requestTokenTail: maskSecret(requestToken, 4, 4),
+  });
   const raw = await postJson(
-    "/api/v1/payment-gateway/wallet/confirm-customer",
+    APS_WALLET_PATHS.confirmCustomer,
+    /** Body: { otp, request_token } */
     {
       otp: otp.trim(),
       request_token: requestToken,
@@ -260,8 +351,13 @@ export async function apsWalletConfirmCustomer(
     "token",
   ]);
   if (!authorized) {
+    logAps("3_confirm_customer_failed", { reason: "no_authorized_token" });
     throw new Error("APS Wallet did not return an authorized token after OTP confirmation.");
   }
+  logAps("3_confirm_customer_ok", {
+    authorizedTokenChars: authorized.length,
+    authorizedTail: maskSecret(authorized, 4, 4),
+  });
   return authorized;
 }
 
@@ -270,8 +366,15 @@ export async function apsWalletProcessPayment(
   authorizedToken: string,
 ): Promise<{ raw: unknown; reference?: string }> {
   const bearer = await apsWalletMerchantBearer();
+  logAps("4_process_payment_start", {
+    path: APS_WALLET_PATHS.processPayment,
+    amount,
+    authorizedTokenChars: authorizedToken.length,
+    authorizedTail: maskSecret(authorizedToken, 4, 4),
+  });
   const raw = await postJson(
-    "/api/v1/payment-gateway/wallet/process-payment",
+    APS_WALLET_PATHS.processPayment,
+    /** Body: { amount, authorized_token } — amounts sent as strings per APS examples. */
     {
       amount: amount.trim(),
       authorized_token: authorizedToken,
@@ -287,5 +390,8 @@ export async function apsWalletProcessPayment(
     "payment_id",
     "paymentId",
   ]);
+  logAps("4_process_payment_ok", {
+    reference: reference ?? "(none parsed)",
+  });
   return { raw, reference };
 }

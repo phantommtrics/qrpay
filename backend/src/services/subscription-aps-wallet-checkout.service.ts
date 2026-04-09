@@ -19,6 +19,7 @@ import {
 import { completeSubscriptionInvoicePayment } from "./subscription.service.js";
 
 const APS_STATE_TTL_MS = 15 * 60 * 1000;
+const LOG_PREFIX = "[APS Wallet]";
 
 type ApsAuthPayload = {
   v: 1;
@@ -182,6 +183,12 @@ export async function authorizeSubscriptionInvoiceApsCheckout(input: {
     throw new HttpError(400, "APS mobile number is required.");
   }
 
+  console.log(LOG_PREFIX, "checkout_authorize_start", {
+    invoiceId: input.invoiceId,
+    businessId: input.businessId,
+    gatewayCode: code,
+  });
+
   const invoice = await loadPayableInvoiceForBusiness(input.invoiceId, input.businessId);
   void input.req;
 
@@ -189,6 +196,7 @@ export async function authorizeSubscriptionInvoiceApsCheckout(input: {
   try {
     requestToken = await apsWalletAuthorizeCustomer(mobile);
   } catch (e) {
+    console.log(LOG_PREFIX, "checkout_authorize_failed", { invoiceId: input.invoiceId, step: "authorize_customer" });
     rethrowAsHttpError(e);
   }
   const authState = signApsAuthPayload({
@@ -198,6 +206,11 @@ export async function authorizeSubscriptionInvoiceApsCheckout(input: {
     payerMobile: mobile,
     kind: "business",
     businessId: input.businessId,
+  });
+
+  console.log(LOG_PREFIX, "checkout_authorize_done", {
+    invoiceId: invoice.id,
+    authStateChars: authState.length,
   });
 
   return { authState };
@@ -218,11 +231,17 @@ export async function authorizeGuestSubscriptionInvoiceApsCheckout(input: {
     throw new HttpError(400, "APS mobile number is required.");
   }
 
+  console.log(LOG_PREFIX, "checkout_guest_authorize_start", {
+    invoiceWillLoad: true,
+    gatewayCode: code,
+  });
+
   const invoice = await loadPayableInvoiceForGuest(input.guestToken);
   let requestToken: string;
   try {
     requestToken = await apsWalletAuthorizeCustomer(mobile);
   } catch (e) {
+    console.log(LOG_PREFIX, "checkout_guest_authorize_failed", { step: "authorize_customer" });
     rethrowAsHttpError(e);
   }
   const authState = signApsAuthPayload({
@@ -232,6 +251,11 @@ export async function authorizeGuestSubscriptionInvoiceApsCheckout(input: {
     payerMobile: mobile,
     kind: "guest",
     guestToken: input.guestToken.trim(),
+  });
+
+  console.log(LOG_PREFIX, "checkout_guest_authorize_done", {
+    invoiceId: invoice.id,
+    authStateChars: authState.length,
   });
 
   return { authState };
@@ -274,10 +298,17 @@ export async function completeSubscriptionInvoiceApsCheckout(input: {
 
   void input.req;
 
+  console.log(LOG_PREFIX, "checkout_complete_start", {
+    invoiceId: invoice.id,
+    otpDigits: otp.length,
+    gatewayCode: code,
+  });
+
   let authorizedToken: string;
   try {
     authorizedToken = await apsWalletConfirmCustomer(otp, state.requestToken);
   } catch (e) {
+    console.log(LOG_PREFIX, "checkout_complete_failed", { step: "confirm_customer", invoiceId: invoice.id });
     rethrowAsHttpError(e);
   }
   const amountStr = invoice.amount.toFixed(2);
@@ -285,6 +316,7 @@ export async function completeSubscriptionInvoiceApsCheckout(input: {
   try {
     processed = await apsWalletProcessPayment(amountStr, authorizedToken);
   } catch (e) {
+    console.log(LOG_PREFIX, "checkout_complete_failed", { step: "process_payment", invoiceId: invoice.id });
     rethrowAsHttpError(e);
   }
 
@@ -301,11 +333,21 @@ export async function completeSubscriptionInvoiceApsCheckout(input: {
       metadata: {
         source: "aps_wallet_sync",
         payerMobile: state.payerMobile,
+        apsPaymentReference: processed.reference ?? providerRef,
       },
     });
   } catch (e) {
+    console.log(LOG_PREFIX, "checkout_complete_failed", { step: "complete_subscription_invoice_payment", invoiceId: invoice.id });
     rethrowAsHttpError(e);
   }
+
+  console.log(LOG_PREFIX, "checkout_complete_done", {
+    invoiceId: invoice.id,
+    paid: true,
+    amount: amountStr,
+    currency: invoice.currency || "GMD",
+    apsPaymentReference: processed.reference ?? providerRef,
+  });
 
   return { paid: true };
 }
@@ -339,10 +381,17 @@ export async function completeGuestSubscriptionInvoiceApsCheckout(input: {
     throw new HttpError(400, "OTP is required.");
   }
 
+  console.log(LOG_PREFIX, "checkout_guest_complete_start", {
+    invoiceId: invoice.id,
+    otpDigits: otp.length,
+    gatewayCode: code,
+  });
+
   let authorizedToken: string;
   try {
     authorizedToken = await apsWalletConfirmCustomer(otp, state.requestToken);
   } catch (e) {
+    console.log(LOG_PREFIX, "checkout_guest_complete_failed", { step: "confirm_customer", invoiceId: invoice.id });
     rethrowAsHttpError(e);
   }
   const amountStr = invoice.amount.toFixed(2);
@@ -350,6 +399,7 @@ export async function completeGuestSubscriptionInvoiceApsCheckout(input: {
   try {
     processed = await apsWalletProcessPayment(amountStr, authorizedToken);
   } catch (e) {
+    console.log(LOG_PREFIX, "checkout_guest_complete_failed", { step: "process_payment", invoiceId: invoice.id });
     rethrowAsHttpError(e);
   }
 
@@ -366,11 +416,24 @@ export async function completeGuestSubscriptionInvoiceApsCheckout(input: {
       metadata: {
         source: "aps_wallet_guest",
         payerMobile: state.payerMobile,
+        apsPaymentReference: processed.reference ?? providerRef,
       },
     });
   } catch (e) {
+    console.log(LOG_PREFIX, "checkout_guest_complete_failed", {
+      step: "complete_subscription_invoice_payment",
+      invoiceId: invoice.id,
+    });
     rethrowAsHttpError(e);
   }
+
+  console.log(LOG_PREFIX, "checkout_guest_complete_done", {
+    invoiceId: invoice.id,
+    paid: true,
+    amount: amountStr,
+    currency: invoice.currency || "GMD",
+    apsPaymentReference: processed.reference ?? providerRef,
+  });
 
   return { paid: true };
 }
