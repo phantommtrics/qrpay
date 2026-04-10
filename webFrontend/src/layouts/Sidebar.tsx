@@ -280,6 +280,9 @@ export function Sidebar({
     if (path === APP_PATHS.platformAccountingChart) {
       return p.startsWith('/platform/accounting/chart-of-accounts')
     }
+    if (path === APP_PATHS.platformAccountingOperatorJournals) {
+      return p.startsWith('/platform/accounting/operator-journals')
+    }
     if (path === APP_PATHS.platformAccountingJournals) {
       return p.startsWith('/platform/accounting/journals')
     }
@@ -291,6 +294,9 @@ export function Sidebar({
     }
     if (path === APP_PATHS.platformAccountingReportStatement) {
       return p.startsWith('/platform/accounting/reports/account-statement')
+    }
+    if (path === APP_PATHS.platformAccountingOperatorMerchantJournals) {
+      return p.startsWith('/platform/accounting/operator-merchant-journals')
     }
     if (path === APP_PATHS.platformAccountingMerchantJournalEntries) {
       return p.startsWith('/platform/accounting/merchant-journal-entries')
@@ -324,7 +330,11 @@ export function Sidebar({
     if (!allowedForRole) {
       return false
     }
-    if (!canAccess(item.permission)) {
+    if (item.path === APP_PATHS.activityLog) {
+      if (!canAccess('activity.log') && !canAccess('platform.activity.log')) {
+        return false
+      }
+    } else if (!canAccess(item.permission)) {
       return false
     }
     if (item.path === APP_PATHS.staff && !currentOrganization?.isOwner) {
@@ -342,6 +352,10 @@ export function Sidebar({
     }
     if (item.path === APP_PATHS.orders) {
       if (!canAccess('orders.view') && !canAccess('pos.access')) {
+        return false
+      }
+    } else if (item.path === APP_PATHS.activityLog) {
+      if (!canAccess('activity.log') && !canAccess('platform.activity.log')) {
         return false
       }
     } else if (!canAccess(item.permission)) {

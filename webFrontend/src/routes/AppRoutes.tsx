@@ -328,6 +328,11 @@ const PlatformAccountingJournalsPage = lazy(() =>
     default: module.PlatformAccountingJournalsPage,
   })),
 )
+const PlatformOperatorJournalsPage = lazy(() =>
+  import('../screens/platform/PlatformOperatorJournalsPage').then((module) => ({
+    default: module.PlatformOperatorJournalsPage,
+  })),
+)
 const PlatformAccountingGlPage = lazy(() =>
   import('../screens/platform/PlatformAccountingGlPage').then((module) => ({
     default: module.PlatformAccountingGlPage,
@@ -346,6 +351,11 @@ const PlatformAccountingStatementPage = lazy(() =>
 const PlatformMerchantJournalEntriesPage = lazy(() =>
   import('../screens/platform/PlatformMerchantJournalEntriesPage').then((module) => ({
     default: module.PlatformMerchantJournalEntriesPage,
+  })),
+)
+const PlatformOperatorMerchantJournalEntriesPage = lazy(() =>
+  import('../screens/platform/PlatformOperatorMerchantJournalEntriesPage').then((module) => ({
+    default: module.PlatformOperatorMerchantJournalEntriesPage,
   })),
 )
 const PlatformMerchantJournalEntryDetailPage = lazy(() =>
@@ -372,6 +382,11 @@ const PlatformActivityLogPage = lazy(() =>
 const GuestSubscriptionInvoicePage = lazy(() =>
   import('../screens/GuestSubscriptionInvoicePage').then((module) => ({
     default: module.GuestSubscriptionInvoicePage,
+  })),
+)
+const GuestPlatformBillPage = lazy(() =>
+  import('../screens/GuestPlatformBillPage').then((module) => ({
+    default: module.GuestPlatformBillPage,
   })),
 )
 const BillingPage = lazy(() =>
@@ -492,6 +507,15 @@ export function AppRoutes() {
       ] satisfies PermissionKey[],
     },
     {
+      path: APP_PATHS.platformAccountingOperatorJournals,
+      element: <PlatformOperatorJournalsPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      anyOfPermissions: [
+        'platform.accounting.view',
+        'platform.accounting.journals.access',
+      ] satisfies PermissionKey[],
+    },
+    {
       path: APP_PATHS.platformAccountingReportGl,
       element: <PlatformAccountingGlPage />,
       roles: PLATFORM_OPERATOR_ROLES,
@@ -514,6 +538,15 @@ export function AppRoutes() {
       element: <PlatformMerchantJournalEntriesPage />,
       roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.accounting.transaction_journal' as const,
+    },
+    {
+      path: APP_PATHS.platformAccountingOperatorMerchantJournals,
+      element: <PlatformOperatorMerchantJournalEntriesPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      anyOfPermissions: [
+        'platform.accounting.view',
+        'platform.accounting.journals.access',
+      ] satisfies PermissionKey[],
     },
     {
       path: APP_PATHS.platformAccountingMerchantJournalEntryDetail,
@@ -628,7 +661,7 @@ export function AppRoutes() {
       path: APP_PATHS.activityLog,
       element: <ActivityLogPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.activityLog)!.roles,
-      permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.activityLog)!.permission,
+      anyOfPermissions: ['activity.log', 'platform.activity.log'] satisfies PermissionKey[],
     },
     {
       path: APP_PATHS.reports,
@@ -869,6 +902,7 @@ export function AppRoutes() {
         <Route path="/pay/:publicToken" element={<PublicPayPage />} />
         <Route path="/guest/quotation/:guestToken" element={<GuestQuotationPage />} />
         <Route path="/guest/invoice/:guestToken" element={<GuestInvoicePage />} />
+        <Route path="/guest/platform-bill/:guestToken" element={<GuestPlatformBillPage />} />
         <Route
           path="/guest/subscription-invoice/:guestToken"
           element={<GuestSubscriptionInvoicePage />}

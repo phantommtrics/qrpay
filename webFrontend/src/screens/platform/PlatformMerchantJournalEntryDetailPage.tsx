@@ -107,7 +107,11 @@ export function PlatformMerchantJournalEntryDetailPage() {
           className="space-y-5 rounded-md border-qb-border p-5 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
         >
           <Link
-            to={APP_PATHS.platformAccountingMerchantJournalEntries}
+            to={
+              data?.postedByPlatformUser
+                ? APP_PATHS.platformAccountingOperatorJournals
+                : APP_PATHS.platformAccountingMerchantJournalEntries
+            }
             className="inline-flex items-center text-sm font-medium text-qb-muted hover:text-qb-heading"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
@@ -134,6 +138,14 @@ export function PlatformMerchantJournalEntryDetailPage() {
                   <p className="mt-1 tabular-nums text-sm text-qb-heading">{formatShortDate(data.postedAt)}</p>
                 </div>
               </div>
+
+              {data.postedByPlatformUser ? (
+                <div className="rounded-md border border-teal-200/80 bg-teal-50/80 px-3 py-2 text-sm text-teal-950">
+                  <span className="font-semibold">Posted by platform operator:</span>{' '}
+                  {data.postedByPlatformUser.name}
+                  <span className="ml-1 text-teal-800/90">({data.postedByPlatformUser.email})</span>
+                </div>
+              ) : null}
 
               <div className="flex flex-wrap items-center gap-2">
                 {data.journalApprovalExempt ? (
@@ -210,7 +222,13 @@ export function PlatformMerchantJournalEntryDetailPage() {
                     <button
                       type="button"
                       disabled={approving || cancelling}
-                      onClick={() => navigate(APP_PATHS.platformAccountingMerchantJournalEntries)}
+                      onClick={() =>
+                        navigate(
+                          data.postedByPlatformUser
+                            ? APP_PATHS.platformAccountingOperatorJournals
+                            : APP_PATHS.platformAccountingMerchantJournalEntries,
+                        )
+                      }
                       className="inline-flex items-center rounded-md border border-slate-200/70 bg-slate-50/90 px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-100/90 focus:outline-none focus:ring-2 focus:ring-slate-400/25 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Back to list

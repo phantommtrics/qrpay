@@ -104,6 +104,7 @@ export async function postManualMoneyIn(
     reference?: string | null;
     settlementChartAccountId: string;
     lines: ManualJournalLineInput[];
+    postedByPlatformUserId?: string | null;
   },
 ) {
   if (!input.lines.length) {
@@ -164,6 +165,7 @@ export async function postManualMoneyIn(
     sourceId: contactId,
     settlementChartAccountId: settlement.id,
     settlementDebitDescription: `Receipt posted to ${settlement.name} (${settlement.code}).`,
+    postedByPlatformUserId: input.postedByPlatformUserId ?? null,
     lineRows,
     creditSum,
   });
@@ -178,6 +180,7 @@ type MoneyInJournalPayload = {
   sourceId: string;
   settlementChartAccountId: string;
   settlementDebitDescription: string;
+  postedByPlatformUserId?: string | null;
   lineRows: Array<{
     chartOfAccountId: string;
     creditAmount: Prisma.Decimal;
@@ -203,6 +206,7 @@ async function createMoneyInJournalEntry(
       contactId: payload.contactId,
       sourceType: payload.sourceType,
       sourceId: payload.sourceId,
+      postedByPlatformUserId: payload.postedByPlatformUserId?.trim() || null,
       lines: {
         create: [
           {
@@ -399,6 +403,7 @@ export async function postManualMoneyOut(
     reference?: string | null;
     settlementChartAccountId: string;
     lines: ManualJournalLineInput[];
+    postedByPlatformUserId?: string | null;
   },
 ) {
   if (!input.lines.length) {
@@ -459,6 +464,7 @@ export async function postManualMoneyOut(
       contactId,
       sourceType: JournalSourceType.MANUAL_MONEY_OUT,
       sourceId: contactId,
+      postedByPlatformUserId: input.postedByPlatformUserId?.trim() || null,
       lines: {
         create: [
           ...lineRows.map((r) => ({
@@ -495,6 +501,7 @@ export async function postManualBankTransfer(
     amount: number;
     postedAt: Date;
     reference?: string | null;
+    postedByPlatformUserId?: string | null;
   },
 ) {
   const amt = roundMoney(dec(input.amount));
@@ -526,6 +533,7 @@ export async function postManualBankTransfer(
       memo,
       reference: input.reference?.trim() || null,
       sourceType: JournalSourceType.MANUAL_BANK_TRANSFER,
+      postedByPlatformUserId: input.postedByPlatformUserId?.trim() || null,
       lines: {
         create: [
           {
@@ -571,6 +579,7 @@ export async function postManualGeneralJournal(
     newContactEmail?: string | null;
     newContactPhone?: string | null;
     lines: GeneralJournalLineInput[];
+    postedByPlatformUserId?: string | null;
   },
 ) {
   if (!input.lines.length || input.lines.length < 2) {
@@ -641,6 +650,7 @@ export async function postManualGeneralJournal(
       contactId,
       sourceType: JournalSourceType.MANUAL_GENERAL_JOURNAL,
       sourceId: null,
+      postedByPlatformUserId: input.postedByPlatformUserId?.trim() || null,
       lines: {
         create: normalized.map((ln) => ({
           chartOfAccountId: ln.chartOfAccountId,

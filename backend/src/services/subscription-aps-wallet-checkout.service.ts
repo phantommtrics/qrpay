@@ -17,6 +17,7 @@ import {
   normalizeApsCustomerMobile,
 } from "./aps-wallet-client.service.js";
 import {
+  ApsWalletCustomerAuthMerchantScope,
   deleteStoredApsAuthorizedToken,
   getStoredApsAuthorizedToken,
   upsertStoredApsAuthorizedToken,
@@ -211,7 +212,12 @@ export async function authorizeSubscriptionInvoiceApsCheckout(input: {
     throw new HttpError(400, "Payment gateway not found.");
   }
 
-  const storedAuth = await getStoredApsAuthorizedToken(invoice.businessId, gateway.id, mobile);
+  const storedAuth = await getStoredApsAuthorizedToken(
+    invoice.businessId,
+    gateway.id,
+    mobile,
+    ApsWalletCustomerAuthMerchantScope.PLATFORM_SUBSCRIPTION,
+  );
 
   let requestToken: string;
   let authMode: "otp" | "stored";
@@ -277,7 +283,12 @@ export async function authorizeGuestSubscriptionInvoiceApsCheckout(input: {
     throw new HttpError(400, "Payment gateway not found.");
   }
 
-  const storedAuth = await getStoredApsAuthorizedToken(invoice.businessId, gateway.id, mobile);
+  const storedAuth = await getStoredApsAuthorizedToken(
+    invoice.businessId,
+    gateway.id,
+    mobile,
+    ApsWalletCustomerAuthMerchantScope.PLATFORM_SUBSCRIPTION,
+  );
 
   let requestToken: string;
   let authMode: "otp" | "stored";
@@ -369,7 +380,12 @@ export async function completeSubscriptionInvoiceApsCheckout(input: {
 
   let authorizedToken: string;
   if (authMode === "stored") {
-    const stored = await getStoredApsAuthorizedToken(invoice.businessId, gateway.id, state.payerMobile);
+    const stored = await getStoredApsAuthorizedToken(
+      invoice.businessId,
+      gateway.id,
+      state.payerMobile,
+      ApsWalletCustomerAuthMerchantScope.PLATFORM_SUBSCRIPTION,
+    );
     if (!stored) {
       throw new HttpError(
         400,
@@ -384,7 +400,13 @@ export async function completeSubscriptionInvoiceApsCheckout(input: {
       console.log(LOG_PREFIX, "checkout_complete_failed", { step: "confirm_customer", invoiceId: invoice.id });
       rethrowAsHttpError(e);
     }
-    await upsertStoredApsAuthorizedToken(invoice.businessId, gateway.id, state.payerMobile, authorizedToken);
+    await upsertStoredApsAuthorizedToken(
+      invoice.businessId,
+      gateway.id,
+      state.payerMobile,
+      authorizedToken,
+      ApsWalletCustomerAuthMerchantScope.PLATFORM_SUBSCRIPTION,
+    );
   }
 
   const amountStr = invoice.amount.toFixed(2);
@@ -393,7 +415,12 @@ export async function completeSubscriptionInvoiceApsCheckout(input: {
     processed = await apsWalletProcessPayment(amountStr, authorizedToken);
   } catch (e) {
     if (authMode === "stored") {
-      await deleteStoredApsAuthorizedToken(invoice.businessId, gateway.id, state.payerMobile);
+      await deleteStoredApsAuthorizedToken(
+        invoice.businessId,
+        gateway.id,
+        state.payerMobile,
+        ApsWalletCustomerAuthMerchantScope.PLATFORM_SUBSCRIPTION,
+      );
     }
     console.log(LOG_PREFIX, "checkout_complete_failed", { step: "process_payment", invoiceId: invoice.id });
     rethrowAsHttpError(e);
@@ -478,7 +505,12 @@ export async function completeGuestSubscriptionInvoiceApsCheckout(input: {
 
   let authorizedToken: string;
   if (authMode === "stored") {
-    const stored = await getStoredApsAuthorizedToken(invoice.businessId, gateway.id, state.payerMobile);
+    const stored = await getStoredApsAuthorizedToken(
+      invoice.businessId,
+      gateway.id,
+      state.payerMobile,
+      ApsWalletCustomerAuthMerchantScope.PLATFORM_SUBSCRIPTION,
+    );
     if (!stored) {
       throw new HttpError(
         400,
@@ -493,7 +525,13 @@ export async function completeGuestSubscriptionInvoiceApsCheckout(input: {
       console.log(LOG_PREFIX, "checkout_guest_complete_failed", { step: "confirm_customer", invoiceId: invoice.id });
       rethrowAsHttpError(e);
     }
-    await upsertStoredApsAuthorizedToken(invoice.businessId, gateway.id, state.payerMobile, authorizedToken);
+    await upsertStoredApsAuthorizedToken(
+      invoice.businessId,
+      gateway.id,
+      state.payerMobile,
+      authorizedToken,
+      ApsWalletCustomerAuthMerchantScope.PLATFORM_SUBSCRIPTION,
+    );
   }
 
   const amountStr = invoice.amount.toFixed(2);
@@ -502,7 +540,12 @@ export async function completeGuestSubscriptionInvoiceApsCheckout(input: {
     processed = await apsWalletProcessPayment(amountStr, authorizedToken);
   } catch (e) {
     if (authMode === "stored") {
-      await deleteStoredApsAuthorizedToken(invoice.businessId, gateway.id, state.payerMobile);
+      await deleteStoredApsAuthorizedToken(
+        invoice.businessId,
+        gateway.id,
+        state.payerMobile,
+        ApsWalletCustomerAuthMerchantScope.PLATFORM_SUBSCRIPTION,
+      );
     }
     console.log(LOG_PREFIX, "checkout_guest_complete_failed", { step: "process_payment", invoiceId: invoice.id });
     rethrowAsHttpError(e);

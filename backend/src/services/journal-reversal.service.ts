@@ -230,6 +230,7 @@ export async function reverseJournalEntry(
         sourceId: original.id,
         reversesJournalEntryId: original.id,
         journalApprovalExempt: original.journalApprovalExempt,
+        postedByPlatformUserId: original.postedByPlatformUserId,
         lines: {
           create: original.lines.map((ln) => {
             const desc = ln.description?.trim()

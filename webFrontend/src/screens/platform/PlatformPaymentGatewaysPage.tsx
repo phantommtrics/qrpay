@@ -505,7 +505,8 @@ export function PlatformPaymentGatewaysPage() {
         <div className="border-b border-slate-100 px-6 py-4">
           <h2 className="text-sm font-semibold text-slate-900">APS customer authorizations</h2>
           <p className="mt-1 text-xs text-slate-500">
-            Platform-wide view: all businesses and gateways. Clear rows when customer auth must be reset.
+            Platform-wide view: all businesses and gateways. “Sales” tokens use each business’s APS merchant; “Subscription”
+            tokens use the platform APS merchant for billing. Clear rows when customer auth must be reset.
           </p>
         </div>
         {apsAuthLoading ? (
@@ -514,10 +515,11 @@ export function PlatformPaymentGatewaysPage() {
           <p className="p-6 text-sm text-slate-500">No saved APS customer authorizations.</p>
         ) : (
           <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
-            <table className="min-w-[860px] w-full border-collapse text-left text-sm">
+            <table className="min-w-[960px] w-full border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-3 font-semibold">Business</th>
+                  <th className="px-4 py-3 font-semibold">Use</th>
                   <th className="px-4 py-3 font-semibold">Gateway</th>
                   <th className="px-4 py-3 font-semibold">Mobile</th>
                   <th className="px-4 py-3 font-semibold">Updated</th>
@@ -530,6 +532,13 @@ export function PlatformPaymentGatewaysPage() {
                     <td className="px-4 py-3">
                       <p className="font-medium text-slate-900">{r.businessName ?? 'Unknown business'}</p>
                       <p className="font-mono text-xs text-slate-500">{r.businessId}</p>
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {r.merchantScope === 'PLATFORM_SUBSCRIPTION' ? (
+                        <span className="text-xs font-medium text-violet-800">Subscription (platform)</span>
+                      ) : (
+                        <span className="text-xs font-medium text-slate-700">Sales / POS</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-slate-700">
                       {r.gatewayName} <span className="text-xs text-slate-500">({r.gatewayCode})</span>

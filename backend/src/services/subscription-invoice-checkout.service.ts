@@ -17,7 +17,10 @@ import {
   CHECKOUT_ADAPTER_WAVE_GAMBIA,
   CHECKOUT_ADAPTER_YONNA_WALLET,
   getPaymentGatewayByCode,
+  listEnabledPaymentGateways,
 } from "./payment-gateway.service.js";
+import type { OrderCheckoutWalletRow } from "./order-wallet-checkout.service.js";
+import { isApsWalletPlatformMerchantConfigured } from "../config/aps-wallet-env.js";
 import { waveApiBaseUrl, yonnaForexApiBaseUrl } from "../config/payment-provider-env.js";
 
 export type SubscriptionInvoiceCheckoutRow = SubscriptionInvoice & {
@@ -266,6 +269,63 @@ export async function createSubscriptionInvoiceCheckout(input: {
     payerPhone: input.payerPhone,
     req: input.req,
   });
+}
+
+/**
+ * Gateways available for subscription invoice checkout when credentials come from platform env
+ * (Wave bearer, Yonna keys, APS platform merchant) — same path as {@link runSubscriptionInvoiceGatewayCheckout}.
+ * Not tied to per-business Merchant API credentials.
+ */
+export async function listSubscriptionInvoiceCheckoutWallets(): Promise<OrderCheckoutWalletRow[]> {
+  const gateways = await listEnabledPaymentGateways();
+  const rows: OrderCheckoutWalletRow[] = [];
+
+  for (const g of gateways) {
+    const adapter = g.checkoutAdapter?.trim() || "";
+    if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
+      if ((process.env.WAVE_CHECKOUT_BEARER || "").trim()) {
+        rows.push({
+          gatewayId: g.id,
+          code: g.code,
+          name: g.name,
+          checkoutAdapter: adapter,
+          hasStoredPayerPhone: false,
+        });
+      }
+    } else if (adapter === CHECKOUT_ADAPTER_YONNA_WALLET) {
+      const secretKey = (process.env.YONNA_FOREX_SECRET_KEY || "").trim();
+      const clientId = (process.env.YONNA_FOREX_CLIENT_ID || "").trim();
+      if (secretKey && clientId) {
+        rows.push({
+          gatewayId: g.id,
+          code: g.code,
+          name: g.name,
+          checkoutAdapter: adapter,
+          hasStoredPayerPhone: false,
+        });
+      }
+    } else if (adapter === CHECKOUT_ADAPTER_APS_WALLET) {
+      if (isApsWalletPlatformMerchantConfigured()) {
+        rows.push({
+          gatewayId: g.id,
+          code: g.code,
+          name: g.name,
+          checkoutAdapter: adapter,
+          hasStoredPayerPhone: false,
+        });
+      }
+    }
+  }
+
+  const adapterOrder: Record<string, number> = {
+    [CHECKOUT_ADAPTER_WAVE_GAMBIA]: 0,
+    [CHECKOUT_ADAPTER_YONNA_WALLET]: 1,
+    [CHECKOUT_ADAPTER_APS_WALLET]: 2,
+  };
+  return rows.sort(
+    (a, b) =>
+      (adapterOrder[a.checkoutAdapter] ?? 99) - (adapterOrder[b.checkoutAdapter] ?? 99),
+  );
 }
 
 export async function createSubscriptionInvoiceGuestCheckout(input: {

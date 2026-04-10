@@ -134,6 +134,7 @@ import {
   clampPageSize,
   getPlatformBusinessDetail,
   getPlatformInvoiceDetail,
+  getPlatformDashboardSummary,
   listPlatformBillingReview,
   listPlatformBusinessesPaginated,
   listPlatformInvoices,
@@ -149,6 +150,7 @@ import {
   appendActivityLog,
   listActivityLogsForBusiness,
   listActivityLogsForPlatform,
+  listActivityLogsForPlatformTenants,
 } from "./services/activity-log.service.js";
 import {
   authorizeGuestSalesInvoiceApsWalletCheckout,
@@ -264,8 +266,13 @@ import {
   startGuestInvoiceWalletCheckout,
 } from "./services/sales-public.service.js";
 import {
+  getGuestPlatformBillPayload,
+  renderGuestPlatformBillPdf,
+} from "./services/platform-bill-guest-public.service.js";
+import {
   getGuestSubscriptionInvoiceByToken,
   listGuestSubscriptionInvoiceWallets,
+  renderGuestSubscriptionInvoicePdf,
   startGuestSubscriptionInvoiceWalletCheckout,
 } from "./services/subscription-guest-public.service.js";
 import {
@@ -776,6 +783,18 @@ const billingLedgerReportBaseSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
 
+/** Tag merchant journals posted by platform staff without a business membership (on behalf of the merchant). */
+function postedByPlatformUserIdForMerchantJournal(
+  user: { id: string; isPlatformOwner?: boolean; role: string },
+  hasMembership: boolean,
+): string | null {
+  if (hasMembership) return null;
+  if (user.isPlatformOwner || user.role === UserRole.PLATFORM_ADMIN) {
+    return user.id;
+  }
+  return null;
+}
+
 function refineBillingLedgerPeriodExclusive(
   val: z.infer<typeof billingLedgerReportBaseSchema>,
   ctx: z.RefinementCtx,
@@ -824,6 +843,24 @@ const platformBusinessDetailQuerySchema = z.object({
 });
 
 // Platform Owner Routes
+app.get(
+  "/api/platform/dashboard-summary",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny([
+    { moduleSlug: PLATFORM_MODULE_SLUGS.DASHBOARD, action: "view" },
+    { moduleSlug: PLATFORM_MODULE_SLUGS.BUSINESSES, action: "view" },
+  ]),
+  async (_req, res, next) => {
+    try {
+      const data = await getPlatformDashboardSummary();
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 app.get(
   "/api/platform/businesses",
   authenticateToken,
@@ -2182,7 +2219,14 @@ app.get(
     try {
       const page = clampPage(Number(req.query.page));
       const pageSize = clampPageSize(Number(req.query.pageSize));
-      const result = await listPlatformJournalEntries({ page, pageSize });
+      const scopeRaw = typeof req.query.scope === "string" ? req.query.scope.trim().toLowerCase() : "";
+      const scope =
+        scopeRaw === "operator" ? ("operator" as const) : ("all" as const);
+      const from =
+        typeof req.query.from === "string" && req.query.from.trim() ? req.query.from.trim() : undefined;
+      const to =
+        typeof req.query.to === "string" && req.query.to.trim() ? req.query.to.trim() : undefined;
+      const result = await listPlatformJournalEntries({ page, pageSize, scope, from, to });
       res.json({
         data: result.rows.map((e) => ({
           id: e.id,
@@ -2420,12 +2464,19 @@ app.get(
         typeof req.query.from === "string" && req.query.from.trim() ? req.query.from.trim() : undefined;
       const to =
         typeof req.query.to === "string" && req.query.to.trim() ? req.query.to.trim() : undefined;
+      const ledgerScopeRaw =
+        typeof req.query.ledgerScope === "string" ? req.query.ledgerScope.trim().toLowerCase() : "";
+      const ledgerScope =
+        ledgerScopeRaw === "business" || ledgerScopeRaw === "operator" || ledgerScopeRaw === "all"
+          ? ledgerScopeRaw
+          : undefined;
       const result = await listMerchantJournalEntriesForPlatform({
         page,
         pageSize,
         businessId,
         from,
         to,
+        ledgerScope,
       });
       res.json({
         data: result.rows.map((e) => ({
@@ -2447,6 +2498,14 @@ app.get(
             ? { id: e.cancelledBy.id, name: e.cancelledBy.name, email: e.cancelledBy.email }
             : null,
           reversesJournalEntryId: e.reversesJournalEntryId,
+          postedByPlatformUserId: e.postedByPlatformUserId,
+          postedByPlatformUser: e.postedByPlatformUser
+            ? {
+                id: e.postedByPlatformUser.id,
+                name: e.postedByPlatformUser.name,
+                email: e.postedByPlatformUser.email,
+              }
+            : null,
           createdAt: e.createdAt.toISOString(),
         })),
         total: result.total,
@@ -2488,6 +2547,14 @@ app.get(
             ? { id: row.cancelledBy.id, name: row.cancelledBy.name, email: row.cancelledBy.email }
             : null,
           reversesJournalEntryId: row.reversesJournalEntryId,
+          postedByPlatformUserId: row.postedByPlatformUserId,
+          postedByPlatformUser: row.postedByPlatformUser
+            ? {
+                id: row.postedByPlatformUser.id,
+                name: row.postedByPlatformUser.name,
+                email: row.postedByPlatformUser.email,
+              }
+            : null,
           createdAt: row.createdAt.toISOString(),
           lines: row.lines.map((ln) => ({
             id: ln.id,
@@ -2537,6 +2604,14 @@ app.post(
           cancelledAt: row.cancelledAt?.toISOString() ?? null,
           cancelledBy: row.cancelledBy
             ? { id: row.cancelledBy.id, name: row.cancelledBy.name, email: row.cancelledBy.email }
+            : null,
+          postedByPlatformUserId: row.postedByPlatformUserId,
+          postedByPlatformUser: row.postedByPlatformUser
+            ? {
+                id: row.postedByPlatformUser.id,
+                name: row.postedByPlatformUser.name,
+                email: row.postedByPlatformUser.email,
+              }
             : null,
           lines: row.lines.map((ln) => ({
             id: ln.id,
@@ -2590,6 +2665,14 @@ app.post(
             : null,
           reversesJournalEntryId: row.reversesJournalEntryId,
           createdAt: row.createdAt.toISOString(),
+          postedByPlatformUserId: row.postedByPlatformUserId,
+          postedByPlatformUser: row.postedByPlatformUser
+            ? {
+                id: row.postedByPlatformUser.id,
+                name: row.postedByPlatformUser.name,
+                email: row.postedByPlatformUser.email,
+              }
+            : null,
           lines: row.lines.map((ln) => ({
             id: ln.id,
             chartOfAccountId: ln.chartOfAccountId,
@@ -2639,6 +2722,95 @@ app.get(
           pageSize: result.pageSize,
           logs: result.logs.map((row) => ({
             id: row.id,
+            eventType: row.eventType,
+            resourceType: row.resourceType,
+            resourceId: row.resourceId,
+            actorKind: row.actorKind === "USER" ? "user" : "system",
+            actor: row.actorUser
+              ? { id: row.actorUser.id, name: row.actorUser.name, email: row.actorUser.email }
+              : null,
+            metadata: row.metadata,
+            createdAt: row.createdAt.toISOString(),
+          })),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/tenant-activity-log",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformActivityLogGates),
+  async (req, res, next) => {
+    try {
+      const page = clampPage(Number(req.query.page ?? 1));
+      const pageSize = clampPageSize(Number(req.query.pageSize ?? 50));
+      const eventType = typeof req.query.eventType === "string" ? req.query.eventType.trim() : "";
+      const actorKindRaw =
+        typeof req.query.actorKind === "string" ? req.query.actorKind.trim().toLowerCase() : "";
+      let actorKind: ActivityActorKind | null = null;
+      if (actorKindRaw === "user") {
+        actorKind = ActivityActorKind.USER;
+      } else if (actorKindRaw === "system") {
+        actorKind = ActivityActorKind.SYSTEM;
+      }
+
+      const fromRaw = typeof req.query.from === "string" ? req.query.from.trim() : "";
+      const toRaw = typeof req.query.to === "string" ? req.query.to.trim() : "";
+      let from: Date | null = null;
+      let to: Date | null = null;
+      if (fromRaw) {
+        from = new Date(fromRaw);
+        if (Number.isNaN(from.getTime())) {
+          res.status(400).json({ error: "Invalid `from` datetime" });
+          return;
+        }
+      }
+      if (toRaw) {
+        to = new Date(toRaw);
+        if (Number.isNaN(to.getTime())) {
+          res.status(400).json({ error: "Invalid `to` datetime" });
+          return;
+        }
+      }
+      if (!from || !to) {
+        res.status(400).json({ error: "`from` and `to` ISO datetimes are required" });
+        return;
+      }
+      if (from.getTime() > to.getTime()) {
+        res.status(400).json({ error: "`from` must be before or equal to `to`" });
+        return;
+      }
+
+      const businessId =
+        typeof req.query.businessId === "string" ? req.query.businessId.trim() : "";
+      const businessNameContains =
+        typeof req.query.businessName === "string" ? req.query.businessName.trim() : "";
+
+      const result = await listActivityLogsForPlatformTenants({
+        page,
+        pageSize,
+        eventType: eventType || undefined,
+        actorKind,
+        from: from ?? undefined,
+        to: to ?? undefined,
+        businessId: businessId || undefined,
+        businessNameContains: businessNameContains || undefined,
+      });
+      res.json({
+        data: {
+          total: result.total,
+          page: result.page,
+          pageSize: result.pageSize,
+          logs: result.logs.map((row) => ({
+            id: row.id,
+            business: row.business
+              ? { id: row.business.id, name: row.business.name }
+              : { id: row.businessId!, name: "—" },
             eventType: row.eventType,
             resourceType: row.resourceType,
             resourceId: row.resourceId,
@@ -5049,10 +5221,43 @@ app.post(
   },
 );
 
+app.get("/api/public/guest/platform-bill/:guestToken", async (request, response, next) => {
+  try {
+    const data = await getGuestPlatformBillPayload(request.params.guestToken as string);
+    response.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/public/guest/platform-bill/:guestToken/pdf", async (request, response, next) => {
+  try {
+    const { buffer, filename } = await renderGuestPlatformBillPdf(request.params.guestToken as string);
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader("Content-Disposition", `inline; filename="${filename.replace(/"/g, "")}"`);
+    response.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/public/guest/subscription-invoice/:guestToken", async (request, response, next) => {
   try {
     const data = await getGuestSubscriptionInvoiceByToken(request.params.guestToken as string);
     response.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/public/guest/subscription-invoice/:guestToken/pdf", async (request, response, next) => {
+  try {
+    const { buffer, filename } = await renderGuestSubscriptionInvoicePdf(
+      request.params.guestToken as string,
+    );
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader("Content-Disposition", `inline; filename="${filename.replace(/"/g, "")}"`);
+    response.send(buffer);
   } catch (error) {
     next(error);
   }
@@ -6460,9 +6665,11 @@ app.post(
         },
       });
 
-      if (!membership && !request.user?.isPlatformOwner) {
+      if (!membership && !request.user?.isPlatformOwner && request.user?.role !== UserRole.PLATFORM_ADMIN) {
         throw new HttpError(403, "Access denied to this business");
       }
+
+      const postedByPlatformUserId = postedByPlatformUserIdForMerchantJournal(request.user!, Boolean(membership));
 
       const entry = await postManualMoneyIn(businessId as string, {
         contactId: body.contactId ?? null,
@@ -6472,6 +6679,7 @@ app.post(
         postedAt: parsePostedAt(body.postedAt),
         reference: body.reference ?? null,
         settlementChartAccountId: body.settlementChartAccountId,
+        postedByPlatformUserId,
         lines: body.lines.map((l) => ({
           chartOfAccountId: l.chartOfAccountId,
           narration: l.narration ?? "",
@@ -6511,9 +6719,11 @@ app.post(
         },
       });
 
-      if (!membership && !request.user?.isPlatformOwner) {
+      if (!membership && !request.user?.isPlatformOwner && request.user?.role !== UserRole.PLATFORM_ADMIN) {
         throw new HttpError(403, "Access denied to this business");
       }
+
+      const postedByPlatformUserId = postedByPlatformUserIdForMerchantJournal(request.user!, Boolean(membership));
 
       const entry = await postManualMoneyOut(businessId as string, {
         contactId: body.contactId ?? null,
@@ -6523,6 +6733,7 @@ app.post(
         postedAt: parsePostedAt(body.postedAt),
         reference: body.reference ?? null,
         settlementChartAccountId: body.settlementChartAccountId,
+        postedByPlatformUserId,
         lines: body.lines.map((l) => ({
           chartOfAccountId: l.chartOfAccountId,
           narration: l.narration ?? "",
@@ -6562,9 +6773,11 @@ app.post(
         },
       });
 
-      if (!membership && !request.user?.isPlatformOwner) {
+      if (!membership && !request.user?.isPlatformOwner && request.user?.role !== UserRole.PLATFORM_ADMIN) {
         throw new HttpError(403, "Access denied to this business");
       }
+
+      const postedByPlatformUserId = postedByPlatformUserIdForMerchantJournal(request.user!, Boolean(membership));
 
       const entry = await postManualBankTransfer(businessId as string, {
         fromChartAccountId: body.fromChartAccountId,
@@ -6572,6 +6785,7 @@ app.post(
         amount: body.amount,
         postedAt: parsePostedAt(body.postedAt),
         reference: body.reference ?? null,
+        postedByPlatformUserId,
       });
 
       response.status(201).json({
@@ -6603,9 +6817,11 @@ app.post(
         },
       });
 
-      if (!membership && !request.user?.isPlatformOwner) {
+      if (!membership && !request.user?.isPlatformOwner && request.user?.role !== UserRole.PLATFORM_ADMIN) {
         throw new HttpError(403, "Access denied to this business");
       }
+
+      const postedByPlatformUserId = postedByPlatformUserIdForMerchantJournal(request.user!, Boolean(membership));
 
       const entry = await postManualGeneralJournal(businessId as string, {
         contactId: body.contactId ?? null,
@@ -6615,6 +6831,7 @@ app.post(
         postedAt: parsePostedAt(body.postedAt),
         reference: body.reference ?? null,
         memo: body.memo ?? null,
+        postedByPlatformUserId,
         lines: body.lines.map((l) => ({
           chartOfAccountId: l.chartOfAccountId,
           description: l.description ?? null,
@@ -6710,7 +6927,7 @@ app.get(
       const membership = await prisma.businessMembership.findFirst({
         where: { userId: request.user!.id, businessId: businessId as string },
       });
-      if (!membership && !request.user?.isPlatformOwner) {
+      if (!membership && !request.user?.isPlatformOwner && request.user?.role !== UserRole.PLATFORM_ADMIN) {
         throw new HttpError(403, "Access denied to this business");
       }
       const detail = await getJournalEntryForReversalDetail(businessId as string, journalEntryId as string);
@@ -6731,7 +6948,7 @@ app.post(
       const membership = await prisma.businessMembership.findFirst({
         where: { userId: request.user!.id, businessId: businessId as string },
       });
-      if (!membership && !request.user?.isPlatformOwner) {
+      if (!membership && !request.user?.isPlatformOwner && request.user?.role !== UserRole.PLATFORM_ADMIN) {
         throw new HttpError(403, "Access denied to this business");
       }
       const body = journalReverseBodySchema.parse(request.body);

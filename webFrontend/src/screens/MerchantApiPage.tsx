@@ -619,14 +619,15 @@ export function MerchantApiPage() {
                 APS saved customer authorizations
               </h2>
               <p className="mt-1 text-xs text-slate-500">
-                Stored per customer mobile for this business. Used to allow repeat APS payments without OTP until APS
-                invalidates the token.
+                Stored per customer mobile for this business. Sales use your APS merchant credentials; subscription
+                invoices use the platform APS merchant. Tokens are separate so repeat checkouts work for both.
               </p>
               <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-                <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                <table className="w-full min-w-[720px] border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-3">Mobile</th>
+                      <th className="px-4 py-3">Use</th>
                       <th className="px-4 py-3">Gateway</th>
                       <th className="px-4 py-3">Updated</th>
                       <th className="px-4 py-3 text-right">Action</th>
@@ -635,7 +636,7 @@ export function MerchantApiPage() {
                   <tbody>
                     {apsCustomerAuthRows.length === 0 ? (
                       <tr>
-                        <td className="px-4 py-4 text-slate-500" colSpan={4}>
+                        <td className="px-4 py-4 text-slate-500" colSpan={5}>
                           No saved APS customer authorizations yet.
                         </td>
                       </tr>
@@ -643,6 +644,13 @@ export function MerchantApiPage() {
                       apsCustomerAuthRows.map((r) => (
                         <tr key={r.id} className="border-b border-slate-100 last:border-0">
                           <td className="px-4 py-3 font-medium text-slate-900">{r.customerMobileNormalized}</td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {r.merchantScope === 'PLATFORM_SUBSCRIPTION' ? (
+                              <span className="text-xs font-medium text-violet-800">Subscription (platform)</span>
+                            ) : (
+                              <span className="text-xs font-medium text-slate-700">Sales / POS</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-slate-700">
                             {r.gatewayName} <span className="text-xs text-slate-500">({r.gatewayCode})</span>
                           </td>

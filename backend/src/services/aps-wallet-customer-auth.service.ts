@@ -2,8 +2,11 @@
  * Persists APS **authorized_token** (after customer confirms OTP) per tenant + gateway + normalized mobile.
  * Encrypted at rest with {@link encryptJsonPayload} / `APP_SECRET_ENCRYPTION_KEY` (same as merchant gateway secrets).
  * Used on later checkouts to call `process-payment` without repeating authorize+OTP while APS still accepts the token.
+ * {@link ApsWalletCustomerAuthMerchantScope} separates business-merchant tokens (sales) from platform-merchant tokens (subscription billing).
  * Rows are removed when {@link deleteStoredApsAuthorizedToken} runs (e.g. process-payment rejects a stored token).
  */
+import { ApsWalletCustomerAuthMerchantScope } from "@prisma/client";
+
 import { prisma } from "../lib/prisma.js";
 import { decryptJsonPayload, encryptJsonPayload } from "../utils/field-encryption.js";
 import { HttpError } from "../lib/http-error.js";
@@ -13,10 +16,13 @@ type StoredPayload = {
   authorizedToken: string;
 };
 
+export { ApsWalletCustomerAuthMerchantScope };
+
 export async function getStoredApsAuthorizedToken(
   businessId: string,
   gatewayId: string,
   customerMobileNormalized: string,
+  merchantScope: ApsWalletCustomerAuthMerchantScope = ApsWalletCustomerAuthMerchantScope.BUSINESS_MERCHANT,
 ): Promise<string | null> {
   const mobile = customerMobileNormalized.trim();
   if (!mobile) {
@@ -24,10 +30,11 @@ export async function getStoredApsAuthorizedToken(
   }
   const row = await prisma.businessApsWalletCustomerAuth.findUnique({
     where: {
-      businessId_gatewayId_customerMobileNormalized: {
+      businessId_gatewayId_customerMobileNormalized_merchantScope: {
         businessId,
         gatewayId,
         customerMobileNormalized: mobile,
+        merchantScope,
       },
     },
   });
@@ -48,6 +55,7 @@ export async function upsertStoredApsAuthorizedToken(
   gatewayId: string,
   customerMobileNormalized: string,
   authorizedToken: string,
+  merchantScope: ApsWalletCustomerAuthMerchantScope = ApsWalletCustomerAuthMerchantScope.BUSINESS_MERCHANT,
 ): Promise<void> {
   const mobile = customerMobileNormalized.trim();
   const token = authorizedToken.trim();
@@ -57,16 +65,18 @@ export async function upsertStoredApsAuthorizedToken(
   const enc = encryptJsonPayload({ authorizedToken: token } satisfies StoredPayload);
   await prisma.businessApsWalletCustomerAuth.upsert({
     where: {
-      businessId_gatewayId_customerMobileNormalized: {
+      businessId_gatewayId_customerMobileNormalized_merchantScope: {
         businessId,
         gatewayId,
         customerMobileNormalized: mobile,
+        merchantScope,
       },
     },
     create: {
       businessId,
       gatewayId,
       customerMobileNormalized: mobile,
+      merchantScope,
       iv: enc.iv,
       ciphertext: enc.ciphertext,
       keyVersion: 1,
@@ -83,6 +93,7 @@ export async function deleteStoredApsAuthorizedToken(
   businessId: string,
   gatewayId: string,
   customerMobileNormalized: string,
+  merchantScope: ApsWalletCustomerAuthMerchantScope = ApsWalletCustomerAuthMerchantScope.BUSINESS_MERCHANT,
 ): Promise<void> {
   const mobile = customerMobileNormalized.trim();
   if (!mobile) {
@@ -93,6 +104,7 @@ export async function deleteStoredApsAuthorizedToken(
       businessId,
       gatewayId,
       customerMobileNormalized: mobile,
+      merchantScope,
     },
   });
 }
@@ -105,6 +117,7 @@ export type BusinessApsWalletCustomerAuthRow = {
   gatewayCode: string;
   gatewayName: string;
   customerMobileNormalized: string;
+  merchantScope: ApsWalletCustomerAuthMerchantScope;
   createdAt: string;
   updatedAt: string;
 };
@@ -126,6 +139,7 @@ export async function listBusinessApsWalletCustomerAuths(
     gatewayCode: r.gateway.code,
     gatewayName: r.gateway.name,
     customerMobileNormalized: r.customerMobileNormalized,
+    merchantScope: r.merchantScope,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   }));
@@ -163,6 +177,7 @@ export async function listPlatformApsWalletCustomerAuths(filters?: {
     gatewayCode: r.gateway.code,
     gatewayName: r.gateway.name,
     customerMobileNormalized: r.customerMobileNormalized,
+    merchantScope: r.merchantScope,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   }));

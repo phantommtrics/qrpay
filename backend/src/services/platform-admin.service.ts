@@ -441,3 +441,80 @@ export async function patchSubscriptionInvoiceManualRefundReview(input: {
 
   return updated;
 }
+
+export type PlatformDashboardRecentBusiness = {
+  id: string;
+  name: string;
+  industry: string | null;
+  ownerEmail: string;
+  createdAt: string;
+};
+
+export type PlatformDashboardSummary = {
+  businessesTotal: number;
+  businessesCreatedLast7Days: number;
+  subscriptionsActive: number;
+  subscriptionsTrialing: number;
+  subscriptionsPastDue: number;
+  invoicesPendingPayment: number;
+  refundReviewsPending: number;
+  recentBusinesses: PlatformDashboardRecentBusiness[];
+};
+
+/**
+ * Aggregated KPIs for the platform operator home screen (one round-trip).
+ */
+export async function getPlatformDashboardSummary(): Promise<PlatformDashboardSummary> {
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  const [
+    businessesTotal,
+    businessesCreatedLast7Days,
+    subscriptionsActive,
+    subscriptionsTrialing,
+    subscriptionsPastDue,
+    invoicesPendingPayment,
+    refundReviewsPending,
+    recentBusinessRows,
+  ] = await prisma.$transaction([
+    prisma.business.count(),
+    prisma.business.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+    prisma.subscription.count({ where: { status: SubscriptionStatus.ACTIVE } }),
+    prisma.subscription.count({ where: { status: SubscriptionStatus.TRIALING } }),
+    prisma.subscription.count({ where: { status: SubscriptionStatus.PAST_DUE } }),
+    prisma.subscriptionInvoice.count({ where: { status: InvoiceStatus.PENDING } }),
+    prisma.subscriptionInvoice.count({
+      where: { manualRefundReviewStatus: ManualRefundReviewStatus.PENDING_REVIEW },
+    }),
+    prisma.business.findMany({
+      take: 6,
+      /** Newest sign-ups first; stable tie-break. Dashboard table must show ≤ 6 rows. */
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        id: true,
+        name: true,
+        industry: true,
+        ownerEmail: true,
+        createdAt: true,
+      },
+    }),
+  ]);
+
+  return {
+    businessesTotal,
+    businessesCreatedLast7Days,
+    subscriptionsActive,
+    subscriptionsTrialing,
+    subscriptionsPastDue,
+    invoicesPendingPayment,
+    refundReviewsPending,
+    recentBusinesses: recentBusinessRows.map((b) => ({
+      id: b.id,
+      name: b.name,
+      industry: b.industry,
+      ownerEmail: b.ownerEmail,
+      createdAt: b.createdAt.toISOString(),
+    })),
+  };
+}

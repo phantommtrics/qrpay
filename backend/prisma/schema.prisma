@@ -310,6 +310,12 @@ enum BusinessPaymentMethodStatus {
   ARCHIVED
 }
 
+/// Distinguishes APS authorized_token rows: business merchant (POS/orders) vs platform env (subscription invoices).
+enum ApsWalletCustomerAuthMerchantScope {
+  BUSINESS_MERCHANT
+  PLATFORM_SUBSCRIPTION
+}
+
 /**
  * Platform-configured payment providers businesses may attach as payment methods.
  */
@@ -334,21 +340,23 @@ model PaymentGateway {
 /**
  * APS Wallet: per-business encrypted authorized_token for a customer mobile after OTP confirm.
  * Used for subsequent process-payment calls without repeating authorize+OTP when still valid.
+ * `merchantScope` separates tokens for the business APS merchant (sales) vs the platform APS merchant (subscription billing).
  */
 model BusinessApsWalletCustomerAuth {
-  id                       String         @id @default(cuid())
+  id                       String                             @id @default(cuid())
   businessId               String
   gatewayId                String
   customerMobileNormalized String
+  merchantScope            ApsWalletCustomerAuthMerchantScope @default(BUSINESS_MERCHANT)
   iv                       String
-  ciphertext               String         @db.Text
-  keyVersion               Int            @default(1)
-  createdAt                DateTime       @default(now())
-  updatedAt                DateTime       @updatedAt
-  business                 Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  gateway                  PaymentGateway @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  ciphertext               String                             @db.Text
+  keyVersion               Int                                @default(1)
+  createdAt                DateTime                           @default(now())
+  updatedAt                DateTime                           @updatedAt
+  business                 Business                           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  gateway                  PaymentGateway                     @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
 
-  @@unique([businessId, gatewayId, customerMobileNormalized])
+  @@unique([businessId, gatewayId, customerMobileNormalized, merchantScope])
   @@index([businessId])
 }
 
@@ -482,6 +490,11 @@ model JournalEntry {
   contact                 BusinessContact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
   approvedBy              User?              @relation("JournalEntryApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
   cancelledBy             User?              @relation("JournalEntryCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  /**
+   * Set when a platform owner/admin posts this entry for the business without a business membership (on behalf of the merchant).
+   */
+  postedByPlatformUserId  String?
+  postedByPlatformUser    User?              @relation("JournalEntryPostedByPlatform", fields: [postedByPlatformUserId], references: [id], onDelete: SetNull)
   reversesJournalEntry    JournalEntry?      @relation("JournalReversal", fields: [reversesJournalEntryId], references: [id], onDelete: Restrict)
   reversedByEntry         JournalEntry?      @relation("JournalReversal")
   lines                   JournalLine[]
@@ -494,6 +507,7 @@ model JournalEntry {
   @@index([contactId])
   @@index([approvedAt])
   @@index([cancelledAt])
+  @@index([postedByPlatformUserId])
 }
 
 model JournalLine {
@@ -742,6 +756,11 @@ model PlatformBill {
   id                       String                  @id @default(cuid())
   supplierId               String
   publicCode               String                  @unique
+  /**
+   * Optional URL token for supplier-facing guest portal (view PDF / details without login).
+   * Minted when the bill is approved and emailed.
+   */
+  guestToken               String?                 @unique
   status                   BillStatus              @default(DRAFT)
   issueDate                DateTime
   dueDate                  DateTime?
@@ -892,6 +911,7 @@ model User {
   activityLogsAsActor                ActivityLog[]                  @relation("ActivityLogActor")
   journalEntriesApproved             JournalEntry[]                 @relation("JournalEntryApprovedBy")
   journalEntriesCancelled            JournalEntry[]                 @relation("JournalEntryCancelledBy")
+  journalEntriesPostedAsPlatform     JournalEntry[]                 @relation("JournalEntryPostedByPlatform")
 
   @@index([platformFunctionGroupId])
 }

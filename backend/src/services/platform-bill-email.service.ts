@@ -8,6 +8,8 @@ import {
 
 import { env } from "../config/env.js";
 import { easypayEmailLogoHtml } from "../lib/easypay-logo.js";
+import { newGuestToken } from "../lib/guest-token.js";
+import { guestPlatformBillUrl } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
 import { buildPlatformBillPdfBuffer, loadPlatformBillForPdf } from "./platform-bill-document-pdf.service.js";
 
@@ -50,6 +52,8 @@ export function buildPlatformBillApprovedEmailContent(input: {
   amountLabel: string;
   dueDateLabel: string | null;
   issueDateLabel: string;
+  /** Guest portal: view bill and PDF without signing in (same idea as customer sales invoices). */
+  portalUrl?: string | null;
 }): { subject: string; htmlBody: string; textBody: string } {
   const subject = `${PLATFORM_NAME} — Purchase bill ${input.billRef}`;
   const dueBlock =
@@ -69,6 +73,14 @@ export function buildPlatformBillApprovedEmailContent(input: {
     <p style="margin:0 0 16px;">
       Please find attached our purchase bill for your records. This reflects amounts ${PLATFORM_NAME} owes for goods or services supplied.
     </p>
+    ${
+      input.portalUrl
+        ? `<p style="margin:0 0 16px;">
+      <a href="${escapeHtml(input.portalUrl)}" style="display:inline-block;padding:12px 20px;background:#0d9488;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">View bill online</a>
+    </p>
+    <p style="margin:0 0 16px;font-size:13px;color:#64748b;">Or open this link: <a href="${escapeHtml(input.portalUrl)}" style="color:#0d9488;word-break:break-all;">${escapeHtml(input.portalUrl)}</a></p>`
+        : ""
+    }
 
     <table cellpadding="0" cellspacing="0" style="margin:16px 0 24px;border-collapse:collapse;width:100%;background:#f8fafc;border-radius:8px;padding:16px 20px;">
       <tr><td style="padding:8px 16px 8px 0;color:#64748b;font-size:14px;">Bill</td><td style="padding:8px 0;font-size:14px;color:#0f172a;"><strong>${escapeHtml(input.billRef)}</strong></td></tr>
@@ -101,6 +113,7 @@ export function buildPlatformBillApprovedEmailContent(input: {
     "",
     "Please find attached our purchase bill for your records.",
     "",
+    ...(input.portalUrl?.trim() ? [`View bill online: ${input.portalUrl.trim()}`, ""] : []),
     `Bill: ${input.billRef}`,
     `Issue date: ${input.issueDateLabel}`,
     ...(input.dueDateLabel !== null ? [`Due date: ${input.dueDateLabel}`] : []),
@@ -123,6 +136,32 @@ export function queuePlatformBillApprovedEmail(billId: string): void {
   });
 }
 
+async function ensurePlatformBillGuestToken(billId: string): Promise<string | null> {
+  const existing = await prisma.platformBill.findUnique({
+    where: { id: billId },
+    select: { guestToken: true },
+  });
+  let guestToken = existing?.guestToken?.trim() || null;
+  if (guestToken) {
+    return guestToken;
+  }
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const candidate = newGuestToken();
+    const clash = await prisma.platformBill.findFirst({
+      where: { guestToken: candidate },
+      select: { id: true },
+    });
+    if (!clash) {
+      await prisma.platformBill.update({
+        where: { id: billId },
+        data: { guestToken: candidate },
+      });
+      return candidate;
+    }
+  }
+  return null;
+}
+
 async function dispatchPlatformBillApprovedEmail(billId: string): Promise<void> {
   const row = await loadPlatformBillForPdf(billId);
 
@@ -134,6 +173,9 @@ async function dispatchPlatformBillApprovedEmail(billId: string): Promise<void> 
   if (!recipientEmail) {
     return;
   }
+
+  const guestToken = await ensurePlatformBillGuestToken(billId);
+  const portalUrl = guestToken ? guestPlatformBillUrl(guestToken) : null;
 
   const total = billTotal(row.lines);
   const dueDateLabel = row.dueDate
@@ -157,6 +199,7 @@ async function dispatchPlatformBillApprovedEmail(billId: string): Promise<void> 
     amountLabel: moneyLabel({ toString: () => String(total) }, row.currency),
     dueDateLabel,
     issueDateLabel,
+    portalUrl,
   });
 
   let pdfBuffer: Buffer;

@@ -126,19 +126,19 @@ export function PlatformAccountingHomePage() {
           <button
             type="button"
             disabled={!canJournals}
-            onClick={() => canJournals && navigate(APP_PATHS.platformAccountingJournals)}
+            onClick={() => canJournals && navigate(APP_PATHS.platformAccountingOperatorJournals)}
             className="text-left disabled:cursor-not-allowed disabled:opacity-45"
           >
             <div className={tileCard}>
               <NotebookPen className="h-5 w-5 text-qb-heading" strokeWidth={1.5} />
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
-                  Journal entries
+                  Operator journals
                 </p>
                 <p className="mt-2 text-3xl font-semibold text-qb-heading">Post</p>
               </div>
               <p className="flex items-center text-sm text-qb-muted">
-                Manual journals
+                Platform manual entries
                 <ArrowRight className="ml-1 h-4 w-4 text-qb-heading" />
               </p>
             </div>

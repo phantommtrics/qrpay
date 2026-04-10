@@ -744,19 +744,83 @@ export async function completeGuestInvoiceApsWalletCheckout(
 
 export type GuestSubscriptionInvoicePayload = {
   businessName: string
+  business: {
+    ownerName: string
+    ownerEmail: string
+    slug: string
+    industry: string | null
+  }
   canPay: boolean
   invoice: {
     id: string
     amount: number
     currency: string
     status: string
+    createdAt: string
     dueDate: string
     billingPeriodStart: string
     billingPeriodEnd: string
     externalReference: string | null
+    paidAt: string | null
     planName: string
     planCode: string
+    planDescription: string
+    subscriptionStatus: string
   }
+}
+
+export type GuestPlatformBillLine = {
+  id: string
+  narration: string
+  quantity: number
+  unitLabel: string | null
+  unitAmount: number
+  taxAmount: number
+  lineTotal: number
+  chartOfAccount: { code: string; name: string }
+}
+
+export type GuestPlatformBillPayload = {
+  publicCode: string
+  status: string
+  currency: string
+  issueDate: string
+  dueDate: string | null
+  reference: string | null
+  total: number
+  supplierName: string
+  paidAt: string | null
+  lines: GuestPlatformBillLine[]
+}
+
+/** Public PDF download for platform purchase bill (no auth). */
+export function guestPlatformBillPdfApiUrl(guestToken: string): string {
+  return `${API_BASE_URL}/public/guest/platform-bill/${encodeURIComponent(guestToken)}/pdf`
+}
+
+/** Public PDF download for guest subscription invoice (no auth). */
+export function guestSubscriptionInvoicePdfApiUrl(guestToken: string): string {
+  return `${API_BASE_URL}/public/guest/subscription-invoice/${encodeURIComponent(guestToken)}/pdf`
+}
+
+export async function fetchGuestPlatformBill(guestToken: string): Promise<GuestPlatformBillPayload> {
+  const response = await fetch(
+    `${API_BASE_URL}/public/guest/platform-bill/${encodeURIComponent(guestToken)}`,
+  )
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  return (payload as { data: GuestPlatformBillPayload }).data
 }
 
 export async function fetchGuestSubscriptionInvoice(

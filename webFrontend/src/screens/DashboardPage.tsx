@@ -17,6 +17,7 @@ import { PageSectionHeader } from '../components/ui/PageSectionHeader'
 import { PageTransition } from '../components/ui/PageTransition'
 import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
+import { PlatformDashboardPage } from './PlatformDashboardPage'
 import { fetchDashboardSummary, type DashboardSummary } from '../services/salesApi'
 import { ApiError } from '../services/subscriptionApi'
 import type { Order } from '../types'
@@ -46,7 +47,7 @@ function revenueTrendMeta(
   return { text: `${rounded} vs prior 7 days`, positive: pct >= 0 }
 }
 
-export function DashboardPage() {
+function MerchantDashboardPage() {
   const { currentOrganization } = useAuth()
   const orgId = currentOrganization?.id
   const industry = currentOrganization?.industry
@@ -340,4 +341,12 @@ export function DashboardPage() {
       ) : null}
     </PageTransition>
   )
+}
+
+export function DashboardPage() {
+  const { user } = useAuth()
+  if (user?.isPlatformOwner || user?.isPlatformAdmin) {
+    return <PlatformDashboardPage />
+  }
+  return <MerchantDashboardPage />
 }

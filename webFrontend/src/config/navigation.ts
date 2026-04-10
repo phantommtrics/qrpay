@@ -73,10 +73,14 @@ export const APP_PATHS = {
   platformAccounting: '/platform/accounting',
   platformAccountingChart: '/platform/accounting/chart-of-accounts',
   platformAccountingJournals: '/platform/accounting/journals',
+  /** Manual / reversal journals posted by platform operators (excludes subscription automation). */
+  platformAccountingOperatorJournals: '/platform/accounting/operator-journals',
   platformAccountingReportGl: '/platform/accounting/reports/gl-balance',
   platformAccountingReportPnl: '/platform/accounting/reports/profit-loss',
   platformAccountingReportStatement: '/platform/accounting/reports/account-statement',
   platformAccountingMerchantJournalEntries: '/platform/accounting/merchant-journal-entries',
+  /** Platform GL operator-scope listing (manual / reversal); same data style as transaction journal. */
+  platformAccountingOperatorMerchantJournals: '/platform/accounting/operator-merchant-journals',
   /** Dynamic: `/platform/accounting/merchant-journal-entries/:journalEntryId` */
   platformAccountingMerchantJournalEntryDetail: '/platform/accounting/merchant-journal-entries/:journalEntryId',
   platformBills: '/platform/bills',
@@ -204,7 +208,13 @@ export const PLATFORM_FINANCE_SUBNAV: PlatformBusinessesSubNavItem[] = [
     name: 'finance-journals',
     path: APP_PATHS.platformAccountingJournals,
     title: 'Journal entries',
-    permission: 'platform.accounting.view',
+    anyOfPermissions: ['platform.accounting.view', 'platform.accounting.journals.access'] as const,
+  },
+  {
+    name: 'finance-operator-journals',
+    path: APP_PATHS.platformAccountingOperatorJournals,
+    title: 'Operator journals',
+    anyOfPermissions: ['platform.accounting.view', 'platform.accounting.journals.access'] as const,
   },
   {
     name: 'finance-gl',
@@ -229,6 +239,12 @@ export const PLATFORM_FINANCE_SUBNAV: PlatformBusinessesSubNavItem[] = [
     path: APP_PATHS.platformAccountingMerchantJournalEntries,
     title: 'Transaction journal',
     permission: 'platform.accounting.transaction_journal',
+  },
+  {
+    name: 'finance-operator-merchant-journals',
+    path: APP_PATHS.platformAccountingOperatorMerchantJournals,
+    title: 'Platform operator journal',
+    anyOfPermissions: ['platform.accounting.view', 'platform.accounting.journals.access'] as const,
   },
   {
     name: 'finance-platform-bills',
@@ -448,6 +464,9 @@ export function getPageTitle(pathname: string) {
   if (pathname.includes(APP_PATHS.platformAccountingChart)) {
     return 'Chart of accounts'
   }
+  if (pathname.includes(APP_PATHS.platformAccountingOperatorJournals)) {
+    return 'Operator journals'
+  }
   if (pathname.includes(APP_PATHS.platformAccountingJournals)) {
     return 'Journal entries'
   }
@@ -459,6 +478,9 @@ export function getPageTitle(pathname: string) {
   }
   if (pathname.includes(APP_PATHS.platformAccountingReportStatement)) {
     return 'Account statement'
+  }
+  if (pathname.includes(APP_PATHS.platformAccountingOperatorMerchantJournals)) {
+    return 'Platform operator journal'
   }
   if (pathname.includes('/platform/accounting/merchant-journal-entries')) {
     return 'Transaction journal'

@@ -26,6 +26,7 @@ import {
   buildStaffInviteEmailContent,
   sendStaffInviteEmail,
 } from "./staff-invite.service.js";
+import { guestSubscriptionInvoiceUrl } from "../lib/public-guest-urls.js";
 import {
   buildSignUpTemporaryPasswordEmailContent,
   sendPasswordResetEmail,
@@ -305,7 +306,13 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
       userEmail: result.user.email,
       temporaryPassword,
     };
-    const emailContent = buildSignUpTemporaryPasswordEmailContent(signupEmailInput);
+    const inv = result.invoice;
+    const emailContent = buildSignUpTemporaryPasswordEmailContent(signupEmailInput, {
+      subscriptionPayOnlineUrl: inv.guestToken?.trim()
+        ? guestSubscriptionInvoiceUrl(inv.guestToken.trim())
+        : null,
+      subscriptionInvoiceRef: inv.externalReference?.trim() || inv.id,
+    });
 
     const notificationLog = await prisma.staffCreationNotificationLog.create({
       data: {

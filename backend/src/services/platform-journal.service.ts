@@ -4,19 +4,60 @@ import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
 import { ensureDefaultPlatformChartAccounts } from "./platform-chart-of-accounts.service.js";
 
+function parseYmdUtc(raw: string, label: string): Date {
+  const d = new Date(`${raw.trim()}T00:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) {
+    throw new HttpError(400, `Invalid ${label} date.`);
+  }
+  return d;
+}
+
+function endOfUtcDayFromYmd(raw: string): Date {
+  const d = parseYmdUtc(raw, "date");
+  return new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999),
+  );
+}
+
 function dec(n: number | string): Prisma.Decimal {
   return new Prisma.Decimal(typeof n === "number" && !Number.isFinite(n) ? 0 : n);
 }
 
-export async function listPlatformJournalEntries(pagination: { page: number; pageSize: number }) {
+export type ListPlatformJournalEntriesScope = "all" | "operator";
+
+export async function listPlatformJournalEntries(pagination: {
+  page: number;
+  pageSize: number;
+  scope?: ListPlatformJournalEntriesScope;
+  from?: string | null;
+  to?: string | null;
+}) {
   await ensureDefaultPlatformChartAccounts(prisma);
   const pageSize = Math.min(100, Math.max(1, pagination.pageSize));
   const page = Math.max(1, pagination.page);
   const skip = (page - 1) * pageSize;
 
+  const scope = pagination.scope ?? "all";
+  const where: Prisma.PlatformJournalEntryWhereInput = {};
+  if (scope === "operator") {
+    where.sourceType = {
+      in: [PlatformJournalSourceType.MANUAL, PlatformJournalSourceType.MANUAL_JOURNAL_REVERSAL],
+    };
+  }
+  if (pagination.from?.trim() || pagination.to?.trim()) {
+    where.postedAt = {};
+    if (pagination.from?.trim()) {
+      where.postedAt.gte = parseYmdUtc(pagination.from.trim(), "from");
+    }
+    if (pagination.to?.trim()) {
+      where.postedAt.lte = endOfUtcDayFromYmd(pagination.to.trim());
+    }
+  }
+
   const [total, rows] = await prisma.$transaction([
-    prisma.platformJournalEntry.count(),
+    prisma.platformJournalEntry.count({ where }),
     prisma.platformJournalEntry.findMany({
+      where,
       orderBy: [{ postedAt: "desc" }, { id: "desc" }],
       skip,
       take: pageSize,

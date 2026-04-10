@@ -1152,6 +1152,28 @@ export async function fetchPlatformBusinessesList(params?: { page?: number; page
   )
 }
 
+export type PlatformDashboardSummary = {
+  businessesTotal: number
+  businessesCreatedLast7Days: number
+  subscriptionsActive: number
+  subscriptionsTrialing: number
+  subscriptionsPastDue: number
+  invoicesPendingPayment: number
+  refundReviewsPending: number
+  recentBusinesses: Array<{
+    id: string
+    name: string
+    industry: string | null
+    ownerEmail: string
+    createdAt: string
+  }>
+}
+
+export async function fetchPlatformDashboardSummary(): Promise<PlatformDashboardSummary> {
+  const res = await apiRequest<{ data: PlatformDashboardSummary }>('/platform/dashboard-summary')
+  return res.data
+}
+
 export type PlatformBusinessMemberRow = {
   id: string
   userId: string
@@ -1963,6 +1985,9 @@ export async function deletePlatformPaymentGateway(gatewayId: string) {
   await apiRequest<unknown>(`/platform/payment-gateways/${gatewayId}`, { method: 'DELETE' })
 }
 
+/** Backend `ApsWalletCustomerAuthMerchantScope`: sales (business APS merchant) vs subscription (platform APS merchant). */
+export type ApsWalletCustomerAuthMerchantScope = 'BUSINESS_MERCHANT' | 'PLATFORM_SUBSCRIPTION'
+
 export type ApsWalletCustomerAuthRow = {
   id: string
   businessId: string
@@ -1971,6 +1996,7 @@ export type ApsWalletCustomerAuthRow = {
   gatewayCode: string
   gatewayName: string
   customerMobileNormalized: string
+  merchantScope: ApsWalletCustomerAuthMerchantScope
   createdAt: string
   updatedAt: string
 }
@@ -2353,11 +2379,20 @@ export async function fetchPlatformAccountsForReports(): Promise<PlatformChartAc
   return res.data
 }
 
-export async function fetchPlatformJournalEntries(page: number, pageSize: number) {
+export async function fetchPlatformJournalEntries(
+  page: number,
+  pageSize: number,
+  opts?: { scope?: 'all' | 'operator'; from?: string; to?: string },
+) {
   const qs = new URLSearchParams({
     page: String(page),
     pageSize: String(pageSize),
   })
+  if (opts?.scope === 'operator') {
+    qs.set('scope', 'operator')
+  }
+  if (opts?.from?.trim()) qs.set('from', opts.from.trim())
+  if (opts?.to?.trim()) qs.set('to', opts.to.trim())
   return apiRequest<{
     data: PlatformJournalEntryRow[]
     total: number
@@ -2381,6 +2416,8 @@ export type MerchantJournalListRow = {
   cancelledAt: string | null
   cancelledBy: { id: string; name: string; email: string } | null
   reversesJournalEntryId: string | null
+  postedByPlatformUserId: string | null
+  postedByPlatformUser: { id: string; name: string; email: string } | null
   createdAt: string
 }
 
@@ -2400,6 +2437,8 @@ export type MerchantJournalDetailData = {
   cancelledAt: string | null
   cancelledBy: { id: string; name: string; email: string } | null
   reversesJournalEntryId: string | null
+  postedByPlatformUserId: string | null
+  postedByPlatformUser: { id: string; name: string; email: string } | null
   createdAt: string
   lines: Array<{
     id: string
@@ -2419,6 +2458,8 @@ export async function fetchMerchantJournalEntries(params: {
   businessId?: string
   from?: string
   to?: string
+  /** `business` = merchant staff / on-books only; `operator` = platform-posted for a business; default / omit = all */
+  ledgerScope?: 'business' | 'operator' | 'all'
 }) {
   const qs = new URLSearchParams({
     page: String(params.page),
@@ -2427,6 +2468,7 @@ export async function fetchMerchantJournalEntries(params: {
   if (params.businessId?.trim()) qs.set('businessId', params.businessId.trim())
   if (params.from?.trim()) qs.set('from', params.from.trim())
   if (params.to?.trim()) qs.set('to', params.to.trim())
+  if (params.ledgerScope && params.ledgerScope !== 'all') qs.set('ledgerScope', params.ledgerScope)
   return apiRequest<{
     data: MerchantJournalListRow[]
     total: number
@@ -2562,6 +2604,42 @@ export async function fetchPlatformActivityLog(params: {
   return apiRequest<{
     data: { total: number; page: number; pageSize: number; logs: PlatformActivityLogRow[] }
   }>(`/platform/activity-log?${qs}`)
+}
+
+export type PlatformTenantActivityLogRow = {
+  id: string
+  business: { id: string; name: string }
+  eventType: string
+  resourceType: string
+  resourceId: string | null
+  actorKind: 'user' | 'system'
+  actor: { id: string; name: string; email: string } | null
+  metadata: unknown
+  createdAt: string
+}
+
+export async function fetchPlatformTenantActivityLog(params: {
+  page?: number
+  pageSize?: number
+  from: string
+  to: string
+  eventType?: string
+  actorKind?: 'user' | 'system' | ''
+  businessId?: string
+  businessName?: string
+}) {
+  const qs = new URLSearchParams()
+  if (params.page) qs.set('page', String(params.page))
+  if (params.pageSize) qs.set('pageSize', String(params.pageSize))
+  qs.set('from', params.from)
+  qs.set('to', params.to)
+  if (params.eventType) qs.set('eventType', params.eventType)
+  if (params.actorKind) qs.set('actorKind', params.actorKind)
+  if (params.businessId) qs.set('businessId', params.businessId)
+  if (params.businessName?.trim()) qs.set('businessName', params.businessName.trim())
+  return apiRequest<{
+    data: { total: number; page: number; pageSize: number; logs: PlatformTenantActivityLogRow[] }
+  }>(`/platform/tenant-activity-log?${qs}`)
 }
 
 export type PlatformSupplierRow = {

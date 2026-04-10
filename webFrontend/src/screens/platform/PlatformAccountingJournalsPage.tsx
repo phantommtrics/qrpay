@@ -8,52 +8,22 @@ import { APP_PATHS } from '../../config/navigation'
 import { useAuth } from '../../features/auth/AuthContext'
 import {
   ApiError,
-  fetchPlatformAccountingChart,
   fetchPlatformJournalEntries,
   postPlatformJournalReverse,
-  postPlatformManualJournal,
-  type PlatformChartAccountDetail,
   type PlatformJournalEntryRow,
 } from '../../services/subscriptionApi'
 import { formatMoney } from '../../utils/formatMoney'
 
-type LineDraft = {
-  chartOfAccountId: string
-  debit: string
-  credit: string
-  description: string
-}
-
-function emptyLine(): LineDraft {
-  return { chartOfAccountId: '', debit: '', credit: '', description: '' }
-}
-
 export function PlatformAccountingJournalsPage() {
   const { canAccess } = useAuth()
-  const canCreate =
-    canAccess('platform.accounting.create') || canAccess('platform.accounting.journals.post')
   const canReverse = canAccess('platform.accounting.journals.reverse')
 
-  const [accounts, setAccounts] = useState<PlatformChartAccountDetail[]>([])
   const [entries, setEntries] = useState<PlatformJournalEntryRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const pageSize = 20
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  const [postedAt, setPostedAt] = useState(() => new Date().toISOString().slice(0, 10))
-  const [memo, setMemo] = useState('')
-  const [reference, setReference] = useState('')
-  const [lines, setLines] = useState<LineDraft[]>([emptyLine(), emptyLine()])
-  const [submitting, setSubmitting] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
-
-  const loadAccounts = useCallback(() => {
-    void fetchPlatformAccountingChart()
-      .then(setAccounts)
-      .catch(() => setAccounts([]))
-  }, [])
 
   const loadEntries = useCallback(() => {
     setLoading(true)
@@ -80,56 +50,8 @@ export function PlatformAccountingJournalsPage() {
   }
 
   useEffect(() => {
-    loadAccounts()
-  }, [loadAccounts])
-
-  useEffect(() => {
     loadEntries()
   }, [loadEntries])
-
-  const addLine = () => setLines((p) => [...p, emptyLine()])
-  const removeLine = (i: number) => {
-    if (lines.length <= 2) return
-    setLines((p) => p.filter((_, j) => j !== i))
-  }
-
-  const submitManual = async () => {
-    setFormError(null)
-    const parsed = lines.map((l) => ({
-      chartOfAccountId: l.chartOfAccountId.trim(),
-      debit: parseFloat(l.debit) || 0,
-      credit: parseFloat(l.credit) || 0,
-      description: l.description.trim() || null,
-    }))
-    if (parsed.some((l) => !l.chartOfAccountId)) {
-      setFormError('Each line needs an account.')
-      return
-    }
-    if (parsed.some((l) => (l.debit > 0 && l.credit > 0) || (l.debit === 0 && l.credit === 0))) {
-      setFormError('Each line must have either a debit or a credit (not both, not neither).')
-      return
-    }
-    setSubmitting(true)
-    try {
-      await postPlatformManualJournal({
-        postedAt,
-        memo: memo.trim() || null,
-        reference: reference.trim() || null,
-        lines: parsed,
-      })
-      setMemo('')
-      setReference('')
-      setLines([emptyLine(), emptyLine()])
-      loadEntries()
-    } catch (e) {
-      setFormError(e instanceof ApiError ? e.message : 'Could not post journal.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const fieldClass =
-    'rounded-sm border border-qb-border bg-white px-2 py-1.5 text-sm text-qb-heading focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35'
 
   return (
     <PageTransition>
@@ -141,136 +63,20 @@ export function PlatformAccountingJournalsPage() {
           >
             ← Back to platform accounting
           </Link>
-          <h1 className="mt-3 text-2xl font-semibold text-qb-heading">Platform journals</h1>
+          <h1 className="mt-3 text-2xl font-semibold text-qb-heading">Platform journal ledger</h1>
           <p className="mt-2 text-sm text-qb-muted">
-            Automated entries are created when merchants pay subscription invoices. Use manual journals
-            for hosting, email, domains, and other operator costs.
+            All activity on the platform chart of accounts: subscription payments, checkout settlement,
+            supplier bill payments, refunds, fees, and operator-posted journals. To post or review only
+            manual entries by platform staff, use{' '}
+            <Link
+              to={APP_PATHS.platformAccountingOperatorJournals}
+              className="font-medium text-qb-heading underline-offset-2 hover:underline"
+            >
+              Operator journals
+            </Link>
+            .
           </p>
         </PageCard>
-
-        {canCreate ? (
-          <PageCard variant="default" className="space-y-4 rounded-md border-qb-border p-5">
-            <h2 className="text-lg font-semibold text-qb-heading">Post manual journal</h2>
-            {formError ? <p className="text-sm text-red-700">{formError}</p> : null}
-            <div className="flex flex-wrap gap-4">
-              <label className="space-y-1">
-                <span className="text-xs font-semibold uppercase text-qb-muted">Posted date</span>
-                <input
-                  type="date"
-                  value={postedAt}
-                  onChange={(e) => setPostedAt(e.target.value)}
-                  className={fieldClass}
-                />
-              </label>
-              <label className="min-w-[10rem] flex-1 space-y-1">
-                <span className="text-xs font-semibold uppercase text-qb-muted">Reference</span>
-                <input
-                  value={reference}
-                  onChange={(e) => setReference(e.target.value)}
-                  className={`${fieldClass} w-full`}
-                  placeholder="Optional"
-                />
-              </label>
-            </div>
-            <label className="block space-y-1">
-              <span className="text-xs font-semibold uppercase text-qb-muted">Memo</span>
-              <input
-                value={memo}
-                onChange={(e) => setMemo(e.target.value)}
-                className={`${fieldClass} w-full`}
-                placeholder="What this entry is for"
-              />
-            </label>
-            <div className="space-y-2">
-              {lines.map((line, i) => (
-                <div
-                  key={i}
-                  className="flex flex-wrap items-end gap-2 rounded-sm border border-qb-border bg-qb-surface/30 p-3"
-                >
-                  <select
-                    value={line.chartOfAccountId}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setLines((p) =>
-                        p.map((x, j) => (j === i ? { ...x, chartOfAccountId: v } : x)),
-                      )
-                    }}
-                    className={`${fieldClass} min-w-[12rem] flex-1`}
-                  >
-                    <option value="">Account…</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.code} — {a.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="Debit"
-                    value={line.debit}
-                    onChange={(e) =>
-                      setLines((p) =>
-                        p.map((x, j) => (j === i ? { ...x, debit: e.target.value } : x)),
-                      )
-                    }
-                    className={`${fieldClass} w-24 tabular-nums`}
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="Credit"
-                    value={line.credit}
-                    onChange={(e) =>
-                      setLines((p) =>
-                        p.map((x, j) => (j === i ? { ...x, credit: e.target.value } : x)),
-                      )
-                    }
-                    className={`${fieldClass} w-24 tabular-nums`}
-                  />
-                  <input
-                    placeholder="Line description"
-                    value={line.description}
-                    onChange={(e) =>
-                      setLines((p) =>
-                        p.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)),
-                      )
-                    }
-                    className={`${fieldClass} min-w-[8rem] flex-1`}
-                  />
-                  {lines.length > 2 ? (
-                    <button
-                      type="button"
-                      onClick={() => removeLine(i)}
-                      className="text-xs text-qb-muted hover:text-red-600"
-                    >
-                      Remove
-                    </button>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={addLine}
-                className="rounded-sm border border-qb-border bg-white px-3 py-2 text-sm font-medium text-qb-heading hover:bg-qb-surface"
-              >
-                Add line
-              </button>
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => void submitManual()}
-                className="rounded-sm border border-qb-border bg-white px-4 py-2 text-sm font-semibold text-qb-heading shadow-sm hover:bg-qb-surface disabled:opacity-50"
-              >
-                {submitting ? 'Posting…' : 'Post journal'}
-              </button>
-            </div>
-          </PageCard>
-        ) : null}
 
         <PageCard variant="default" className="rounded-md border-qb-border p-5">
           <h2 className="text-lg font-semibold text-qb-heading">Recent entries</h2>

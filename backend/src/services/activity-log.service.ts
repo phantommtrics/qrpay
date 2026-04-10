@@ -53,6 +53,17 @@ export type ListActivityLogsParams = {
   actorKind?: ActivityActorKind | null;
 };
 
+export type ListPlatformTenantActivityLogsParams = ListActivityLogsParams & {
+  /** Inclusive lower bound on `createdAt` */
+  from?: Date | null;
+  /** Inclusive upper bound on `createdAt` */
+  to?: Date | null;
+  /** Restrict to one business */
+  businessId?: string | null;
+  /** Case-insensitive substring match on business name */
+  businessNameContains?: string | null;
+};
+
 export async function listActivityLogsForBusiness(businessId: string, params: ListActivityLogsParams) {
   const page = Math.max(1, params.page);
   const pageSize = Math.min(Math.max(params.pageSize, 1), 100);
@@ -76,6 +87,62 @@ export async function listActivityLogsForBusiness(businessId: string, params: Li
       take: pageSize,
       include: {
         actorUser: { select: { id: true, name: true, email: true } },
+      },
+    }),
+  ]);
+
+  return { total, page, pageSize, logs: rows };
+}
+
+export async function listActivityLogsForPlatformTenants(params: ListPlatformTenantActivityLogsParams) {
+  const page = Math.max(1, params.page);
+  const pageSize = Math.min(Math.max(params.pageSize, 1), 100);
+  const skip = (page - 1) * pageSize;
+
+  const where: Prisma.ActivityLogWhereInput = {
+    businessId: { not: null },
+  };
+
+  const bid = params.businessId?.trim();
+  if (bid) {
+    where.businessId = bid;
+  }
+
+  if (params.from || params.to) {
+    where.createdAt = {};
+    if (params.from) {
+      where.createdAt.gte = params.from;
+    }
+    if (params.to) {
+      where.createdAt.lte = params.to;
+    }
+  }
+
+  const nameQ = params.businessNameContains?.trim();
+  if (nameQ) {
+    where.business = {
+      name: { contains: nameQ, mode: "insensitive" },
+    };
+  }
+
+  const et = params.eventType?.trim();
+  if (et) {
+    where.eventType = et;
+  }
+  if (params.actorKind === ActivityActorKind.USER || params.actorKind === ActivityActorKind.SYSTEM) {
+    where.actorKind = params.actorKind;
+  }
+
+  const [total, rows] = await prisma.$transaction([
+    prisma.activityLog.count({ where }),
+    prisma.activityLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: pageSize,
+      include: {
+        actorUser: { select: { id: true, name: true, email: true } },
+        business: { select: { id: true, name: true } },
       },
     }),
   ]);

@@ -18,18 +18,27 @@ function endOfUtcDayFromYmd(raw: string): Date {
   );
 }
 
+export type MerchantJournalLedgerScope = "all" | "business" | "operator";
+
 export async function listMerchantJournalEntriesForPlatform(input: {
   page: number;
   pageSize: number;
   businessId?: string | null;
   from?: string | null;
   to?: string | null;
+  ledgerScope?: MerchantJournalLedgerScope;
 }) {
   const page = Math.max(1, input.page);
   const pageSize = Math.min(Math.max(1, input.pageSize), 100);
   const skip = (page - 1) * pageSize;
 
+  const scope: MerchantJournalLedgerScope = input.ledgerScope ?? "all";
   const where: Prisma.JournalEntryWhereInput = {};
+  if (scope === "business") {
+    where.postedByPlatformUserId = null;
+  } else if (scope === "operator") {
+    where.postedByPlatformUserId = { not: null };
+  }
   if (input.businessId?.trim()) {
     where.businessId = input.businessId.trim();
   }
@@ -54,6 +63,7 @@ export async function listMerchantJournalEntriesForPlatform(input: {
         business: { select: { id: true, name: true } },
         approvedBy: { select: { id: true, name: true, email: true } },
         cancelledBy: { select: { id: true, name: true, email: true } },
+        postedByPlatformUser: { select: { id: true, name: true, email: true } },
       },
     }),
   ]);
@@ -73,6 +83,7 @@ export async function getMerchantJournalEntryForPlatform(journalEntryId: string)
       business: { select: { id: true, name: true } },
       approvedBy: { select: { id: true, name: true, email: true } },
       cancelledBy: { select: { id: true, name: true, email: true } },
+      postedByPlatformUser: { select: { id: true, name: true, email: true } },
       lines: {
         orderBy: { id: "asc" },
         include: {
@@ -119,6 +130,7 @@ export async function approveMerchantJournalEntry(journalEntryId: string, approv
       business: { select: { id: true, name: true } },
       approvedBy: { select: { id: true, name: true, email: true } },
       cancelledBy: { select: { id: true, name: true, email: true } },
+      postedByPlatformUser: { select: { id: true, name: true, email: true } },
       lines: {
         orderBy: { id: "asc" },
         include: {
@@ -161,6 +173,7 @@ export async function cancelMerchantJournalEntry(journalEntryId: string, cancell
       business: { select: { id: true, name: true } },
       approvedBy: { select: { id: true, name: true, email: true } },
       cancelledBy: { select: { id: true, name: true, email: true } },
+      postedByPlatformUser: { select: { id: true, name: true, email: true } },
       lines: {
         orderBy: { id: "asc" },
         include: {

@@ -39,3 +39,11 @@ export function guestSubscriptionInvoiceUrl(guestToken: string): string {
     `/guest/subscription-invoice/${encodeURIComponent(guestToken)}`,
   );
 }
+
+/** Supplier-facing portal for platform purchase bills (view PDF without login). */
+export function guestPlatformBillUrl(guestToken: string): string {
+  return spaHashRoute(
+    getPublicWebAppBaseUrl(),
+    `/guest/platform-bill/${encodeURIComponent(guestToken)}`,
+  );
+}

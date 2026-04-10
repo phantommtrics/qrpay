@@ -17,6 +17,20 @@ export type SignUpTemporaryPasswordEmailContent = {
   textBody: string;
 };
 
+/** Optional guest pay portal for the first subscription invoice (owner signup). */
+export type SignUpEmailExtras = {
+  subscriptionPayOnlineUrl?: string | null;
+  subscriptionInvoiceRef?: string | null;
+};
+
+function escapeHtmlSignup(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function getResendClient() {
   if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL) {
     throw new HttpError(
@@ -78,13 +92,32 @@ export async function sendPasswordResetEmail(input: PasswordResetEmailInput) {
 
 export function buildSignUpTemporaryPasswordEmailContent(
   input: PasswordResetEmailInput,
+  extras?: SignUpEmailExtras | null,
 ): SignUpTemporaryPasswordEmailContent {
   const subject = `Your ${PLATFORM_NAME} account is ready`;
+  const payUrl = extras?.subscriptionPayOnlineUrl?.trim() || null;
+  const invRef = extras?.subscriptionInvoiceRef?.trim() || null;
+  const payBlock =
+    payUrl && invRef
+      ? `<p style="margin:20px 0 8px;font-weight:600;color:#0f172a;">Pay your subscription online (no sign-in required)</p>
+    <p style="margin:0 0 12px;font-size:14px;color:#475569;">Invoice <span style="font-family:monospace;">${escapeHtmlSignup(invRef)}</span> — use the secure link below with Wave or your mobile wallet, same as paying any ${PLATFORM_NAME} invoice by email.</p>
+    <p style="margin:0 0 16px;">
+      <a href="${escapeHtmlSignup(payUrl)}" style="display:inline-block;padding:12px 20px;background:#0d9488;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">View invoice &amp; pay online</a>
+    </p>
+    <p style="margin:0 0 20px;font-size:13px;color:#64748b;">Or copy this link: <a href="${escapeHtmlSignup(payUrl)}" style="color:#0d9488;word-break:break-all;">${escapeHtmlSignup(payUrl)}</a></p>`
+      : payUrl
+        ? `<p style="margin:20px 0 8px;font-weight:600;color:#0f172a;">Pay your subscription online (no sign-in required)</p>
+    <p style="margin:0 0 16px;">
+      <a href="${escapeHtmlSignup(payUrl)}" style="display:inline-block;padding:12px 20px;background:#0d9488;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">View invoice &amp; pay online</a>
+    </p>
+    <p style="margin:0 0 20px;font-size:13px;color:#64748b;">Or copy this link: <a href="${escapeHtmlSignup(payUrl)}" style="color:#0d9488;word-break:break-all;">${escapeHtmlSignup(payUrl)}</a></p>`
+        : "";
   const htmlBody = `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0f172a;max-width:560px;">
     ${easypayEmailLogoHtml()}
     <p>Hello ${input.userName},</p>
     <p>Welcome to ${PLATFORM_NAME}. Your organization has been created.</p>
+    ${payBlock}
     <p>Your temporary password is:</p>
     <p><strong>${input.temporaryPassword}</strong></p>
     <p>Visit <a href="${env.PLATFORM_URL}">${env.PLATFORM_URL}</a> to sign in. You will be asked to create a new password after you log in.</p>
@@ -95,6 +128,14 @@ export function buildSignUpTemporaryPasswordEmailContent(
     `Hello ${input.userName},`,
     "",
     `Welcome to ${PLATFORM_NAME}. Your organization has been created.`,
+    "",
+    ...(payUrl
+      ? [
+          "Pay your subscription online (no sign-in required):",
+          payUrl,
+          ...(invRef ? [`Invoice ref: ${invRef}`, ""] : [""]),
+        ]
+      : []),
     `Temporary password: ${input.temporaryPassword}`,
     `Sign in: ${env.PLATFORM_URL}`,
     "You will be prompted to choose a new password after signing in.",
