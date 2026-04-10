@@ -1963,6 +1963,38 @@ export async function deletePlatformPaymentGateway(gatewayId: string) {
   await apiRequest<unknown>(`/platform/payment-gateways/${gatewayId}`, { method: 'DELETE' })
 }
 
+export type ApsWalletCustomerAuthRow = {
+  id: string
+  businessId: string
+  businessName?: string
+  gatewayId: string
+  gatewayCode: string
+  gatewayName: string
+  customerMobileNormalized: string
+  createdAt: string
+  updatedAt: string
+}
+
+export async function fetchPlatformApsWalletCustomerAuths(params?: {
+  businessId?: string
+  gatewayCode?: string
+}) {
+  const sp = new URLSearchParams()
+  if (params?.businessId?.trim()) sp.set('businessId', params.businessId.trim())
+  if (params?.gatewayCode?.trim()) sp.set('gatewayCode', params.gatewayCode.trim())
+  const q = sp.toString()
+  const response = await apiRequest<{ data: ApsWalletCustomerAuthRow[] }>(
+    `/platform/aps-wallet/customer-auths${q ? `?${q}` : ''}`,
+  )
+  return response.data
+}
+
+export async function clearPlatformApsWalletCustomerAuth(authId: string) {
+  await apiRequest<unknown>(`/platform/aps-wallet/customer-auths/${encodeURIComponent(authId)}`, {
+    method: 'DELETE',
+  })
+}
+
 export type BusinessPaymentGatewayRow = {
   id: string
   code: string
@@ -2060,7 +2092,7 @@ export async function authorizeSubscriptionInvoiceApsCheckout(
   invoiceId: string,
   body: { gatewayCode: string; payerMobile: string },
 ) {
-  const response = await apiRequest<{ data: { authState: string } }>(
+  const response = await apiRequest<{ data: { authState: string; requiresOtp: boolean } }>(
     `/businesses/${businessId}/invoices/${invoiceId}/checkout/aps-wallet/authorize`,
     {
       method: 'POST',
@@ -2074,7 +2106,7 @@ export async function authorizeSubscriptionInvoiceApsCheckout(
 export async function completeSubscriptionInvoiceApsCheckout(
   businessId: string,
   invoiceId: string,
-  body: { gatewayCode: string; otp: string; authState: string },
+  body: { gatewayCode: string; otp?: string; authState: string },
 ) {
   const response = await apiRequest<{ data: { paid: true } }>(
     `/businesses/${businessId}/invoices/${invoiceId}/checkout/aps-wallet/complete`,
@@ -2111,12 +2143,16 @@ export async function changeBusinessSubscriptionPlan(
 export type GatewayCredentialFieldStatus = {
   apiBearer?: boolean
   webhookSecret?: boolean
-  /** Wave/Yonna: wallet fee rate (0–1) saved for POS/order accounting. */
+  /** Wave/Yonna/APS: wallet fee rate (0–1) saved for POS/order accounting. */
   customerWalletFeeRate?: boolean
   clientId?: boolean
   secretKey?: boolean
-  /** Yonna: default wallet phone saved for QR checkout. */
-  defaultPayerPhone?: boolean
+  /** APS: merchant login username saved (encrypted). */
+  apsUsername?: boolean
+  /** APS: merchant password saved (encrypted). */
+  apsPassword?: boolean
+  /** Server has APS_WALLET_BASE_URL. */
+  apsApiBase?: boolean
 }
 
 export type BusinessGatewayCredentialStatusRow = {
@@ -2167,6 +2203,24 @@ export async function deleteBusinessGatewayCredentialRequest(
 ) {
   await apiRequest<unknown>(
     `/businesses/${businessId}/gateway-credentials/${encodeURIComponent(gatewayCode)}`,
+    {
+      method: 'DELETE',
+      headers: { 'x-business-id': businessId },
+    },
+  )
+}
+
+export async function fetchBusinessApsWalletCustomerAuths(businessId: string) {
+  const response = await apiRequest<{ data: ApsWalletCustomerAuthRow[] }>(
+    `/businesses/${businessId}/aps-wallet/customer-auths`,
+    { headers: { 'x-business-id': businessId } },
+  )
+  return response.data
+}
+
+export async function clearBusinessApsWalletCustomerAuth(businessId: string, authId: string) {
+  await apiRequest<unknown>(
+    `/businesses/${businessId}/aps-wallet/customer-auths/${encodeURIComponent(authId)}`,
     {
       method: 'DELETE',
       headers: { 'x-business-id': businessId },

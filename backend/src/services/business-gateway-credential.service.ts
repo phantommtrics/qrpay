@@ -4,7 +4,9 @@ import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import { decryptJsonPayload, encryptJsonPayload } from "../utils/field-encryption.js";
 
+import { isApsWalletApiBaseConfigured } from "../config/aps-wallet-env.js";
 import {
+  CHECKOUT_ADAPTER_APS_WALLET,
   CHECKOUT_ADAPTER_WAVE_GAMBIA,
   CHECKOUT_ADAPTER_YONNA_WALLET,
   getPaymentGatewayByCode,
@@ -25,8 +27,13 @@ const yonnaSecretsInputSchema = z.object({
   secretKey: z.string().optional(),
   clientId: z.string().optional(),
   webhookSecret: z.string().optional(),
-  /** E.164-style wallet number used for in-store QR checkout (e.g. +2207XXXXXXX). */
-  defaultPayerPhone: z.string().optional(),
+  customerWalletFeeRate: walletFeeRateFieldSchema,
+});
+
+const apsSecretsInputSchema = z.object({
+  /** Merchant login id (sent as `username` and `mobile` on APS login). */
+  username: z.string().optional(),
+  password: z.string().optional(),
   customerWalletFeeRate: walletFeeRateFieldSchema,
 });
 
@@ -38,6 +45,14 @@ export type WaveGatewaySecrets = {
   customerWalletFeeRate?: number;
 };
 
+/** Stored per business; API base URL and access channel come from server env only. */
+export type ApsGatewaySecrets = {
+  username: string;
+  password: string;
+  /** Estimated provider fee on gross customer wallet takings (orders/POS), fraction 0–1. */
+  customerWalletFeeRate?: number;
+};
+
 /** Stored per business; API base URL comes from env `YONNA_FOREX_API_URL` only. */
 export type YonnaGatewaySecrets = {
   /** Same role as env `YONNA_FOREX_SECRET_KEY`. */
@@ -45,8 +60,6 @@ export type YonnaGatewaySecrets = {
   /** Same role as env `YONNA_FOREX_CLIENT_ID`. */
   clientId: string;
   webhookSecret?: string;
-  /** Default customer wallet MSISDN for POS/order QR checkout when not sent per request. */
-  defaultPayerPhone?: string;
   customerWalletFeeRate?: number;
 };
 
@@ -138,12 +151,23 @@ function replaceYonnaSecrets(input: z.infer<typeof yonnaSecretsInputSchema>): Yo
   } else {
     webhookSecret = undefined;
   }
-  let defaultPayerPhone: string | undefined;
-  if (input.defaultPayerPhone !== undefined) {
-    const t = input.defaultPayerPhone.trim();
-    defaultPayerPhone = t.length > 0 ? t : undefined;
+  let customerWalletFeeRate: number | undefined;
+  if (input.customerWalletFeeRate === undefined || input.customerWalletFeeRate === null) {
+    customerWalletFeeRate = undefined;
   } else {
-    defaultPayerPhone = undefined;
+    customerWalletFeeRate = input.customerWalletFeeRate;
+  }
+  return { secretKey, clientId, webhookSecret, customerWalletFeeRate };
+}
+
+function replaceApsSecrets(input: z.infer<typeof apsSecretsInputSchema>): ApsGatewaySecrets {
+  const username = input.username?.trim();
+  const password = input.password;
+  if (!username) {
+    throw new HttpError(400, "APS merchant username is required.");
+  }
+  if (!password?.trim()) {
+    throw new HttpError(400, "APS merchant password is required.");
   }
   let customerWalletFeeRate: number | undefined;
   if (input.customerWalletFeeRate === undefined || input.customerWalletFeeRate === null) {
@@ -151,7 +175,36 @@ function replaceYonnaSecrets(input: z.infer<typeof yonnaSecretsInputSchema>): Yo
   } else {
     customerWalletFeeRate = input.customerWalletFeeRate;
   }
-  return { secretKey, clientId, webhookSecret, defaultPayerPhone, customerWalletFeeRate };
+  return { username, password: password.trim(), customerWalletFeeRate };
+}
+
+function mergeApsSecrets(
+  existing: ApsGatewaySecrets | null,
+  input: z.infer<typeof apsSecretsInputSchema>,
+): ApsGatewaySecrets {
+  const username =
+    input.username !== undefined && input.username.trim().length > 0
+      ? input.username.trim()
+      : existing?.username;
+  const password =
+    input.password !== undefined && input.password.trim().length > 0
+      ? input.password.trim()
+      : existing?.password;
+  if (!username) {
+    throw new HttpError(400, "APS merchant username is required.");
+  }
+  if (!password) {
+    throw new HttpError(400, "APS merchant password is required.");
+  }
+  let customerWalletFeeRate: number | undefined;
+  if (input.customerWalletFeeRate === undefined) {
+    customerWalletFeeRate = existing?.customerWalletFeeRate;
+  } else if (input.customerWalletFeeRate === null) {
+    customerWalletFeeRate = undefined;
+  } else {
+    customerWalletFeeRate = input.customerWalletFeeRate;
+  }
+  return { username, password, customerWalletFeeRate };
 }
 
 function mergeYonnaSecrets(
@@ -173,13 +226,6 @@ function mergeYonnaSecrets(
     const t = input.webhookSecret.trim();
     webhookSecret = t.length > 0 ? t : undefined;
   }
-  let defaultPayerPhone: string | undefined;
-  if (input.defaultPayerPhone === undefined) {
-    defaultPayerPhone = existing?.defaultPayerPhone;
-  } else {
-    const t = input.defaultPayerPhone.trim();
-    defaultPayerPhone = t.length > 0 ? t : undefined;
-  }
   if (!secretKey) {
     throw new HttpError(400, "Secret key is required (env name YONNA_FOREX_SECRET_KEY).");
   }
@@ -194,7 +240,7 @@ function mergeYonnaSecrets(
   } else {
     customerWalletFeeRate = input.customerWalletFeeRate;
   }
-  return { secretKey, clientId, webhookSecret, defaultPayerPhone, customerWalletFeeRate };
+  return { secretKey, clientId, webhookSecret, customerWalletFeeRate };
 }
 
 function parseWalletFeeRate(raw: unknown): number | undefined {
@@ -227,8 +273,17 @@ function parseExistingYonna(raw: Record<string, unknown> | null): YonnaGatewaySe
     secretKey: raw.secretKey,
     clientId: raw.clientId,
     webhookSecret: typeof raw.webhookSecret === "string" ? raw.webhookSecret : undefined,
-    defaultPayerPhone:
-      typeof raw.defaultPayerPhone === "string" ? raw.defaultPayerPhone : undefined,
+    customerWalletFeeRate: parseWalletFeeRate(raw.customerWalletFeeRate),
+  };
+}
+
+function parseExistingAps(raw: Record<string, unknown> | null): ApsGatewaySecrets | null {
+  if (!raw || typeof raw.username !== "string" || typeof raw.password !== "string") {
+    return null;
+  }
+  return {
+    username: raw.username,
+    password: raw.password,
     customerWalletFeeRate: parseWalletFeeRate(raw.customerWalletFeeRate),
   };
 }
@@ -237,14 +292,18 @@ export type GatewayCredentialFieldStatus = {
   /** Wave: checkout bearer on file. */
   apiBearer?: boolean;
   webhookSecret?: boolean;
-  /** Wave/Yonna: estimated customer wallet fee rate (0–1) configured for accounting. */
+  /** Wave/Yonna/APS: estimated customer wallet fee rate (0–1) configured for accounting. */
   customerWalletFeeRate?: boolean;
   /** Yonna: client ID on file. */
   clientId?: boolean;
   /** Yonna: API secret key on file. */
   secretKey?: boolean;
-  /** Yonna: default wallet phone for QR checkout on file. */
-  defaultPayerPhone?: boolean;
+  /** APS: merchant login username on file. */
+  apsUsername?: boolean;
+  /** APS: merchant password on file. */
+  apsPassword?: boolean;
+  /** Server has APS_WALLET_BASE_URL (required for any APS checkout). */
+  apsApiBase?: boolean;
 };
 
 function fieldStatusFromDecrypted(
@@ -268,12 +327,22 @@ function fieldStatusFromDecrypted(
     const clientId = nonEmptyString(raw.clientId);
     const secretKey = nonEmptyString(raw.secretKey);
     const webhookSecret = nonEmptyString(raw.webhookSecret);
-    const defaultPayerPhone = nonEmptyString(raw.defaultPayerPhone);
     const rate = parseWalletFeeRate(raw.customerWalletFeeRate);
     const customerWalletFeeRate = rate !== undefined && rate > 0;
     return {
-      fieldStatus: { clientId, secretKey, webhookSecret, defaultPayerPhone, customerWalletFeeRate },
+      fieldStatus: { clientId, secretKey, webhookSecret, customerWalletFeeRate },
       checkoutConfigured: clientId && secretKey,
+    };
+  }
+  if (adapter === CHECKOUT_ADAPTER_APS_WALLET) {
+    const apsUsername = nonEmptyString(raw.username);
+    const apsPassword = nonEmptyString(raw.password);
+    const apsApiBase = isApsWalletApiBaseConfigured();
+    const rate = parseWalletFeeRate(raw.customerWalletFeeRate);
+    const customerWalletFeeRate = rate !== undefined && rate > 0;
+    return {
+      fieldStatus: { apsUsername, apsPassword, apsApiBase, customerWalletFeeRate },
+      checkoutConfigured: Boolean(apsUsername && apsPassword && apsApiBase),
     };
   }
   return {
@@ -301,6 +370,7 @@ export async function listBusinessGatewayCredentialStatus(businessId: string) {
   return gateways.map((g) => {
     const row = credByGateway.get(g.id);
     const adapter = g.checkoutAdapter?.trim() || "";
+
     let fieldStatus: GatewayCredentialFieldStatus | null = null;
     let checkoutConfigured = false;
 
@@ -357,7 +427,7 @@ export async function upsertBusinessGatewayCredential(input: {
     existingPayload = loadExistingSecrets(existingRow.iv, existingRow.ciphertext);
   }
 
-  let payload: WaveGatewaySecrets | YonnaGatewaySecrets;
+  let payload: WaveGatewaySecrets | YonnaGatewaySecrets | ApsGatewaySecrets;
   const replace = Boolean(input.replaceSecrets);
 
   if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
@@ -370,6 +440,11 @@ export async function upsertBusinessGatewayCredential(input: {
     payload = replace
       ? replaceYonnaSecrets(parsed)
       : mergeYonnaSecrets(parseExistingYonna(existingPayload), parsed);
+  } else if (adapter === CHECKOUT_ADAPTER_APS_WALLET) {
+    const parsed = apsSecretsInputSchema.parse(input.secrets);
+    payload = replace
+      ? replaceApsSecrets(parsed)
+      : mergeApsSecrets(parseExistingAps(existingPayload), parsed);
   } else {
     throw new HttpError(
       400,

@@ -24,6 +24,14 @@ import { resolveDefaultBankSettlementAccountId } from "./sales-settlement-accoun
 import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
 
 const SIMULATOR_WEBHOOK_PROVIDER = "simulator";
+const APS_WALLET_WEBHOOK_LOG_PROVIDER = "aps_wallet";
+
+function webhookLogProviderForWalletComplete(options?: { settlementSource?: string }): string {
+  if (options?.settlementSource === "aps_wallet") {
+    return APS_WALLET_WEBHOOK_LOG_PROVIDER;
+  }
+  return SIMULATOR_WEBHOOK_PROVIDER;
+}
 
 /** Sum quantities per product (order lines may repeat the same SKU). */
 function quantitiesByProductId(lines: { productId: string; quantity: number }[]): Map<string, number> {
@@ -670,6 +678,13 @@ export async function completeCashPayment(
   );
 }
 
+export type CompleteWalletPaymentByPublicTokenOptions = {
+  externalEventId?: string;
+  /** POS staff completing simulator wallet checkout */
+  settledByStaffUserId?: string | null;
+  settlementSource?: "staff_simulate" | "public_pay_simulate" | "webhook" | "aps_wallet";
+};
+
 async function completeSalesInvoiceWalletPaymentCore(
   payment: {
     id: string;
@@ -685,17 +700,19 @@ async function completeSalesInvoiceWalletPaymentCore(
       publicCode: string;
     } | null;
   },
-  options?: { externalEventId?: string },
+  options?: CompleteWalletPaymentByPublicTokenOptions,
 ) {
   if (!payment.salesInvoiceId || !payment.salesInvoice) {
     throw new HttpError(500, "Sales invoice payment is missing invoice data.");
   }
 
+  const logProvider = webhookLogProviderForWalletComplete(options);
+
   if (options?.externalEventId) {
     const existingLog = await prisma.webhookEventLog.findUnique({
       where: {
         provider_eventKey: {
-          provider: SIMULATOR_WEBHOOK_PROVIDER,
+          provider: logProvider,
           eventKey: options.externalEventId,
         },
       },
@@ -737,7 +754,7 @@ async function completeSalesInvoiceWalletPaymentCore(
         try {
           await tx.webhookEventLog.create({
             data: {
-              provider: SIMULATOR_WEBHOOK_PROVIDER,
+              provider: logProvider,
               eventKey: options.externalEventId,
             },
           });
@@ -825,13 +842,6 @@ async function completeSalesInvoiceWalletPaymentCore(
   );
 }
 
-export type CompleteWalletPaymentByPublicTokenOptions = {
-  externalEventId?: string;
-  /** POS staff completing simulator wallet checkout */
-  settledByStaffUserId?: string | null;
-  settlementSource?: "staff_simulate" | "public_pay_simulate" | "webhook";
-};
-
 export async function completeWalletPaymentByPublicToken(
   publicToken: string,
   options?: CompleteWalletPaymentByPublicTokenOptions,
@@ -886,11 +896,13 @@ export async function completeWalletPaymentByPublicToken(
     throw new HttpError(400, "Invalid payment — no order linked.");
   }
 
+  const orderLogProvider = webhookLogProviderForWalletComplete(options);
+
   if (options?.externalEventId) {
     const existingLog = await prisma.webhookEventLog.findUnique({
       where: {
         provider_eventKey: {
-          provider: SIMULATOR_WEBHOOK_PROVIDER,
+          provider: orderLogProvider,
           eventKey: options.externalEventId,
         },
       },
@@ -924,7 +936,7 @@ export async function completeWalletPaymentByPublicToken(
         try {
           await tx.webhookEventLog.create({
             data: {
-              provider: SIMULATOR_WEBHOOK_PROVIDER,
+              provider: orderLogProvider,
               eventKey: options.externalEventId,
             },
           });

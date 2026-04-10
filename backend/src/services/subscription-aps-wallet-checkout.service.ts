@@ -16,6 +16,11 @@ import {
   apsWalletProcessPayment,
   normalizeApsCustomerMobile,
 } from "./aps-wallet-client.service.js";
+import {
+  deleteStoredApsAuthorizedToken,
+  getStoredApsAuthorizedToken,
+  upsertStoredApsAuthorizedToken,
+} from "./aps-wallet-customer-auth.service.js";
 import { completeSubscriptionInvoicePayment } from "./subscription.service.js";
 
 const APS_STATE_TTL_MS = 15 * 60 * 1000;
@@ -31,6 +36,7 @@ type ApsAuthPayload = {
   kind: "business" | "guest";
   businessId?: string;
   guestToken?: string;
+  authMode?: "otp" | "stored";
 };
 
 function timingSafeEqual(a: string, b: string): boolean {
@@ -78,7 +84,15 @@ function parseApsAuthState(token: string): ApsAuthPayload {
     throw new HttpError(400, "Invalid APS checkout state.");
   }
   const p = parsed as ApsAuthPayload;
-  if (p.v !== 1 || typeof p.invoiceId !== "string" || typeof p.requestToken !== "string") {
+  if (p.v !== 1 || typeof p.invoiceId !== "string") {
+    throw new HttpError(400, "Invalid APS checkout state.");
+  }
+  const authMode = p.authMode === "stored" ? "stored" : "otp";
+  if (authMode === "otp") {
+    if (typeof p.requestToken !== "string" || !p.requestToken.trim()) {
+      throw new HttpError(400, "Invalid APS checkout state.");
+    }
+  } else if (typeof p.requestToken !== "string") {
     throw new HttpError(400, "Invalid APS checkout state.");
   }
   if (Date.now() > p.exp) {
@@ -165,7 +179,7 @@ export async function authorizeSubscriptionInvoiceApsCheckout(input: {
   gatewayCode: string;
   payerMobile: string;
   req: Request;
-}): Promise<{ authState: string }> {
+}): Promise<{ authState: string; requiresOtp: boolean }> {
   const membership = await prisma.businessMembership.findFirst({
     where: { userId: input.userId, businessId: input.businessId },
   });
@@ -192,13 +206,31 @@ export async function authorizeSubscriptionInvoiceApsCheckout(input: {
   const invoice = await loadPayableInvoiceForBusiness(input.invoiceId, input.businessId);
   void input.req;
 
-  let requestToken: string;
-  try {
-    requestToken = await apsWalletAuthorizeCustomer(mobile);
-  } catch (e) {
-    console.log(LOG_PREFIX, "checkout_authorize_failed", { invoiceId: input.invoiceId, step: "authorize_customer" });
-    rethrowAsHttpError(e);
+  const gateway = await getPaymentGatewayByCode(code);
+  if (!gateway) {
+    throw new HttpError(400, "Payment gateway not found.");
   }
+
+  const storedAuth = await getStoredApsAuthorizedToken(invoice.businessId, gateway.id, mobile);
+
+  let requestToken: string;
+  let authMode: "otp" | "stored";
+  if (storedAuth) {
+    authMode = "stored";
+    requestToken = "";
+  } else {
+    authMode = "otp";
+    try {
+      requestToken = await apsWalletAuthorizeCustomer(mobile);
+    } catch (e) {
+      console.log(LOG_PREFIX, "checkout_authorize_failed", {
+        invoiceId: input.invoiceId,
+        step: "authorize_customer",
+      });
+      rethrowAsHttpError(e);
+    }
+  }
+
   const authState = signApsAuthPayload({
     invoiceId: invoice.id,
     gatewayCode: code,
@@ -206,14 +238,16 @@ export async function authorizeSubscriptionInvoiceApsCheckout(input: {
     payerMobile: mobile,
     kind: "business",
     businessId: input.businessId,
+    authMode,
   });
 
   console.log(LOG_PREFIX, "checkout_authorize_done", {
     invoiceId: invoice.id,
     authStateChars: authState.length,
+    requiresOtp: authMode === "otp",
   });
 
-  return { authState };
+  return { authState, requiresOtp: authMode === "otp" };
 }
 
 export async function authorizeGuestSubscriptionInvoiceApsCheckout(input: {
@@ -221,7 +255,7 @@ export async function authorizeGuestSubscriptionInvoiceApsCheckout(input: {
   gatewayCode: string;
   payerMobile: string;
   req: Request;
-}): Promise<{ authState: string }> {
+}): Promise<{ authState: string; requiresOtp: boolean }> {
   void input.req;
   const code = input.gatewayCode.trim().toLowerCase();
   await assertGatewayAps(code);
@@ -237,13 +271,29 @@ export async function authorizeGuestSubscriptionInvoiceApsCheckout(input: {
   });
 
   const invoice = await loadPayableInvoiceForGuest(input.guestToken);
-  let requestToken: string;
-  try {
-    requestToken = await apsWalletAuthorizeCustomer(mobile);
-  } catch (e) {
-    console.log(LOG_PREFIX, "checkout_guest_authorize_failed", { step: "authorize_customer" });
-    rethrowAsHttpError(e);
+
+  const gateway = await getPaymentGatewayByCode(code);
+  if (!gateway) {
+    throw new HttpError(400, "Payment gateway not found.");
   }
+
+  const storedAuth = await getStoredApsAuthorizedToken(invoice.businessId, gateway.id, mobile);
+
+  let requestToken: string;
+  let authMode: "otp" | "stored";
+  if (storedAuth) {
+    authMode = "stored";
+    requestToken = "";
+  } else {
+    authMode = "otp";
+    try {
+      requestToken = await apsWalletAuthorizeCustomer(mobile);
+    } catch (e) {
+      console.log(LOG_PREFIX, "checkout_guest_authorize_failed", { step: "authorize_customer" });
+      rethrowAsHttpError(e);
+    }
+  }
+
   const authState = signApsAuthPayload({
     invoiceId: invoice.id,
     gatewayCode: code,
@@ -251,14 +301,16 @@ export async function authorizeGuestSubscriptionInvoiceApsCheckout(input: {
     payerMobile: mobile,
     kind: "guest",
     guestToken: input.guestToken.trim(),
+    authMode,
   });
 
   console.log(LOG_PREFIX, "checkout_guest_authorize_done", {
     invoiceId: invoice.id,
     authStateChars: authState.length,
+    requiresOtp: authMode === "otp",
   });
 
-  return { authState };
+  return { authState, requiresOtp: authMode === "otp" };
 }
 
 export async function completeSubscriptionInvoiceApsCheckout(input: {
@@ -266,7 +318,7 @@ export async function completeSubscriptionInvoiceApsCheckout(input: {
   businessId: string;
   userId: string;
   gatewayCode: string;
-  otp: string;
+  otp?: string;
   authState: string;
   req: Request;
 }): Promise<{ paid: true }> {
@@ -291,31 +343,58 @@ export async function completeSubscriptionInvoiceApsCheckout(input: {
   }
 
   const invoice = await loadPayableInvoiceForBusiness(input.invoiceId, input.businessId);
+
+  const gateway = await getPaymentGatewayByCode(code);
+  if (!gateway) {
+    throw new HttpError(400, "Payment gateway not found.");
+  }
+
+  const authMode = state.authMode === "stored" ? "stored" : "otp";
   const otp = input.otp?.trim();
-  if (!otp) {
+  if (authMode === "otp" && !otp) {
     throw new HttpError(400, "OTP is required.");
+  }
+  if (authMode === "stored" && otp) {
+    throw new HttpError(400, "OTP is not required for this checkout — confirm payment without a code.");
   }
 
   void input.req;
 
   console.log(LOG_PREFIX, "checkout_complete_start", {
     invoiceId: invoice.id,
-    otpDigits: otp.length,
+    otpDigits: otp?.length ?? 0,
     gatewayCode: code,
+    authMode,
   });
 
   let authorizedToken: string;
-  try {
-    authorizedToken = await apsWalletConfirmCustomer(otp, state.requestToken);
-  } catch (e) {
-    console.log(LOG_PREFIX, "checkout_complete_failed", { step: "confirm_customer", invoiceId: invoice.id });
-    rethrowAsHttpError(e);
+  if (authMode === "stored") {
+    const stored = await getStoredApsAuthorizedToken(invoice.businessId, gateway.id, state.payerMobile);
+    if (!stored) {
+      throw new HttpError(
+        400,
+        "Saved APS customer authorization is missing or was cleared. Start checkout again to receive an OTP.",
+      );
+    }
+    authorizedToken = stored;
+  } else {
+    try {
+      authorizedToken = await apsWalletConfirmCustomer(otp!, state.requestToken);
+    } catch (e) {
+      console.log(LOG_PREFIX, "checkout_complete_failed", { step: "confirm_customer", invoiceId: invoice.id });
+      rethrowAsHttpError(e);
+    }
+    await upsertStoredApsAuthorizedToken(invoice.businessId, gateway.id, state.payerMobile, authorizedToken);
   }
+
   const amountStr = invoice.amount.toFixed(2);
   let processed: Awaited<ReturnType<typeof apsWalletProcessPayment>>;
   try {
     processed = await apsWalletProcessPayment(amountStr, authorizedToken);
   } catch (e) {
+    if (authMode === "stored") {
+      await deleteStoredApsAuthorizedToken(invoice.businessId, gateway.id, state.payerMobile);
+    }
     console.log(LOG_PREFIX, "checkout_complete_failed", { step: "process_payment", invoiceId: invoice.id });
     rethrowAsHttpError(e);
   }
@@ -355,7 +434,7 @@ export async function completeSubscriptionInvoiceApsCheckout(input: {
 export async function completeGuestSubscriptionInvoiceApsCheckout(input: {
   guestToken: string;
   gatewayCode: string;
-  otp: string;
+  otp?: string;
   authState: string;
   req: Request;
 }): Promise<{ paid: true }> {
@@ -376,29 +455,55 @@ export async function completeGuestSubscriptionInvoiceApsCheckout(input: {
     throw new HttpError(400, "APS checkout does not match this invoice.");
   }
 
+  const gateway = await getPaymentGatewayByCode(code);
+  if (!gateway) {
+    throw new HttpError(400, "Payment gateway not found.");
+  }
+
+  const authMode = state.authMode === "stored" ? "stored" : "otp";
   const otp = input.otp?.trim();
-  if (!otp) {
+  if (authMode === "otp" && !otp) {
     throw new HttpError(400, "OTP is required.");
+  }
+  if (authMode === "stored" && otp) {
+    throw new HttpError(400, "OTP is not required for this checkout — confirm payment without a code.");
   }
 
   console.log(LOG_PREFIX, "checkout_guest_complete_start", {
     invoiceId: invoice.id,
-    otpDigits: otp.length,
+    otpDigits: otp?.length ?? 0,
     gatewayCode: code,
+    authMode,
   });
 
   let authorizedToken: string;
-  try {
-    authorizedToken = await apsWalletConfirmCustomer(otp, state.requestToken);
-  } catch (e) {
-    console.log(LOG_PREFIX, "checkout_guest_complete_failed", { step: "confirm_customer", invoiceId: invoice.id });
-    rethrowAsHttpError(e);
+  if (authMode === "stored") {
+    const stored = await getStoredApsAuthorizedToken(invoice.businessId, gateway.id, state.payerMobile);
+    if (!stored) {
+      throw new HttpError(
+        400,
+        "Saved APS customer authorization is missing or was cleared. Start checkout again to receive an OTP.",
+      );
+    }
+    authorizedToken = stored;
+  } else {
+    try {
+      authorizedToken = await apsWalletConfirmCustomer(otp!, state.requestToken);
+    } catch (e) {
+      console.log(LOG_PREFIX, "checkout_guest_complete_failed", { step: "confirm_customer", invoiceId: invoice.id });
+      rethrowAsHttpError(e);
+    }
+    await upsertStoredApsAuthorizedToken(invoice.businessId, gateway.id, state.payerMobile, authorizedToken);
   }
+
   const amountStr = invoice.amount.toFixed(2);
   let processed: Awaited<ReturnType<typeof apsWalletProcessPayment>>;
   try {
     processed = await apsWalletProcessPayment(amountStr, authorizedToken);
   } catch (e) {
+    if (authMode === "stored") {
+      await deleteStoredApsAuthorizedToken(invoice.businessId, gateway.id, state.payerMobile);
+    }
     console.log(LOG_PREFIX, "checkout_guest_complete_failed", { step: "process_payment", invoiceId: invoice.id });
     rethrowAsHttpError(e);
   }

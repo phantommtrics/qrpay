@@ -9,10 +9,13 @@ import { PageTransition } from '../components/ui/PageTransition'
 import { useAuth } from '../features/auth/AuthContext'
 import {
   ApiError,
+  clearBusinessApsWalletCustomerAuth,
   deleteBusinessGatewayCredentialRequest,
+  fetchBusinessApsWalletCustomerAuths,
   fetchBusinessGatewayCredentialStatus,
   fetchBusinessPaymentGateways,
   upsertBusinessGatewayCredentialRequest,
+  type ApsWalletCustomerAuthRow,
   type BusinessGatewayCredentialStatusRow,
   type BusinessPaymentGatewayRow,
   type PaymentWebhookEndpoints,
@@ -46,6 +49,7 @@ export function MerchantApiPage() {
 
   const [gateways, setGateways] = useState<IntegrableGateway[]>([])
   const [statusRows, setStatusRows] = useState<BusinessGatewayCredentialStatusRow[]>([])
+  const [apsCustomerAuthRows, setApsCustomerAuthRows] = useState<ApsWalletCustomerAuthRow[]>([])
   const [webhookEndpoints, setWebhookEndpoints] = useState<PaymentWebhookEndpoints | null>(null)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -70,9 +74,12 @@ export function MerchantApiPage() {
   const [yonnaClientId, setYonnaClientId] = useState('')
   const [yonnaSecretKey, setYonnaSecretKey] = useState('')
   const [yonnaWebhook, setYonnaWebhook] = useState('')
-  /** Stored encrypted; used for in-store Yonna QR so staff need not type each order. */
-  const [yonnaDefaultPayerPhone, setYonnaDefaultPayerPhone] = useState('')
   const [yonnaWalletFeePercent, setYonnaWalletFeePercent] = useState('')
+
+  const [apsUsername, setApsUsername] = useState('')
+  const [apsPassword, setApsPassword] = useState('')
+  /** Percent 0–100; stored as fraction in credentials (per business). */
+  const [apsWalletFeePercent, setApsWalletFeePercent] = useState('')
 
   const load = useCallback(async () => {
     if (!businessId) {
@@ -81,19 +88,22 @@ export function MerchantApiPage() {
     setLoading(true)
     setError(null)
     try {
-      const [gw, credPack] = await Promise.all([
+      const [gw, credPack, apsAuths] = await Promise.all([
         fetchBusinessPaymentGateways(businessId),
         fetchBusinessGatewayCredentialStatus(businessId),
+        fetchBusinessApsWalletCustomerAuths(businessId),
       ])
       const list = gw.filter(isIntegrable)
       setGateways(list)
       setStatusRows(credPack.credentialStatus)
       setWebhookEndpoints(credPack.webhookEndpoints)
+      setApsCustomerAuthRows(apsAuths)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not load providers.')
       setGateways([])
       setStatusRows([])
       setWebhookEndpoints(null)
+      setApsCustomerAuthRows([])
     } finally {
       setLoading(false)
     }
@@ -153,8 +163,10 @@ export function MerchantApiPage() {
     setYonnaClientId('')
     setYonnaSecretKey('')
     setYonnaWebhook('')
-    setYonnaDefaultPayerPhone('')
     setYonnaWalletFeePercent('')
+    setApsUsername('')
+    setApsPassword('')
+    setApsWalletFeePercent('')
   }
 
   function closeCredentialModal() {
@@ -164,9 +176,6 @@ export function MerchantApiPage() {
 
   function openAddModal(g: IntegrableGateway) {
     resetFormFields()
-    if (g.checkoutAdapter?.trim() === 'yonna_wallet') {
-      setYonnaDefaultPayerPhone('+220')
-    }
     setCredentialModalMode('add')
     setModalGateway(g)
     setGatewayKebabMenu(null)
@@ -177,9 +186,6 @@ export function MerchantApiPage() {
     setCredentialModalMode('edit')
     setModalGateway(g)
     setGatewayKebabMenu(null)
-    if (g.checkoutAdapter?.trim() === 'yonna_wallet') {
-      setYonnaDefaultPayerPhone('+220')
-    }
   }
 
   async function handleSave() {
@@ -228,14 +234,12 @@ export function MerchantApiPage() {
           clientId?: string
           secretKey?: string
           webhookSecret?: string
-          defaultPayerPhone?: string
           customerWalletFeeRate?: number | null
         } = {}
         if (replaceSecrets) {
           secrets.clientId = yonnaClientId.trim()
           secrets.secretKey = yonnaSecretKey.trim()
           secrets.webhookSecret = yonnaWebhook.trim()
-          secrets.defaultPayerPhone = yonnaDefaultPayerPhone.trim()
         } else {
           if (yonnaClientId.trim()) {
             secrets.clientId = yonnaClientId.trim()
@@ -246,13 +250,43 @@ export function MerchantApiPage() {
           if (yonnaWebhook.trim()) {
             secrets.webhookSecret = yonnaWebhook.trim()
           }
-          if (yonnaDefaultPayerPhone.trim()) {
-            secrets.defaultPayerPhone = yonnaDefaultPayerPhone.trim()
-          }
         }
         const yfp = yonnaWalletFeePercent.trim()
         if (yfp !== '') {
           const p = Number.parseFloat(yfp.replace(',', '.'))
+          if (!Number.isFinite(p) || p < 0 || p > 100) {
+            setError('Wallet fee must be between 0 and 100 (%).')
+            return
+          }
+          secrets.customerWalletFeeRate = p / 100
+        } else if (replaceSecrets) {
+          secrets.customerWalletFeeRate = null
+        }
+        await upsertBusinessGatewayCredentialRequest(businessId, {
+          gatewayCode: modalGateway.code,
+          secrets,
+          replaceSecrets,
+        })
+      } else if (modalAdapter === 'aps_wallet') {
+        const secrets: {
+          username?: string
+          password?: string
+          customerWalletFeeRate?: number | null
+        } = {}
+        if (replaceSecrets) {
+          secrets.username = apsUsername.trim()
+          secrets.password = apsPassword.trim()
+        } else {
+          if (apsUsername.trim()) {
+            secrets.username = apsUsername.trim()
+          }
+          if (apsPassword.trim()) {
+            secrets.password = apsPassword.trim()
+          }
+        }
+        const afp = apsWalletFeePercent.trim()
+        if (afp !== '') {
+          const p = Number.parseFloat(afp.replace(',', '.'))
           if (!Number.isFinite(p) || p < 0 || p > 100) {
             setError('Wallet fee must be between 0 and 100 (%).')
             return
@@ -298,6 +332,23 @@ export function MerchantApiPage() {
     }
   }
 
+  async function handleClearApsCustomerAuth(authId: string) {
+    if (!businessId) {
+      return
+    }
+    const ok = window.confirm('Clear this saved APS customer authorization?')
+    if (!ok) {
+      return
+    }
+    setError(null)
+    try {
+      await clearBusinessApsWalletCustomerAuth(businessId, authId)
+      await load()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not clear APS customer authorization.')
+    }
+  }
+
   const isEditCredentialModal = credentialModalMode === 'edit'
 
   const canSaveWave =
@@ -308,33 +359,30 @@ export function MerchantApiPage() {
         (Boolean(modalStatus?.hasCredential) && waveWebhook.trim().length > 0) ||
         (Boolean(modalStatus?.hasCredential) && waveWalletFeePercent.trim() !== ''))
 
-  function yonnaPayerPhoneValid(s: string) {
-    return s.replace(/\D/g, '').length >= 7
-  }
-
   const canSaveYonna =
     modalAdapter === 'yonna_wallet' &&
     (isEditCredentialModal
-      ? Boolean(
-          yonnaSecretKey.trim() &&
-            yonnaClientId.trim() &&
-            yonnaDefaultPayerPhone.trim() &&
-            yonnaPayerPhoneValid(yonnaDefaultPayerPhone),
-        )
+      ? Boolean(yonnaSecretKey.trim() && yonnaClientId.trim())
       : modalStatus?.hasCredential
         ? Boolean(
             yonnaSecretKey.trim() ||
               yonnaClientId.trim() ||
               yonnaWebhook.trim() ||
-              yonnaWalletFeePercent.trim() !== '' ||
-              (yonnaDefaultPayerPhone.trim() && yonnaPayerPhoneValid(yonnaDefaultPayerPhone)),
+              yonnaWalletFeePercent.trim() !== '',
           )
-        : Boolean(
-            yonnaSecretKey.trim() &&
-              yonnaClientId.trim() &&
-              yonnaDefaultPayerPhone.trim() &&
-              yonnaPayerPhoneValid(yonnaDefaultPayerPhone),
-          ))
+        : Boolean(yonnaSecretKey.trim() && yonnaClientId.trim()))
+
+  const canSaveAps =
+    modalAdapter === 'aps_wallet' &&
+    (isEditCredentialModal
+      ? apsUsername.trim().length > 0 && apsPassword.trim().length > 0
+      : modalStatus?.hasCredential
+        ? Boolean(
+            apsUsername.trim() ||
+              apsPassword.trim() ||
+              apsWalletFeePercent.trim() !== '',
+          )
+        : apsUsername.trim().length > 0 && apsPassword.trim().length > 0)
 
   const inputClass =
     'mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500'
@@ -489,7 +537,7 @@ export function MerchantApiPage() {
             <section className="mt-10">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Integration status</h2>
               <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-                <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+                <table className="w-full min-w-[640px] border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-3">Provider</th>
@@ -497,7 +545,6 @@ export function MerchantApiPage() {
                       <th className="px-4 py-3">Bearer</th>
                       <th className="px-4 py-3">Client ID</th>
                       <th className="px-4 py-3">Secret</th>
-                      <th className="px-4 py-3">Pay phone</th>
                       <th className="px-4 py-3">Webhook</th>
                       <th className="px-4 py-3">Wallet fee</th>
                       <th className="px-4 py-3">Updated</th>
@@ -509,6 +556,7 @@ export function MerchantApiPage() {
                       const fs = row.fieldStatus
                       const isWave = ad === 'wave_gambia'
                       const isYonna = ad === 'yonna_wallet'
+                      const isAps = ad === 'aps_wallet'
                       return (
                         <tr key={row.gatewayId} className="border-b border-slate-100 last:border-0">
                           <td className="px-4 py-3 font-medium text-slate-900">{row.name}</td>
@@ -519,13 +567,22 @@ export function MerchantApiPage() {
                             {isWave ? <YesNo value={Boolean(fs?.apiBearer)} /> : <EmDash />}
                           </td>
                           <td className="px-4 py-3">
-                            {isYonna ? <YesNo value={Boolean(fs?.clientId)} /> : <EmDash />}
+                            {isYonna ? (
+                              <YesNo value={Boolean(fs?.clientId)} />
+                            ) : isAps ? (
+                              <YesNo value={Boolean(fs?.apsUsername)} />
+                            ) : (
+                              <EmDash />
+                            )}
                           </td>
                           <td className="px-4 py-3">
-                            {isYonna ? <YesNo value={Boolean(fs?.secretKey)} /> : <EmDash />}
-                          </td>
-                          <td className="px-4 py-3">
-                            {isYonna ? <YesNo value={Boolean(fs?.defaultPayerPhone)} /> : <EmDash />}
+                            {isYonna ? (
+                              <YesNo value={Boolean(fs?.secretKey)} />
+                            ) : isAps ? (
+                              <YesNo value={Boolean(fs?.apsPassword)} />
+                            ) : (
+                              <EmDash />
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             {isWave || isYonna ? (
@@ -535,7 +592,7 @@ export function MerchantApiPage() {
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            {isWave || isYonna ? (
+                            {isWave || isYonna || isAps ? (
                               <YesNo value={Boolean(fs?.customerWalletFeeRate)} />
                             ) : (
                               <EmDash />
@@ -552,6 +609,61 @@ export function MerchantApiPage() {
                         </tr>
                       )
                     })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="mt-10">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                APS saved customer authorizations
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Stored per customer mobile for this business. Used to allow repeat APS payments without OTP until APS
+                invalidates the token.
+              </p>
+              <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+                <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-3">Mobile</th>
+                      <th className="px-4 py-3">Gateway</th>
+                      <th className="px-4 py-3">Updated</th>
+                      <th className="px-4 py-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {apsCustomerAuthRows.length === 0 ? (
+                      <tr>
+                        <td className="px-4 py-4 text-slate-500" colSpan={4}>
+                          No saved APS customer authorizations yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      apsCustomerAuthRows.map((r) => (
+                        <tr key={r.id} className="border-b border-slate-100 last:border-0">
+                          <td className="px-4 py-3 font-medium text-slate-900">{r.customerMobileNormalized}</td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {r.gatewayName} <span className="text-xs text-slate-500">({r.gatewayCode})</span>
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
+                            {new Date(r.updatedAt).toLocaleString(undefined, {
+                              dateStyle: 'short',
+                              timeStyle: 'short',
+                            })}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => void handleClearApsCustomerAuth(r.id)}
+                              className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
+                            >
+                              Clear
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -634,6 +746,61 @@ export function MerchantApiPage() {
                       </>
                     ) : null}
 
+                    {modalAdapter === 'aps_wallet' ? (
+                      <>
+                        <p className="text-xs text-slate-500">
+                          API host and access channel come from the platform server environment. Store your APS
+                          merchant <span className="font-medium text-slate-700">username</span> and{' '}
+                          <span className="font-medium text-slate-700">password</span> here (encrypted). Used for
+                          POS, orders, and guest invoice APS checkout.
+                        </p>
+                        <div>
+                          <label className="text-sm font-medium text-slate-800">Merchant username</label>
+                          <input
+                            type="text"
+                            autoComplete="off"
+                            className={inputClass}
+                            value={apsUsername}
+                            onChange={(e) => setApsUsername(e.target.value)}
+                            placeholder={isEditCredentialModal ? 'New username (required)' : 'Required'}
+                          />
+                          <p className="mt-1 text-xs text-slate-500">
+                            Sent as <code className="rounded bg-slate-100 px-1">username</code> and{' '}
+                            <code className="rounded bg-slate-100 px-1">mobile</code> on APS login.
+                          </p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-slate-800">Merchant password</label>
+                          <input
+                            type="password"
+                            autoComplete="new-password"
+                            className={inputClass}
+                            value={apsPassword}
+                            onChange={(e) => setApsPassword(e.target.value)}
+                            placeholder={isEditCredentialModal ? 'New password (required)' : 'Required'}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-slate-800">
+                            Est. wallet fee on sales (% of payment)
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
+                            className={inputClass}
+                            value={apsWalletFeePercent}
+                            onChange={(e) => setApsWalletFeePercent(e.target.value)}
+                            placeholder={isEditCredentialModal ? 'Empty removes saved fee' : 'e.g. 0 if none'}
+                          />
+                          <p className="mt-1 text-xs text-slate-500">
+                            Per business (APS may charge merchants different rates). Same role as Wave/Yonna for
+                            merchant GL. Replace mode: empty clears the saved rate.
+                          </p>
+                        </div>
+                      </>
+                    ) : null}
+
                     {modalAdapter === 'yonna_wallet' ? (
                       <>
                         <div>
@@ -657,27 +824,6 @@ export function MerchantApiPage() {
                             onChange={(e) => setYonnaSecretKey(e.target.value)}
                             placeholder={isEditCredentialModal ? 'New secret (required)' : 'Required'}
                           />
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium text-slate-800">
-                            Default wallet phone (QR checkout)
-                          </label>
-                          <input
-                            type="tel"
-                            autoComplete="off"
-                            className={inputClass}
-                            value={yonnaDefaultPayerPhone}
-                            onChange={(e) => setYonnaDefaultPayerPhone(e.target.value)}
-                            placeholder={
-                              isEditCredentialModal
-                                ? 'Required on replace (e.g. +2207XXXXXXX)'
-                                : '+220 — then the rest of the number'
-                            }
-                          />
-                          <p className="mt-1 text-xs text-slate-500">
-                            Saved encrypted with your keys. Orders → Wallet can use this number so staff do not
-                            retype it each sale.
-                          </p>
                         </div>
                         <div>
                           <label className="text-sm font-medium text-slate-800">Webhook secret</label>
@@ -710,7 +856,10 @@ export function MerchantApiPage() {
                       </>
                     ) : null}
 
-                    {modalAdapter && modalAdapter !== 'wave_gambia' && modalAdapter !== 'yonna_wallet' ? (
+                    {modalAdapter &&
+                    modalAdapter !== 'wave_gambia' &&
+                    modalAdapter !== 'yonna_wallet' &&
+                    modalAdapter !== 'aps_wallet' ? (
                       <p className="text-sm text-slate-600">
                         Adapter <code className="rounded bg-slate-100 px-1 text-xs">{modalAdapter}</code> is not
                         supported for key storage yet.
@@ -718,7 +867,9 @@ export function MerchantApiPage() {
                     ) : null}
                   </div>
 
-                  {modalAdapter === 'wave_gambia' || modalAdapter === 'yonna_wallet' ? (
+                  {modalAdapter === 'wave_gambia' ||
+                  modalAdapter === 'yonna_wallet' ||
+                  modalAdapter === 'aps_wallet' ? (
                     <div className="mt-6 flex flex-col-reverse gap-2 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
                       {modalStatus?.hasCredential ? (
                         <button
@@ -734,7 +885,11 @@ export function MerchantApiPage() {
                         type="button"
                         disabled={
                           saving ||
-                          (modalAdapter === 'wave_gambia' ? !canSaveWave : !canSaveYonna)
+                          (modalAdapter === 'wave_gambia'
+                            ? !canSaveWave
+                            : modalAdapter === 'yonna_wallet'
+                              ? !canSaveYonna
+                              : !canSaveAps)
                         }
                         onClick={() => void handleSave()}
                         className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"

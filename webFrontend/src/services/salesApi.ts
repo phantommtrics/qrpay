@@ -304,6 +304,38 @@ export async function startWalletCheckout(
   return res.data
 }
 
+export async function authorizeOrderApsWalletCheckout(
+  businessId: string,
+  orderId: string,
+  body: { gatewayCode: string; payerMobile: string },
+): Promise<{ authState: string; requiresOtp: boolean }> {
+  const res = await apiRequest<{ data: { authState: string; requiresOtp: boolean } }>(
+    `/businesses/${businessId}/orders/${orderId}/payments/aps-wallet/authorize`,
+    {
+      method: 'POST',
+      businessId,
+      body: JSON.stringify(body),
+    },
+  )
+  return res.data
+}
+
+export async function completeOrderApsWalletCheckout(
+  businessId: string,
+  orderId: string,
+  body: { gatewayCode: string; otp?: string; authState: string },
+): Promise<{ paid: true; receiptId: string | null }> {
+  const res = await apiRequest<{ data: { paid: true; receiptId: string | null } }>(
+    `/businesses/${businessId}/orders/${orderId}/payments/aps-wallet/complete`,
+    {
+      method: 'POST',
+      businessId,
+      body: JSON.stringify(body),
+    },
+  )
+  return res.data
+}
+
 export async function confirmCashPayment(
   businessId: string,
   orderId: string,
@@ -654,6 +686,62 @@ export async function startGuestInvoiceWalletCheckout(
   return (payload as { data: StartWalletCheckoutResponse }).data
 }
 
+export async function authorizeGuestInvoiceApsWalletCheckout(
+  guestToken: string,
+  body: { gatewayCode: string; payerMobile: string },
+): Promise<{ authState: string; requiresOtp: boolean }> {
+  const response = await fetch(
+    `${API_BASE_URL}/public/guest/invoice/${encodeURIComponent(guestToken)}/payments/aps-wallet/authorize`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  return (payload as { data: { authState: string; requiresOtp: boolean } }).data
+}
+
+export async function completeGuestInvoiceApsWalletCheckout(
+  guestToken: string,
+  body: { gatewayCode: string; otp?: string; authState: string },
+): Promise<{ paid: true }> {
+  const response = await fetch(
+    `${API_BASE_URL}/public/guest/invoice/${encodeURIComponent(guestToken)}/payments/aps-wallet/complete`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  return (payload as { data: { paid: true } }).data
+}
+
 export type GuestSubscriptionInvoicePayload = {
   businessName: string
   canPay: boolean
@@ -758,7 +846,7 @@ export async function startGuestSubscriptionInvoiceWalletCheckout(
 export async function authorizeGuestSubscriptionInvoiceApsCheckout(
   guestToken: string,
   body: { gatewayCode: string; payerMobile: string },
-): Promise<{ authState: string }> {
+): Promise<{ authState: string; requiresOtp: boolean }> {
   const response = await fetch(
     `${API_BASE_URL}/public/guest/subscription-invoice/${encodeURIComponent(guestToken)}/payments/aps-wallet/authorize`,
     {
@@ -780,12 +868,12 @@ export async function authorizeGuestSubscriptionInvoiceApsCheckout(
         : 'Request failed.'
     throw new ApiError(errorMessage, response.status)
   }
-  return (payload as { data: { authState: string } }).data
+  return (payload as { data: { authState: string; requiresOtp: boolean } }).data
 }
 
 export async function completeGuestSubscriptionInvoiceApsCheckout(
   guestToken: string,
-  body: { gatewayCode: string; otp: string; authState: string },
+  body: { gatewayCode: string; otp?: string; authState: string },
 ): Promise<{ paid: true }> {
   const response = await fetch(
     `${API_BASE_URL}/public/guest/subscription-invoice/${encodeURIComponent(guestToken)}/payments/aps-wallet/complete`,

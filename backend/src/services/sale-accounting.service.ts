@@ -18,11 +18,13 @@ import {
   getChartAccountByCode,
 } from "./chart-of-accounts.service.js";
 import {
+  CHECKOUT_ADAPTER_APS_WALLET,
   CHECKOUT_ADAPTER_WAVE_GAMBIA,
   CHECKOUT_ADAPTER_YONNA_WALLET,
 } from "./payment-gateway.service.js";
 import {
   getDecryptedGatewaySecrets,
+  type ApsGatewaySecrets,
   type WaveGatewaySecrets,
   type YonnaGatewaySecrets,
 } from "./business-gateway-credential.service.js";
@@ -48,7 +50,7 @@ function paymentProviderKey(provider: PaymentProvider | string): string {
 
 /**
  * When `Payment.gatewayCode` is null (legacy rows or unusual flows), infer the gateway used for
- * Wave/Yonna wallet checkout if the business has exactly one credential for that adapter.
+ * Wave/Yonna/APS wallet checkout if the business has exactly one credential for that adapter.
  */
 async function resolveGatewayCodeForMerchantWalletFee(
   tx: Prisma.TransactionClient,
@@ -61,7 +63,9 @@ async function resolveGatewayCodeForMerchantWalletFee(
       ? CHECKOUT_ADAPTER_WAVE_GAMBIA
       : pk === paymentProviderKey(PaymentProvider.YONNA_WALLET)
         ? CHECKOUT_ADAPTER_YONNA_WALLET
-        : null;
+        : pk === paymentProviderKey(PaymentProvider.APS_WALLET)
+          ? CHECKOUT_ADAPTER_APS_WALLET
+          : null;
   if (!adapter) {
     return null;
   }
@@ -117,7 +121,7 @@ function paymentMethodDisplay(input: CustomerSaleJournalInput): string {
  * Represents proceeds pending bank / provider settlement; accountants can later
  * journal Dr Bank · Cr Digital payments clearing when statements are reconciled.
  *
- * **Wave/Yonna wallet fee (optional)** — After the sale journal, {@link recordMerchantCustomerWalletFeeJournalAndLedger}
+ * **Wave/Yonna/APS wallet fee (optional)** — After the sale journal, {@link recordMerchantCustomerWalletFeeJournalAndLedger}
  * posts Dr QR wallet processing fees · Cr Digital clearing for the rate in encrypted gateway credentials (by
  * `gatewayCode`, or inferred when the business has a single Wave/Yonna checkout gateway).
  *
@@ -274,8 +278,8 @@ export async function recordCustomerSaleJournalAndLedger(
 }
 
 /**
- * Estimated Wave/Yonna wallet fee on a completed customer QR payment (orders/POS).
- * Rate comes from `customerWalletFeeRate` in encrypted gateway credentials for `gatewayCode` (or inferred gateway).
+ * Estimated Wave/Yonna/APS wallet fee on a completed customer QR payment (orders/POS).
+ * Rate comes from `customerWalletFeeRate` in encrypted gateway credentials for `gatewayCode` (Wave, Yonna, APS).
  * No-op for simulator/cash/other providers, missing credentials, zero rate, or ambiguous multiple gateways.
  */
 export async function recordMerchantCustomerWalletFeeJournalAndLedger(
@@ -291,7 +295,8 @@ export async function recordMerchantCustomerWalletFeeJournalAndLedger(
   const pk = paymentProviderKey(input.provider);
   if (
     pk !== paymentProviderKey(PaymentProvider.WAVE_GAMBIA) &&
-    pk !== paymentProviderKey(PaymentProvider.YONNA_WALLET)
+    pk !== paymentProviderKey(PaymentProvider.YONNA_WALLET) &&
+    pk !== paymentProviderKey(PaymentProvider.APS_WALLET)
   ) {
     return;
   }
@@ -314,10 +319,9 @@ export async function recordMerchantCustomerWalletFeeJournalAndLedger(
     return;
   }
 
-  const secrets = await getDecryptedGatewaySecrets<WaveGatewaySecrets | YonnaGatewaySecrets>(
-    input.businessId,
-    gatewayCode,
-  );
+  const secrets = await getDecryptedGatewaySecrets<
+    WaveGatewaySecrets | YonnaGatewaySecrets | ApsGatewaySecrets
+  >(input.businessId, gatewayCode);
   const rate = customerWalletFeeRateFromGatewaySecrets(secrets);
   const fee = new Prisma.Decimal(input.amount.toString()).mul(rate).toDecimalPlaces(2);
   if (fee.lte(0)) {

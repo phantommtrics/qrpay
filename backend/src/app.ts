@@ -76,6 +76,12 @@ import {
   upsertBusinessGatewayCredential,
 } from "./services/business-gateway-credential.service.js";
 import {
+  clearBusinessApsWalletCustomerAuth,
+  clearPlatformApsWalletCustomerAuth,
+  listBusinessApsWalletCustomerAuths,
+  listPlatformApsWalletCustomerAuths,
+} from "./services/aps-wallet-customer-auth.service.js";
+import {
   createDiningTable,
   deleteDiningTable,
   listDiningTables,
@@ -144,6 +150,12 @@ import {
   listActivityLogsForBusiness,
   listActivityLogsForPlatform,
 } from "./services/activity-log.service.js";
+import {
+  authorizeGuestSalesInvoiceApsWalletCheckout,
+  authorizeOrderApsWalletCheckout,
+  completeGuestSalesInvoiceApsWalletCheckout,
+  completeOrderApsWalletCheckout,
+} from "./services/order-aps-wallet-checkout.service.js";
 import { listOrderCheckoutWallets } from "./services/order-wallet-checkout.service.js";
 import {
   cancelPendingOrder,
@@ -703,7 +715,8 @@ const apsWalletAuthorizeBodySchema = z.object({
 
 const apsWalletCompleteBodySchema = z.object({
   gatewayCode: z.string().min(1),
-  otp: z.string().min(1),
+  /** Omit or empty when checkout used stored APS customer authorization (no OTP step). */
+  otp: z.string().optional(),
   authState: z.string().min(1),
 });
 
@@ -717,6 +730,10 @@ const putBusinessGatewayCredentialBodySchema = z.object({
   gatewayCode: z.string().min(1),
   secrets: z.unknown(),
   replaceSecrets: z.boolean().optional(),
+});
+const apsWalletCustomerAuthQuerySchema = z.object({
+  gatewayCode: z.string().optional(),
+  businessId: z.string().optional(),
 });
 
 const orderWalletPaymentBodySchema = z.object({
@@ -1797,6 +1814,40 @@ app.get(
           updatedAt: g.updatedAt.toISOString(),
         })),
       });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/aps-wallet/customer-auths",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.PAYMENT_GATEWAYS, "view"),
+  async (req, res, next) => {
+    try {
+      const q = apsWalletCustomerAuthQuerySchema.parse(req.query ?? {});
+      const data = await listPlatformApsWalletCustomerAuths({
+        businessId: q.businessId,
+        gatewayCode: q.gatewayCode,
+      });
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.delete(
+  "/api/platform/aps-wallet/customer-auths/:authId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.PAYMENT_GATEWAYS, "edit"),
+  async (req, res, next) => {
+    try {
+      await clearPlatformApsWalletCustomerAuth(req.params.authId as string);
+      res.status(204).send();
     } catch (e) {
       next(e);
     }
@@ -4736,6 +4787,39 @@ app.delete(
   },
 );
 
+app.get(
+  "/api/businesses/:businessId/aps-wallet/customer-auths",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireEntitlement("merchant.api"),
+  async (req, res, next) => {
+    try {
+      const data = await listBusinessApsWalletCustomerAuths(req.params.businessId as string);
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.delete(
+  "/api/businesses/:businessId/aps-wallet/customer-auths/:authId",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireEntitlement("merchant.api"),
+  async (req, res, next) => {
+    try {
+      await clearBusinessApsWalletCustomerAuth(
+        req.params.businessId as string,
+        req.params.authId as string,
+      );
+      res.status(204).send();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 app.post(
   "/api/businesses/:businessId/invoices/:invoiceId/checkout",
   authenticateToken,
@@ -4927,6 +5011,43 @@ app.post("/api/public/guest/invoice/:guestToken/payments/wallet", async (request
     next(error);
   }
 });
+
+app.post(
+  "/api/public/guest/invoice/:guestToken/payments/aps-wallet/authorize",
+  async (request, response, next) => {
+    try {
+      const body = apsWalletAuthorizeBodySchema.parse(request.body ?? {});
+      const data = await authorizeGuestSalesInvoiceApsWalletCheckout({
+        guestToken: request.params.guestToken as string,
+        gatewayCode: body.gatewayCode,
+        payerMobile: body.payerMobile,
+        req: request,
+      });
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/public/guest/invoice/:guestToken/payments/aps-wallet/complete",
+  async (request, response, next) => {
+    try {
+      const body = apsWalletCompleteBodySchema.parse(request.body ?? {});
+      const data = await completeGuestSalesInvoiceApsWalletCheckout({
+        guestToken: request.params.guestToken as string,
+        gatewayCode: body.gatewayCode,
+        otp: body.otp,
+        authState: body.authState,
+        req: request,
+      });
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 app.get("/api/public/guest/subscription-invoice/:guestToken", async (request, response, next) => {
   try {
@@ -5307,6 +5428,84 @@ app.post(
           checkoutAdapter: result.checkoutAdapter,
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/orders/:orderId/payments/aps-wallet/authorize",
+  authenticateToken,
+  requireAnyEntitlement(["pos.access", "orders.manage"]),
+  async (request, response, next) => {
+    try {
+      const { businessId, orderId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (
+        !membership &&
+        !request.user?.isPlatformOwner &&
+        request.user?.role !== "PLATFORM_ADMIN"
+      ) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const body = apsWalletAuthorizeBodySchema.parse(request.body ?? {});
+      const data = await authorizeOrderApsWalletCheckout({
+        orderId: orderId as string,
+        businessId: businessId as string,
+        gatewayCode: body.gatewayCode,
+        payerMobile: body.payerMobile,
+        recordedByUserId: request.user!.id,
+        req: request,
+      });
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/orders/:orderId/payments/aps-wallet/complete",
+  authenticateToken,
+  requireAnyEntitlement(["pos.access", "orders.manage"]),
+  async (request, response, next) => {
+    try {
+      const { businessId, orderId } = request.params;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (
+        !membership &&
+        !request.user?.isPlatformOwner &&
+        request.user?.role !== "PLATFORM_ADMIN"
+      ) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const body = apsWalletCompleteBodySchema.parse(request.body ?? {});
+      const data = await completeOrderApsWalletCheckout({
+        orderId: orderId as string,
+        businessId: businessId as string,
+        gatewayCode: body.gatewayCode,
+        otp: body.otp,
+        authState: body.authState,
+        req: request,
+      });
+      response.json({ data });
     } catch (error) {
       next(error);
     }

@@ -6,10 +6,13 @@ import { PageTransition } from '../../components/ui/PageTransition'
 import { useAuth } from '../../features/auth/AuthContext'
 import {
   ApiError,
+  clearPlatformApsWalletCustomerAuth,
+  fetchPlatformApsWalletCustomerAuths,
   createPlatformPaymentGateway,
   deletePlatformPaymentGateway,
   fetchPlatformPaymentGateways,
   patchPlatformPaymentGateway,
+  type ApsWalletCustomerAuthRow,
   type PlatformPaymentGatewayRow,
 } from '../../services/subscriptionApi'
 import { isPlatformOperator } from '../../utils/platformOperator'
@@ -42,6 +45,9 @@ export function PlatformPaymentGatewaysPage() {
   const [savingAdapterId, setSavingAdapterId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [envOpen, setEnvOpen] = useState(false)
+  const [apsAuthRows, setApsAuthRows] = useState<ApsWalletCustomerAuthRow[]>([])
+  const [apsAuthLoading, setApsAuthLoading] = useState(false)
+  const [clearingAuthId, setClearingAuthId] = useState<string | null>(null)
 
   const [draftAdapterById, setDraftAdapterById] = useState<Record<string, string>>({})
 
@@ -85,9 +91,29 @@ export function PlatformPaymentGatewaysPage() {
     }
   }, [user?.isPlatformOwner, user?.isPlatformAdmin])
 
+  const loadApsCustomerAuths = useCallback(async () => {
+    if (!isPlatformOperator(user)) {
+      return
+    }
+    setApsAuthLoading(true)
+    try {
+      const data = await fetchPlatformApsWalletCustomerAuths()
+      setApsAuthRows(data)
+    } catch (e) {
+      setApsAuthRows([])
+      setError(e instanceof ApiError ? e.message : 'Could not load APS customer authorizations.')
+    } finally {
+      setApsAuthLoading(false)
+    }
+  }, [user?.isPlatformOwner, user?.isPlatformAdmin])
+
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    void loadApsCustomerAuths()
+  }, [loadApsCustomerAuths])
 
   const toggle = async (row: PlatformPaymentGatewayRow) => {
     if (!canEdit) {
@@ -189,6 +215,28 @@ export function PlatformPaymentGatewaysPage() {
     }
   }
 
+  const clearApsAuth = async (row: ApsWalletCustomerAuthRow) => {
+    if (!canEdit) {
+      return
+    }
+    const ok = window.confirm(
+      `Clear saved APS authorization for ${row.customerMobileNormalized} (${row.businessName ?? row.businessId})?`,
+    )
+    if (!ok) {
+      return
+    }
+    setClearingAuthId(row.id)
+    setError(null)
+    try {
+      await clearPlatformApsWalletCustomerAuth(row.id)
+      await loadApsCustomerAuths()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not clear APS customer authorization.')
+    } finally {
+      setClearingAuthId(null)
+    }
+  }
+
   if (!isPlatformOperator(user)) {
     return null
   }
@@ -228,12 +276,14 @@ export function PlatformPaymentGatewaysPage() {
                 optionally{' '}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">YONNA_FOREX_WEBHOOK_SECRET</code>{' '}
                 for <code className="rounded bg-white px-1 py-0.5 text-xs">/api/webhooks/yonna-forex</code>. The APS
-                Wallet adapter expects{' '}
-                <code className="rounded bg-white px-1 py-0.5 text-xs">APS_WALLET_BASE_URL</code>,{' '}
-                <code className="rounded bg-white px-1 py-0.5 text-xs">APS_WALLET_MOBILE</code>,{' '}
-                <code className="rounded bg-white px-1 py-0.5 text-xs">APS_WALLET_PASSWORD</code>, and optionally{' '}
-                <code className="rounded bg-white px-1 py-0.5 text-xs">APS_WALLET_ACCESS_CHANNEL</code> (merchant login
-                for API Bearer tokens; customers confirm via SMS OTP in the billing UI).
+                Wallet adapter uses server env{' '}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">APS_WALLET_BASE_URL</code> and optionally{' '}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">APS_WALLET_ACCESS_CHANNEL</code> for all
+                merchants. Per-business merchant login (username + password) is stored encrypted under each
+                organization&apos;s Merchant API. Platform subscription billing APS checkout additionally uses env{' '}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">APS_WALLET_MOBILE</code> and{' '}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">APS_WALLET_PASSWORD</code> for the platform
+                merchant account.
               </p>
             </div>
           ) : null}
@@ -447,6 +497,64 @@ export function PlatformPaymentGatewaysPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </PageCard>
+
+      <PageCard className="overflow-hidden p-0">
+        <div className="border-b border-slate-100 px-6 py-4">
+          <h2 className="text-sm font-semibold text-slate-900">APS customer authorizations</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Platform-wide view: all businesses and gateways. Clear rows when customer auth must be reset.
+          </p>
+        </div>
+        {apsAuthLoading ? (
+          <p className="p-6 text-sm text-slate-500">Loading APS customer authorizations…</p>
+        ) : apsAuthRows.length === 0 ? (
+          <p className="p-6 text-sm text-slate-500">No saved APS customer authorizations.</p>
+        ) : (
+          <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+            <table className="min-w-[860px] w-full border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-4 py-3 font-semibold">Business</th>
+                  <th className="px-4 py-3 font-semibold">Gateway</th>
+                  <th className="px-4 py-3 font-semibold">Mobile</th>
+                  <th className="px-4 py-3 font-semibold">Updated</th>
+                  <th className="px-4 py-3 font-semibold text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {apsAuthRows.map((r) => (
+                  <tr key={r.id} className="border-b border-slate-100 last:border-0">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-slate-900">{r.businessName ?? 'Unknown business'}</p>
+                      <p className="font-mono text-xs text-slate-500">{r.businessId}</p>
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {r.gatewayName} <span className="text-xs text-slate-500">({r.gatewayCode})</span>
+                    </td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{r.customerMobileNormalized}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
+                      {new Date(r.updatedAt).toLocaleString(undefined, {
+                        dateStyle: 'short',
+                        timeStyle: 'short',
+                      })}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        disabled={!canEdit || clearingAuthId === r.id}
+                        onClick={() => void clearApsAuth(r)}
+                        className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+                      >
+                        {clearingAuthId === r.id ? 'Clearing…' : 'Clear'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </PageCard>

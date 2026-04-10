@@ -18,6 +18,7 @@ import { waveApiBaseUrl, yonnaForexApiBaseUrl } from "../config/payment-provider
 import { WavePaymentService } from "./wave-payment.service.js";
 import { YonnaForexPaymentService } from "./yonna-forex-payment.service.js";
 import {
+  CHECKOUT_ADAPTER_APS_WALLET,
   CHECKOUT_ADAPTER_WAVE_GAMBIA,
   CHECKOUT_ADAPTER_YONNA_WALLET,
   getPaymentGatewayByCode,
@@ -51,7 +52,7 @@ function parsePublicCodeSequence(code: string | null | undefined): number {
   return match ? Number(match[1]) : 0;
 }
 
-async function nextPaymentPublicCode(
+export async function nextPaymentPublicCode(
   tx: Pick<Prisma.TransactionClient, "payment">,
   businessId: string,
   businessName: string,
@@ -133,7 +134,7 @@ export type OrderCheckoutWalletRow = {
   code: string;
   name: string;
   checkoutAdapter: string;
-  /** Yonna: encrypted credentials include a default payer phone — Orders UI can skip manual entry. */
+  /** Kept for API compatibility; always false (Yonna requires payer phone per checkout). */
   hasStoredPayerPhone: boolean;
 };
 
@@ -143,15 +144,12 @@ export async function listOrderCheckoutWallets(businessId: string): Promise<Orde
     .filter((r) => r.checkoutConfigured)
     .map((r) => {
       const adapter = (r.checkoutAdapter || "").trim();
-      const hasStoredPayerPhone =
-        adapter === CHECKOUT_ADAPTER_YONNA_WALLET &&
-        Boolean(r.fieldStatus?.defaultPayerPhone);
       return {
         gatewayId: r.gatewayId,
         code: r.code,
         name: r.name,
         checkoutAdapter: adapter,
-        hasStoredPayerPhone,
+        hasStoredPayerPhone: false,
       };
     });
 }
@@ -206,6 +204,12 @@ export async function startGatewayWalletCheckout(input: {
   }
 
   const adapter = gateway.checkoutAdapter?.trim() || "";
+  if (adapter === CHECKOUT_ADAPTER_APS_WALLET) {
+    throw new HttpError(
+      400,
+      "APS Wallet uses SMS OTP checkout. Use the order APS Wallet authorize and complete endpoints instead of this single-step call.",
+    );
+  }
   if (adapter !== CHECKOUT_ADAPTER_WAVE_GAMBIA && adapter !== CHECKOUT_ADAPTER_YONNA_WALLET) {
     throw new HttpError(400, "Checkout is not supported for this gateway.");
   }
@@ -303,13 +307,9 @@ export async function startGatewayWalletCheckout(input: {
     throw new HttpError(503, "Wallet credentials could not be loaded for this business.");
   }
 
-  const payerPhone =
-    input.payerPhone?.trim() || secrets.defaultPayerPhone?.trim() || "";
+  const payerPhone = input.payerPhone?.trim() || "";
   if (!payerPhone) {
-    throw new HttpError(
-      400,
-      "Wallet phone is required. Save a default number under Merchant API for Yonna, or send payerPhone with the request.",
-    );
+    throw new HttpError(400, "Wallet phone is required for Yonna checkout.");
   }
 
   const yonna = new YonnaForexPaymentService({
@@ -439,6 +439,12 @@ export async function startGatewayWalletCheckoutForInvoice(input: {
   }
 
   const adapter = gateway.checkoutAdapter?.trim() || "";
+  if (adapter === CHECKOUT_ADAPTER_APS_WALLET) {
+    throw new HttpError(
+      400,
+      "APS Wallet uses SMS OTP checkout. Use the invoice APS Wallet authorize and complete endpoints instead of this single-step call.",
+    );
+  }
   if (adapter !== CHECKOUT_ADAPTER_WAVE_GAMBIA && adapter !== CHECKOUT_ADAPTER_YONNA_WALLET) {
     throw new HttpError(400, "Checkout is not supported for this gateway.");
   }
@@ -510,13 +516,9 @@ export async function startGatewayWalletCheckoutForInvoice(input: {
     throw new HttpError(503, "Wallet credentials could not be loaded for this business.");
   }
 
-  const payerPhone =
-    input.payerPhone?.trim() || secrets.defaultPayerPhone?.trim() || "";
+  const payerPhone = input.payerPhone?.trim() || "";
   if (!payerPhone) {
-    throw new HttpError(
-      400,
-      "Wallet phone is required. Save a default number under Merchant API for Yonna, or send payerPhone with the request.",
-    );
+    throw new HttpError(400, "Wallet phone is required for Yonna checkout.");
   }
 
   const yonna = new YonnaForexPaymentService({

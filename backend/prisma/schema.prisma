@@ -140,6 +140,8 @@ enum PaymentProvider {
   SIMULATOR
   WAVE_GAMBIA
   YONNA_WALLET
+  /// Platform APS Money Wallet (merchant env + OTP on customer phone).
+  APS_WALLET
   /// Counter / POS cash recorded by staff (not a wallet simulator).
   UPFRONT_PAY
 }
@@ -296,6 +298,7 @@ model Business {
   journalEntries                JournalEntry[]
   salesLedgerEntries            SalesLedgerEntry[]
   gatewayCredentials            BusinessGatewayCredential[]
+  apsWalletCustomerAuths        BusinessApsWalletCustomerAuth[]
   salesQuotations               SalesQuotation[]
   salesInvoices                 SalesInvoice[]
   bills                         Bill[]
@@ -325,6 +328,28 @@ model PaymentGateway {
   updatedAt       DateTime                    @updatedAt
   methods         BusinessPaymentMethod[]
   credentials     BusinessGatewayCredential[]
+  apsWalletCustomerAuths BusinessApsWalletCustomerAuth[]
+}
+
+/**
+ * APS Wallet: per-business encrypted authorized_token for a customer mobile after OTP confirm.
+ * Used for subsequent process-payment calls without repeating authorize+OTP when still valid.
+ */
+model BusinessApsWalletCustomerAuth {
+  id                       String         @id @default(cuid())
+  businessId               String
+  gatewayId                String
+  customerMobileNormalized String
+  iv                       String
+  ciphertext               String         @db.Text
+  keyVersion               Int            @default(1)
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+  business                 Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  gateway                  PaymentGateway @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, gatewayId, customerMobileNormalized])
+  @@index([businessId])
 }
 
 model BusinessPaymentMethod {

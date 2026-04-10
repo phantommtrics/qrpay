@@ -1,6 +1,10 @@
 import { Prisma } from "@prisma/client";
 
-import type { WaveGatewaySecrets, YonnaGatewaySecrets } from "./business-gateway-credential.service.js";
+import type {
+  ApsGatewaySecrets,
+  WaveGatewaySecrets,
+  YonnaGatewaySecrets,
+} from "./business-gateway-credential.service.js";
 
 /**
  * Rate from encrypted gateway credentials (fraction 0–1). Missing or invalid → 0 (no fee journal).
@@ -25,7 +29,7 @@ function coerceWalletFeeRateFraction(raw: unknown): number | null {
 }
 
 export function customerWalletFeeRateFromGatewaySecrets(
-  secrets: WaveGatewaySecrets | YonnaGatewaySecrets | null | undefined,
+  secrets: WaveGatewaySecrets | YonnaGatewaySecrets | ApsGatewaySecrets | null | undefined,
 ): Prisma.Decimal {
   if (!secrets) {
     return new Prisma.Decimal(0);

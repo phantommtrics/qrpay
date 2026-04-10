@@ -24,7 +24,9 @@ import { ModalOverlay } from '../components/ui/ModalOverlay'
 import { useAuth } from '../features/auth/AuthContext'
 import { useCart } from '../features/cart/useCart'
 import {
+  authorizeOrderApsWalletCheckout,
   cancelSaleOrder,
+  completeOrderApsWalletCheckout,
   confirmCashPayment,
   createSaleOrder,
   fetchOrderCheckoutWallets,
@@ -72,6 +74,9 @@ export function POSPage() {
   const [checkoutWallets, setCheckoutWallets] = useState<OrderCheckoutWalletRow[]>([])
   const [selectedGatewayCode, setSelectedGatewayCode] = useState<string | null>(null)
   const [yonnaPhone, setYonnaPhone] = useState('')
+  const [apsPayerPhone, setApsPayerPhone] = useState('')
+  const [apsAuthState, setApsAuthState] = useState<string | null>(null)
+  const [apsOtp, setApsOtp] = useState('')
   const [walletLoading, setWalletLoading] = useState(false)
   const [paymentBusy, setPaymentBusy] = useState(false)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
@@ -227,6 +232,9 @@ export function POSPage() {
     setCheckoutWallets([])
     setSelectedGatewayCode(null)
     setYonnaPhone('')
+    setApsPayerPhone('')
+    setApsAuthState(null)
+    setApsOtp('')
     setCheckoutError(null)
     setWalletLoading(false)
     setPaymentBusy(false)
@@ -271,6 +279,9 @@ export function POSPage() {
     setCheckoutWallets([])
     setSelectedGatewayCode(null)
     setYonnaPhone('')
+    setApsPayerPhone('')
+    setApsAuthState(null)
+    setApsOtp('')
     checkoutWalletsCacheRef.current = null
     setCheckoutOrderId(null)
     setPaymentModalOpen(true)
@@ -362,7 +373,10 @@ export function POSPage() {
 
   useEffect(() => {
     const hasWalletUi =
-      Boolean(qrPayload) || Boolean(walletPaymentHtml) || Boolean(walletLaunchUrl)
+      Boolean(qrPayload) ||
+      Boolean(walletPaymentHtml) ||
+      Boolean(walletLaunchUrl) ||
+      (walletCheckoutAdapter === 'aps_wallet' && Boolean(apsAuthState))
     if (
       !paymentModalOpen ||
       !checkoutOrderId ||
@@ -404,6 +418,8 @@ export function POSPage() {
     qrPayload,
     walletPaymentHtml,
     walletLaunchUrl,
+    walletCheckoutAdapter,
+    apsAuthState,
     clearCart,
     refreshBusinessProducts,
   ])
@@ -483,10 +499,11 @@ export function POSPage() {
     if (wallets.length === 1) {
       const only = wallets[0]!
       setSelectedGatewayCode(only.code)
-      if (only.checkoutAdapter === 'yonna_wallet' && !only.hasStoredPayerPhone) {
+      if (only.checkoutAdapter === 'yonna_wallet') {
         setYonnaPhone((p) => (p.trim() === '' ? '+220' : p))
-      } else if (only.checkoutAdapter === 'yonna_wallet' && only.hasStoredPayerPhone) {
-        setYonnaPhone('')
+      }
+      if (only.checkoutAdapter === 'aps_wallet') {
+        setApsPayerPhone('')
       }
     } else {
       setSelectedGatewayCode(null)
@@ -497,9 +514,54 @@ export function POSPage() {
   const handleConfirmWalletSelection = useCallback(async () => {
     if (!currentOrganization || !checkoutOrderId || !selectedGatewayCode) return
     const w = checkoutWallets.find((x) => x.code === selectedGatewayCode)
-    const yonnaNeedsManualPhone =
-      w?.checkoutAdapter === 'yonna_wallet' && !w.hasStoredPayerPhone
-    if (yonnaNeedsManualPhone) {
+    if (w?.checkoutAdapter === 'aps_wallet') {
+      const digits = apsPayerPhone.replace(/\D/g, '')
+      if (digits.length < 6) {
+        setCheckoutError(
+          'Enter a valid APS mobile number (at least 6 digits; local number only, no +220).',
+        )
+        return
+      }
+      setCheckoutError(null)
+      setPaymentPhase('wallet')
+      setQrPayload(null)
+      setWalletLaunchUrl(null)
+      setWalletPaymentHtml(null)
+      setWalletCheckoutAdapter('aps_wallet')
+      setApsAuthState(null)
+      setApsOtp('')
+      setPaymentBusy(true)
+      try {
+        const { authState, requiresOtp } = await authorizeOrderApsWalletCheckout(
+          currentOrganization.id,
+          checkoutOrderId,
+          { gatewayCode: selectedGatewayCode, payerMobile: apsPayerPhone.trim() },
+        )
+        if (!requiresOtp) {
+          await completeOrderApsWalletCheckout(currentOrganization.id, checkoutOrderId, {
+            gatewayCode: selectedGatewayCode,
+            authState,
+          })
+          const order = await fetchSaleOrder(currentOrganization.id, checkoutOrderId)
+          if (order.status === 'paid') {
+            setReceiptLabel(order.receipt ? `Receipt ${order.receipt.publicCode}` : 'Paid')
+            setPaymentStatus('success')
+            clearCart()
+            void refreshBusinessProducts()
+          }
+        } else {
+          setApsAuthState(authState)
+        }
+      } catch (e) {
+        setPaymentPhase('pick_wallet')
+        setWalletCheckoutAdapter(null)
+        setCheckoutError(e instanceof ApiError ? e.message : 'Could not send OTP.')
+      } finally {
+        setPaymentBusy(false)
+      }
+      return
+    }
+    if (w?.checkoutAdapter === 'yonna_wallet') {
       const digits = yonnaPhone.replace(/\D/g, '')
       if (digits.length < 7) {
         setCheckoutError(
@@ -518,7 +580,8 @@ export function POSPage() {
     try {
       const r = await startWalletCheckout(currentOrganization.id, checkoutOrderId, {
         gatewayCode: selectedGatewayCode,
-        payerPhone: yonnaNeedsManualPhone ? yonnaPhone.trim() : undefined,
+        payerPhone:
+          w?.checkoutAdapter === 'yonna_wallet' ? yonnaPhone.trim() : undefined,
       })
       applyWalletStartResult(r)
     } catch (e) {
@@ -531,11 +594,50 @@ export function POSPage() {
     }
   }, [
     applyWalletStartResult,
+    clearCart,
     checkoutOrderId,
     checkoutWallets,
     currentOrganization,
+    refreshBusinessProducts,
     selectedGatewayCode,
     yonnaPhone,
+    apsPayerPhone,
+  ])
+
+  const handleCompleteApsWallet = useCallback(async () => {
+    if (!currentOrganization || !checkoutOrderId || !selectedGatewayCode || !apsAuthState) return
+    if (apsOtp.trim().length < 4) {
+      setCheckoutError('Enter the SMS verification code.')
+      return
+    }
+    setCheckoutError(null)
+    setPaymentBusy(true)
+    try {
+      await completeOrderApsWalletCheckout(currentOrganization.id, checkoutOrderId, {
+        gatewayCode: selectedGatewayCode,
+        otp: apsOtp.trim(),
+        authState: apsAuthState,
+      })
+      const order = await fetchSaleOrder(currentOrganization.id, checkoutOrderId)
+      if (order.status === 'paid') {
+        setReceiptLabel(order.receipt ? `Receipt ${order.receipt.publicCode}` : 'Paid')
+        setPaymentStatus('success')
+        clearCart()
+        void refreshBusinessProducts()
+      }
+    } catch (e) {
+      setCheckoutError(e instanceof ApiError ? e.message : 'APS Wallet payment failed.')
+    } finally {
+      setPaymentBusy(false)
+    }
+  }, [
+    apsAuthState,
+    apsOtp,
+    checkoutOrderId,
+    clearCart,
+    currentOrganization,
+    refreshBusinessProducts,
+    selectedGatewayCode,
   ])
 
   const handleCashPay = async () => {
@@ -934,18 +1036,19 @@ export function POSPage() {
                                     disabled={paymentBusy}
                                     onClick={() => {
                                       setSelectedGatewayCode(w.code)
+                                      setApsAuthState(null)
+                                      setApsOtp('')
                                       if (w.checkoutAdapter === 'yonna_wallet') {
-                                        if (w.hasStoredPayerPhone) {
-                                          setYonnaPhone('')
-                                        } else {
-                                          setYonnaPhone((prev) => {
-                                            const t = prev.trim()
-                                            if (t === '' || t === '+') return '+220'
-                                            return prev
-                                          })
-                                        }
+                                        setYonnaPhone((prev) => {
+                                          const t = prev.trim()
+                                          if (t === '' || t === '+') return '+220'
+                                          return prev
+                                        })
                                       } else {
                                         setYonnaPhone('')
+                                      }
+                                      if (w.checkoutAdapter === 'aps_wallet') {
+                                        setApsPayerPhone('')
                                       }
                                       setCheckoutError(null)
                                     }}
@@ -965,13 +1068,6 @@ export function POSPage() {
                           {(() => {
                             const sel = checkoutWallets.find((x) => x.code === selectedGatewayCode)
                             if (!sel || sel.checkoutAdapter !== 'yonna_wallet') return null
-                            if (sel.hasStoredPayerPhone) {
-                              return (
-                                <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                                  Pay phone is saved under Merchant API — no need to type it here.
-                                </p>
-                              )
-                            }
                             return (
                               <div>
                                 <label className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
@@ -987,6 +1083,27 @@ export function POSPage() {
                               </div>
                             )
                           })()}
+                          {(() => {
+                            const sel = checkoutWallets.find((x) => x.code === selectedGatewayCode)
+                            if (!sel || sel.checkoutAdapter !== 'aps_wallet') return null
+                            return (
+                              <div>
+                                <label className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                                  APS mobile number
+                                </label>
+                                <input
+                                  type="tel"
+                                  value={apsPayerPhone}
+                                  onChange={(e) => setApsPayerPhone(e.target.value)}
+                                  placeholder="Local number (do not use +220)"
+                                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                />
+                                <p className="mt-1 text-xs text-slate-500">
+                                  We send a one-time code to this number to confirm payment.
+                                </p>
+                              </div>
+                            )
+                          })()}
                           {selectedGatewayCode ? (
                             <button
                               type="button"
@@ -994,7 +1111,12 @@ export function POSPage() {
                               onClick={() => void handleConfirmWalletSelection()}
                               className="w-full rounded-xl bg-teal-600 py-2.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
                             >
-                              {paymentBusy ? 'Starting…' : 'Get QR code'}
+                              {paymentBusy
+                                ? 'Starting…'
+                                : checkoutWallets.find((x) => x.code === selectedGatewayCode)
+                                      ?.checkoutAdapter === 'aps_wallet'
+                                  ? 'Send OTP'
+                                  : 'Get QR code'}
                             </button>
                           ) : (
                             <p className="rounded-lg bg-slate-50 px-3 py-2 text-center text-xs text-slate-600">
@@ -1008,6 +1130,9 @@ export function POSPage() {
                               setCheckoutWallets([])
                               setSelectedGatewayCode(null)
                               setYonnaPhone('')
+                              setApsPayerPhone('')
+                              setApsAuthState(null)
+                              setApsOtp('')
                               setCheckoutError(null)
                             }}
                             className="w-full text-sm font-medium text-teal-600 hover:underline"
@@ -1017,6 +1142,38 @@ export function POSPage() {
                         </div>
                       ) : (
                         <div className="space-y-4 text-center">
+                          {walletCheckoutAdapter === 'aps_wallet' ? (
+                            <div className="space-y-3 text-left">
+                              <p className="text-center text-sm font-semibold text-slate-800">
+                                APS Wallet — enter SMS code
+                              </p>
+                              <p className="text-center text-xs text-slate-500">
+                                The customer receives a code on the number you entered. Enter it below to
+                                charge the order.
+                              </p>
+                              <label className="block text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                                Verification code
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
+                                value={apsOtp}
+                                onChange={(e) => setApsOtp(e.target.value)}
+                                placeholder="SMS code"
+                                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                              />
+                              <button
+                                type="button"
+                                disabled={paymentBusy || apsOtp.trim().length < 4}
+                                onClick={() => void handleCompleteApsWallet()}
+                                className="w-full rounded-xl bg-teal-600 py-2.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+                              >
+                                {paymentBusy ? 'Confirming…' : 'Confirm payment'}
+                              </button>
+                            </div>
+                          ) : (
+                            <>
                           <p className="text-sm font-semibold text-slate-800">
                             Customer pays with their wallet
                           </p>
@@ -1072,6 +1229,8 @@ export function POSPage() {
                               When the customer completes payment, this screen will confirm automatically.
                             </p>
                           )}
+                            </>
+                          )}
                           <button
                             type="button"
                             onClick={() => {
@@ -1083,6 +1242,9 @@ export function POSPage() {
                               setCheckoutWallets([])
                               setSelectedGatewayCode(null)
                               setYonnaPhone('')
+                              setApsPayerPhone('')
+                              setApsAuthState(null)
+                              setApsOtp('')
                               setCheckoutError(null)
                             }}
                             className="w-full text-sm font-medium text-teal-600 hover:underline"

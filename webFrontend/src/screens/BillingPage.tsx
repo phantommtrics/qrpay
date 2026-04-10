@@ -374,7 +374,7 @@ export function BillingPage() {
       setError(null)
       try {
         if (!apsAuthState) {
-          const { authState } = await authorizeSubscriptionInvoiceApsCheckout(
+          const { authState, requiresOtp } = await authorizeSubscriptionInvoiceApsCheckout(
             businessId,
             payInvoicePicker.invoiceId,
             {
@@ -382,7 +382,20 @@ export function BillingPage() {
               payerMobile: yonnaPayerPhone.trim(),
             },
           )
-          setApsAuthState(authState)
+          if (!requiresOtp) {
+            await completeSubscriptionInvoiceApsCheckout(businessId, payInvoicePicker.invoiceId, {
+              gatewayCode: method.gateway.code,
+              authState,
+            })
+            setPayInvoicePicker(null)
+            setApsAuthState(null)
+            setApsOtp('')
+            setCheckoutPaidBanner(true)
+            await load({ silent: true })
+            await refreshBusinessSubscriptionSnapshot(businessId)
+          } else {
+            setApsAuthState(authState)
+          }
           return
         }
         await completeSubscriptionInvoiceApsCheckout(businessId, payInvoicePicker.invoiceId, {

@@ -86,7 +86,7 @@ export function GuestSubscriptionInvoicePage() {
     if (!guestToken || !selectedGatewayCode) return
     const sel = wallets.find((w) => w.code === selectedGatewayCode)
     if (!sel) return
-    if (sel.checkoutAdapter === 'yonna_wallet' && !payerPhone.trim() && !sel.hasStoredPayerPhone) {
+    if (sel.checkoutAdapter === 'yonna_wallet' && !payerPhone.trim()) {
       setError('Enter the wallet phone number to pay.')
       return
     }
@@ -103,12 +103,24 @@ export function GuestSubscriptionInvoicePage() {
     try {
       if (sel.checkoutAdapter === 'aps_wallet') {
         if (!apsAuthState) {
-          const { authState } = await authorizeGuestSubscriptionInvoiceApsCheckout(guestToken, {
+          const { authState, requiresOtp } = await authorizeGuestSubscriptionInvoiceApsCheckout(guestToken, {
             gatewayCode: selectedGatewayCode,
             payerMobile: payerPhone.trim(),
           })
-          setApsAuthState(authState)
           setCheckoutAdapter('aps_wallet')
+          if (!requiresOtp) {
+            await completeGuestSubscriptionInvoiceApsCheckout(guestToken, {
+              gatewayCode: selectedGatewayCode,
+              authState,
+            })
+            setPayOpen(false)
+            setApsAuthState(null)
+            setApsOtp('')
+            setPayerPhone('')
+            await load()
+          } else {
+            setApsAuthState(authState)
+          }
           return
         }
         await completeGuestSubscriptionInvoiceApsCheckout(guestToken, {
@@ -127,7 +139,7 @@ export function GuestSubscriptionInvoicePage() {
       const body: { gatewayCode: string; payerPhone?: string } = {
         gatewayCode: selectedGatewayCode,
       }
-      if (sel.checkoutAdapter === 'yonna_wallet' && payerPhone.trim()) {
+      if (sel.checkoutAdapter === 'yonna_wallet') {
         body.payerPhone = payerPhone.trim()
       }
       const r = await startGuestSubscriptionInvoiceWalletCheckout(guestToken, body)
@@ -251,8 +263,7 @@ export function GuestSubscriptionInvoicePage() {
                   ))}
                 </div>
                 {selectedGatewayCode &&
-                wallets.find((x) => x.code === selectedGatewayCode)?.checkoutAdapter === 'yonna_wallet' &&
-                !wallets.find((x) => x.code === selectedGatewayCode)?.hasStoredPayerPhone ? (
+                wallets.find((x) => x.code === selectedGatewayCode)?.checkoutAdapter === 'yonna_wallet' ? (
                   <label className="block text-sm">
                     <span className="text-slate-600">Wallet phone</span>
                     <input
