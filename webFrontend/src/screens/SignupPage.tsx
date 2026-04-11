@@ -126,7 +126,7 @@ export function SignupPage() {
           </div>
 
           <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-            Platform owner demo login:
+            EasyPay demo login:
             <div className="mt-2 font-mono text-teal-300">owner@qrpay.com / demo123</div>
           </div>
         </div>

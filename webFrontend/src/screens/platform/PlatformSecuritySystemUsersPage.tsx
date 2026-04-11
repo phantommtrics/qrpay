@@ -160,7 +160,7 @@ export function PlatformSecuritySystemUsersPage() {
 
         {!canCreate && user?.isPlatformAdmin ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            You can update existing users, but only a platform owner (or an admin with create access)
+            You can update existing users, but only EasyPay (or an admin with create access)
             can invite new platform staff.
           </div>
         ) : null}

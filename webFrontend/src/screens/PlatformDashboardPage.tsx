@@ -56,7 +56,7 @@ export function PlatformDashboardPage() {
   const [pnlLoading, setPnlLoading] = useState(false)
 
   const canPnl = canAccess('platform.accounting.reports.pnl')
-  const roleLabel = user?.isPlatformOwner ? 'Platform owner' : 'Platform admin'
+  const roleLabel = user?.isPlatformOwner ? 'EasyPay' : 'EasyPay admin'
 
   const load = useCallback(async () => {
     setLoading(true)

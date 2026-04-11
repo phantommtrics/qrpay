@@ -225,7 +225,7 @@ export function PlatformSecurityMoveUsersPage() {
 
         {!canEdit && user?.isPlatformAdmin ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            You can view this screen, but only a platform owner (or an admin with edit access on system
+            You can view this screen, but only EasyPay (or an admin with edit access on system
             users) can move users.
           </div>
         ) : null}

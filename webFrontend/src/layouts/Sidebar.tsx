@@ -878,7 +878,7 @@ export function Sidebar({
               <p className="truncate text-sm font-medium text-white">{user.name}</p>
               <p className="text-xs text-slate-400">
                 {user.isPlatformOwner
-                  ? 'Platform owner'
+                  ? 'EasyPay'
                   : user.isPlatformAdmin
                     ? 'Platform admin'
                     : currentOrganization

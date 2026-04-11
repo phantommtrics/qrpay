@@ -226,7 +226,7 @@ export function buildPlatformAdminTemporaryPasswordEmailContent(
     <p>Your temporary password is:</p>
     <p><strong>${input.temporaryPassword}</strong></p>
     <p>Visit <a href="${env.PLATFORM_URL}">${env.PLATFORM_URL}</a> to sign in. You will be asked to create a new password after you log in.</p>
-    <p>If you were not expecting this, contact the platform owner immediately.</p>
+    <p>If you were not expecting this, contact EasyPay immediately.</p>
   </div>
   `;
   const textBody = [
