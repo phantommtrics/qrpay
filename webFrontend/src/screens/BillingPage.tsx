@@ -39,6 +39,7 @@ import {
   type BackendSubscription,
   type BusinessPaymentGatewayRow,
   type BusinessPaymentMethodRow,
+  type CorporateBillingSnapshot,
 } from '../services/subscriptionApi'
 import type { PlanId, SubscriptionBillingInterval } from '../types'
 
@@ -58,10 +59,59 @@ function planIdFromCode(code: BackendPlanCode): PlanId {
       return 'pro'
     case 'BUSINESS_PRO':
       return 'business_pro'
+    case 'CORPORATE':
+      return 'corporate'
   }
 }
 
 const PLAN_OPTIONS: BackendPlanCode[] = ['BASIC', 'PRO', 'BUSINESS_PRO']
+
+const CORPORATE_BILLING_INTERVALS: SubscriptionBillingInterval[] = [
+  'MONTHLY',
+  'QUARTERLY',
+  'HALF_YEARLY',
+  'YEARLY',
+  'TWO_YEARS',
+  'CONTRACT_INFINITE',
+]
+
+function formatBillingIntervalLabel(iv: SubscriptionBillingInterval): string {
+  const map: Record<SubscriptionBillingInterval, string> = {
+    MONTHLY: 'Monthly',
+    QUARTERLY: 'Quarterly',
+    HALF_YEARLY: 'Half-yearly',
+    YEARLY: 'Yearly',
+    TWO_YEARS: 'Two years',
+    CONTRACT_INFINITE: 'Signed contract (perpetual)',
+  }
+  return map[iv] ?? iv
+}
+
+function intervalPriceField(
+  iv: SubscriptionBillingInterval,
+): keyof NonNullable<CorporateBillingSnapshot['prices']> {
+  switch (iv) {
+    case 'MONTHLY':
+      return 'monthly'
+    case 'QUARTERLY':
+      return 'quarterly'
+    case 'HALF_YEARLY':
+      return 'halfYearly'
+    case 'YEARLY':
+      return 'yearly'
+    case 'TWO_YEARS':
+      return 'twoYears'
+    case 'CONTRACT_INFINITE':
+      return 'contract'
+    default:
+      return 'monthly'
+  }
+}
+
+function parseMoneyToNumber(formatted: string): number | null {
+  const n = Number(String(formatted).replace(/[^\d.-]+/g, ''))
+  return Number.isFinite(n) ? n : null
+}
 
 const DEFAULT_YONNA_PHONE_PREFIX = '+220'
 
@@ -122,6 +172,7 @@ export function BillingPage() {
   const [devSubscriptionInvoicePayAllowed, setDevSubscriptionInvoicePayAllowed] = useState(false)
   const [apsAuthState, setApsAuthState] = useState<string | null>(null)
   const [apsOtp, setApsOtp] = useState('')
+  const [corporateBilling, setCorporateBilling] = useState<CorporateBillingSnapshot | null>(null)
 
   const gatewaysWithCheckout = useMemo(
     () => gateways.filter((g) => Boolean(g.checkoutAdapter)),
@@ -164,6 +215,7 @@ export function BillingPage() {
         fetchPlansRaw(),
       ])
       setSubscription(subEnv.currentSubscription)
+      setCorporateBilling(subEnv.corporateBilling ?? null)
       setDevSubscriptionInvoicePayAllowed(Boolean(subEnv.devSubscriptionInvoicePayAllowed))
       setGateways(gw)
       setMethods(pm)
@@ -292,6 +344,8 @@ export function BillingPage() {
     setTargetPlanCode(subscription.plan.code)
     setTargetBillingInterval(subscription.billingInterval ?? 'MONTHLY')
   }, [subscription?.id, subscription?.plan?.code, subscription?.billingInterval])
+
+  const isCorporateProgram = Boolean(corporateBilling)
 
   const pendingInvoices: BackendInvoice[] =
     subscription?.invoices?.filter((i) => i.status === 'PENDING') ?? []
@@ -495,11 +549,22 @@ export function BillingPage() {
     if (!businessId || !subscription) {
       return
     }
+    if (isCorporateProgram) {
+      const p = corporateBilling?.prices
+      if (p) {
+        const f = intervalPriceField(targetBillingInterval)
+        const n = parseMoneyToNumber(p[f])
+        if (n == null || n <= 0) {
+          setError('That billing cycle is not priced on your corporate template. Ask EasyPay to set it.')
+          return
+        }
+      }
+    }
     setPlanChangeLoading(true)
     setError(null)
     try {
       const out = await changeBusinessSubscriptionPlan(businessId, {
-        planCode: targetPlanCode,
+        planCode: isCorporateProgram ? 'BUSINESS_PRO' : targetPlanCode,
         billingInterval: targetBillingInterval,
       })
       setPlanChangeGuestUrl(out.pendingInvoice?.guestPayUrl?.trim() || null)
@@ -516,8 +581,10 @@ export function BillingPage() {
   const planChangeDisabled =
     !subscription ||
     !isOwner ||
-    (subscription.plan.code === targetPlanCode &&
-      (subscription.billingInterval ?? 'MONTHLY') === targetBillingInterval)
+    (isCorporateProgram
+      ? (subscription.billingInterval ?? 'MONTHLY') === targetBillingInterval
+      : subscription.plan.code === targetPlanCode &&
+        (subscription.billingInterval ?? 'MONTHLY') === targetBillingInterval)
 
   if (!businessId) {
     return (
@@ -660,21 +727,146 @@ export function BillingPage() {
             <div>
               <h2 className="text-lg font-semibold text-slate-900">Current plan</h2>
               <p className="mt-1 text-sm text-slate-600">
-                {subscription.plan.name} · {subscription.status.replace(/_/g, ' ')}
-                {subscription.billingInterval
-                  ? ` · ${subscription.billingInterval === 'YEARLY' ? 'Yearly' : 'Monthly'} billing`
-                  : ''}
+                {isCorporateProgram ? (
+                  <>
+                    <span className="font-medium text-slate-800">Corporate</span>
+                    {' · '}
+                    {subscription.plan.name} (catalog tier)
+                    {subscription.billingInterval
+                      ? ` · ${formatBillingIntervalLabel(subscription.billingInterval)} billing`
+                      : ''}
+                    {' · '}
+                    {subscription.status.replace(/_/g, ' ')}
+                  </>
+                ) : (
+                  <>
+                    {subscription.plan.name} · {subscription.status.replace(/_/g, ' ')}
+                    {subscription.billingInterval
+                      ? ` · ${formatBillingIntervalLabel(subscription.billingInterval)} billing`
+                      : ''}
+                  </>
+                )}
               </p>
               <p className="mt-2 text-sm text-slate-500">
-                Period ends {new Date(subscription.currentPeriodEnd).toLocaleString()}
+                {subscription.contractPerpetual ||
+                subscription.billingInterval === 'CONTRACT_INFINITE' ? (
+                  <>Signed contract — no automatic renewal period in the app.</>
+                ) : subscription.currentPeriodEnd ? (
+                  <>Period ends {new Date(subscription.currentPeriodEnd).toLocaleString()}</>
+                ) : (
+                  <>No period end on file.</>
+                )}
               </p>
             </div>
           </div>
 
+          {isCorporateProgram && corporateBilling ? (
+            <div className="rounded-2xl border border-teal-100 bg-teal-50/50 p-4">
+              <h3 className="text-sm font-semibold text-teal-950">Corporate billing</h3>
+              {corporateBilling.templateName ? (
+                <p className="mt-1 text-sm text-slate-700">
+                  Template: <span className="font-medium">{corporateBilling.templateName}</span>
+                </p>
+              ) : (
+                <p className="mt-1 text-sm text-amber-900">
+                  No billing template is assigned yet. Subscription invoices stay at zero until EasyPay
+                  configures your corporate template.
+                </p>
+              )}
+              {corporateBilling.prices ? (
+                <ul className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                  {CORPORATE_BILLING_INTERVALS.map((iv) => {
+                    const field = intervalPriceField(iv)
+                    const label = corporateBilling.prices![field]
+                    const amt = parseMoneyToNumber(label)
+                    const active = subscription.billingInterval === iv
+                    return (
+                      <li
+                        key={iv}
+                        className={`flex justify-between gap-2 rounded-lg border px-3 py-2 ${
+                          active ? 'border-teal-300 bg-white' : 'border-slate-100 bg-white/60'
+                        }`}
+                      >
+                        <span>{formatBillingIntervalLabel(iv)}</span>
+                        <span className="font-medium text-slate-900">
+                          {amt != null && amt > 0 ? label : '—'}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : null}
+              <p className="mt-2 text-xs text-slate-600">
+                Amounts are set by your operator. Changing your billing cycle issues a new invoice for
+                that cadence (pending invoices are replaced).
+              </p>
+            </div>
+          ) : null}
+
           {isOwner &&
           (subscription.status === 'TRIALING' ||
             subscription.status === 'ACTIVE' ||
-            subscription.status === 'PAST_DUE') ? (
+            subscription.status === 'PAST_DUE') &&
+          isCorporateProgram ? (
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+              <div className="flex items-center gap-2 text-slate-800">
+                <ArrowDownUp className="h-4 w-4 text-teal-600" />
+                <h3 className="text-sm font-semibold">Change billing cycle</h3>
+              </div>
+              <p className="mt-1 text-xs text-slate-600">
+                Switch between monthly, quarterly, half-yearly, yearly, two-year, or signed contract
+                billing. Your catalog tier stays on {subscription.plan.name}. A new invoice is issued
+                for the selected cycle; any pending invoices are voided.
+              </p>
+              <div className="mx-auto mt-4 w-full max-w-lg space-y-2">
+                {CORPORATE_BILLING_INTERVALS.map((iv) => {
+                  const prices = corporateBilling?.prices
+                  const field = intervalPriceField(iv)
+                  const label = prices?.[field]
+                  const amt = label ? parseMoneyToNumber(label) : null
+                  const available = amt != null && amt > 0
+                  const isSelected = targetBillingInterval === iv
+                  return (
+                    <button
+                      key={iv}
+                      type="button"
+                      disabled={!available}
+                      onClick={() => setTargetBillingInterval(iv)}
+                      className={[
+                        'flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition',
+                        !available
+                          ? 'cursor-not-allowed border-slate-100 bg-slate-100/80 text-slate-400'
+                          : isSelected
+                            ? 'border-teal-500 bg-teal-50 ring-1 ring-teal-500/30'
+                            : 'border-slate-200 bg-white hover:border-slate-300',
+                      ].join(' ')}
+                    >
+                      <span className="font-medium">{formatBillingIntervalLabel(iv)}</span>
+                      <span className="text-xs text-slate-600">
+                        {available && label ? `${label} ${corporateBilling?.currency ?? 'GMD'}` : 'Not set'}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="mx-auto mt-6 w-full max-w-lg">
+                <button
+                  type="button"
+                  disabled={planChangeLoading || planChangeDisabled}
+                  onClick={() => void handleChangePlan()}
+                  className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {planChangeLoading ? 'Updating…' : 'Apply billing cycle'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {isOwner &&
+          (subscription.status === 'TRIALING' ||
+            subscription.status === 'ACTIVE' ||
+            subscription.status === 'PAST_DUE') &&
+          !isCorporateProgram ? (
             <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
               <div className="flex items-center gap-2 text-slate-800">
                 <ArrowDownUp className="h-4 w-4 text-teal-600" />

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Building2, Mail, Package, User } from 'lucide-react'
+import { ArrowLeft, Building2, Mail, Package, Plug, User } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 
+import { MerchantApiIntegrationPanel } from '../../components/integrations/MerchantApiIntegrationPanel'
 import { TablePagination } from '../../components/ui/TablePagination'
 import { PageCard } from '../../components/ui/PageCard'
 import { PageTransition } from '../../components/ui/PageTransition'
@@ -28,7 +29,13 @@ function formatShortDate(iso: string) {
 
 export function PlatformBusinessDetailPage() {
   const { businessId } = useParams<{ businessId: string }>()
-  const { user } = useAuth()
+  const { user, canAccess } = useAuth()
+  const canViewMerchantApi =
+    Boolean(user?.isPlatformOwner) ||
+    canAccess('platform.businesses.merchant_api.view') ||
+    canAccess('platform.businesses.merchant_api.edit')
+  const canEditMerchantApi =
+    Boolean(user?.isPlatformOwner) || canAccess('platform.businesses.merchant_api.edit')
   const [detail, setDetail] = useState<PlatformBusinessDetail | null>(null)
   const [membershipsPage, setMembershipsPage] = useState(1)
   const [subscriptionsPage, setSubscriptionsPage] = useState(1)
@@ -172,7 +179,9 @@ export function PlatformBusinessDetailPage() {
                           </span>
                         </div>
                         <p className="mt-1 text-xs text-slate-500">
-                          Current period ends {formatShortDate(s.currentPeriodEnd)}
+                          {s.currentPeriodEnd
+                            ? `Current period ends ${formatShortDate(s.currentPeriodEnd)}`
+                            : 'No fixed period end (perpetual / signed contract).'}
                         </p>
                       </li>
                     ))}
@@ -244,6 +253,32 @@ export function PlatformBusinessDetailPage() {
               </>
             )}
           </PageCard>
+
+          {canViewMerchantApi && businessId ? (
+            <PageCard className="overflow-hidden p-0">
+              <div className="border-b border-slate-100 p-6">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                    <Plug className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-900">Merchant API</h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Wallet credentials (Wave, Yonna, APS) and integration status for this business. Use this when
+                      helping a tenant that needs hands-on setup.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="p-6 pt-4">
+                <MerchantApiIntegrationPanel
+                  businessId={businessId}
+                  allowMutations={canEditMerchantApi}
+                  embedded
+                />
+              </div>
+            </PageCard>
+          ) : null}
 
           <PageCard className="flex items-center gap-3 border-dashed p-4 text-sm text-slate-600">
             <Package className="h-5 w-5 shrink-0 text-slate-400" />

@@ -26,6 +26,11 @@ const envSchema = z.object({
     .min(1, "Set PLATFORM_URL in your environment (used in emails, e.g. app login link)"),
   /** Optional override for the logo image URL in HTML emails (defaults to PLATFORM_URL/easypay_logo_file.jpeg). */
   EASYPAY_LOGO_URL: z.string().url().optional(),
+  /**
+   * Comma-separated inbox(es) for internal alerts when a Corporate industry business is created.
+   * Example: owner@phantommetrics.gm — assign billing template under Platform → Corporate → Businesses.
+   */
+  CORPORATE_SIGNUP_NOTIFY_EMAIL: z.string().optional(),
 });
 
 const parsed = envSchema.parse(process.env);

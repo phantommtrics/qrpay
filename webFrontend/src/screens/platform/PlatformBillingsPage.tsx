@@ -24,6 +24,7 @@ function emptyRowMap(): Record<BackendPlanCode, RowPricing> {
     BASIC: { monthly: '', yearly: '' },
     PRO: { monthly: '', yearly: '' },
     BUSINESS_PRO: { monthly: '', yearly: '' },
+    CORPORATE: { monthly: '', yearly: '' },
   }
 }
 
@@ -50,6 +51,8 @@ function displayNameForCode(code: BackendPlanCode) {
       return 'Pro'
     case 'BUSINESS_PRO':
       return 'Pro Business'
+    case 'CORPORATE':
+      return 'Corporate'
     default:
       return code
   }

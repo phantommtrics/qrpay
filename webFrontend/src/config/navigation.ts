@@ -91,6 +91,9 @@ export const APP_PATHS = {
   platformBusinesses: '/platform/businesses',
   platformBusinessDetail: '/platform/businesses/:businessId',
   platformBillings: '/platform/billings',
+  /** Corporate industry: tenant list and custom bill templates (platform operator). */
+  platformCorporateBusinesses: '/platform/corporate/businesses',
+  platformCorporateBills: '/platform/corporate/bills',
   platformSubscriptions: '/platform/subscriptions',
   platformInvoices: '/platform/invoices',
   platformInvoiceDetail: '/platform/invoices/:invoiceId',
@@ -306,6 +309,22 @@ export const PLATFORM_BUSINESSES_SUBNAV: PlatformBusinessesSubNavItem[] = [
   },
 ]
 
+/** Platform operator: Corporate (custom billing) section. */
+export const PLATFORM_CORPORATE_SUBNAV: PlatformBusinessesSubNavItem[] = [
+  {
+    name: 'corporate-businesses',
+    path: APP_PATHS.platformCorporateBusinesses,
+    title: 'Businesses',
+    permission: 'platform.businesses.manage',
+  },
+  {
+    name: 'corporate-bills',
+    path: APP_PATHS.platformCorporateBills,
+    title: 'Corporate bill',
+    permission: 'platform.billing.manage',
+  },
+]
+
 export type NavigationItem = {
   name: string
   path: string
@@ -457,6 +476,14 @@ export function getPageTitle(pathname: string) {
     return 'Billings'
   }
 
+  if (pathname.includes(APP_PATHS.platformCorporateBills)) {
+    return 'Corporate bill'
+  }
+
+  if (pathname.includes(APP_PATHS.platformCorporateBusinesses)) {
+    return 'Corporate businesses'
+  }
+
   if (pathname.includes(APP_PATHS.platformPaymentGateways)) {
     return 'Payment gateways'
   }
@@ -594,6 +621,51 @@ export function getPageTitle(pathname: string) {
     (item) => pathname === item.path || pathname.startsWith(`${item.path}/`),
   )
   return matchedItem?.title ?? 'EASYPAY'
+}
+
+export const DOCUMENT_TITLE_BRAND = 'EasyPay'
+
+/** Human-readable segment for `<title>` when `getPageTitle` falls back to `EASYPAY`. */
+function browserTabTitleFallback(pathname: string): string {
+  if (pathname === '/') {
+    return 'Home'
+  }
+  const authTitles: Record<string, string> = {
+    [APP_PATHS.login]: 'Sign in',
+    [APP_PATHS.signup]: 'Sign up',
+    [APP_PATHS.forgotPassword]: 'Forgot password',
+    [APP_PATHS.changePassword]: 'Change password',
+  }
+  const authHit = authTitles[pathname]
+  if (authHit) {
+    return authHit
+  }
+  if (pathname.startsWith('/p/')) {
+    return 'Product'
+  }
+  if (pathname.startsWith('/pay/')) {
+    return 'Pay'
+  }
+  if (pathname.startsWith('/guest/quotation/')) {
+    return 'Quotation'
+  }
+  if (pathname.startsWith('/guest/invoice/')) {
+    return 'Invoice'
+  }
+  if (pathname.startsWith('/guest/platform-bill/')) {
+    return 'Bill'
+  }
+  if (pathname.startsWith('/guest/subscription-invoice/')) {
+    return 'Subscription invoice'
+  }
+  return 'Page'
+}
+
+/** `EasyPay | …` for the browser tab; uses `getPageTitle` and a small fallback map. */
+export function formatBrowserDocumentTitle(pathname: string): string {
+  const page = getPageTitle(pathname)
+  const subtitle = page === 'EASYPAY' ? browserTabTitleFallback(pathname) : page
+  return `${DOCUMENT_TITLE_BRAND} | ${subtitle}`
 }
 
 export function getDefaultProtectedPath(role: User['role']) {

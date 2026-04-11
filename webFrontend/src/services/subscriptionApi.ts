@@ -12,7 +12,7 @@ import type {
   UserRole,
 } from '../types'
 
-export type BackendPlanCode = 'BASIC' | 'PRO' | 'BUSINESS_PRO'
+export type BackendPlanCode = 'BASIC' | 'PRO' | 'BUSINESS_PRO' | 'CORPORATE'
 
 export type BackendPlan = {
   id: string
@@ -50,14 +50,33 @@ export type BackendSubscription = {
   id: string
   status: 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'EXPIRED'
   billingInterval?: SubscriptionBillingInterval
-  currentPeriodEnd: string
+  /** Null for perpetual / signed-contract subscriptions after activation. */
+  currentPeriodEnd?: string | null
+  contractPerpetual?: boolean
   plan: BackendPlan
   invoices?: BackendInvoice[]
+}
+
+/** Present when `business.industry` is Corporate — custom template pricing for `/billing`. */
+export type CorporateBillingSnapshot = {
+  templateId: string | null
+  templateName: string | null
+  billingInterval: SubscriptionBillingInterval | null
+  currency: string
+  prices: {
+    monthly: string
+    quarterly: string
+    halfYearly: string
+    yearly: string
+    twoYears: string
+    contract: string
+  } | null
 }
 
 export type BackendSubscriptionEnvelope = {
   business: BackendBusiness
   currentSubscription: (BackendSubscription & { invoices: BackendInvoice[] }) | null
+  corporateBilling: CorporateBillingSnapshot | null
   /** Server-controlled; UI may show "Dev: mark paid" when true. */
   devSubscriptionInvoicePayAllowed?: boolean
 }
@@ -104,6 +123,8 @@ function toPlanId(code: BackendPlanCode): PlanId {
       return 'pro'
     case 'BUSINESS_PRO':
       return 'business_pro'
+    case 'CORPORATE':
+      return 'corporate'
   }
 }
 
@@ -126,14 +147,15 @@ export function mapBackendPlanToSubscriptionPlan(plan: BackendPlan): Subscriptio
     plan.yearlyPrice !== undefined && plan.yearlyPrice !== ''
       ? plan.yearlyPrice
       : String(Number(plan.monthlyPrice) * 12)
+  const isCorporate = plan.code === 'CORPORATE'
   return {
     id: toPlanId(plan.code),
     name: plan.name,
     priceLabel: formatPriceLabel(plan.monthlyPrice),
     yearlyPriceLabel: formatYearlyPriceLabel(yearly),
-    staffLabel: formatStaffLabel(plan.staffLimit),
+    staffLabel: isCorporate ? 'Unlimited staff' : formatStaffLabel(plan.staffLimit),
     minStaff: 1,
-    maxStaff: plan.staffLimit,
+    maxStaff: isCorporate ? null : plan.staffLimit,
     description: plan.description,
     highlighted: plan.code === 'PRO',
   }
@@ -147,12 +169,14 @@ function toPlanCode(planId: PlanId): BackendPlanCode {
       return 'PRO'
     case 'business_pro':
       return 'BUSINESS_PRO'
+    case 'corporate':
+      return 'CORPORATE'
   }
 }
 
 export function toFrontendSubscriptionStatus(
   status: BackendSubscription['status'],
-  currentPeriodEnd?: string,
+  currentPeriodEnd?: string | null,
 ) {
   if (status === 'TRIALING') {
     return 'trialing' as const
@@ -226,13 +250,18 @@ export function mapBackendUserToLoginAccount(
 
 export function mapAccessibleBusinessToOrganization(entry: BackendAccessibleBusiness): Organization {
   const currentSubscription = entry.currentSubscription
+  const industryNorm = entry.business.industry?.trim().toLowerCase() ?? ''
+  const rawPlanId = currentSubscription ? toPlanId(currentSubscription.plan.code) : 'basic'
+  /** Subscription row uses Business Pro for corporate; surface `corporate` in the UI when industry matches. */
+  const planId =
+    industryNorm === 'corporate' ? ('corporate' as PlanId) : rawPlanId
 
   return {
     id: entry.business.id,
     name: entry.business.name,
     slug: entry.business.slug,
     industry: entry.business.industry?.trim() || 'Retail',
-    planId: currentSubscription ? toPlanId(currentSubscription.plan.code) : 'basic',
+    planId,
     staffCount: currentSubscription?.plan.staffLimit ?? 1,
     ownerName: entry.business.ownerName,
     subscriptionExpiresAt: currentSubscription?.currentPeriodEnd ?? new Date().toISOString(),
@@ -337,6 +366,138 @@ export async function updatePlatformPlanPricing(
     },
   )
   return mapBackendPlanToSubscriptionPlan(response.data)
+}
+
+export type CorporateBillingPlanRow = {
+  id: string
+  name: string
+  monthlyPrice: string
+  quarterlyPrice: string
+  halfYearlyPrice: string
+  yearlyPrice: string
+  twoYearPrice: string
+  contractPrice: string
+  currency: string
+  sortOrder: number
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export async function fetchCorporateBillingPlans() {
+  const response = await apiRequest<{ data: CorporateBillingPlanRow[] }>(
+    '/platform/corporate-billing-plans',
+  )
+  return response.data
+}
+
+export async function createCorporateBillingPlan(body: {
+  name: string
+  monthlyPrice: number
+  yearlyPrice: number
+  quarterlyPrice?: number
+  halfYearlyPrice?: number
+  twoYearPrice?: number
+  contractPrice?: number
+  sortOrder?: number
+}) {
+  const response = await apiRequest<{ data: CorporateBillingPlanRow }>(
+    '/platform/corporate-billing-plans',
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export async function updateCorporateBillingPlan(
+  planId: string,
+  body: Partial<{
+    name: string
+    monthlyPrice: number
+    quarterlyPrice: number
+    halfYearlyPrice: number
+    yearlyPrice: number
+    twoYearPrice: number
+    contractPrice: number
+    sortOrder: number
+    isActive: boolean
+  }>,
+) {
+  const response = await apiRequest<{ data: CorporateBillingPlanRow }>(
+    `/platform/corporate-billing-plans/${encodeURIComponent(planId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export type CorporateBusinessRow = {
+  id: string
+  name: string
+  slug: string
+  industry: string | null
+  ownerName: string
+  ownerEmail: string
+  createdAt: string
+  corporateBillingPlanId: string | null
+  corporateBillingInterval: SubscriptionBillingInterval | null
+  corporateEntitlementSystemProductIds: string[]
+  corporateBillingPlan: {
+    id: string
+    name: string
+    monthlyPrice: string
+    yearlyPrice: string
+    currency: string
+  } | null
+  currentSubscription: {
+    id: string
+    status: string
+    billingInterval: SubscriptionBillingInterval
+    planCode: string
+    planName: string
+  } | null
+}
+
+export async function fetchCorporateBusinesses() {
+  const response = await apiRequest<{ data: CorporateBusinessRow[] }>(
+    '/platform/corporate-businesses',
+  )
+  return response.data
+}
+
+export type CorporateEntitlementCatalogItem = {
+  id: string
+  serviceId: string
+  serviceName: string
+  name: string
+  slug: string
+}
+
+export async function fetchCorporateEntitlementCatalog() {
+  const response = await apiRequest<{
+    data: { planCode: string; items: CorporateEntitlementCatalogItem[] }
+  }>('/platform/corporate/entitlement-catalog')
+  return response.data
+}
+
+export async function patchCorporateBusinessSettings(
+  businessId: string,
+  body: {
+    corporateBillingPlanId: string
+    billingInterval: SubscriptionBillingInterval
+    corporateEntitlementSystemProductIds?: string[]
+  },
+) {
+  return apiRequest<{
+    data: { subscriptionId: string; invoiceId: string; invoiceAmount: string }
+  }>(`/platform/corporate-businesses/${encodeURIComponent(businessId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
 }
 
 export async function createBusiness(payload: {

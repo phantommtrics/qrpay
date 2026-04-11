@@ -49,6 +49,14 @@ import {
   startSubscription,
   updatePlanPricing,
 } from "./services/subscription.service.js";
+import {
+  assignCorporateBusinessSettings,
+  createCorporateBillingPlan,
+  getCorporateEntitlementCatalog,
+  listCorporateBusinesses,
+  listCorporateBillingPlansForPlatform,
+  updateCorporateBillingPlan,
+} from "./services/corporate-billing.service.js";
 import { createSubscriptionInvoiceCheckout } from "./services/subscription-invoice-checkout.service.js";
 import {
   authorizeGuestSubscriptionInvoiceApsCheckout,
@@ -326,6 +334,7 @@ import { env } from "./config/env.js";
 import { PLATFORM_MODULE_SLUGS } from "./config/platform-modules.js";
 import { HttpError } from "./lib/http-error.js";
 import { billingPeriodToUtcRange } from "./utils/billing-ledger-period.js";
+import { isCorporateIndustry } from "./utils/corporate-industry.js";
 import {
   authenticateToken,
   generateToken,
@@ -339,6 +348,7 @@ import {
   requireBusinessOwnerOnly,
   requireBusinessOwnerOrPlatform,
   requireEntitlement,
+  requireMerchantApiGatewayAccess,
   requireBillingOrMerchantApiOrPlatform,
   requireSubscriptionsBillingOrPlatform,
   requireSubscriptionsInvoicesOrPlatform,
@@ -608,6 +618,35 @@ const planPricingBodySchema = z
   .refine((b) => b.monthlyPrice !== undefined || b.yearlyPrice !== undefined, {
     message: "Provide at least one of monthlyPrice or yearlyPrice.",
   });
+
+const corporateBillingPlanBodySchema = z.object({
+  name: z.string().min(2),
+  monthlyPrice: z.coerce.number().positive().max(99_999_999.99),
+  quarterlyPrice: z.coerce.number().min(0).max(99_999_999.99).optional(),
+  halfYearlyPrice: z.coerce.number().min(0).max(99_999_999.99).optional(),
+  yearlyPrice: z.coerce.number().positive().max(99_999_999.99),
+  twoYearPrice: z.coerce.number().min(0).max(99_999_999.99).optional(),
+  contractPrice: z.coerce.number().min(0).max(99_999_999.99).optional(),
+  sortOrder: z.coerce.number().int().optional(),
+});
+
+const corporateBillingPlanPatchSchema = z.object({
+  name: z.string().min(2).optional(),
+  monthlyPrice: z.coerce.number().positive().max(99_999_999.99).optional(),
+  quarterlyPrice: z.coerce.number().min(0).max(99_999_999.99).optional(),
+  halfYearlyPrice: z.coerce.number().min(0).max(99_999_999.99).optional(),
+  yearlyPrice: z.coerce.number().positive().max(99_999_999.99).optional(),
+  twoYearPrice: z.coerce.number().min(0).max(99_999_999.99).optional(),
+  contractPrice: z.coerce.number().min(0).max(99_999_999.99).optional(),
+  sortOrder: z.coerce.number().int().optional(),
+  isActive: z.boolean().optional(),
+});
+
+const assignCorporateBusinessBodySchema = z.object({
+  corporateBillingPlanId: z.string().min(1),
+  billingInterval: z.nativeEnum(BillingInterval),
+  corporateEntitlementSystemProductIds: z.array(z.string().min(1)).optional(),
+});
 
 const platformSecurityPermissionRowSchema = z.object({
   moduleId: z.string().min(1),
@@ -969,7 +1008,7 @@ app.get(
             createdAt: row.createdAt.toISOString(),
             startDate: row.startDate.toISOString(),
             currentPeriodStart: row.currentPeriodStart.toISOString(),
-            currentPeriodEnd: row.currentPeriodEnd.toISOString(),
+            currentPeriodEnd: row.currentPeriodEnd?.toISOString() ?? null,
             cancelledAt: row.cancelledAt?.toISOString() ?? null,
             endedAt: row.endedAt?.toISOString() ?? null,
             updatedAt: row.updatedAt.toISOString(),
@@ -1106,7 +1145,7 @@ app.get(
             status: inv.subscription.status,
             startDate: inv.subscription.startDate.toISOString(),
             currentPeriodStart: inv.subscription.currentPeriodStart.toISOString(),
-            currentPeriodEnd: inv.subscription.currentPeriodEnd.toISOString(),
+            currentPeriodEnd: inv.subscription.currentPeriodEnd?.toISOString() ?? null,
             createdAt: inv.subscription.createdAt.toISOString(),
           },
         },
@@ -1169,8 +1208,9 @@ app.get(
             subscription: {
               id: inv.subscription.id,
               status: inv.subscription.status,
-              currentPeriodEnd: periodEnd.toISOString(),
-              daysRemaining: subscriptionDaysRemaining(periodEnd),
+              contractPerpetual: inv.subscription.contractPerpetual,
+              currentPeriodEnd: periodEnd?.toISOString() ?? null,
+              daysRemaining: periodEnd ? subscriptionDaysRemaining(periodEnd) : null,
             },
             paymentTransaction: ledger
               ? {
@@ -1243,8 +1283,9 @@ app.patch(
                 : null,
           },
           subscription: {
-            currentPeriodEnd: periodEnd.toISOString(),
-            daysRemaining: subscriptionDaysRemaining(periodEnd),
+            contractPerpetual: updated.subscription.contractPerpetual,
+            currentPeriodEnd: periodEnd?.toISOString() ?? null,
+            daysRemaining: periodEnd ? subscriptionDaysRemaining(periodEnd) : null,
           },
           paymentTransaction: ledger
             ? {
@@ -1512,7 +1553,7 @@ app.get(
             status: inv.subscription.status,
             startDate: inv.subscription.startDate.toISOString(),
             currentPeriodStart: inv.subscription.currentPeriodStart.toISOString(),
-            currentPeriodEnd: inv.subscription.currentPeriodEnd.toISOString(),
+            currentPeriodEnd: inv.subscription.currentPeriodEnd?.toISOString() ?? null,
             createdAt: inv.subscription.createdAt.toISOString(),
           },
         },
@@ -1822,6 +1863,190 @@ app.patch(
           yearlyPrice: formatMoney(updated.yearlyPrice),
           description: updated.description,
           staffLimit: updated.staffLimit,
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/corporate-billing-plans",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BILLING, "view"),
+  async (_req, res, next) => {
+    try {
+      const rows = await listCorporateBillingPlansForPlatform();
+      res.json({
+        data: rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          monthlyPrice: formatMoney(r.monthlyPrice),
+          quarterlyPrice: formatMoney(r.quarterlyPrice),
+          halfYearlyPrice: formatMoney(r.halfYearlyPrice),
+          yearlyPrice: formatMoney(r.yearlyPrice),
+          twoYearPrice: formatMoney(r.twoYearPrice),
+          contractPrice: formatMoney(r.contractPrice),
+          currency: r.currency,
+          sortOrder: r.sortOrder,
+          isActive: r.isActive,
+          createdAt: r.createdAt.toISOString(),
+          updatedAt: r.updatedAt.toISOString(),
+        })),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/corporate-billing-plans",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BILLING, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = corporateBillingPlanBodySchema.parse(req.body);
+      const created = await createCorporateBillingPlan(body);
+      res.status(201).json({
+        data: {
+          id: created.id,
+          name: created.name,
+          monthlyPrice: formatMoney(created.monthlyPrice),
+          quarterlyPrice: formatMoney(created.quarterlyPrice),
+          halfYearlyPrice: formatMoney(created.halfYearlyPrice),
+          yearlyPrice: formatMoney(created.yearlyPrice),
+          twoYearPrice: formatMoney(created.twoYearPrice),
+          contractPrice: formatMoney(created.contractPrice),
+          currency: created.currency,
+          sortOrder: created.sortOrder,
+          isActive: created.isActive,
+          createdAt: created.createdAt.toISOString(),
+          updatedAt: created.updatedAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.patch(
+  "/api/platform/corporate-billing-plans/:planId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BILLING, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = corporateBillingPlanPatchSchema.parse(req.body);
+      const updated = await updateCorporateBillingPlan(req.params.planId as string, body);
+      res.json({
+        data: {
+          id: updated.id,
+          name: updated.name,
+          monthlyPrice: formatMoney(updated.monthlyPrice),
+          quarterlyPrice: formatMoney(updated.quarterlyPrice),
+          halfYearlyPrice: formatMoney(updated.halfYearlyPrice),
+          yearlyPrice: formatMoney(updated.yearlyPrice),
+          twoYearPrice: formatMoney(updated.twoYearPrice),
+          contractPrice: formatMoney(updated.contractPrice),
+          currency: updated.currency,
+          sortOrder: updated.sortOrder,
+          isActive: updated.isActive,
+          createdAt: updated.createdAt.toISOString(),
+          updatedAt: updated.updatedAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/corporate-businesses",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "view"),
+  async (_req, res, next) => {
+    try {
+      const rows = await listCorporateBusinesses();
+      res.json({
+        data: rows.map((b) => {
+          const sub = b.subscriptions[0];
+          return {
+            id: b.id,
+            name: b.name,
+            slug: b.slug,
+            industry: b.industry,
+            ownerName: b.ownerName,
+            ownerEmail: b.ownerEmail,
+            createdAt: b.createdAt.toISOString(),
+            corporateBillingPlanId: b.corporateBillingPlanId,
+            corporateBillingInterval: b.corporateBillingInterval,
+            corporateEntitlementSystemProductIds: b.corporateEntitlementSystemProductIds,
+            corporateBillingPlan: b.corporateBillingPlan
+              ? {
+                  id: b.corporateBillingPlan.id,
+                  name: b.corporateBillingPlan.name,
+                  monthlyPrice: formatMoney(b.corporateBillingPlan.monthlyPrice),
+                  yearlyPrice: formatMoney(b.corporateBillingPlan.yearlyPrice),
+                  currency: b.corporateBillingPlan.currency,
+                }
+              : null,
+            currentSubscription: sub
+              ? {
+                  id: sub.id,
+                  status: sub.status,
+                  billingInterval: sub.billingInterval,
+                  planCode: sub.plan.code,
+                  planName: sub.plan.name,
+                }
+              : null,
+          };
+        }),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/corporate/entitlement-catalog",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "view"),
+  async (_req, res, next) => {
+    try {
+      const data = await getCorporateEntitlementCatalog();
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.patch(
+  "/api/platform/corporate-businesses/:businessId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = assignCorporateBusinessBodySchema.parse(req.body);
+      const result = await assignCorporateBusinessSettings({
+        businessId: req.params.businessId as string,
+        ...body,
+      });
+      res.json({
+        data: {
+          subscriptionId: result.subscription.id,
+          invoiceId: result.invoice.id,
+          invoiceAmount: formatMoney(result.invoice.amount),
         },
       });
     } catch (e) {
@@ -4188,13 +4413,77 @@ app.put(
   },
 );
 
+function formatCorporateBillingSnapshot(
+  business: {
+    industry: string | null;
+    corporateBillingPlanId: string | null;
+    corporateBillingInterval: BillingInterval | null;
+    corporateBillingPlan: {
+      id: string;
+      name: string;
+      monthlyPrice: Prisma.Decimal;
+      quarterlyPrice: Prisma.Decimal;
+      halfYearlyPrice: Prisma.Decimal;
+      yearlyPrice: Prisma.Decimal;
+      twoYearPrice: Prisma.Decimal;
+      contractPrice: Prisma.Decimal;
+      currency: string;
+    } | null;
+  },
+):
+  | {
+      templateId: string | null;
+      templateName: string | null;
+      billingInterval: BillingInterval | null;
+      currency: string;
+      prices: {
+        monthly: string;
+        quarterly: string;
+        halfYearly: string;
+        yearly: string;
+        twoYears: string;
+        contract: string;
+      } | null;
+    }
+  | null {
+  if (!isCorporateIndustry(business.industry)) {
+    return null;
+  }
+  const cp = business.corporateBillingPlan;
+  if (!cp) {
+    return {
+      templateId: business.corporateBillingPlanId,
+      templateName: null,
+      billingInterval: business.corporateBillingInterval,
+      currency: "GMD",
+      prices: null,
+    };
+  }
+  return {
+    templateId: business.corporateBillingPlanId,
+    templateName: cp.name,
+    billingInterval: business.corporateBillingInterval,
+    currency: cp.currency,
+    prices: {
+      monthly: formatMoney(cp.monthlyPrice),
+      quarterly: formatMoney(cp.quarterlyPrice),
+      halfYearly: formatMoney(cp.halfYearlyPrice),
+      yearly: formatMoney(cp.yearlyPrice),
+      twoYears: formatMoney(cp.twoYearPrice),
+      contract: formatMoney(cp.contractPrice),
+    },
+  };
+}
+
 function formatSubscriptionResponse(
   subscription: {
     id: string;
     status: string;
     startDate: Date;
     currentPeriodStart: Date;
-    currentPeriodEnd: Date;
+    currentPeriodEnd: Date | null;
+    billingInterval: BillingInterval;
+    contractPerpetual: boolean;
     cancelAtPeriodEnd: boolean;
     cancelledAt: Date | null;
     endedAt: Date | null;
@@ -4712,7 +5001,12 @@ app.get(
         throw new HttpError(403, "Access denied to this business");
       }
       const result = await getBusinessSubscription(businessId);
-      const { subscriptions: _subscriptions, ...business } = result.business;
+      const corporateBilling = formatCorporateBillingSnapshot(result.business);
+      const {
+        subscriptions: _subscriptions,
+        corporateBillingPlan: _corporateBillingPlan,
+        ...business
+      } = result.business;
 
       response.json({
         data: {
@@ -4720,6 +5014,7 @@ app.get(
           currentSubscription: result.currentSubscription
             ? formatSubscriptionResponse(result.currentSubscription)
             : null,
+          corporateBilling,
           devSubscriptionInvoicePayAllowed: isDevSubscriptionInvoicePayAllowed(),
         },
       });
@@ -4904,7 +5199,7 @@ app.get(
   "/api/businesses/:businessId/gateway-credentials",
   authenticateToken,
   requireBusinessOwnerOrPlatform(),
-  requireEntitlement("merchant.api"),
+  requireMerchantApiGatewayAccess({ readonly: true }),
   async (req, res, next) => {
     try {
       const { businessId } = req.params;
@@ -4925,7 +5220,7 @@ app.put(
   "/api/businesses/:businessId/gateway-credentials",
   authenticateToken,
   requireBusinessOwnerOrPlatform(),
-  requireEntitlement("merchant.api"),
+  requireMerchantApiGatewayAccess({ readonly: false }),
   async (req, res, next) => {
     try {
       const { businessId } = req.params;
@@ -4947,7 +5242,7 @@ app.delete(
   "/api/businesses/:businessId/gateway-credentials/:gatewayCode",
   authenticateToken,
   requireBusinessOwnerOrPlatform(),
-  requireEntitlement("merchant.api"),
+  requireMerchantApiGatewayAccess({ readonly: false }),
   async (req, res, next) => {
     try {
       const { businessId, gatewayCode } = req.params;
@@ -4963,7 +5258,7 @@ app.get(
   "/api/businesses/:businessId/aps-wallet/customer-auths",
   authenticateToken,
   requireBusinessOwnerOrPlatform(),
-  requireEntitlement("merchant.api"),
+  requireMerchantApiGatewayAccess({ readonly: true }),
   async (req, res, next) => {
     try {
       const data = await listBusinessApsWalletCustomerAuths(req.params.businessId as string);
@@ -4978,7 +5273,7 @@ app.delete(
   "/api/businesses/:businessId/aps-wallet/customer-auths/:authId",
   authenticateToken,
   requireBusinessOwnerOrPlatform(),
-  requireEntitlement("merchant.api"),
+  requireMerchantApiGatewayAccess({ readonly: false }),
   async (req, res, next) => {
     try {
       await clearBusinessApsWalletCustomerAuth(

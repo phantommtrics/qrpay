@@ -10,7 +10,7 @@ import { ApiError, type PlanEntitlementsPayload } from '../services/subscription
 import { fetchPlanEntitlements } from '../services/subscriptionApi'
 import { isPlatformOperator } from '../utils/platformOperator'
 
-const BACKEND_PLAN_CODES = ['BASIC', 'PRO', 'BUSINESS_PRO'] as const
+const BACKEND_PLAN_CODES = ['BASIC', 'PRO', 'BUSINESS_PRO', 'CORPORATE'] as const
 
 export function PlanControlsPage() {
   const { user, organizations, plans, permissionDefinitions } = useAuth()
@@ -65,6 +65,8 @@ export function PlanControlsPage() {
         map.set(p.id, 'PRO')
       } else if (p.id === 'business_pro') {
         map.set(p.id, 'BUSINESS_PRO')
+      } else if (p.id === 'corporate') {
+        map.set(p.id, 'CORPORATE')
       }
     }
     return map

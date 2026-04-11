@@ -54,9 +54,17 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
 
     const decoded = jwt.verify(token, env.JWT_SECRET) as any;
 
+    // Platform admin routes use :businessId for the *resource* (e.g. tenant being viewed), not the
+    // caller's selected merchant context. Treating it as context runs membership checks against
+    // arbitrary businesses and returns 403 for PLATFORM_ADMIN users who are not members.
+    const path = req.path || "";
+    const isPlatformApiPath = /^\/api\/platform(\/|$)/i.test(path);
+    /** PLATFORM_ADMIN is not usually a member of arbitrary tenants; URL :businessId must not imply session context. */
+    const isPlatformAdminJwt = decoded.role === UserRole.PLATFORM_ADMIN;
+    const paramBusinessId = (req.params as { businessId?: string }).businessId;
     const businessContextId =
       (req.headers["x-business-id"] as string | undefined) ||
-      (req.params as { businessId?: string }).businessId;
+      (!isPlatformApiPath && !isPlatformAdminJwt ? paramBusinessId : undefined);
 
     // Get user with current business context
     const user = await prisma.user.findUnique({

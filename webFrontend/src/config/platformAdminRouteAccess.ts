@@ -11,6 +11,14 @@ export const PLATFORM_ADMIN_ROUTE_ACCESS: Partial<
   'reports.view': { module: 'platform.reports', action: 'view' },
   'organization.manage': { module: 'platform.plan_controls', action: 'view' },
   'platform.businesses.manage': { module: 'platform.businesses', action: 'view' },
+  'platform.businesses.merchant_api.view': {
+    module: 'platform.businesses.merchant_api',
+    action: 'view',
+  },
+  'platform.businesses.merchant_api.edit': {
+    module: 'platform.businesses.merchant_api',
+    action: 'edit',
+  },
   'platform.subscriptions.view': { module: 'platform.subscriptions', action: 'view' },
   'platform.invoices.view': { module: 'platform.invoices', action: 'view' },
   'platform.invoices.export': { module: 'platform.invoices', action: 'export' },

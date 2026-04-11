@@ -21,6 +21,8 @@ export type SignUpTemporaryPasswordEmailContent = {
 export type SignUpEmailExtras = {
   subscriptionPayOnlineUrl?: string | null;
   subscriptionInvoiceRef?: string | null;
+  /** Corporate industry: custom copy; no self-serve invoice link until EasyPay configures billing. */
+  corporateWelcome?: boolean;
 };
 
 function escapeHtmlSignup(s: string): string {
@@ -94,6 +96,38 @@ export function buildSignUpTemporaryPasswordEmailContent(
   input: PasswordResetEmailInput,
   extras?: SignUpEmailExtras | null,
 ): SignUpTemporaryPasswordEmailContent {
+  if (extras?.corporateWelcome) {
+    const subject = `Your ${PLATFORM_NAME} corporate workspace is ready`;
+    const htmlBody = `
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0f172a;max-width:560px;">
+    ${easypayEmailLogoHtml()}
+    <p>Hello ${input.userName},</p>
+    <p>Welcome to ${PLATFORM_NAME}. Your <strong>Corporate</strong> workspace is set up on our Business Pro product tier with <strong>custom corporate billing</strong> (POS, catalogue, and orders are not included unless we add them for you).</p>
+    <p style="margin:16px 0;padding:14px 16px;background:#f0fdfa;border-radius:10px;border:1px solid #99f6e4;color:#0f172a;font-size:14px;">
+      <strong>What happens next</strong><br />
+      You will not receive a self-serve subscription invoice by email yet. ${PLATFORM_NAME} will contact you with a formal invoice once your corporate billing template and terms are assigned in the operator console.
+    </p>
+    <p>Your temporary password is:</p>
+    <p><strong>${input.temporaryPassword}</strong></p>
+    <p>Visit <a href="${env.PLATFORM_URL}">${env.PLATFORM_URL}</a> to sign in. You will be asked to create a new password after you log in.</p>
+    <p>If you did not create this account, please contact support.</p>
+  </div>
+  `;
+    const textBody = [
+      `Hello ${input.userName},`,
+      "",
+      `Welcome to ${PLATFORM_NAME}. Your Corporate workspace is set up on our Business Pro product tier with custom corporate billing (POS, catalogue, and orders are not included unless we add them for you).`,
+      "",
+      "What happens next:",
+      `You will not receive a self-serve subscription invoice by email yet. ${PLATFORM_NAME} will contact you with a formal invoice once your corporate billing template and terms are assigned.`,
+      "",
+      `Temporary password: ${input.temporaryPassword}`,
+      `Sign in: ${env.PLATFORM_URL}`,
+      "You will be prompted to choose a new password after signing in.",
+    ].join("\n");
+    return { subject, htmlBody, textBody };
+  }
+
   const subject = `Your ${PLATFORM_NAME} account is ready`;
   const payUrl = extras?.subscriptionPayOnlineUrl?.trim() || null;
   const invRef = extras?.subscriptionInvoiceRef?.trim() || null;

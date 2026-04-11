@@ -11,6 +11,8 @@ enum PlanCode {
   BASIC
   PRO
   BUSINESS_PRO
+  /** Same breadth as Business Pro minus POS, products, orders, and categories — used for Corporate industry. */
+  CORPORATE
 }
 
 enum UserRole {
@@ -75,7 +77,12 @@ enum BillingLedgerStatus {
 
 enum BillingInterval {
   MONTHLY
+  QUARTERLY
+  HALF_YEARLY
   YEARLY
+  TWO_YEARS
+  /** Signed contract: one payment, no automatic renewal (perpetual access while active). */
+  CONTRACT_INFINITE
 }
 
 enum StaffCreationNotificationType {
@@ -271,6 +278,28 @@ enum BillStatus {
   VOID
 }
 
+/**
+ * Admin-defined subscription price templates for Corporate industry businesses.
+ * Assigned per business with monthly or yearly billing.
+ */
+model CorporateBillingPlan {
+  id             String     @id @default(cuid())
+  name           String
+  monthlyPrice   Decimal    @db.Decimal(10, 2)
+  quarterlyPrice Decimal    @default(0) @db.Decimal(10, 2)
+  halfYearlyPrice Decimal   @default(0) @db.Decimal(10, 2)
+  yearlyPrice    Decimal    @db.Decimal(10, 2)
+  twoYearPrice   Decimal    @default(0) @db.Decimal(10, 2)
+  /// One-time fee for CONTRACT_INFINITE (signed contract / perpetual).
+  contractPrice  Decimal    @default(0) @db.Decimal(10, 2)
+  currency       String     @default("GMD")
+  sortOrder      Int        @default(0)
+  isActive       Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  businesses     Business[]
+}
+
 model Business {
   id                            String                         @id @default(cuid())
   name                          String
@@ -280,6 +309,12 @@ model Business {
   ownerEmail                    String
   createdAt                     DateTime                       @default(now())
   updatedAt                     DateTime                       @updatedAt
+  /// When set with corporate billing interval, subscription invoices use this template instead of list-plan prices.
+  corporateBillingPlanId        String?
+  corporateBillingPlan          CorporateBillingPlan?          @relation(fields: [corporateBillingPlanId], references: [id], onDelete: SetNull)
+  corporateBillingInterval      BillingInterval?
+  /// Optional per-business entitlement override (system product ids). Empty = use plan defaults from the Corporate plan.
+  corporateEntitlementSystemProductIds String[]              @default([])
   memberships                   BusinessMembership[]
   subscriptions                 Subscription[]
   invoices                      SubscriptionInvoice[]
@@ -1080,7 +1115,10 @@ model Subscription {
   status               SubscriptionStatus    @default(ACTIVE)
   startDate            DateTime
   currentPeriodStart   DateTime
-  currentPeriodEnd     DateTime
+  /// Null when `contractPerpetual` (signed contract); no automatic renewal period.
+  currentPeriodEnd     DateTime?
+  /** Set when billing is CONTRACT_INFINITE and the contract invoice is satisfied. */
+  contractPerpetual    Boolean               @default(false)
   cancelAtPeriodEnd    Boolean               @default(false)
   cancelledAt          DateTime?
   endedAt              DateTime?

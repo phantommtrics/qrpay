@@ -10,6 +10,7 @@ import { easypayEmailLogoHtml } from "../lib/easypay-logo.js";
 import { guestSubscriptionInvoiceUrl, spaHashRoute } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
 import { newGuestToken } from "../lib/guest-token.js";
+import { isCorporateIndustry } from "../utils/corporate-industry.js";
 import { generateSubscriptionInvoicePdf } from "./subscription-invoice-pdf.service.js";
 
 const PLATFORM_NAME = "EasyPay";
@@ -147,6 +148,13 @@ async function dispatchSubscriptionInvoiceOwnerEmail(invoiceId: string): Promise
   });
 
   if (!row) {
+    return;
+  }
+
+  if (
+    isCorporateIndustry(row.business.industry) &&
+    Number(row.amount) === 0
+  ) {
     return;
   }
 

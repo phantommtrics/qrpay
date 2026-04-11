@@ -1,6 +1,8 @@
 import { BusinessMembershipStatus, SubscriptionStatus } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
+import { CORPORATE_EXCLUDED_SLUGS } from "../config/plan-entitlement-matrix.js";
+import { isCorporateIndustry } from "../utils/corporate-industry.js";
 
 const ACTIVE_SUBSCRIPTION_STATUSES: SubscriptionStatus[] = [
   SubscriptionStatus.TRIALING,
@@ -29,6 +31,26 @@ export async function getCurrentSubscriptionForBusiness(businessId: string) {
 
 /** All entitlement slugs included in the business's current plan (ignores per-user assignments). */
 export async function getEntitlementSlugsForBusiness(businessId: string): Promise<string[]> {
+  const biz = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: {
+      industry: true,
+      corporateEntitlementSystemProductIds: true,
+    },
+  });
+  if (
+    biz &&
+    isCorporateIndustry(biz.industry) &&
+    biz.corporateEntitlementSystemProductIds.length > 0
+  ) {
+    const products = await prisma.systemProduct.findMany({
+      where: { id: { in: biz.corporateEntitlementSystemProductIds } },
+      select: { slug: true },
+    });
+    const slugs = products.map((p) => p.slug).filter(Boolean);
+    return Array.from(new Set(slugs));
+  }
+
   let sub = await getCurrentSubscriptionForBusiness(businessId);
   if (!sub) {
     sub = await prisma.subscription.findFirst({
@@ -54,7 +76,15 @@ export async function getEntitlementSlugsForBusiness(businessId: string): Promis
     .map((link) => link.systemProduct?.slug)
     .filter((s): s is string => Boolean(s));
 
-  return Array.from(new Set(slugs));
+  let merged = Array.from(new Set(slugs));
+  if (
+    biz &&
+    isCorporateIndustry(biz.industry) &&
+    biz.corporateEntitlementSystemProductIds.length === 0
+  ) {
+    merged = merged.filter((slug) => !CORPORATE_EXCLUDED_SLUGS.has(slug));
+  }
+  return merged;
 }
 
 /**

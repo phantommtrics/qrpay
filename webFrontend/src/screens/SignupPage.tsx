@@ -1,10 +1,11 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { ArrowRight, Building2, CheckCircle2, QrCode } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
 import type { PlanId, SubscriptionBillingInterval } from '../types'
+import { isCorporateIndustry } from '../utils/businessIndustry'
 
 export function SignupPage() {
   const navigate = useNavigate()
@@ -21,6 +22,18 @@ export function SignupPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const isCorp = isCorporateIndustry(form.industry)
+
+  useEffect(() => {
+    if (isCorporateIndustry(form.industry)) {
+      setForm((current) =>
+        current.planId === 'corporate'
+          ? current
+          : { ...current, planId: 'corporate' as PlanId },
+      )
+    }
+  }, [form.industry])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -189,22 +202,35 @@ export function SignupPage() {
                   <option>Restaurant</option>
                   <option>Wholesale</option>
                   <option>Pharmacy</option>
+                  <option>Corporate</option>
                 </select>
               </label>
             </div>
+
+            {isCorp ? (
+              <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950">
+                <p className="font-semibold text-teal-900">Custom billing (Corporate plan)</p>
+                <p className="mt-1 text-teal-900/90">
+                  EasyPay will send an invoice and set up your corporate needs. Your subscription uses the
+                  Corporate plan (without POS, products, orders, or categories); platform staff will assign
+                  your pricing and billing cycle after onboarding.
+                </p>
+              </div>
+            ) : null}
 
             <div className="grid gap-5 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Plan</span>
                 <select
                   value={form.planId}
+                  disabled={isCorp}
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
                       planId: event.target.value as PlanId,
                     }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                 >
                   {plans.map((plan) => (
                     <option key={plan.id} value={plan.id}>
@@ -223,7 +249,11 @@ export function SignupPage() {
                       billingInterval: event.target.value as SubscriptionBillingInterval,
                     }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500"
+                  className={`w-full rounded-2xl border px-4 py-3 outline-none focus:border-teal-500 ${
+                    isCorp
+                      ? 'border-teal-300 bg-teal-50/80 ring-1 ring-teal-200/60'
+                      : 'border-slate-200'
+                  }`}
                 >
                   <option value="MONTHLY">Monthly</option>
                   <option value="YEARLY">Yearly (renewal every 12 months)</option>

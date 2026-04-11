@@ -5,6 +5,8 @@ export const PLATFORM_MODULE_SLUGS = {
   REPORTS: "platform.reports",
   PLAN_CONTROLS: "platform.plan_controls",
   BUSINESSES: "platform.businesses",
+  /** Merchant API / wallet credentials for a tenant (Wave, Yonna, APS). */
+  BUSINESSES_MERCHANT_API: "platform.businesses.merchant_api",
   /** Plan catalog pricing (monthly / yearly) for subscriptions. */
   BILLING: "platform.billing",
   SUBSCRIPTIONS: "platform.subscriptions",
@@ -48,6 +50,11 @@ export const PLATFORM_MODULES_SEED: { slug: string; label: string; sortOrder: nu
   { slug: PLATFORM_MODULE_SLUGS.REPORTS, label: "Reports", sortOrder: 30 },
   { slug: PLATFORM_MODULE_SLUGS.PLAN_CONTROLS, label: "Plan controls", sortOrder: 40 },
   { slug: PLATFORM_MODULE_SLUGS.BUSINESSES, label: "Businesses", sortOrder: 50 },
+  {
+    slug: PLATFORM_MODULE_SLUGS.BUSINESSES_MERCHANT_API,
+    label: "Businesses — Merchant API",
+    sortOrder: 51,
+  },
   { slug: PLATFORM_MODULE_SLUGS.BILLING, label: "Plan billing & pricing", sortOrder: 55 },
   { slug: PLATFORM_MODULE_SLUGS.SUBSCRIPTIONS, label: "Subscriptions", sortOrder: 60 },
   { slug: PLATFORM_MODULE_SLUGS.INVOICES, label: "Invoices", sortOrder: 70 },

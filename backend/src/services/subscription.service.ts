@@ -16,14 +16,15 @@ import {
   recordSubscriptionCheckoutWalletFeeTx,
 } from "./platform-subscription-journal.service.js";
 import {
-  addMonths,
-  addYears,
+  billingPeriodEndFromStart,
   createInvoiceReference,
   dueInDays,
 } from "../utils/billing.js";
 import { queueSubscriptionInvoiceOwnerEmail } from "./subscription-invoice-email.service.js";
 import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
 import { newGuestToken } from "../lib/guest-token.js";
+import { resolveSubscriptionInvoiceAmount } from "./corporate-billing.service.js";
+import { isCorporateIndustry } from "../utils/corporate-industry.js";
 
 /**
  * True when the user owns at least one business whose latest subscription is expired or past due.
@@ -99,7 +100,7 @@ function normalizeSlug(value: string) {
 
 export async function listPlans() {
   return prisma.plan.findMany({
-    where: { isActive: true },
+    where: { isActive: true, code: { not: PlanCode.CORPORATE } },
     orderBy: { monthlyPrice: "asc" },
   });
 }
@@ -155,9 +156,6 @@ function planAmountForInterval(
   return interval === BillingInterval.YEARLY ? plan.yearlyPrice : plan.monthlyPrice;
 }
 
-function billingPeriodEndFromStart(start: Date, interval: BillingInterval) {
-  return interval === BillingInterval.YEARLY ? addYears(start, 1) : addMonths(start, 1);
-}
 
 export async function createBusiness(input: CreateBusinessInput) {
   const slug = normalizeSlug(input.slug || input.name);
@@ -208,6 +206,7 @@ export async function getBusinessSubscription(businessId: string) {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     include: {
+      corporateBillingPlan: true,
       subscriptions: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -242,6 +241,7 @@ export async function createSubscriptionForBusinessTx(
 ) {
   const business = await tx.business.findUnique({
     where: { id: input.businessId },
+    include: { corporateBillingPlan: true },
   });
 
   if (!business) {
@@ -282,7 +282,12 @@ export async function createSubscriptionForBusinessTx(
   const currentPeriodStart = new Date();
   const trialEndsAt = dueInDays(currentPeriodStart, SUBSCRIPTION_TRIAL_DAYS);
   const billingPeriodEnd = billingPeriodEndFromStart(currentPeriodStart, billingInterval);
-  const invoiceAmount = planAmountForInterval(plan, billingInterval);
+  const { amount: invoiceAmount, currency: invoiceCurrency } = await resolveSubscriptionInvoiceAmount(
+    tx,
+    business.id,
+    plan,
+    billingInterval,
+  );
 
   const subscription = await tx.subscription.create({
     data: {
@@ -305,7 +310,7 @@ export async function createSubscriptionForBusinessTx(
       subscriptionId: subscription.id,
       planId: plan.id,
       amount: invoiceAmount,
-      currency: plan.currency,
+      currency: invoiceCurrency,
       status: InvoiceStatus.PENDING,
       billingPeriodStart: currentPeriodStart,
       billingPeriodEnd,
@@ -374,7 +379,12 @@ export async function changeSubscriptionPlan(input: {
       where: { id: sub.id },
       data: {
         planId: newPlan.id,
-        ...(input.billingInterval !== undefined ? { billingInterval: input.billingInterval } : {}),
+        ...(input.billingInterval !== undefined
+          ? {
+              billingInterval: input.billingInterval,
+              contractPerpetual: input.billingInterval === BillingInterval.CONTRACT_INFINITE,
+            }
+          : {}),
       },
     });
 
@@ -382,7 +392,27 @@ export async function changeSubscriptionPlan(input: {
       where: { id: sub.id },
     });
     const effectiveInterval = refreshed.billingInterval ?? BillingInterval.MONTHLY;
-    const amount = planAmountForInterval(newPlan, effectiveInterval);
+
+    const bizRow = await tx.business.findUnique({
+      where: { id: refreshed.businessId },
+      select: { industry: true, corporateBillingPlanId: true },
+    });
+    if (
+      bizRow &&
+      isCorporateIndustry(bizRow.industry) &&
+      bizRow.corporateBillingPlanId
+    ) {
+      await tx.business.update({
+        where: { id: refreshed.businessId },
+        data: { corporateBillingInterval: effectiveInterval },
+      });
+    }
+    const { amount, currency: invoiceCurrency } = await resolveSubscriptionInvoiceAmount(
+      tx,
+      refreshed.businessId,
+      newPlan,
+      effectiveInterval,
+    );
 
     /** Prior period payments are not credited toward the new plan; void pending rows and issue a fresh invoice. */
     const pendingToVoid = await tx.subscriptionInvoice.findMany({
@@ -404,16 +434,20 @@ export async function changeSubscriptionPlan(input: {
       },
     });
 
+    const periodEndForInvoice =
+      refreshed.currentPeriodEnd ??
+      billingPeriodEndFromStart(refreshed.currentPeriodStart, effectiveInterval);
+
     const issuedInvoice = await tx.subscriptionInvoice.create({
       data: {
         businessId: refreshed.businessId,
         subscriptionId: refreshed.id,
         planId: newPlan.id,
         amount,
-        currency: newPlan.currency,
+        currency: invoiceCurrency,
         status: InvoiceStatus.PENDING,
         billingPeriodStart: refreshed.currentPeriodStart,
-        billingPeriodEnd: refreshed.currentPeriodEnd,
+        billingPeriodEnd: periodEndForInvoice,
         dueDate: dueInDays(new Date(), 7),
         externalReference: createInvoiceReference(),
         guestToken: newGuestToken(),
@@ -452,6 +486,10 @@ export async function renewSubscription(subscriptionId: string) {
     throw new HttpError(404, "Subscription not found.");
   }
 
+  if (subscription.contractPerpetual || subscription.billingInterval === BillingInterval.CONTRACT_INFINITE) {
+    throw new HttpError(400, "This subscription is on a signed contract and does not auto-renew.");
+  }
+
   if (
     subscription.status !== SubscriptionStatus.ACTIVE &&
     subscription.status !== SubscriptionStatus.PAST_DUE
@@ -465,11 +503,19 @@ export async function renewSubscription(subscriptionId: string) {
   }
 
   const nextStart = subscription.currentPeriodEnd;
+  if (!nextStart) {
+    throw new HttpError(400, "Subscription has no period end to renew from.");
+  }
   const interval = subscription.billingInterval ?? BillingInterval.MONTHLY;
   const nextEnd = billingPeriodEndFromStart(nextStart, interval);
-  const renewalAmount = planAmountForInterval(subscription.plan, interval);
 
   const result = await prisma.$transaction(async (tx) => {
+    const { amount: renewalAmount, currency: renewalCurrency } = await resolveSubscriptionInvoiceAmount(
+      tx,
+      subscription.businessId,
+      subscription.plan,
+      interval,
+    );
     const updatedSubscription = await tx.subscription.update({
       where: { id: subscription.id },
       data: {
@@ -488,7 +534,7 @@ export async function renewSubscription(subscriptionId: string) {
         subscriptionId: subscription.id,
         planId: subscription.planId,
         amount: renewalAmount,
-        currency: subscription.plan.currency,
+        currency: renewalCurrency,
         status: InvoiceStatus.PENDING,
         billingPeriodStart: nextStart,
         billingPeriodEnd: nextEnd,
@@ -510,7 +556,7 @@ export async function renewSubscription(subscriptionId: string) {
 
 async function applySubscriptionActivationAfterInvoicePayment(
   tx: Prisma.TransactionClient,
-  subscription: { id: string; status: SubscriptionStatus },
+  subscription: { id: string; status: SubscriptionStatus; billingInterval: BillingInterval },
   paidInvoice: { billingPeriodStart: Date; billingPeriodEnd: Date },
 ): Promise<void> {
   if (
@@ -518,12 +564,14 @@ async function applySubscriptionActivationAfterInvoicePayment(
     subscription.status === SubscriptionStatus.EXPIRED ||
     subscription.status === SubscriptionStatus.PAST_DUE
   ) {
+    const perpetual = subscription.billingInterval === BillingInterval.CONTRACT_INFINITE;
     await tx.subscription.update({
       where: { id: subscription.id },
       data: {
         status: SubscriptionStatus.ACTIVE,
         currentPeriodStart: paidInvoice.billingPeriodStart,
-        currentPeriodEnd: paidInvoice.billingPeriodEnd,
+        currentPeriodEnd: perpetual ? null : paidInvoice.billingPeriodEnd,
+        contractPerpetual: perpetual,
         endedAt: null,
       },
     });
@@ -624,7 +672,9 @@ export async function completeSubscriptionInvoicePayment(
   return prisma.$transaction(async (tx) => {
     const invoice = await tx.subscriptionInvoice.findUnique({
       where: { id: input.invoiceId },
-      include: { subscription: true },
+      include: {
+        subscription: true,
+      },
     });
 
     if (!invoice) {

@@ -6,10 +6,16 @@ export type UserRole =
   | 'cashier'
   | 'customer'
 
-export type PlanId = 'basic' | 'pro' | 'business_pro'
+export type PlanId = 'basic' | 'pro' | 'business_pro' | 'corporate'
 
 /** Matches backend `BillingInterval` enum. */
-export type SubscriptionBillingInterval = 'MONTHLY' | 'YEARLY'
+export type SubscriptionBillingInterval =
+  | 'MONTHLY'
+  | 'QUARTERLY'
+  | 'HALF_YEARLY'
+  | 'YEARLY'
+  | 'TWO_YEARS'
+  | 'CONTRACT_INFINITE'
 
 export type BusinessMembershipStatus = 'ACTIVE' | 'BLOCKED' | 'SUSPENDED' | 'TERMINATED'
 
@@ -19,6 +25,8 @@ export type PermissionKey =
   | 'platform.manage'
   | 'platform.users.manage'
   | 'platform.businesses.manage'
+  | 'platform.businesses.merchant_api.view'
+  | 'platform.businesses.merchant_api.edit'
   | 'platform.subscriptions.view'
   | 'platform.invoices.view'
   | 'platform.invoices.export'

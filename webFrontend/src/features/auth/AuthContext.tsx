@@ -224,6 +224,15 @@ function isStaffCountValid(plan: SubscriptionPlan, staffCount: number) {
   return true
 }
 
+/** Public `GET /plans` omits CORPORATE; merge mock so signup and UI can resolve `corporate`. */
+function withCorporatePlanFromCatalog(plans: SubscriptionPlan[]): SubscriptionPlan[] {
+  if (plans.some((p) => p.id === 'corporate')) {
+    return plans
+  }
+  const fallback = SUBSCRIPTION_PLANS.find((p) => p.id === 'corporate')
+  return fallback ? [...plans, fallback] : plans
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => readStorage(STORAGE_KEYS.user, null))
   const [storedActiveOrganizationId, setStoredActiveOrganizationId] = useState<string | null>(() =>
@@ -236,7 +245,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     readStorage<Organization[]>(STORAGE_KEYS.organizations, []),
   )
   const [plans, setPlans] = useState<SubscriptionPlan[]>(() =>
-    readStorage(STORAGE_KEYS.plans, SUBSCRIPTION_PLANS),
+    withCorporatePlanFromCatalog(readStorage(STORAGE_KEYS.plans, SUBSCRIPTION_PLANS)),
   )
   const [planPermissions, setPlanPermissions] =
     useState<PlanPermissions>(() =>
@@ -292,7 +301,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshPlans = useCallback(async () => {
     try {
       const backendPlans = await fetchPlans()
-      setPlans(backendPlans)
+      setPlans(withCorporatePlanFromCatalog(backendPlans))
     } catch {
       // Keep current plans when the backend is unavailable.
     }
@@ -304,7 +313,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetchPlans()
       .then((backendPlans) => {
         if (!cancelled) {
-          setPlans(backendPlans)
+          setPlans(withCorporatePlanFromCatalog(backendPlans))
         }
       })
       .catch(() => {
@@ -759,7 +768,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         billingInterval,
       }) => {
         const normalizedEmail = ownerEmail.trim().toLowerCase()
-        const selectedPlan = plans.find((plan) => plan.id === planId)
+        const industryTrim = industry.trim()
+        const isCorp = industryTrim.toLowerCase() === 'corporate'
+        const effectivePlanId = isCorp ? ('corporate' as PlanId) : planId
+        const selectedPlan = plans.find((plan) => plan.id === effectivePlanId)
 
         if (!selectedPlan) {
           return { ok: false, error: 'Please select a valid subscription plan.' }
@@ -779,16 +791,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ownerEmail: normalizedEmail,
             businessName: organizationName.trim(),
             slug: slugify(organizationName),
-            industry: industry.trim(),
-            planId,
+            industry: industryTrim,
+            planId: effectivePlanId,
             billingInterval,
           })
 
           if (!wasAlreadySignedIn) {
             return {
               ok: true,
-              message:
-                'Account created and your trial has started. Check your email for a temporary password, then sign in.',
+              message: isCorp
+                ? 'Account created. EasyPay will follow up with corporate billing details. Check your email for a temporary password, then sign in.'
+                : 'Account created and your trial has started. Check your email for a temporary password, then sign in.',
               redirectPath: APP_PATHS.login,
             }
           }

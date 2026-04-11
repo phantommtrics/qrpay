@@ -1,5 +1,7 @@
 import { NextFunction, Request, Response } from "express";
+import { UserRole } from "@prisma/client";
 
+import { PLATFORM_MODULE_SLUGS } from "../config/platform-modules.js";
 import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import { userHasEntitlement } from "../services/entitlement.service.js";
@@ -214,6 +216,47 @@ export function requireBusinessOwnerOrPlatform() {
       });
       if (!membership) {
         throw new HttpError(403, "Only the business owner can access this.");
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+/**
+ * Gateway credentials + APS customer auths for `/api/businesses/:businessId/...`.
+ * Business owners need `merchant.api` entitlement; platform admins need Businesses — Merchant API (view/edit).
+ */
+export function requireMerchantApiGatewayAccess(options: { readonly: boolean }) {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        throw new HttpError(401, "Authentication required");
+      }
+      const businessId = (req.params as { businessId?: string }).businessId;
+      if (!businessId) {
+        throw new HttpError(400, "Business id required");
+      }
+      if (req.user.isPlatformOwner) {
+        next();
+        return;
+      }
+      if (req.user.role === UserRole.PLATFORM_ADMIN) {
+        const action = options.readonly ? "view" : "edit";
+        const row = req.user.platformPermissions?.[PLATFORM_MODULE_SLUGS.BUSINESSES_MERCHANT_API];
+        if (!row?.[action]) {
+          throw new HttpError(
+            403,
+            "You do not have permission to manage merchant API credentials for this business.",
+          );
+        }
+        next();
+        return;
+      }
+      const ok = await userHasEntitlement(req.user.id, businessId, "merchant.api");
+      if (!ok) {
+        throw new HttpError(403, "You do not have access to this feature for this business.");
       }
       next();
     } catch (error) {

@@ -155,6 +155,22 @@ async function main() {
         "Custom operational support",
       ],
     },
+    {
+      code: PlanCode.CORPORATE,
+      name: "Corporate",
+      monthlyPrice: "2999.00",
+      yearlyPrice: "29990.00",
+      description:
+        "Corporate organizations: Business Pro–class features without POS, products, orders, or catalogue categories; custom billing applies.",
+      staffLimit: 50,
+      outletLimit: 15,
+      productLimit: 0,
+      featureFlags: [
+        "Custom corporate billing",
+        "Finance and organization tooling",
+        "No POS / catalogue / orders (by design)",
+      ],
+    },
   ];
 
   for (const plan of plans) {

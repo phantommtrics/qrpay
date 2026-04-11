@@ -34,6 +34,8 @@ import {
 } from "./password-reset.service.js";
 import { getMergedPlatformPermissionsForUser } from "./platform-security.service.js";
 import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
+import { isCorporateIndustry } from "../utils/corporate-industry.js";
+import { sendCorporateBusinessCreatedOperatorEmail } from "./corporate-signup-notify.service.js";
 
 type RegisterBusinessOwnerInput = {
   ownerName: string;
@@ -181,7 +183,20 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
   const ownerEmail = input.ownerEmail.trim().toLowerCase();
   const businessName = input.businessName.trim();
   const requestedOwnerName = input.ownerName.trim();
-  const industry = input.industry?.trim() || null;
+  const rawIndustry = input.industry?.trim() || null;
+  const industry =
+    rawIndustry && rawIndustry.toLowerCase() === "corporate" ? "Corporate" : rawIndustry;
+
+  /** Corporate orgs use the Business Pro plan row for billing/catalog; entitlements are filtered by industry (see entitlement.service). */
+  const planCodeForSubscription =
+    industry && isCorporateIndustry(industry) ? PlanCode.BUSINESS_PRO : input.planCode;
+
+  if (
+    input.planCode === PlanCode.CORPORATE &&
+    !(industry && isCorporateIndustry(industry))
+  ) {
+    throw new HttpError(400, "The Corporate plan applies only to Corporate industry organizations.");
+  }
 
   const temporaryPassword = input.authenticatedUserId
     ? null
@@ -288,7 +303,7 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
 
     const { subscription, invoice } = await createSubscriptionForBusinessTx(tx, {
       businessId: business.id,
-      planCode: input.planCode,
+      planCode: planCodeForSubscription,
       billingInterval: input.billingInterval ?? BillingInterval.MONTHLY,
     });
 
@@ -307,11 +322,17 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
       temporaryPassword,
     };
     const inv = result.invoice;
+    const isCorpSignup = Boolean(industry && isCorporateIndustry(industry));
     const emailContent = buildSignUpTemporaryPasswordEmailContent(signupEmailInput, {
-      subscriptionPayOnlineUrl: inv.guestToken?.trim()
-        ? guestSubscriptionInvoiceUrl(inv.guestToken.trim())
-        : null,
-      subscriptionInvoiceRef: inv.externalReference?.trim() || inv.id,
+      corporateWelcome: isCorpSignup,
+      subscriptionPayOnlineUrl:
+        isCorpSignup || Number(inv.amount) === 0
+          ? null
+          : inv.guestToken?.trim()
+            ? guestSubscriptionInvoiceUrl(inv.guestToken.trim())
+            : null,
+      subscriptionInvoiceRef:
+        isCorpSignup || Number(inv.amount) === 0 ? null : inv.externalReference?.trim() || inv.id,
     });
 
     const notificationLog = await prisma.staffCreationNotificationLog.create({
@@ -370,7 +391,19 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
     }
   }
 
-  queueSubscriptionInvoiceOwnerEmail(result.invoice.id);
+  if (!isCorporateIndustry(industry)) {
+    queueSubscriptionInvoiceOwnerEmail(result.invoice.id);
+  }
+
+  if (industry && isCorporateIndustry(industry)) {
+    void sendCorporateBusinessCreatedOperatorEmail({
+      businessId: result.business.id,
+      businessName: result.business.name,
+      businessSlug: result.business.slug,
+      ownerName: result.user.name,
+      ownerEmail: result.user.email,
+    }).catch((err) => console.error("[corporate-signup-notify]", err));
+  }
 
   const access = await listAccessibleBusinesses(result.user.id);
 
