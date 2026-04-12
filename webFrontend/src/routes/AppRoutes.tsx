@@ -6,7 +6,6 @@ import { useAuth } from '../features/auth/AuthContext'
 import type { PermissionKey, UserRole } from '../types'
 import { AuthOnlyRoute } from './AuthOnlyRoute'
 import { ProtectedRoute } from './ProtectedRoute'
-import { RouteFallback } from './RouteFallback'
 
 const LandingPage = lazy(() =>
   import('../screens/LandingPage').then((module) => ({
@@ -898,7 +897,7 @@ export function AppRoutes() {
   ]
 
   return (
-    <Suspense fallback={<RouteFallback />}>
+    <Suspense fallback={null}>
       <Routes>
         <Route path={APP_PATHS.root} element={<LandingPage />} />
         <Route

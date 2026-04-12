@@ -1,2 +1,0 @@
--- AlterEnum
-ALTER TYPE "JournalSourceType" ADD VALUE 'MANUAL_GENERAL_JOURNAL';
