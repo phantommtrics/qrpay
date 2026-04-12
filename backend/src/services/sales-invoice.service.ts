@@ -1,4 +1,4 @@
-import { PaymentStatus, Prisma, SalesInvoiceStatus } from "@prisma/client";
+import { ChartAccountCategory, PaymentStatus, Prisma, SalesInvoiceStatus } from "@prisma/client";
 
 import { HttpError } from "../lib/http-error.js";
 import { newGuestToken } from "../lib/guest-token.js";
@@ -8,6 +8,7 @@ import { queueSalesInvoiceApprovedEmail } from "./sales-invoice-email.service.js
 import {
   type ManualJournalLineInput,
   postMoneyInJournalForSalesInvoice,
+  postMoneyInJournalForSalesInvoiceWalletClearing,
 } from "./manual-journal.service.js";
 import type { SalesLineInput } from "./sales-quotation.service.js";
 
@@ -74,6 +75,8 @@ export async function createSalesInvoice(
     dueDate?: Date | null;
     reference?: string | null;
     currency?: string;
+    /** Bank/cash asset where online wallet proceeds should be recorded when the invoice is paid. */
+    settlementChartAccountId?: string | null;
     lines: SalesLineInput[];
   },
 ) {
@@ -84,6 +87,20 @@ export async function createSalesInvoice(
     });
     if (!contact) {
       throw new HttpError(404, "Contact not found.");
+    }
+    let settlementId: string | null = null;
+    const rawSettle = input.settlementChartAccountId?.trim();
+    if (rawSettle) {
+      const acct = await tx.chartOfAccount.findFirst({
+        where: { id: rawSettle, businessId },
+      });
+      if (!acct) {
+        throw new HttpError(404, "Settlement chart account not found.");
+      }
+      if (acct.category !== ChartAccountCategory.ASSET) {
+        throw new HttpError(400, "Settlement account for invoice proceeds must be an asset (bank or cash).");
+      }
+      settlementId = acct.id;
     }
     const publicCode = await allocateInvoicePublicCode(tx, businessId);
     return tx.salesInvoice.create({
@@ -96,6 +113,7 @@ export async function createSalesInvoice(
         dueDate: input.dueDate ?? null,
         reference: input.reference?.trim() || null,
         currency: (input.currency ?? "GMD").trim() || "GMD",
+        settlementChartAccountId: settlementId,
         lines: {
           create: input.lines.map((l, sortOrder) => ({
             chartOfAccountId: l.chartOfAccountId,
@@ -129,6 +147,7 @@ export async function updateSalesInvoiceDraft(
     dueDate?: Date | null;
     reference?: string | null;
     currency?: string;
+    settlementChartAccountId?: string | null;
     lines?: SalesLineInput[];
   },
 ) {
@@ -158,6 +177,25 @@ export async function updateSalesInvoiceDraft(
       await tx.salesInvoiceLine.deleteMany({ where: { invoiceId } });
     }
 
+    let settlementPatch: { settlementChartAccountId: string | null } | undefined;
+    if (input.settlementChartAccountId !== undefined) {
+      const raw = input.settlementChartAccountId?.trim();
+      if (!raw) {
+        settlementPatch = { settlementChartAccountId: null };
+      } else {
+        const acct = await tx.chartOfAccount.findFirst({
+          where: { id: raw, businessId },
+        });
+        if (!acct) {
+          throw new HttpError(404, "Settlement chart account not found.");
+        }
+        if (acct.category !== ChartAccountCategory.ASSET) {
+          throw new HttpError(400, "Settlement account for invoice proceeds must be an asset (bank or cash).");
+        }
+        settlementPatch = { settlementChartAccountId: acct.id };
+      }
+    }
+
     return tx.salesInvoice.update({
       where: { id: invoiceId },
       data: {
@@ -168,6 +206,7 @@ export async function updateSalesInvoiceDraft(
         ...(input.currency !== undefined
           ? { currency: (input.currency ?? "GMD").trim() || "GMD" }
           : {}),
+        ...settlementPatch,
         ...(input.lines
           ? {
               lines: {
@@ -314,7 +353,7 @@ export async function markSalesInvoicePaid(
   });
 }
 
-/** Used when a guest completes QR wallet pay for an approved sales invoice (same GL outcome as mark paid). */
+/** Used when a guest completes QR wallet pay for an approved sales invoice (wallet clearing + settlement asset). */
 export async function markSalesInvoicePaidWithWalletPayment(
   tx: Prisma.TransactionClient,
   businessId: string,
@@ -350,7 +389,7 @@ export async function markSalesInvoicePaidWithWalletPayment(
     .filter(Boolean)
     .join(" | ");
 
-  const entry = await postMoneyInJournalForSalesInvoice(
+  const entry = await postMoneyInJournalForSalesInvoiceWalletClearing(
     businessId,
     {
       invoiceId: inv.id,

@@ -746,8 +746,6 @@ async function completeSalesInvoiceWalletPaymentCore(
     throw new HttpError(400, "Payment cannot be completed.");
   }
 
-  const settlementId = await resolveDefaultBankSettlementAccountId(payment.businessId);
-
   return prisma.$transaction(
     async (tx) => {
       if (options?.externalEventId) {
@@ -808,6 +806,10 @@ async function completeSalesInvoiceWalletPaymentCore(
       if (fresh.status !== PaymentStatus.PENDING) {
         throw new HttpError(400, "Payment cannot be completed.");
       }
+
+      const settlementId =
+        fresh.salesInvoice.settlementChartAccountId?.trim() ||
+        (await resolveDefaultBankSettlementAccountId(fresh.businessId));
 
       await markSalesInvoicePaidWithWalletPayment(
         tx,

@@ -136,6 +136,8 @@ export function SalesInvoicesPage() {
   const [issueDate, setIssueDate] = useState(todayDateInput)
   const [dueDate, setDueDate] = useState('')
   const [reference, setReference] = useState('')
+  /** Bank/cash asset for recording proceeds when the invoice is paid (wallet uses MERCHANT_WALLET_CLEARING in the journal). */
+  const [settlementChartAccountId, setSettlementChartAccountId] = useState('')
   const [contactId, setContactId] = useState('')
   const [contactInput, setContactInput] = useState('')
   const [lines, setLines] = useState<LineDraft[]>(() => [newLine()])
@@ -206,6 +208,7 @@ export function SalesInvoicesPage() {
     setIssueDate(todayDateInput())
     setDueDate('')
     setReference('')
+    setSettlementChartAccountId('')
     setContactId('')
     setContactInput('')
     setLines([newLine()])
@@ -216,6 +219,7 @@ export function SalesInvoicesPage() {
     setIssueDate(inv.issueDate.slice(0, 10))
     setDueDate(inv.dueDate ? inv.dueDate.slice(0, 10) : '')
     setReference(inv.reference ?? '')
+    setSettlementChartAccountId(inv.settlementChartAccountId ?? '')
     setContactId(inv.contactId)
     setContactInput(inv.contact.name)
     const ordered = [...inv.lines].sort((a, b) => a.sortOrder - b.sortOrder)
@@ -255,7 +259,7 @@ export function SalesInvoicesPage() {
 
   const openMarkPaid = (inv: SalesInvoiceRow) => {
     setPayTarget(inv)
-    setPaySettlementId('')
+    setPaySettlementId(inv.settlementChartAccountId ?? '')
     setPayPostedAt(todayDateInput())
     setError(null)
     setToast(null)
@@ -325,6 +329,10 @@ export function SalesInvoicesPage() {
       reportError('Select an issue date.')
       return
     }
+    if (!settlementChartAccountId.trim()) {
+      reportError('Select the settlement account (bank or cash) where invoice proceeds should be recorded when paid.')
+      return
+    }
 
     setBusy(true)
     try {
@@ -334,6 +342,7 @@ export function SalesInvoicesPage() {
           issueDate: dateInputToIso(issueDate),
           dueDate: dueDate.trim() ? dateInputToIso(dueDate.trim()) : null,
           reference: reference.trim() || null,
+          settlementChartAccountId: settlementChartAccountId.trim(),
           lines: payloadLines,
         })
         setToast({ message: 'Invoice draft updated.', variant: 'success' })
@@ -343,6 +352,7 @@ export function SalesInvoicesPage() {
           issueDate: dateInputToIso(issueDate),
           dueDate: dueDate.trim() ? dateInputToIso(dueDate.trim()) : null,
           reference: reference.trim() || null,
+          settlementChartAccountId: settlementChartAccountId.trim(),
           lines: payloadLines,
         })
         setToast({ message: 'Invoice saved as draft.', variant: 'success' })
@@ -424,8 +434,9 @@ export function SalesInvoicesPage() {
             <h1 className="text-2xl font-semibold tracking-tight text-qb-heading">Sales invoices</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-qb-muted">
               Draft invoices can be edited; approving emails the customer and requires their contact
-              email. The general ledger is updated only when you mark an invoice as paid (cash-basis) —
-              choose the bank or cash account and payment date, same as money-in journals.
+              email. Choose a settlement asset for proceeds when paid. Manual mark-paid posts directly
+              there; online wallet payments journal through digital clearing (MERCHANT_WALLET_CLEARING)
+              into that account.
             </p>
           </div>
 
@@ -750,6 +761,27 @@ export function SalesInvoicesPage() {
                   placeholder="Optional"
                 />
               </label>
+
+              <div className="max-w-md space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                  Settlement account (asset)
+                </span>
+                <p className="text-xs leading-relaxed text-qb-muted">
+                  Bank or cash account where paid proceeds are recorded. Required for new invoices; used
+                  when customers pay online (wallet entries clear through MERCHANT_WALLET_CLEARING).
+                </p>
+                <SearchableSelect
+                  value={settlementChartAccountId}
+                  onChange={setSettlementChartAccountId}
+                  options={assetSelectOptions}
+                  placeholder="Cash or bank for proceeds"
+                  emptyMessage="No asset accounts"
+                  noResultsMessage="No matching account"
+                  buttonClassName={QB_SELECT_FORM}
+                  listMaxHeightClass={ACCOUNT_LIST_MAX}
+                  dropdownClassName={QB_DROPDOWN}
+                />
+              </div>
 
               <div className="overflow-x-auto rounded-sm border border-qb-border bg-white">
                 <table className="w-full min-w-[720px] border-collapse text-left text-sm">

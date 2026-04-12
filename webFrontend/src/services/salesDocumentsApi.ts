@@ -106,6 +106,8 @@ export type CreateSalesInvoiceBody = {
   dueDate?: string | null
   reference?: string | null
   currency?: string | null
+  /** Bank/cash asset where wallet / online invoice proceeds are posted when paid. */
+  settlementChartAccountId?: string | null
   lines: SalesDocumentLinePayload[]
 }
 

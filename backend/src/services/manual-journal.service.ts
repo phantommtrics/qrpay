@@ -7,6 +7,11 @@ import {
 
 import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
+import {
+  CHART_CODE_MERCHANT_WALLET_CLEARING,
+  ensureDefaultChartOfAccountsForBusiness,
+  getChartAccountByCode,
+} from "./chart-of-accounts.service.js";
 import { createBusinessContact, getBusinessContactOrThrow } from "./business-contact.service.js";
 
 type DbClient = typeof prisma | Prisma.TransactionClient;
@@ -297,6 +302,133 @@ export async function postMoneyInJournalForSalesInvoice(
     },
     db,
   );
+}
+
+/**
+ * Sales invoice paid by QR / digital wallet: same net P&L as money-in, but shows wallet clearing
+ * (MERCHANT_WALLET_CLEARING) like POS wallet sales — Dr clearing · Cr revenue lines · Dr settlement · Cr clearing.
+ */
+export async function postMoneyInJournalForSalesInvoiceWalletClearing(
+  businessId: string,
+  input: {
+    invoiceId: string;
+    contactId: string;
+    postedAt: Date;
+    reference?: string | null;
+    /** Bank or cash asset where the business records net wallet proceeds. */
+    settlementChartAccountId: string;
+    lines: ManualJournalLineInput[];
+    memo: string;
+  },
+  db: DbClient = prisma,
+) {
+  if (!input.lines.length) {
+    throw new HttpError(400, "Add at least one line.");
+  }
+
+  await ensureDefaultChartOfAccountsForBusiness(db, businessId);
+
+  const settlement = await loadChartAccount(businessId, input.settlementChartAccountId, db);
+  assertAssetSettlement(settlement);
+
+  const clearing = await getChartAccountByCode(db, businessId, CHART_CODE_MERCHANT_WALLET_CLEARING);
+  if (!clearing) {
+    throw new HttpError(
+      503,
+      `Chart account ${CHART_CODE_MERCHANT_WALLET_CLEARING} is missing. Run chart setup or contact support.`,
+    );
+  }
+
+  const lineRows: MoneyInJournalPayload["lineRows"] = [];
+  let creditSum = dec(0);
+
+  for (const line of input.lines) {
+    const narration = line.narration?.trim() || "Sales invoice line";
+    if (narration.length > 4000) {
+      throw new HttpError(400, "Narration is too long.");
+    }
+    await loadChartAccount(businessId, line.chartOfAccountId, db);
+    const total = lineTotal(line);
+    if (total.lte(0)) {
+      throw new HttpError(400, "Each line total must be greater than zero.");
+    }
+    creditSum = creditSum.add(total);
+    lineRows.push({
+      chartOfAccountId: line.chartOfAccountId,
+      creditAmount: total,
+      description: narration,
+      quantity: dec(line.quantity),
+      unitLabel: line.unitLabel?.trim() || null,
+      taxAmount: roundMoney(dec(line.taxAmount)),
+    });
+  }
+
+  creditSum = roundMoney(creditSum);
+
+  const clearingDebitDesc = [
+    "Debit — Digital payments clearing: wallet proceeds received (in transit).",
+    `Sales invoice ${input.reference?.trim() || ""}; recognise revenue on credit lines.`,
+    "Paired with credit to clearing when posting funds to the chosen settlement account.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const settlementDebitDesc = [
+    `Debit — ${settlement.name} (${settlement.code}): invoice wallet proceeds recorded here.`,
+    "Asset increased per the settlement account chosen for this invoice.",
+  ].join(" ");
+
+  const clearingCreditDesc = [
+    `Credit — Digital payments clearing: clear in-transit wallet balance into ${settlement.name} (${settlement.code}).`,
+    "Pairs with the settlement debit; net effect matches a direct receipt to the settlement account.",
+  ].join(" ");
+
+  return db.journalEntry.create({
+    data: {
+      businessId,
+      postedAt: input.postedAt,
+      memo: input.memo,
+      reference: input.reference?.trim() || null,
+      contactId: input.contactId,
+      sourceType: JournalSourceType.SALES_INVOICE_PAYMENT,
+      sourceId: input.invoiceId,
+      lines: {
+        create: [
+          {
+            chartOfAccountId: clearing.id,
+            debitAmount: creditSum,
+            creditAmount: dec(0),
+            description: clearingDebitDesc,
+            taxAmount: dec(0),
+          },
+          ...lineRows.map((r) => ({
+            chartOfAccountId: r.chartOfAccountId,
+            debitAmount: dec(0),
+            creditAmount: r.creditAmount,
+            description: r.description,
+            quantity: r.quantity,
+            unitLabel: r.unitLabel,
+            taxAmount: r.taxAmount,
+          })),
+          {
+            chartOfAccountId: settlement.id,
+            debitAmount: creditSum,
+            creditAmount: dec(0),
+            description: settlementDebitDesc,
+            taxAmount: dec(0),
+          },
+          {
+            chartOfAccountId: clearing.id,
+            debitAmount: dec(0),
+            creditAmount: creditSum,
+            description: clearingCreditDesc,
+            taxAmount: dec(0),
+          },
+        ],
+      },
+    },
+    include: { lines: { include: { chartOfAccount: { select: { code: true, name: true } } } } },
+  });
 }
 
 /**

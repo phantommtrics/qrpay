@@ -34,7 +34,10 @@ import {
   type ApsGatewaySecrets,
   getDecryptedGatewaySecrets,
 } from "./business-gateway-credential.service.js";
-import { nextPaymentPublicCode } from "./order-wallet-checkout.service.js";
+import {
+  nextPaymentPublicCode,
+  upsertSalesInvoiceWalletPayment,
+} from "./order-wallet-checkout.service.js";
 import { completeWalletPaymentByPublicToken } from "./sale.service.js";
 import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
 
@@ -486,33 +489,21 @@ export async function authorizeGuestSalesInvoiceApsWalletCheckout(input: {
     gatewayCode: code,
   });
 
-  await prisma.payment.updateMany({
-    where: {
-      salesInvoiceId: invoice.id,
-      businessId: invoice.businessId,
-      method: PaymentMethod.QR_WALLET,
-      status: PaymentStatus.PENDING,
-    },
-    data: { status: PaymentStatus.CANCELLED },
-  });
-
   const publicToken = genPublicToken();
-  const payment = await prisma.payment.create({
-    data: {
-      businessId: invoice.businessId,
-      orderId: null,
-      salesInvoiceId: invoice.id,
-      publicCode: await nextPaymentPublicCode(prisma, invoice.businessId, invoice.business.name),
+  const payment = await upsertSalesInvoiceWalletPayment(
+    invoice.id,
+    invoice.businessId,
+    invoice.business.name,
+    {
+      total,
+      currency: invoice.currency,
       method: PaymentMethod.QR_WALLET,
       provider: PaymentProvider.APS_WALLET,
       gatewayCode: code,
-      status: PaymentStatus.PENDING,
-      amount: total,
-      currency: invoice.currency,
       providerRef: `authorize:${Date.now().toString(36)}`,
       publicToken,
     },
-  });
+  );
 
   const gateway = await getPaymentGatewayByCode(code);
   if (!gateway) {

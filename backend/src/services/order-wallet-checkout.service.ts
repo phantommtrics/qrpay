@@ -72,9 +72,9 @@ function genPublicToken(): string {
 
 /**
  * `Payment.salesInvoiceId` is @unique — only one row per invoice. Reuse/update it on retries
- * (e.g. switch Wave → Yonna) instead of inserting again.
+ * (e.g. switch Wave → Yonna, or a new APS authorize after a failed/cancelled attempt) instead of inserting again.
  */
-async function upsertSalesInvoiceWalletPayment(
+export async function upsertSalesInvoiceWalletPayment(
   invoiceId: string,
   businessId: string,
   businessName: string,

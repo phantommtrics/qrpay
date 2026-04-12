@@ -6799,6 +6799,8 @@ const salesInvoiceCreateBodySchema = z.object({
   dueDate: z.string().optional().nullable(),
   reference: z.string().trim().max(200).optional().nullable(),
   currency: z.string().trim().max(8).optional().nullable(),
+  /** Bank/cash asset for recording wallet / online invoice proceeds when paid. */
+  settlementChartAccountId: z.string().trim().min(1).optional().nullable(),
   lines: z.array(manualJournalLineSchema).min(1),
 });
 
@@ -7494,6 +7496,7 @@ app.post(
         dueDate: parseOptionalIsoDate(body.dueDate),
         reference: body.reference ?? null,
         currency: body.currency ?? undefined,
+        settlementChartAccountId: body.settlementChartAccountId ?? undefined,
         lines: mapSalesLineInputs(body.lines),
       });
       response.status(201).json({ data: formatSalesInvoiceApi(row) });
@@ -7570,6 +7573,9 @@ app.patch(
         ...(body.dueDate !== undefined ? { dueDate: parseOptionalIsoDate(body.dueDate) } : {}),
         ...(body.reference !== undefined ? { reference: body.reference } : {}),
         ...(body.currency !== undefined ? { currency: body.currency ?? undefined } : {}),
+        ...(body.settlementChartAccountId !== undefined
+          ? { settlementChartAccountId: body.settlementChartAccountId }
+          : {}),
         ...(body.lines !== undefined ? { lines: mapSalesLineInputs(body.lines) } : {}),
       });
       response.json({ data: formatSalesInvoiceApi(row) });
