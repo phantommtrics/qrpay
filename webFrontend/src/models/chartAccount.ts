@@ -8,6 +8,137 @@ import {
 } from 'lucide-react'
 
 import type { AccountingAccountRow } from '../services/accountingApi'
+import type { ChartAccountCategory } from '../services/accountingApi'
+
+/** Grouped “account type” choices when creating a ledger line; each maps to a `ChartAccountCategory` for the API. */
+export const CHART_ACCOUNT_TYPE_GROUPS = [
+  'Assets',
+  'Equity',
+  'Expense',
+  'Liabilities',
+  'Revenue',
+] as const
+
+export type ChartAccountTypeGroup = (typeof CHART_ACCOUNT_TYPE_GROUPS)[number]
+
+export type ChartAccountTypeOption = {
+  key: string
+  group: ChartAccountTypeGroup
+  label: string
+  category: ChartAccountCategory
+  searchText: string
+}
+
+export const CHART_ACCOUNT_TYPE_OPTIONS: ChartAccountTypeOption[] = [
+  {
+    key: 'asset-current',
+    group: 'Assets',
+    label: 'current asset',
+    category: 'ASSET',
+    searchText: 'asset current receivable cash bank',
+  },
+  {
+    key: 'asset-fixed',
+    group: 'Assets',
+    label: 'fixed asset',
+    category: 'ASSET',
+    searchText: 'asset fixed ppe property plant equipment',
+  },
+  {
+    key: 'asset-inventory',
+    group: 'Assets',
+    label: 'inventory',
+    category: 'ASSET',
+    searchText: 'asset inventory stock',
+  },
+  {
+    key: 'asset-non-current',
+    group: 'Assets',
+    label: 'non-current Asset',
+    category: 'ASSET',
+    searchText: 'asset non-current long term',
+  },
+  {
+    key: 'asset-prepayment',
+    group: 'Assets',
+    label: 'Prepayment',
+    category: 'ASSET',
+    searchText: 'asset prepayment prepaid deferral',
+  },
+  {
+    key: 'equity-equity',
+    group: 'Equity',
+    label: 'Equity',
+    category: 'EQUITY',
+    searchText: 'equity capital retained owner',
+  },
+  {
+    key: 'expense-depreciation',
+    group: 'Expense',
+    label: 'Depreciation',
+    category: 'EXPENSE',
+    searchText: 'expense depreciation amortization',
+  },
+  {
+    key: 'expense-direct-cost',
+    group: 'Expense',
+    label: 'Direct cost',
+    category: 'EXPENSE',
+    searchText: 'expense direct cost cogs cos',
+  },
+  {
+    key: 'expense-expense',
+    group: 'Expense',
+    label: 'expense',
+    category: 'EXPENSE',
+    searchText: 'expense operating opex',
+  },
+  {
+    key: 'expense-overhead',
+    group: 'Expense',
+    label: 'overhead',
+    category: 'EXPENSE',
+    searchText: 'expense overhead indirect admin',
+  },
+  {
+    key: 'liability-non-current',
+    group: 'Liabilities',
+    label: 'non-current liability',
+    category: 'LIABILITY',
+    searchText: 'liability non-current long term loan',
+  },
+  {
+    key: 'revenue-other-income',
+    group: 'Revenue',
+    label: 'other income',
+    category: 'REVENUE',
+    searchText: 'revenue other income miscellaneous',
+  },
+  {
+    key: 'revenue-revenue',
+    group: 'Revenue',
+    label: 'Revenue',
+    category: 'REVENUE',
+    searchText: 'revenue income',
+  },
+  {
+    key: 'revenue-sales',
+    group: 'Revenue',
+    label: 'sales',
+    category: 'REVENUE',
+    searchText: 'revenue sales turnover',
+  },
+]
+
+export const DEFAULT_CHART_ACCOUNT_TYPE_KEY = 'expense-expense'
+
+const TYPE_KEY_TO_CATEGORY = new Map(
+  CHART_ACCOUNT_TYPE_OPTIONS.map((o) => [o.key, o.category] as const),
+)
+
+export function chartAccountCategoryForTypeKey(key: string): ChartAccountCategory {
+  return TYPE_KEY_TO_CATEGORY.get(key) ?? 'EXPENSE'
+}
 
 /** Canonical ordering for statement-style presentation. */
 export const CHART_CATEGORY_ORDER = [

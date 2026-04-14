@@ -19,10 +19,14 @@ import { PageTransition } from '../components/ui/PageTransition'
 import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
 import {
+  CHART_ACCOUNT_TYPE_OPTIONS,
   CHART_CATEGORY_META,
   CHART_CATEGORY_ORDER,
+  CHART_ACCOUNT_TYPE_GROUPS,
+  chartAccountCategoryForTypeKey,
   chartAccountsMatchQuery,
   compareChartAccountCodes,
+  DEFAULT_CHART_ACCOUNT_TYPE_KEY,
   toChartAccountView,
   type ChartAccountView,
   type ChartCategoryOrder,
@@ -31,7 +35,6 @@ import {
   createChartAccount,
   fetchAccountingSummary,
   type AccountingAccountRow,
-  type ChartAccountCategory,
 } from '../services/accountingApi'
 import { ApiError } from '../services/subscriptionApi'
 import { formatMoney } from '../utils/formatMoney'
@@ -60,21 +63,13 @@ function chartAccountDetailsCell(a: AccountingAccountRow) {
   return <span className="text-slate-400">—</span>
 }
 
-const CATEGORY_OPTIONS: { value: ChartAccountCategory; label: string; searchText: string }[] = [
-  { value: 'ASSET', label: 'Asset', searchText: 'asset assets cash receivable owned' },
-  { value: 'LIABILITY', label: 'Liability', searchText: 'liability liabilities owed payable loan prepayment' },
-  { value: 'EQUITY', label: 'Equity', searchText: 'equity owner capital retained' },
-  { value: 'REVENUE', label: 'Revenue', searchText: 'revenue income sales turnover' },
-  { value: 'EXPENSE', label: 'Expense', searchText: 'expense expenses cost operating opex cogs' },
-]
-
-function CategorySearchCombobox({
+function AccountTypeSearchCombobox({
   value,
   onChange,
   disabled,
 }: {
-  value: ChartAccountCategory
-  onChange: (v: ChartAccountCategory) => void
+  value: string
+  onChange: (accountTypeKey: string) => void
   disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -84,16 +79,32 @@ function CategorySearchCombobox({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [panelStyle, setPanelStyle] = useState<CSSProperties>({})
 
-  const selectedLabel = CATEGORY_OPTIONS.find((o) => o.value === value)?.label ?? value
+  const selected = CHART_ACCOUNT_TYPE_OPTIONS.find((o) => o.key === value)
+  const selectedLabel = selected ? `${selected.group} · ${selected.label}` : 'Select account type'
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase()
-    if (!q) return CATEGORY_OPTIONS
-    return CATEGORY_OPTIONS.filter((o) => {
-      const blob = `${o.label} ${o.value} ${o.searchText}`.toLowerCase()
+    if (!q) return CHART_ACCOUNT_TYPE_OPTIONS
+    return CHART_ACCOUNT_TYPE_OPTIONS.filter((o) => {
+      const blob = `${o.group} ${o.label} ${o.category} ${o.searchText}`.toLowerCase()
       return q.split(/\s+/).every((t) => blob.includes(t))
     })
   }, [filter])
+
+  const groupedFiltered = useMemo(() => {
+    const byGroup = new Map<string, typeof CHART_ACCOUNT_TYPE_OPTIONS>()
+    for (const g of CHART_ACCOUNT_TYPE_GROUPS) {
+      byGroup.set(g, [])
+    }
+    for (const o of filtered) {
+      const list = byGroup.get(o.group) ?? []
+      list.push(o)
+      byGroup.set(o.group, list)
+    }
+    return CHART_ACCOUNT_TYPE_GROUPS.map((g) => ({ group: g, options: byGroup.get(g) ?? [] })).filter(
+      (s) => s.options.length > 0,
+    )
+  }, [filtered])
 
   const reposition = useCallback(() => {
     const el = triggerRef.current
@@ -159,8 +170,8 @@ function CategorySearchCombobox({
     return () => document.removeEventListener('mousedown', onDown)
   }, [open])
 
-  const pick = (v: ChartAccountCategory) => {
-    onChange(v)
+  const pick = (key: string) => {
+    onChange(key)
     setOpen(false)
     setFilter('')
     triggerRef.current?.focus()
@@ -172,10 +183,10 @@ function CategorySearchCombobox({
         ref={triggerRef}
         type="button"
         disabled={disabled}
-        id="chart-account-category-trigger"
+        id="chart-account-type-trigger"
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-controls="chart-account-category-listbox"
+        aria-controls="chart-account-type-listbox"
         onClick={() => {
           if (disabled) return
           setOpen((o) => !o)
@@ -194,9 +205,9 @@ function CategorySearchCombobox({
         ? createPortal(
             <div
               ref={panelRef}
-              id="chart-account-category-listbox"
+              id="chart-account-type-listbox"
               role="listbox"
-              aria-labelledby="chart-account-category-trigger"
+              aria-labelledby="chart-account-type-trigger"
               style={panelStyle}
               className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-slate-900/5"
             >
@@ -211,13 +222,13 @@ function CategorySearchCombobox({
                     type="search"
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
-                    placeholder="Search categories…"
+                    placeholder="Search account types…"
                     className="w-full rounded-lg border border-slate-200 bg-slate-50/80 py-2 pl-8 pr-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-teal-400 focus:bg-white focus:ring-2 focus:ring-teal-500/20"
                     autoComplete="off"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && filtered.length === 1) {
                         e.preventDefault()
-                        pick(filtered[0].value)
+                        pick(filtered[0].key)
                       }
                     }}
                   />
@@ -227,19 +238,28 @@ function CategorySearchCombobox({
                 {filtered.length === 0 ? (
                   <li className="px-3 py-2 text-sm text-slate-500">No matches</li>
                 ) : (
-                  filtered.map((o) => (
-                    <li key={o.value} role="presentation">
-                      <button
-                        type="button"
-                        role="option"
-                        aria-selected={o.value === value}
-                        onClick={() => pick(o.value)}
-                        className={`flex w-full px-3 py-2.5 text-left text-sm transition-colors hover:bg-slate-50 ${
-                          o.value === value ? 'bg-teal-50/80 font-medium text-teal-900' : 'text-slate-800'
-                        }`}
-                      >
-                        {o.label}
-                      </button>
+                  groupedFiltered.map(({ group, options }) => (
+                    <li key={group} role="presentation" className="list-none">
+                      <div className="sticky top-0 z-[1] bg-slate-50/95 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 backdrop-blur-sm">
+                        {group}
+                      </div>
+                      <ul role="presentation">
+                        {options.map((o) => (
+                          <li key={o.key} role="presentation">
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={o.key === value}
+                              onClick={() => pick(o.key)}
+                              className={`flex w-full px-3 py-2.5 pl-4 text-left text-sm transition-colors hover:bg-slate-50 ${
+                                o.key === value ? 'bg-teal-50/80 font-medium text-teal-900' : 'text-slate-800'
+                              }`}
+                            >
+                              {o.label}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
                     </li>
                   ))
                 )}
@@ -267,7 +287,7 @@ export function AccountingChartAccountsPage() {
     code: '',
     name: '',
     description: '',
-    category: 'EXPENSE' as ChartAccountCategory,
+    accountTypeKey: DEFAULT_CHART_ACCOUNT_TYPE_KEY,
     bankName: '',
     bankAccountNumber: '',
     bankDetails: '',
@@ -339,7 +359,7 @@ export function AccountingChartAccountsPage() {
       code: '',
       name: '',
       description: '',
-      category: 'EXPENSE',
+      accountTypeKey: DEFAULT_CHART_ACCOUNT_TYPE_KEY,
       bankName: '',
       bankAccountNumber: '',
       bankDetails: '',
@@ -369,7 +389,7 @@ export function AccountingChartAccountsPage() {
           kind: 'LEDGER',
           code: form.code.trim(),
           name: form.name.trim(),
-          category: form.category,
+          category: chartAccountCategoryForTypeKey(form.accountTypeKey),
           ...(desc ? { description: desc } : {}),
         })
       }
@@ -638,7 +658,7 @@ export function AccountingChartAccountsPage() {
             <form className="mt-8 space-y-5" onSubmit={(e) => void handleCreate(e)}>
               <div className="space-y-2">
                 <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Account type
+                  Account kind
                 </span>
                 <div className="flex rounded-xl border border-slate-200 bg-slate-50/80 p-1">
                   <button
@@ -778,12 +798,12 @@ export function AccountingChartAccountsPage() {
               {form.accountKind === 'ledger' ? (
                 <div className="space-y-2">
                   <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Category
+                    Account type
                   </span>
-                  <CategorySearchCombobox
-                    value={form.category}
+                  <AccountTypeSearchCombobox
+                    value={form.accountTypeKey}
                     disabled={submitting}
-                    onChange={(category) => setForm((f) => ({ ...f, category }))}
+                    onChange={(accountTypeKey) => setForm((f) => ({ ...f, accountTypeKey }))}
                   />
                 </div>
               ) : null}
