@@ -46,6 +46,11 @@ export async function getStoredApsAuthorizedToken(
   if (!row) {
     return null;
   }
+  // A successful APS unlink means the previously stored authorized token is no longer valid.
+  // Keep the row for analytics, but force next checkout to run OTP and mint a fresh token.
+  if (row.lastUnlinkSucceededAt) {
+    return null;
+  }
   try {
     const payload = decryptJsonPayload<StoredPayload>(row.iv, row.ciphertext);
     const t = payload.authorizedToken?.trim();
@@ -85,11 +90,18 @@ export async function upsertStoredApsAuthorizedToken(
       iv: enc.iv,
       ciphertext: enc.ciphertext,
       keyVersion: 1,
+      lastUnlinkAttemptAt: null,
+      lastUnlinkSucceededAt: null,
+      lastUnlinkError: null,
     },
     update: {
       iv: enc.iv,
       ciphertext: enc.ciphertext,
       keyVersion: 1,
+      // New token replaces any prior unlink audit state.
+      lastUnlinkAttemptAt: null,
+      lastUnlinkSucceededAt: null,
+      lastUnlinkError: null,
     },
   });
 }
