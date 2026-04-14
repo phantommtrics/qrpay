@@ -20,6 +20,7 @@ export const APS_WALLET_PATHS = {
   authorizeCustomer: "/api/v1/payment-gateway/wallet/authorize-customer",
   confirmCustomer: "/api/v1/payment-gateway/wallet/confirm-customer",
   processPayment: "/api/v1/payment-gateway/wallet/process-payment",
+  unlinkCustomer: "/api/v1/payment-gateway/wallet/unlink-customer",
 } as const;
 
 const LOG_PREFIX = "[APS Wallet]";
@@ -568,4 +569,27 @@ export async function apsWalletProcessPayment(
     reference: reference ?? "(none parsed)",
   });
   return { raw, reference };
+}
+
+export async function apsWalletUnlinkCustomer(
+  authorizedToken: string,
+  merchantCtx: ApsWalletMerchantContext = { scope: "platform_env" },
+): Promise<{ raw: unknown }> {
+  const bearer = await apsWalletMerchantBearerForContext(merchantCtx);
+  logAps("5_unlink_customer_start", {
+    path: APS_WALLET_PATHS.unlinkCustomer,
+    authorizedTokenChars: authorizedToken.length,
+    authorizedTail: maskSecret(authorizedToken, 4, 4),
+  });
+  const raw = await postJson(
+    APS_WALLET_PATHS.unlinkCustomer,
+    {
+      authorized_token: authorizedToken,
+    },
+    bearer,
+    merchantCtx,
+  );
+  assertSuccessPayload(raw, "Unlink customer");
+  logAps("5_unlink_customer_ok");
+  return { raw };
 }

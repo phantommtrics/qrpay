@@ -3,6 +3,7 @@ import { ChevronDown, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react'
 
 import { PageCard } from '../../components/ui/PageCard'
 import { PageTransition } from '../../components/ui/PageTransition'
+import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { useAuth } from '../../features/auth/AuthContext'
 import {
   ApiError,
@@ -12,6 +13,7 @@ import {
   deletePlatformPaymentGateway,
   fetchPlatformPaymentGateways,
   patchPlatformPaymentGateway,
+  unlinkPlatformApsWalletCustomerAuth,
   type ApsWalletCustomerAuthRow,
   type PlatformPaymentGatewayRow,
 } from '../../services/subscriptionApi'
@@ -48,6 +50,11 @@ export function PlatformPaymentGatewaysPage() {
   const [apsAuthRows, setApsAuthRows] = useState<ApsWalletCustomerAuthRow[]>([])
   const [apsAuthLoading, setApsAuthLoading] = useState(false)
   const [clearingAuthId, setClearingAuthId] = useState<string | null>(null)
+  const [unlinkingAuthId, setUnlinkingAuthId] = useState<string | null>(null)
+  const [deleteGatewayConfirmRow, setDeleteGatewayConfirmRow] = useState<PlatformPaymentGatewayRow | null>(null)
+  const [clearAuthConfirmRow, setClearAuthConfirmRow] = useState<ApsWalletCustomerAuthRow | null>(null)
+  const [unlinkConfirmRow, setUnlinkConfirmRow] = useState<ApsWalletCustomerAuthRow | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   const [draftAdapterById, setDraftAdapterById] = useState<Record<string, string>>({})
 
@@ -150,14 +157,9 @@ export function PlatformPaymentGatewaysPage() {
     }
   }
 
-  const remove = async (row: PlatformPaymentGatewayRow) => {
-    if (!canDelete) {
-      return
-    }
-    const ok = window.confirm(
-      `Remove gateway “${row.name}” (${row.code})? Businesses will no longer see it.`,
-    )
-    if (!ok) {
+  const remove = async () => {
+    const row = deleteGatewayConfirmRow
+    if (!row || !canDelete) {
       return
     }
     setDeletingId(row.id)
@@ -165,6 +167,7 @@ export function PlatformPaymentGatewaysPage() {
     try {
       await deletePlatformPaymentGateway(row.id)
       await load()
+      setDeleteGatewayConfirmRow(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not delete gateway.')
     } finally {
@@ -219,10 +222,12 @@ export function PlatformPaymentGatewaysPage() {
     if (!canEdit) {
       return
     }
-    const ok = window.confirm(
-      `Clear saved APS authorization for ${row.customerMobileNormalized} (${row.businessName ?? row.businessId})?`,
-    )
-    if (!ok) {
+    setClearAuthConfirmRow(row)
+  }
+
+  const confirmClearApsAuth = async () => {
+    const row = clearAuthConfirmRow
+    if (!row || !canEdit) {
       return
     }
     setClearingAuthId(row.id)
@@ -230,10 +235,38 @@ export function PlatformPaymentGatewaysPage() {
     try {
       await clearPlatformApsWalletCustomerAuth(row.id)
       await loadApsCustomerAuths()
+      setClearAuthConfirmRow(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not clear APS customer authorization.')
     } finally {
       setClearingAuthId(null)
+    }
+  }
+
+  const unlinkApsAuth = async (row: ApsWalletCustomerAuthRow) => {
+    if (!canEdit) {
+      return
+    }
+    setUnlinkConfirmRow(row)
+  }
+
+  const confirmUnlinkApsAuth = async () => {
+    const row = unlinkConfirmRow
+    if (!row || !canEdit) {
+      return
+    }
+    setUnlinkingAuthId(row.id)
+    setError(null)
+    setSuccessMessage(null)
+    try {
+      const result = await unlinkPlatformApsWalletCustomerAuth(row.id)
+      await loadApsCustomerAuths()
+      setSuccessMessage(result.message || 'APS customer unlinked successfully.')
+      setUnlinkConfirmRow(null)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not unlink APS customer authorization.')
+    } finally {
+      setUnlinkingAuthId(null)
     }
   }
 
@@ -302,6 +335,11 @@ export function PlatformPaymentGatewaysPage() {
       {error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {error}
+        </div>
+      ) : null}
+      {successMessage ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {successMessage}
         </div>
       ) : null}
 
@@ -483,7 +521,7 @@ export function PlatformPaymentGatewaysPage() {
                     <button
                       type="button"
                       disabled={deletingId === g.id}
-                      onClick={() => void remove(g)}
+                      onClick={() => setDeleteGatewayConfirmRow(g)}
                       className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
                     >
                       {deletingId === g.id ? (
@@ -506,7 +544,8 @@ export function PlatformPaymentGatewaysPage() {
           <h2 className="text-sm font-semibold text-slate-900">APS customer authorizations</h2>
           <p className="mt-1 text-xs text-slate-500">
             Platform-wide view: all businesses and gateways. “Sales” tokens use each business’s APS merchant; “Subscription”
-            tokens use the platform APS merchant for billing. Clear rows when customer auth must be reset.
+            tokens use the platform APS merchant for billing. Use Unlink APS to clear relationship at APS while keeping local
+            records for analysis.
           </p>
         </div>
         {apsAuthLoading ? (
@@ -522,6 +561,7 @@ export function PlatformPaymentGatewaysPage() {
                   <th className="px-4 py-3 font-semibold">Use</th>
                   <th className="px-4 py-3 font-semibold">Gateway</th>
                   <th className="px-4 py-3 font-semibold">Mobile</th>
+                  <th className="px-4 py-3 font-semibold">APS unlink</th>
                   <th className="px-4 py-3 font-semibold">Updated</th>
                   <th className="px-4 py-3 font-semibold text-right">Action</th>
                 </tr>
@@ -544,6 +584,29 @@ export function PlatformPaymentGatewaysPage() {
                       {r.gatewayName} <span className="text-xs text-slate-500">({r.gatewayCode})</span>
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-900">{r.customerMobileNormalized}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs">
+                      {r.lastUnlinkAttemptAt ? (
+                        r.lastUnlinkSucceededAt ? (
+                          <span className="text-emerald-700">
+                            Success ·{' '}
+                            {new Date(r.lastUnlinkAttemptAt).toLocaleString(undefined, {
+                              dateStyle: 'short',
+                              timeStyle: 'short',
+                            })}
+                          </span>
+                        ) : (
+                          <span className="text-rose-700" title={r.lastUnlinkError ?? 'APS unlink failed'}>
+                            Failed ·{' '}
+                            {new Date(r.lastUnlinkAttemptAt).toLocaleString(undefined, {
+                              dateStyle: 'short',
+                              timeStyle: 'short',
+                            })}
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-slate-400">Never</span>
+                      )}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
                       {new Date(r.updatedAt).toLocaleString(undefined, {
                         dateStyle: 'short',
@@ -551,6 +614,14 @@ export function PlatformPaymentGatewaysPage() {
                       })}
                     </td>
                     <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        disabled={!canEdit || unlinkingAuthId === r.id}
+                        onClick={() => void unlinkApsAuth(r)}
+                        className="mr-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        {unlinkingAuthId === r.id ? 'Unlinking…' : 'Unlink APS'}
+                      </button>
                       <button
                         type="button"
                         disabled={!canEdit || clearingAuthId === r.id}
@@ -567,6 +638,59 @@ export function PlatformPaymentGatewaysPage() {
           </div>
         )}
       </PageCard>
+      <ConfirmModal
+        open={Boolean(deleteGatewayConfirmRow)}
+        title="Delete payment gateway?"
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        loading={Boolean(deleteGatewayConfirmRow && deletingId === deleteGatewayConfirmRow.id)}
+        onCancel={() => {
+          if (!deletingId) {
+            setDeleteGatewayConfirmRow(null)
+          }
+        }}
+        onConfirm={() => void remove()}
+      >
+        {deleteGatewayConfirmRow
+          ? `Remove gateway "${deleteGatewayConfirmRow.name}" (${deleteGatewayConfirmRow.code})? Businesses will no longer see it.`
+          : ''}
+      </ConfirmModal>
+      <ConfirmModal
+        open={Boolean(clearAuthConfirmRow)}
+        title="Clear saved APS authorization?"
+        confirmLabel="Clear"
+        cancelLabel="Cancel"
+        variant="danger"
+        loading={Boolean(clearAuthConfirmRow && clearingAuthId === clearAuthConfirmRow.id)}
+        onCancel={() => {
+          if (!clearingAuthId) {
+            setClearAuthConfirmRow(null)
+          }
+        }}
+        onConfirm={() => void confirmClearApsAuth()}
+      >
+        {clearAuthConfirmRow
+          ? `Clear saved APS authorization for ${clearAuthConfirmRow.customerMobileNormalized} (${clearAuthConfirmRow.businessName ?? clearAuthConfirmRow.businessId})?`
+          : ''}
+      </ConfirmModal>
+      <ConfirmModal
+        open={Boolean(unlinkConfirmRow)}
+        title="Unlink APS customer?"
+        confirmLabel="Unlink APS"
+        cancelLabel="Cancel"
+        loading={Boolean(unlinkConfirmRow && unlinkingAuthId === unlinkConfirmRow.id)}
+        onCancel={() => {
+          if (!unlinkingAuthId) {
+            setUnlinkConfirmRow(null)
+          }
+        }}
+        onConfirm={() => void confirmUnlinkApsAuth()}
+      >
+        {unlinkConfirmRow
+          ? `Unlink ${unlinkConfirmRow.customerMobileNormalized} (${unlinkConfirmRow.businessName ?? unlinkConfirmRow.businessId}) on APS? Local records will be kept for analysis.`
+          : ''}
+      </ConfirmModal>
     </PageTransition>
   )
 }

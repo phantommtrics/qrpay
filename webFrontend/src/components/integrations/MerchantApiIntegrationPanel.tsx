@@ -4,6 +4,7 @@ import { AnimatePresence } from 'framer-motion'
 import { Check, Copy, Loader2, MoreVertical, Plus, X } from 'lucide-react'
 
 import { CenteredModal } from '../ui/CenteredModal'
+import { ConfirmModal } from '../ui/ConfirmModal'
 import { ModalOverlay } from '../ui/ModalOverlay'
 import {
   ApiError,
@@ -12,6 +13,7 @@ import {
   fetchBusinessApsWalletCustomerAuths,
   fetchBusinessGatewayCredentialStatus,
   fetchBusinessPaymentGateways,
+  unlinkBusinessApsWalletCustomerAuth,
   upsertBusinessGatewayCredentialRequest,
   type ApsWalletCustomerAuthRow,
   type BusinessGatewayCredentialStatusRow,
@@ -63,6 +65,11 @@ export function MerchantApiIntegrationPanel({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [unlinkingAuthId, setUnlinkingAuthId] = useState<string | null>(null)
+  const [clearingAuthId, setClearingAuthId] = useState<string | null>(null)
+  const [clearConfirmRow, setClearConfirmRow] = useState<ApsWalletCustomerAuthRow | null>(null)
+  const [unlinkConfirmRow, setUnlinkConfirmRow] = useState<ApsWalletCustomerAuthRow | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   const [modalGateway, setModalGateway] = useState<IntegrableGateway | null>(null)
   /** add = first-time keys (+); edit = replace all secrets (⋮ menu). */
@@ -346,20 +353,55 @@ export function MerchantApiIntegrationPanel({
     }
   }
 
-  async function handleClearApsCustomerAuth(authId: string) {
-    if (!allowMutations || !businessId) {
+  function openClearApsCustomerAuthConfirm(row: ApsWalletCustomerAuthRow) {
+    if (!allowMutations) {
       return
     }
-    const ok = window.confirm('Clear this saved APS customer authorization?')
-    if (!ok) {
+    setClearConfirmRow(row)
+  }
+
+  async function handleClearApsCustomerAuth() {
+    if (!allowMutations || !businessId || !clearConfirmRow) {
       return
     }
+    const row = clearConfirmRow
+    setClearingAuthId(row.id)
     setError(null)
     try {
-      await clearBusinessApsWalletCustomerAuth(businessId, authId)
+      await clearBusinessApsWalletCustomerAuth(businessId, row.id)
       await load()
+      setClearConfirmRow(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not clear APS customer authorization.')
+    } finally {
+      setClearingAuthId(null)
+    }
+  }
+
+  function openUnlinkApsCustomerAuthConfirm(row: ApsWalletCustomerAuthRow) {
+    if (!allowMutations) {
+      return
+    }
+    setUnlinkConfirmRow(row)
+  }
+
+  async function handleUnlinkApsCustomerAuth() {
+    if (!allowMutations || !businessId || !unlinkConfirmRow) {
+      return
+    }
+    const row = unlinkConfirmRow
+    setUnlinkingAuthId(row.id)
+    setError(null)
+    setSuccessMessage(null)
+    try {
+      const result = await unlinkBusinessApsWalletCustomerAuth(businessId, row.id)
+      await load()
+      setSuccessMessage(result.message || 'APS customer unlinked successfully.')
+      setUnlinkConfirmRow(null)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not unlink APS customer authorization.')
+    } finally {
+      setUnlinkingAuthId(null)
     }
   }
 
@@ -471,6 +513,11 @@ export function MerchantApiIntegrationPanel({
         {error ? (
           <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {error}
+          </div>
+        ) : null}
+        {successMessage ? (
+          <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            {successMessage}
           </div>
         ) : null}
 
@@ -663,6 +710,7 @@ export function MerchantApiIntegrationPanel({
                       <th className="px-4 py-3">Mobile</th>
                       <th className="px-4 py-3">Use</th>
                       <th className="px-4 py-3">Gateway</th>
+                      <th className="px-4 py-3">APS unlink</th>
                       <th className="px-4 py-3">Updated</th>
                       <th className="px-4 py-3 text-right">Action</th>
                     </tr>
@@ -670,7 +718,7 @@ export function MerchantApiIntegrationPanel({
                   <tbody>
                     {apsCustomerAuthRows.length === 0 ? (
                       <tr>
-                        <td className="px-4 py-4 text-slate-500" colSpan={5}>
+                        <td className="px-4 py-4 text-slate-500" colSpan={6}>
                           No saved APS customer authorizations yet.
                         </td>
                       </tr>
@@ -688,6 +736,29 @@ export function MerchantApiIntegrationPanel({
                           <td className="px-4 py-3 text-slate-700">
                             {r.gatewayName} <span className="text-xs text-slate-500">({r.gatewayCode})</span>
                           </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-xs">
+                            {r.lastUnlinkAttemptAt ? (
+                              r.lastUnlinkSucceededAt ? (
+                                <span className="text-emerald-700">
+                                  Success ·{' '}
+                                  {new Date(r.lastUnlinkAttemptAt).toLocaleString(undefined, {
+                                    dateStyle: 'short',
+                                    timeStyle: 'short',
+                                  })}
+                                </span>
+                              ) : (
+                                <span className="text-rose-700" title={r.lastUnlinkError ?? 'APS unlink failed'}>
+                                  Failed ·{' '}
+                                  {new Date(r.lastUnlinkAttemptAt).toLocaleString(undefined, {
+                                    dateStyle: 'short',
+                                    timeStyle: 'short',
+                                  })}
+                                </span>
+                              )
+                            ) : (
+                              <span className="text-slate-400">Never</span>
+                            )}
+                          </td>
                           <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
                             {new Date(r.updatedAt).toLocaleString(undefined, {
                               dateStyle: 'short',
@@ -696,13 +767,24 @@ export function MerchantApiIntegrationPanel({
                           </td>
                           <td className="px-4 py-3 text-right">
                             {allowMutations ? (
-                              <button
-                                type="button"
-                                onClick={() => void handleClearApsCustomerAuth(r.id)}
-                                className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
-                              >
-                                Clear
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={unlinkingAuthId === r.id}
+                                  onClick={() => openUnlinkApsCustomerAuthConfirm(r)}
+                                  className="mr-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                                >
+                                  {unlinkingAuthId === r.id ? 'Unlinking…' : 'Unlink APS'}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={clearingAuthId === r.id}
+                                  onClick={() => openClearApsCustomerAuthConfirm(r)}
+                                  className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
+                                >
+                                  {clearingAuthId === r.id ? 'Clearing…' : 'Clear'}
+                                </button>
+                              </>
                             ) : (
                               <span className="text-xs text-slate-400">—</span>
                             )}
@@ -949,6 +1031,41 @@ export function MerchantApiIntegrationPanel({
             </div>
           ) : null}
         </AnimatePresence>
+        <ConfirmModal
+          open={Boolean(clearConfirmRow)}
+          title="Clear saved APS authorization?"
+          confirmLabel="Clear"
+          cancelLabel="Cancel"
+          variant="danger"
+          loading={Boolean(clearConfirmRow && clearingAuthId === clearConfirmRow.id)}
+          onCancel={() => {
+            if (!clearingAuthId) {
+              setClearConfirmRow(null)
+            }
+          }}
+          onConfirm={() => void handleClearApsCustomerAuth()}
+        >
+          {clearConfirmRow
+            ? `Clear saved APS authorization for ${clearConfirmRow.customerMobileNormalized}?`
+            : ''}
+        </ConfirmModal>
+        <ConfirmModal
+          open={Boolean(unlinkConfirmRow)}
+          title="Unlink APS customer?"
+          confirmLabel="Unlink APS"
+          cancelLabel="Cancel"
+          loading={Boolean(unlinkConfirmRow && unlinkingAuthId === unlinkConfirmRow.id)}
+          onCancel={() => {
+            if (!unlinkingAuthId) {
+              setUnlinkConfirmRow(null)
+            }
+          }}
+          onConfirm={() => void handleUnlinkApsCustomerAuth()}
+        >
+          {unlinkConfirmRow
+            ? `Unlink ${unlinkConfirmRow.customerMobileNormalized} on APS? Local records will be kept for analysis.`
+            : ''}
+        </ConfirmModal>
 
         {gatewayKebabMenu && kebabMenuGateway && typeof document !== 'undefined'
           ? createPortal(

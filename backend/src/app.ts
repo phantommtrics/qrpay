@@ -88,6 +88,8 @@ import {
   clearPlatformApsWalletCustomerAuth,
   listBusinessApsWalletCustomerAuths,
   listPlatformApsWalletCustomerAuths,
+  unlinkBusinessApsWalletCustomerAuth,
+  unlinkPlatformApsWalletCustomerAuth,
 } from "./services/aps-wallet-customer-auth.service.js";
 import {
   createDiningTable,
@@ -2110,6 +2112,21 @@ app.delete(
     try {
       await clearPlatformApsWalletCustomerAuth(req.params.authId as string);
       res.status(204).send();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/aps-wallet/customer-auths/:authId/unlink",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.PAYMENT_GATEWAYS, "edit"),
+  async (req, res, next) => {
+    try {
+      await unlinkPlatformApsWalletCustomerAuth(req.params.authId as string);
+      res.json({ data: { ok: true, message: "APS customer unlinked successfully." } });
     } catch (e) {
       next(e);
     }
@@ -5281,6 +5298,24 @@ app.delete(
         req.params.authId as string,
       );
       res.status(204).send();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/aps-wallet/customer-auths/:authId/unlink",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  requireMerchantApiGatewayAccess({ readonly: false }),
+  async (req, res, next) => {
+    try {
+      await unlinkBusinessApsWalletCustomerAuth(
+        req.params.businessId as string,
+        req.params.authId as string,
+      );
+      res.json({ data: { ok: true, message: "APS customer unlinked successfully." } });
     } catch (e) {
       next(e);
     }

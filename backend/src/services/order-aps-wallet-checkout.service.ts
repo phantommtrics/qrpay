@@ -18,8 +18,10 @@ import {
   getPaymentGatewayByCode,
 } from "./payment-gateway.service.js";
 import {
+  ApsWalletCustomerAuthMerchantScope,
   deleteStoredApsAuthorizedToken,
   getStoredApsAuthorizedToken,
+  recordApsCustomerAuthUnlinkAttempt,
   upsertStoredApsAuthorizedToken,
 } from "./aps-wallet-customer-auth.service.js";
 import {
@@ -27,6 +29,7 @@ import {
   apsWalletBusinessMerchantContext,
   apsWalletConfirmCustomer,
   apsWalletProcessPayment,
+  apsWalletUnlinkCustomer,
   normalizeApsCustomerMobile,
   type ApsWalletMerchantContext,
 } from "./aps-wallet-client.service.js";
@@ -432,6 +435,30 @@ export async function completeOrderApsWalletCheckout(input: {
     settlementSource: "aps_wallet",
   });
 
+  try {
+    await apsWalletUnlinkCustomer(authorizedToken, merchantCtx);
+    await recordApsCustomerAuthUnlinkAttempt({
+      businessId: input.businessId,
+      gatewayId: gateway.id,
+      customerMobileNormalized: state.payerMobile,
+      merchantScope: ApsWalletCustomerAuthMerchantScope.BUSINESS_MERCHANT,
+      ok: true,
+    });
+  } catch (e) {
+    await recordApsCustomerAuthUnlinkAttempt({
+      businessId: input.businessId,
+      gatewayId: gateway.id,
+      customerMobileNormalized: state.payerMobile,
+      merchantScope: ApsWalletCustomerAuthMerchantScope.BUSINESS_MERCHANT,
+      ok: false,
+      error: e instanceof Error ? e.message : "APS unlink failed.",
+    });
+    console.log(LOG_PREFIX, "order_checkout_complete_unlink_customer_failed", {
+      orderId: input.orderId,
+      reason: e instanceof Error ? e.message : "unknown_error",
+    });
+  }
+
   console.log(LOG_PREFIX, "order_checkout_complete_done", {
     orderId: input.orderId,
     paid: true,
@@ -668,6 +695,30 @@ export async function completeGuestSalesInvoiceApsWalletCheckout(input: {
     externalEventId,
     settlementSource: "aps_wallet",
   });
+
+  try {
+    await apsWalletUnlinkCustomer(authorizedToken, guestCompleteCtx);
+    await recordApsCustomerAuthUnlinkAttempt({
+      businessId: payment.businessId,
+      gatewayId: gateway.id,
+      customerMobileNormalized: state.payerMobile,
+      merchantScope: ApsWalletCustomerAuthMerchantScope.BUSINESS_MERCHANT,
+      ok: true,
+    });
+  } catch (e) {
+    await recordApsCustomerAuthUnlinkAttempt({
+      businessId: payment.businessId,
+      gatewayId: gateway.id,
+      customerMobileNormalized: state.payerMobile,
+      merchantScope: ApsWalletCustomerAuthMerchantScope.BUSINESS_MERCHANT,
+      ok: false,
+      error: e instanceof Error ? e.message : "APS unlink failed.",
+    });
+    console.log(LOG_PREFIX, "guest_invoice_checkout_complete_unlink_customer_failed", {
+      invoiceId: payment.salesInvoiceId,
+      reason: e instanceof Error ? e.message : "unknown_error",
+    });
+  }
 
   console.log(LOG_PREFIX, "guest_invoice_checkout_complete_done", {
     invoiceId: payment.salesInvoiceId,

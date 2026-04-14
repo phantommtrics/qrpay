@@ -386,6 +386,9 @@ model BusinessApsWalletCustomerAuth {
   iv                       String
   ciphertext               String                             @db.Text
   keyVersion               Int                                @default(1)
+  lastUnlinkAttemptAt      DateTime?
+  lastUnlinkSucceededAt    DateTime?
+  lastUnlinkError          String?                            @db.Text
   createdAt                DateTime                           @default(now())
   updatedAt                DateTime                           @updatedAt
   business                 Business                           @relation(fields: [businessId], references: [id], onDelete: Cascade)

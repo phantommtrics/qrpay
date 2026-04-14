@@ -2158,6 +2158,9 @@ export type ApsWalletCustomerAuthRow = {
   gatewayName: string
   customerMobileNormalized: string
   merchantScope: ApsWalletCustomerAuthMerchantScope
+  lastUnlinkAttemptAt?: string
+  lastUnlinkSucceededAt?: string
+  lastUnlinkError?: string
   createdAt: string
   updatedAt: string
 }
@@ -2180,6 +2183,16 @@ export async function clearPlatformApsWalletCustomerAuth(authId: string) {
   await apiRequest<unknown>(`/platform/aps-wallet/customer-auths/${encodeURIComponent(authId)}`, {
     method: 'DELETE',
   })
+}
+
+export async function unlinkPlatformApsWalletCustomerAuth(authId: string) {
+  const response = await apiRequest<{ data: { ok: boolean; message: string } }>(
+    `/platform/aps-wallet/customer-auths/${encodeURIComponent(authId)}/unlink`,
+    {
+      method: 'POST',
+    },
+  )
+  return response.data
 }
 
 export type BusinessPaymentGatewayRow = {
@@ -2413,6 +2426,17 @@ export async function clearBusinessApsWalletCustomerAuth(businessId: string, aut
       headers: { 'x-business-id': businessId },
     },
   )
+}
+
+export async function unlinkBusinessApsWalletCustomerAuth(businessId: string, authId: string) {
+  const response = await apiRequest<{ data: { ok: boolean; message: string } }>(
+    `/businesses/${businessId}/aps-wallet/customer-auths/${encodeURIComponent(authId)}/unlink`,
+    {
+      method: 'POST',
+      headers: { 'x-business-id': businessId },
+    },
+  )
+  return response.data
 }
 
 // --- Platform accounting (EasyPay operator GL; no x-business-id) ---
