@@ -103,10 +103,12 @@ import {
   listMenuCategoriesFlat,
   updateMenuCategory,
 } from "./services/menu-category.service.js";
+import { getCategorySalesSummaryReport } from "./services/category-sales-summary.service.js";
 import {
   createProduct,
   getPublicBusinessMenu,
   getPublicProductById,
+  isRestaurantIndustry,
   listProductsForBusiness,
   listProductsForBusinessPaged,
   updateProduct,
@@ -120,6 +122,7 @@ import {
   getBusinessNavigationMenu,
   getEffectiveEntitlementSlugs,
   getEntitlementSlugsForBusiness,
+  userHasEntitlement,
 } from "./services/entitlement.service.js";
 import { getDashboardSummaryForBusiness } from "./services/dashboard-summary.service.js";
 import {
@@ -4170,6 +4173,48 @@ app.delete(
       }
       await deleteMenuCategory(businessId as string, categoryId as string);
       res.status(204).end();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/reports/sales-by-category",
+  authenticateToken,
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const uid = req.user!.id;
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: uid, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      if (!req.user!.isPlatformOwner) {
+        const business = await prisma.business.findUnique({
+          where: { id: businessId as string },
+          select: { industry: true },
+        });
+        const restaurant = isRestaurantIndustry(business?.industry);
+        const categoriesOk = await userHasEntitlement(uid, businessId as string, "products.categories");
+        const productsViewOk = await userHasEntitlement(uid, businessId as string, "products.view");
+        if (!(categoriesOk || (restaurant && productsViewOk))) {
+          throw new HttpError(403, "You do not have access to this report for this business.");
+        }
+      }
+
+      const from = typeof req.query.from === "string" ? req.query.from.trim() : "";
+      const to = typeof req.query.to === "string" ? req.query.to.trim() : "";
+      if (!from || !to) {
+        throw new HttpError(400, "Query parameters from and to (YYYY-MM-DD) are required.");
+      }
+
+      const data = await getCategorySalesSummaryReport(businessId as string, from, to);
+      res.json({ data });
     } catch (e) {
       next(e);
     }

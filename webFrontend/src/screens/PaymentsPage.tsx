@@ -95,7 +95,7 @@ export function PaymentsPage() {
   }, [paymentsTotal, paymentsPage])
 
   return (
-    <PageTransition className="space-y-6">
+    <PageTransition className="min-w-0 space-y-6">
       {displayError ? (
         <PageCard className="border-red-200 bg-red-50 p-4 text-sm text-red-800">
           {displayError}
@@ -144,31 +144,31 @@ export function PaymentsPage() {
         </PageCard>
       </div>
 
-      <PageCard className="overflow-hidden">
+      <PageCard className="min-w-0 overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-200 p-4">
           <h2 className="font-semibold text-slate-800">Recent Transactions</h2>
           <button
             type="button"
             disabled={!canExportPayments}
-            className="flex items-center text-sm font-medium text-slate-600 hover:text-teal-600 disabled:cursor-not-allowed disabled:text-slate-300"
+            className="flex shrink-0 items-center text-sm font-medium text-slate-600 hover:text-teal-600 disabled:cursor-not-allowed disabled:text-slate-300"
           >
             <Download className="mr-1.5 h-4 w-4" />
             {canExportPayments ? 'Export CSV' : 'Export locked'}
           </button>
         </div>
-        <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
-          <table className="min-w-[1220px] w-full border-collapse text-left">
+        <div className="min-w-0 overflow-x-auto [-webkit-overflow-scrolling:touch]">
+          <table className="w-max min-w-full border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-sm text-slate-500">
-                <th className="px-5 py-4 font-medium">Reference</th>
-                <th className="px-5 py-4 font-medium">Provider ref</th>
-                <th className="px-5 py-4 font-medium">Order ref</th>
-                <th className="px-5 py-4 font-medium">Recorded by</th>
-                <th className="px-5 py-4 font-medium">Method</th>
-                <th className="px-5 py-4 font-medium">Provider</th>
-                <th className="px-5 py-4 font-medium">Amount</th>
-                <th className="px-5 py-4 font-medium">Status</th>
-                <th className="px-5 py-4 font-medium">Date</th>
+                <th className="whitespace-nowrap px-5 py-4 pr-6 font-medium">Reference</th>
+                <th className="whitespace-nowrap px-5 py-4 pr-6 font-medium">Provider ref</th>
+                <th className="whitespace-nowrap px-5 py-4 pr-6 font-medium">Order ref</th>
+                <th className="whitespace-nowrap px-5 py-4 pr-6 font-medium">Recorded by</th>
+                <th className="whitespace-nowrap px-5 py-4 pr-6 font-medium">Method</th>
+                <th className="whitespace-nowrap px-5 py-4 pr-6 font-medium">Provider</th>
+                <th className="whitespace-nowrap px-5 py-4 pr-6 font-medium">Amount</th>
+                <th className="whitespace-nowrap px-5 py-4 pr-6 font-medium">Status</th>
+                <th className="whitespace-nowrap px-5 py-4 font-medium">Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -187,24 +187,24 @@ export function PaymentsPage() {
               ) : (
                 displayPayments.map((payment) => (
                   <tr key={payment.id} className="transition-colors hover:bg-slate-50">
-                    <td className="px-5 py-4 font-mono text-sm text-slate-600">{payment.reference}</td>
-                    <td className="max-w-[220px] px-5 py-4 font-mono text-sm break-all text-slate-600">
+                    <td className="whitespace-nowrap px-5 py-4 pr-6 font-mono text-slate-600">
+                      {payment.reference}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 pr-6 font-mono text-slate-600">
                       {payment.providerReference?.trim() ? payment.providerReference : '—'}
                     </td>
-                    <td className="px-5 py-4 font-mono text-sm font-medium text-slate-800">
+                    <td className="whitespace-nowrap px-5 py-4 pr-6 font-mono font-medium text-slate-800">
                       {payment.orderPublicCode ?? payment.orderId}
                     </td>
-                    <td className="max-w-[160px] px-5 py-4 text-sm text-slate-700">
+                    <td className="whitespace-nowrap px-5 py-4 pr-6 text-slate-700">
                       {payment.recordedBy ? (
-                        <span className="line-clamp-2" title={payment.recordedBy.email}>
-                          {payment.recordedBy.name}
-                        </span>
+                        <span title={payment.recordedBy.email}>{payment.recordedBy.name}</span>
                       ) : (
                         <span className="text-slate-400">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center text-sm text-slate-700">
+                    <td className="whitespace-nowrap px-5 py-4 pr-6">
+                      <div className="flex items-center text-slate-700">
                         {payment.method === 'qr_wallet' ? (
                           <>
                             <CreditCard className="mr-2 h-4 w-4 shrink-0 text-teal-500" />
@@ -218,14 +218,16 @@ export function PaymentsPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-5 py-4 text-sm capitalize text-slate-600">{payment.provider}</td>
-                    <td className="px-5 py-4 font-bold text-slate-800">
+                    <td className="whitespace-nowrap px-5 py-4 pr-6 capitalize text-slate-600">
+                      {payment.provider}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 pr-6 font-bold text-slate-800">
                       {formatMoney(payment.amount, { decimals: 0 })}
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="whitespace-nowrap px-5 py-4 pr-6">
                       <PaymentStatusBadge status={payment.status} />
                     </td>
-                    <td className="px-5 py-4 text-sm whitespace-nowrap text-slate-500">
+                    <td className="whitespace-nowrap px-5 py-4 text-slate-500">
                       {new Date(payment.createdAt).toLocaleString([], {
                         month: 'short',
                         day: 'numeric',

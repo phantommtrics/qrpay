@@ -28,7 +28,9 @@ import {
   type WaveGatewaySecrets,
   type YonnaGatewaySecrets,
 } from "./business-gateway-credential.service.js";
-import { customerWalletFeeRateFromGatewaySecrets } from "./merchant-pos-wallet-fee-resolution.service.js";
+import {
+  resolveMerchantWalletFeeRate,
+} from "./merchant-pos-wallet-fee-resolution.service.js";
 
 function providerLabel(provider: PaymentProvider): string {
   if (provider === PaymentProvider.UPFRONT_PAY) {
@@ -75,10 +77,20 @@ async function resolveGatewayCodeForMerchantWalletFee(
     include: { gateway: true },
   });
   const matches = rows.filter((r) => (r.gateway.checkoutAdapter || "").trim() === adapter);
-  if (matches.length !== 1) {
+  if (matches.length === 0) {
     return null;
   }
-  return matches[0]?.gateway.code ?? null;
+  if (matches.length === 1) {
+    return matches[0]?.gateway.code ?? null;
+  }
+  const sorted = [...matches].sort((a, b) =>
+    (a.gateway.code || "").localeCompare(b.gateway.code || "", "en"),
+  );
+  console.warn(
+    "[wallet fee] Multiple checkout gateways for the same adapter; set Payment.gatewayCode. Using first by code:",
+    sorted[0]?.gateway.code,
+  );
+  return sorted[0]?.gateway.code ?? null;
 }
 
 function isPaymentCompleted(status: PaymentStatus | string): boolean {
@@ -122,8 +134,8 @@ function paymentMethodDisplay(input: CustomerSaleJournalInput): string {
  * journal Dr Bank · Cr Digital payments clearing when statements are reconciled.
  *
  * **Wave/Yonna/APS wallet fee (optional)** — After the sale journal, {@link recordMerchantCustomerWalletFeeJournalAndLedger}
- * posts Dr QR wallet processing fees · Cr Digital clearing for the rate in encrypted gateway credentials (by
- * `gatewayCode`, or inferred when the business has a single Wave/Yonna checkout gateway).
+ * posts Dr QR wallet processing fees · Cr Digital clearing. Rate: `customerWalletFeeRate` on the business gateway
+ * credential for the payment gateway, else `MERCHANT_CHECKOUT_*_WALLET_FEE_RATE` in env.
  *
  * Idempotent per payment via `SalesLedgerEntry` unique (`paymentId`, `type`).
  */
@@ -145,6 +157,43 @@ export type CustomerSaleJournalInput = {
   /** Payment row gateway code — used to load wallet fee % from encrypted gateway credentials. */
   gatewayCode?: string | null;
 };
+
+/** Wallet fee journal (POS order or sales invoice); {@link orderId} null for invoice-only wallet pay. */
+export type MerchantWalletFeeJournalInput = {
+  businessId: string;
+  paymentId: string;
+  paymentPublicCode: string;
+  amount: Prisma.Decimal;
+  currency: string;
+  provider: PaymentProvider;
+  method: PaymentMethod;
+  status: PaymentStatus;
+  providerRef: string;
+  gatewayCode?: string | null;
+  orderId: string | null;
+  orderPublicCode: string | null;
+  salesInvoicePublicCode: string | null;
+};
+
+export function merchantWalletFeeInputFromOrderSale(
+  input: CustomerSaleJournalInput,
+): MerchantWalletFeeJournalInput {
+  return {
+    businessId: input.businessId,
+    paymentId: input.paymentId,
+    paymentPublicCode: input.paymentPublicCode,
+    amount: input.amount,
+    currency: input.currency,
+    provider: input.provider,
+    method: input.method,
+    status: input.status,
+    providerRef: input.providerRef,
+    gatewayCode: input.gatewayCode,
+    orderId: input.orderId,
+    orderPublicCode: input.orderPublicCode,
+    salesInvoicePublicCode: null,
+  };
+}
 
 function buildJournalHeaderMemo(input: CustomerSaleJournalInput): string {
   const method = paymentMethodDisplay(input);
@@ -278,13 +327,12 @@ export async function recordCustomerSaleJournalAndLedger(
 }
 
 /**
- * Estimated Wave/Yonna/APS wallet fee on a completed customer QR payment (orders/POS).
- * Rate comes from `customerWalletFeeRate` in encrypted gateway credentials for `gatewayCode` (Wave, Yonna, APS).
- * No-op for simulator/cash/other providers, missing credentials, zero rate, or ambiguous multiple gateways.
+ * Estimated Wave/Yonna/APS wallet fee on a completed customer QR payment (orders/POS or sales invoice).
+ * Rate: {@link BusinessGatewayCredential} `customerWalletFeeRate`, else env defaults.
  */
 export async function recordMerchantCustomerWalletFeeJournalAndLedger(
   tx: Prisma.TransactionClient,
-  input: CustomerSaleJournalInput,
+  input: MerchantWalletFeeJournalInput,
 ): Promise<void> {
   if (!isPaymentCompleted(input.status)) {
     return;
@@ -322,7 +370,7 @@ export async function recordMerchantCustomerWalletFeeJournalAndLedger(
   const secrets = await getDecryptedGatewaySecrets<
     WaveGatewaySecrets | YonnaGatewaySecrets | ApsGatewaySecrets
   >(input.businessId, gatewayCode);
-  const rate = customerWalletFeeRateFromGatewaySecrets(secrets);
+  const rate = resolveMerchantWalletFeeRate(secrets, input.provider);
   const fee = new Prisma.Decimal(input.amount.toString()).mul(rate).toDecimalPlaces(2);
   if (fee.lte(0)) {
     return;
@@ -336,8 +384,14 @@ export async function recordMerchantCustomerWalletFeeJournalAndLedger(
     throw new Error("Chart accounts missing for QR wallet fee posting.");
   }
 
+  const sourceLabel = input.orderPublicCode?.trim()
+    ? `Order ${input.orderPublicCode.trim()}`
+    : input.salesInvoicePublicCode?.trim()
+      ? `Invoice ${input.salesInvoicePublicCode.trim()}`
+      : "Wallet payment";
+
   const memo = [
-    `Wallet processing fee (est.) — Order ${input.orderPublicCode}`,
+    `Wallet processing fee (est.) — ${sourceLabel}`,
     `Payment ${input.paymentPublicCode} · ${providerLabel(input.provider)}`,
     `${input.currency} ${fee.toString()} (rate ${rate.toString()} × gross ${input.amount.toString()})`,
   ].join(" | ");
@@ -385,6 +439,7 @@ export async function recordMerchantCustomerWalletFeeJournalAndLedger(
         feeBasis: "payment_gross",
         rate: rate.toString(),
         orderPublicCode: input.orderPublicCode,
+        salesInvoicePublicCode: input.salesInvoicePublicCode,
         paymentPublicCode: input.paymentPublicCode,
         debitAccountCode: expenseAcct.code,
         creditAccountCode: clearingAcct.code,

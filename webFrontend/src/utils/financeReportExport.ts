@@ -37,6 +37,11 @@ function sanitizePdfLiteralText(s: string): string {
 
 export type PdfColAlign = 'left' | 'right'
 
+export type PdfRowTypography = {
+  bold?: boolean
+  fontSize?: number
+}
+
 export type PdfTableSection = {
   heading?: string
   headers: string[]
@@ -45,6 +50,10 @@ export type PdfTableSection = {
   columnWeights?: number[]
   /** Per-column alignment; defaults to left. */
   columnAlign?: PdfColAlign[]
+  /** Optional per-row typography (length should match `rows`). */
+  rowsTypography?: Array<PdfRowTypography | undefined>
+  /** Optional final row (e.g. grand total); bold, slightly larger, double rule below. */
+  footerRow?: string[]
 }
 
 function computeColWidths(innerW: number, weights: number[] | undefined, colCount: number): number[] {
@@ -110,6 +119,7 @@ export async function downloadFinancePdf(opts: {
     align: PdfColAlign[],
     bold: boolean,
     fontSize: number,
+    ruleBelow: 'single' | 'double' | 'none' = 'single',
   ): void => {
     const colCount = colW.length
     const padded = padCells(cells, colCount)
@@ -139,11 +149,22 @@ export async function downloadFinancePdf(opts: {
       x += colW[i]
     }
     y = y0 + rowPadTop + maxLines * lineHeight + rowPadBottom
-    doc.setDrawColor(210, 214, 223)
-    doc.setLineWidth(0.4)
-    doc.line(margin, y, margin + innerW, y)
-    doc.setDrawColor(0, 0, 0)
-    doc.setLineWidth(0.2)
+    if (ruleBelow === 'single') {
+      doc.setDrawColor(210, 214, 223)
+      doc.setLineWidth(0.4)
+      doc.line(margin, y, margin + innerW, y)
+      doc.setDrawColor(0, 0, 0)
+      doc.setLineWidth(0.2)
+    } else if (ruleBelow === 'double') {
+      doc.setDrawColor(15, 23, 42)
+      doc.setLineWidth(0.85)
+      doc.line(margin, y, margin + innerW, y)
+      doc.setLineWidth(0.45)
+      doc.line(margin, y + 3, margin + innerW, y + 3)
+      doc.setDrawColor(0, 0, 0)
+      doc.setLineWidth(0.2)
+      y += 3
+    }
   }
 
   for (const sec of opts.sections) {
@@ -170,10 +191,18 @@ export async function downloadFinancePdf(opts: {
     const colW = computeColWidths(innerW, sec.columnWeights, colCount)
     const align = sec.columnAlign ?? []
 
-    drawRow(sec.headers, colW, align, true, 8)
+    drawRow(sec.headers, colW, align, true, 8, 'single')
     doc.setFont('helvetica', 'normal')
-    for (const row of sec.rows) {
-      drawRow(row, colW, align, false, 8)
+    const typo = sec.rowsTypography ?? []
+    for (let ri = 0; ri < sec.rows.length; ri++) {
+      const row = sec.rows[ri]
+      const t = typo[ri]
+      const bold = Boolean(t?.bold)
+      const fs = typeof t?.fontSize === 'number' && t.fontSize > 0 ? t.fontSize : 8
+      drawRow(row, colW, align, bold, fs, 'single')
+    }
+    if (sec.footerRow && sec.footerRow.length > 0) {
+      drawRow(padCells(sec.footerRow, colCount), colW, align, true, 10, 'double')
     }
     y += 18
   }

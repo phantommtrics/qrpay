@@ -12,6 +12,7 @@ import {
 import { buildPayUrl } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
 import {
+  merchantWalletFeeInputFromOrderSale,
   recordCustomerSaleJournalAndLedger,
   recordMerchantCustomerWalletFeeJournalAndLedger,
 } from "./sale-accounting.service.js";
@@ -1050,7 +1051,10 @@ export async function completeWalletPaymentByPublicToken(
         gatewayCode: updatedPayment.gatewayCode,
       };
       await recordCustomerSaleJournalAndLedger(tx, saleJournalInput);
-      await recordMerchantCustomerWalletFeeJournalAndLedger(tx, saleJournalInput);
+      await recordMerchantCustomerWalletFeeJournalAndLedger(
+        tx,
+        merchantWalletFeeInputFromOrderSale(saleJournalInput),
+      );
 
       const staffId = options?.settledByStaffUserId?.trim() || null;
       const source =

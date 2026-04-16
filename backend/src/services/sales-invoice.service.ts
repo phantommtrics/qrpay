@@ -10,6 +10,7 @@ import {
   postMoneyInJournalForSalesInvoice,
   postMoneyInJournalForSalesInvoiceWalletClearing,
 } from "./manual-journal.service.js";
+import { recordMerchantCustomerWalletFeeJournalAndLedger } from "./sale-accounting.service.js";
 import type { SalesLineInput } from "./sales-quotation.service.js";
 
 function assertLines(lines: SalesLineInput[]) {
@@ -413,12 +414,28 @@ export async function markSalesInvoicePaidWithWalletPayment(
     },
   });
 
-  await tx.payment.update({
+  const updatedPayment = await tx.payment.update({
     where: { id: paymentId },
     data: {
       status: PaymentStatus.COMPLETED,
       completedAt: new Date(),
     },
+  });
+
+  await recordMerchantCustomerWalletFeeJournalAndLedger(tx, {
+    businessId,
+    paymentId: updatedPayment.id,
+    paymentPublicCode: updatedPayment.publicCode,
+    amount: updatedPayment.amount,
+    currency: updatedPayment.currency,
+    provider: updatedPayment.provider,
+    method: updatedPayment.method,
+    status: updatedPayment.status,
+    providerRef: updatedPayment.providerRef,
+    gatewayCode: updatedPayment.gatewayCode,
+    orderId: null,
+    orderPublicCode: null,
+    salesInvoicePublicCode: inv.publicCode,
   });
 }
 

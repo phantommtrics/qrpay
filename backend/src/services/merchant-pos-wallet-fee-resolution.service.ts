@@ -1,5 +1,7 @@
 import { Prisma } from "@prisma/client";
 
+import { merchantCheckoutDefaultWalletFeeRateForProvider } from "../config/merchant-checkout-wallet-fee-env.js";
+import { type PaymentProviderType } from "../lib/prisma-sales-enums.js";
 import type {
   ApsGatewaySecrets,
   WaveGatewaySecrets,
@@ -41,4 +43,20 @@ export function customerWalletFeeRateFromGatewaySecrets(
     return new Prisma.Decimal(0);
   }
   return new Prisma.Decimal(String(n));
+}
+
+/**
+ * Effective fee rate for merchant POS / invoice wallet checkout:
+ * 1) `customerWalletFeeRate` on {@link BusinessGatewayCredential} (decrypted secrets) when &gt; 0
+ * 2) Else {@link merchantCheckoutDefaultWalletFeeRateForProvider} from env (`MERCHANT_CHECKOUT_*_WALLET_FEE_RATE`)
+ */
+export function resolveMerchantWalletFeeRate(
+  secrets: WaveGatewaySecrets | YonnaGatewaySecrets | ApsGatewaySecrets | null | undefined,
+  provider: PaymentProviderType | string,
+): Prisma.Decimal {
+  const fromCredential = customerWalletFeeRateFromGatewaySecrets(secrets);
+  if (fromCredential.gt(0)) {
+    return fromCredential;
+  }
+  return merchantCheckoutDefaultWalletFeeRateForProvider(provider);
 }

@@ -19,11 +19,15 @@ import { PageTransition } from '../components/ui/PageTransition'
 import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
 import {
+  accountTypeReportHint,
+  BANK_ACCOUNT_REPORT_NOTE,
   CHART_ACCOUNT_TYPE_OPTIONS,
   CHART_CATEGORY_META,
   CHART_CATEGORY_ORDER,
   CHART_ACCOUNT_TYPE_GROUPS,
   chartAccountCategoryForTypeKey,
+  chartAccountReportExplainerRows,
+  chartAccountTypeOptionSearchBlob,
   chartAccountsMatchQuery,
   compareChartAccountCodes,
   DEFAULT_CHART_ACCOUNT_TYPE_KEY,
@@ -86,7 +90,7 @@ function AccountTypeSearchCombobox({
     const q = filter.trim().toLowerCase()
     if (!q) return CHART_ACCOUNT_TYPE_OPTIONS
     return CHART_ACCOUNT_TYPE_OPTIONS.filter((o) => {
-      const blob = `${o.group} ${o.label} ${o.category} ${o.searchText}`.toLowerCase()
+      const blob = chartAccountTypeOptionSearchBlob(o)
       return q.split(/\s+/).every((t) => blob.includes(t))
     })
   }, [filter])
@@ -415,6 +419,14 @@ export function AccountingChartAccountsPage() {
   const filterActive = query.trim().length > 0
   const visibleCount = filteredRows.length
 
+  const { reportExplainerPnl, reportExplainerBs } = useMemo(() => {
+    const rows = chartAccountReportExplainerRows()
+    return {
+      reportExplainerPnl: rows.filter((r) => r.statement === 'profitAndLoss'),
+      reportExplainerBs: rows.filter((r) => r.statement === 'balanceSheet'),
+    }
+  }, [])
+
   return (
     <PageTransition>
       <div className="space-y-10 py-4">
@@ -434,6 +446,62 @@ export function AccountingChartAccountsPage() {
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600">
                 Ledger lines track sales, payments, and inventory. Add bank accounts to mirror each real operating account (code, name, number, bank). Built-in accounts power checkout and wallets.
               </p>
+              <details className="mt-5 max-w-3xl rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-left">
+                <summary className="cursor-pointer list-none text-sm font-medium text-slate-800 [&::-webkit-details-marker]:hidden">
+                  <span className="underline decoration-slate-300 underline-offset-2 hover:decoration-slate-500">
+                    How account types affect your reports
+                  </span>
+                </summary>
+                <p className="mt-3 text-xs leading-relaxed text-slate-600">
+                  Each account type is booked to your ledger the same way; the labels below show where balances typically appear on a{' '}
+                  <span className="font-medium text-slate-700">Profit &amp; Loss</span> vs{' '}
+                  <span className="font-medium text-slate-700">balance sheet</span>. Period{' '}
+                  <span className="font-medium text-slate-700">net profit</span> closes into equity (retained earnings), which links the two statements.
+                </p>
+                <div className="mt-4 grid gap-6 sm:grid-cols-2">
+                  <div>
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Profit &amp; Loss
+                    </h3>
+                    <ul className="mt-2 space-y-3 text-xs text-slate-700">
+                      {reportExplainerPnl.map((row) => (
+                        <li key={row.sectionKey}>
+                          <span className="font-medium text-slate-900">{row.headline}</span>
+                          <span className="text-slate-500"> — {row.diagramLabel}</span>
+                          <ul className="mt-1 list-disc pl-4 text-slate-600">
+                            {row.typeLabels.map((label) => (
+                              <li key={`${row.sectionKey}-${label}`}>{label}</li>
+                            ))}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Balance sheet
+                    </h3>
+                    <ul className="mt-2 space-y-3 text-xs text-slate-700">
+                      {reportExplainerBs.map((row) => (
+                        <li key={row.sectionKey}>
+                          <span className="font-medium text-slate-900">{row.headline}</span>
+                          <span className="text-slate-500"> — {row.diagramLabel}</span>
+                          <ul className="mt-1 list-disc pl-4 text-slate-600">
+                            {row.typeLabels.map((label) => (
+                              <li key={`${row.sectionKey}-${label}`}>{label}</li>
+                            ))}
+                          </ul>
+                          {row.sectionKey === 'bs_current_assets' ? (
+                            <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                              {BANK_ACCOUNT_REPORT_NOTE}
+                            </p>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </details>
             </div>
             <button
               type="button"
@@ -805,6 +873,9 @@ export function AccountingChartAccountsPage() {
                     disabled={submitting}
                     onChange={(accountTypeKey) => setForm((f) => ({ ...f, accountTypeKey }))}
                   />
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    {accountTypeReportHint(form.accountTypeKey)}
+                  </p>
                 </div>
               ) : null}
               {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
