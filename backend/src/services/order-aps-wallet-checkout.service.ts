@@ -43,6 +43,10 @@ import {
 } from "./order-wallet-checkout.service.js";
 import { completeWalletPaymentByPublicToken } from "./sale.service.js";
 import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
+import {
+  queueInternalPartnerPaymentCancelledForPaymentIds,
+  queueInternalPartnerPaymentFailed,
+} from "./internal-partner-webhook-queue.service.js";
 
 const APS_STATE_TTL_MS = 15 * 60 * 1000;
 const LOG_PREFIX = "[APS Wallet]";
@@ -227,6 +231,18 @@ export async function authorizeOrderApsWalletCheckout(input: {
     gatewayCode: code,
   });
 
+  const replacedApsWalletIds = (
+    await prisma.payment.findMany({
+      where: {
+        orderId: input.orderId,
+        businessId: input.businessId,
+        method: PaymentMethod.QR_WALLET,
+        status: PaymentStatus.PENDING,
+      },
+      select: { id: true },
+    })
+  ).map((r) => r.id);
+
   await prisma.payment.updateMany({
     where: {
       orderId: input.orderId,
@@ -236,6 +252,15 @@ export async function authorizeOrderApsWalletCheckout(input: {
     },
     data: { status: PaymentStatus.CANCELLED },
   });
+
+  if (replacedApsWalletIds.length > 0) {
+    void queueInternalPartnerPaymentCancelledForPaymentIds(
+      replacedApsWalletIds,
+      "aps_wallet_authorize_replaced",
+    ).catch((err) => {
+      console.error("[internal-partner] Failed to queue cancel webhook:", err);
+    });
+  }
 
   const publicToken = genPublicToken();
   const recordedBy = input.recordedByUserId?.trim() || undefined;
@@ -301,6 +326,17 @@ export async function authorizeOrderApsWalletCheckout(input: {
       console.log(LOG_PREFIX, "order_checkout_authorize_failed", {
         orderId: input.orderId,
         step: "authorize_customer",
+      });
+      await prisma.payment.updateMany({
+        where: { id: payment.id, status: PaymentStatus.PENDING },
+        data: { status: PaymentStatus.FAILED },
+      });
+      void queueInternalPartnerPaymentFailed(
+        payment.id,
+        "aps_authorize_customer_failed",
+        e instanceof Error ? e.message : String(e),
+      ).catch((err) => {
+        console.error("[internal-partner] Failed to queue payment.failed webhook:", err);
       });
       rethrowAsHttpError(e);
     }
@@ -401,6 +437,17 @@ export async function completeOrderApsWalletCheckout(input: {
         step: "confirm_customer",
         orderId: input.orderId,
       });
+      await prisma.payment.updateMany({
+        where: { id: payment.id, status: PaymentStatus.PENDING },
+        data: { status: PaymentStatus.FAILED },
+      });
+      void queueInternalPartnerPaymentFailed(
+        payment.id,
+        "aps_confirm_customer_failed",
+        e instanceof Error ? e.message : String(e),
+      ).catch((err) => {
+        console.error("[internal-partner] Failed to queue payment.failed webhook:", err);
+      });
       rethrowAsHttpError(e);
     }
     await upsertStoredApsAuthorizedToken(input.businessId, gateway.id, state.payerMobile, authorizedToken);
@@ -417,6 +464,17 @@ export async function completeOrderApsWalletCheckout(input: {
     console.log(LOG_PREFIX, "order_checkout_complete_failed", {
       step: "process_payment",
       orderId: input.orderId,
+    });
+    await prisma.payment.updateMany({
+      where: { id: payment.id, status: PaymentStatus.PENDING },
+      data: { status: PaymentStatus.FAILED },
+    });
+    void queueInternalPartnerPaymentFailed(
+      payment.id,
+      "aps_process_payment_failed",
+      e instanceof Error ? e.message : String(e),
+    ).catch((err) => {
+      console.error("[internal-partner] Failed to queue payment.failed webhook:", err);
     });
     rethrowAsHttpError(e);
   }

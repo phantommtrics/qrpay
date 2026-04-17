@@ -326,6 +326,60 @@ export async function createSubscriptionForBusinessTx(
   };
 }
 
+/**
+ * Active BASIC subscription with no invoices and no renewal window — comped “forever” for internal partner businesses
+ * (`CONTRACT_INFINITE` + `contractPerpetual`; entitlements follow the BASIC plan row).
+ */
+export async function createInternalPartnerForeverBasicSubscriptionForBusinessTx(
+  tx: Prisma.TransactionClient,
+  input: { businessId: string; planCode?: PlanCode },
+) {
+  const planCode = input.planCode ?? PlanCode.BASIC;
+  const plan = await tx.plan.findUnique({
+    where: { code: planCode },
+  });
+  if (!plan || !plan.isActive) {
+    throw new HttpError(404, "Plan not found.");
+  }
+
+  const blockingSubscription = await tx.subscription.findFirst({
+    where: {
+      businessId: input.businessId,
+      status: {
+        in: [
+          SubscriptionStatus.ACTIVE,
+          SubscriptionStatus.TRIALING,
+          SubscriptionStatus.PAST_DUE,
+        ],
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (blockingSubscription) {
+    throw new HttpError(
+      409,
+      "Business already has an active or trialing subscription. Use a fresh business or cancel the existing subscription first.",
+    );
+  }
+
+  const currentPeriodStart = new Date();
+
+  return tx.subscription.create({
+    data: {
+      businessId: input.businessId,
+      planId: plan.id,
+      billingInterval: BillingInterval.CONTRACT_INFINITE,
+      status: SubscriptionStatus.ACTIVE,
+      startDate: currentPeriodStart,
+      currentPeriodStart,
+      currentPeriodEnd: null,
+      contractPerpetual: true,
+    },
+    include: { plan: true },
+  });
+}
+
 export async function startSubscription(input: StartSubscriptionInput) {
   const out = await prisma.$transaction((tx) => createSubscriptionForBusinessTx(tx, input));
   queueSubscriptionInvoiceOwnerEmail(out.invoice.id);

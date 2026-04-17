@@ -30,6 +30,7 @@ import {
   type YonnaGatewaySecrets,
 } from "./business-gateway-credential.service.js";
 import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
+import { queueInternalPartnerPaymentCancelledForPaymentIds } from "./internal-partner-webhook-queue.service.js";
 
 function buildBusinessCodePrefix(name: string): string {
   const sanitized = name.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -214,6 +215,18 @@ export async function startGatewayWalletCheckout(input: {
     throw new HttpError(400, "Checkout is not supported for this gateway.");
   }
 
+  const replacedWalletPaymentIds = (
+    await prisma.payment.findMany({
+      where: {
+        orderId: input.orderId,
+        businessId: input.businessId,
+        method: PaymentMethod.QR_WALLET,
+        status: PaymentStatus.PENDING,
+      },
+      select: { id: true },
+    })
+  ).map((r) => r.id);
+
   await prisma.payment.updateMany({
     where: {
       orderId: input.orderId,
@@ -223,6 +236,15 @@ export async function startGatewayWalletCheckout(input: {
     },
     data: { status: PaymentStatus.CANCELLED },
   });
+
+  if (replacedWalletPaymentIds.length > 0) {
+    void queueInternalPartnerPaymentCancelledForPaymentIds(
+      replacedWalletPaymentIds,
+      "wallet_checkout_replaced",
+    ).catch((err) => {
+      console.error("[internal-partner] Failed to queue cancel webhook:", err);
+    });
+  }
 
   const appBase = resolveAppPublicBaseForBrowserReturns(input.req);
 

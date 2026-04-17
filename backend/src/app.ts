@@ -177,6 +177,7 @@ import {
   completeCashPayment,
   completeWalletPaymentByPublicToken,
   completeWalletPaymentForOrder,
+  createInternalPartnerCheckoutOrder,
   createOrder,
   getOrderForBusiness,
   listOrdersForBusiness,
@@ -187,6 +188,8 @@ import {
   startWalletPayment,
   verifySimulatorWebhookSecret,
 } from "./services/sale.service.js";
+import { provisionInternalPartnerBusiness } from "./services/internal-partner-provision.service.js";
+import { assertInternalPartnerProvisionedBusiness } from "./services/internal-partner-guard.service.js";
 import {
   getAccountStatementsReports,
   getGlBalanceReport,
@@ -358,6 +361,7 @@ import {
   requireSubscriptionsBillingOrPlatform,
   requireSubscriptionsInvoicesOrPlatform,
 } from "./middleware/auth.js";
+import { requireInternalPartnerApiSecret } from "./middleware/internal-partner-auth.js";
 import { httpRequestLogger } from "./middleware/http-logger.js";
 
 const app = express();
@@ -790,6 +794,22 @@ const apsWalletCustomerAuthQuerySchema = z.object({
 const orderWalletPaymentBodySchema = z.object({
   gatewayCode: z.string().min(1).optional(),
   payerPhone: z.string().optional(),
+});
+
+const internalPartnerProvisionBodySchema = z.object({
+  externalUserId: z.string().min(1),
+  ownerEmail: z.string().email(),
+  ownerName: z.string().min(1),
+  businessName: z.string().min(1),
+  slug: z.string().optional(),
+  industry: z.string().optional(),
+  webhookUrl: z.string().url().optional().nullable(),
+});
+
+const internalPartnerCreateOrderBodySchema = z.object({
+  partnerExternalBookingId: z.string().min(1),
+  amountGmd: z.number().positive(),
+  currency: z.string().min(1).max(8).optional(),
 });
 
 const guestQuotationRespondBodySchema = z.object({
@@ -4787,6 +4807,7 @@ function formatSaleOrder(order: {
   }>;
   payments?: Array<Parameters<typeof formatSalePaymentRow>[0]>;
   receipt?: { id: string; publicCode: string; receiptNumber: number } | null;
+  partnerExternalBookingId?: string | null;
 }) {
   const tableLabel =
     order.tableLabelSnapshot?.trim() ||
@@ -4801,6 +4822,7 @@ function formatSaleOrder(order: {
     taxAmount: Number(order.taxAmount),
     total: Number(order.total),
     currency: order.currency,
+    partnerExternalBookingId: order.partnerExternalBookingId ?? null,
     createdAt: order.createdAt.toISOString(),
     diningTableId: order.diningTableId ?? null,
     tableLabel,
@@ -5755,6 +5777,192 @@ app.post("/api/webhooks/payments/simulator", async (request, response, next) => 
     next(error);
   }
 });
+
+app.post(
+  "/api/internal-partner/v1/provision",
+  requireInternalPartnerApiSecret,
+  async (request, response, next) => {
+    try {
+      const body = internalPartnerProvisionBodySchema.parse(request.body ?? {});
+      const data = await provisionInternalPartnerBusiness(body);
+      response.status(data.idempotentReplay ? 200 : 201).json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/internal-partner/v1/businesses/:businessId/orders",
+  requireInternalPartnerApiSecret,
+  async (request, response, next) => {
+    try {
+      const businessId = request.params.businessId as string;
+      await assertInternalPartnerProvisionedBusiness(businessId);
+      const body = internalPartnerCreateOrderBodySchema.parse(request.body ?? {});
+      const { order, created } = await createInternalPartnerCheckoutOrder({
+        businessId,
+        partnerExternalBookingId: body.partnerExternalBookingId,
+        amountGmd: body.amountGmd,
+        currency: body.currency,
+      });
+      response.status(created ? 201 : 200).json({
+        data: { order: formatSaleOrder(order) },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/internal-partner/v1/businesses/:businessId/orders/:orderId/checkout-wallets",
+  requireInternalPartnerApiSecret,
+  async (request, response, next) => {
+    try {
+      const businessId = request.params.businessId as string;
+      const orderId = request.params.orderId as string;
+      await assertInternalPartnerProvisionedBusiness(businessId);
+      const orderRow = await prisma.order.findFirst({
+        where: { id: orderId, businessId },
+        select: { partnerExternalBookingId: true },
+      });
+      if (!orderRow?.partnerExternalBookingId) {
+        throw new HttpError(404, "Order not found.");
+      }
+      const wallets = await listOrderCheckoutWallets(businessId);
+      response.json({ data: { wallets } });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/internal-partner/v1/businesses/:businessId/orders/:orderId/payments/wallet",
+  requireInternalPartnerApiSecret,
+  async (request, response, next) => {
+    try {
+      const businessId = request.params.businessId as string;
+      const orderId = request.params.orderId as string;
+      await assertInternalPartnerProvisionedBusiness(businessId);
+      const orderRow = await prisma.order.findFirst({
+        where: { id: orderId, businessId },
+        select: { partnerExternalBookingId: true },
+      });
+      if (!orderRow?.partnerExternalBookingId) {
+        throw new HttpError(404, "Order not found.");
+      }
+      const body = orderWalletPaymentBodySchema.parse(request.body ?? {});
+      const result = await startWalletPayment(
+        orderId,
+        businessId,
+        {
+          gatewayCode: body.gatewayCode,
+          payerPhone: body.payerPhone,
+          recordedByUserId: null,
+        },
+        request,
+      );
+      response.json({
+        data: {
+          payment: formatSalePaymentRow(result.payment),
+          qrPayload: result.qrPayload,
+          launchUrl: result.launchUrl,
+          paymentHtml: result.paymentHtml,
+          checkoutAdapter: result.checkoutAdapter,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/internal-partner/v1/businesses/:businessId/orders/:orderId/payments/aps-wallet/authorize",
+  requireInternalPartnerApiSecret,
+  async (request, response, next) => {
+    try {
+      const businessId = request.params.businessId as string;
+      const orderId = request.params.orderId as string;
+      await assertInternalPartnerProvisionedBusiness(businessId);
+      const orderRow = await prisma.order.findFirst({
+        where: { id: orderId, businessId },
+        select: { partnerExternalBookingId: true },
+      });
+      if (!orderRow?.partnerExternalBookingId) {
+        throw new HttpError(404, "Order not found.");
+      }
+      const body = apsWalletAuthorizeBodySchema.parse(request.body ?? {});
+      const data = await authorizeOrderApsWalletCheckout({
+        orderId,
+        businessId,
+        gatewayCode: body.gatewayCode,
+        payerMobile: body.payerMobile,
+        recordedByUserId: null,
+        req: request,
+      });
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/internal-partner/v1/businesses/:businessId/orders/:orderId/payments/aps-wallet/complete",
+  requireInternalPartnerApiSecret,
+  async (request, response, next) => {
+    try {
+      const businessId = request.params.businessId as string;
+      const orderId = request.params.orderId as string;
+      await assertInternalPartnerProvisionedBusiness(businessId);
+      const orderRow = await prisma.order.findFirst({
+        where: { id: orderId, businessId },
+        select: { partnerExternalBookingId: true },
+      });
+      if (!orderRow?.partnerExternalBookingId) {
+        throw new HttpError(404, "Order not found.");
+      }
+      const body = apsWalletCompleteBodySchema.parse(request.body ?? {});
+      const data = await completeOrderApsWalletCheckout({
+        orderId,
+        businessId,
+        gatewayCode: body.gatewayCode,
+        otp: body.otp,
+        authState: body.authState,
+        req: request,
+      });
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.delete(
+  "/api/internal-partner/v1/businesses/:businessId/orders/:orderId",
+  requireInternalPartnerApiSecret,
+  async (request, response, next) => {
+    try {
+      const businessId = request.params.businessId as string;
+      const orderId = request.params.orderId as string;
+      await assertInternalPartnerProvisionedBusiness(businessId);
+      const orderRow = await prisma.order.findFirst({
+        where: { id: orderId, businessId },
+        select: { partnerExternalBookingId: true },
+      });
+      if (!orderRow?.partnerExternalBookingId) {
+        throw new HttpError(404, "Order not found.");
+      }
+      await cancelPendingOrder(orderId, businessId);
+      response.status(204).end();
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 app.post(
   "/api/businesses/:businessId/orders",

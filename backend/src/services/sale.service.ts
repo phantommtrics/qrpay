@@ -20,6 +20,11 @@ import {
   listOrderCheckoutWallets,
   startGatewayWalletCheckout,
 } from "./order-wallet-checkout.service.js";
+import { assertInternalPartnerProvisionedBusiness } from "./internal-partner-guard.service.js";
+import {
+  queueInternalPartnerPaymentCancelledForPaymentIds,
+  queueInternalPartnerPaymentCompleted,
+} from "./internal-partner-webhook-queue.service.js";
 import { markSalesInvoicePaidWithWalletPayment } from "./sales-invoice.service.js";
 import { resolveDefaultBankSettlementAccountId } from "./sales-settlement-account.service.js";
 import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
@@ -175,6 +180,143 @@ function parsePublicCodeSequence(code: string | null | undefined): number {
   }
   const match = code.match(/(\d{5})$/);
   return match ? Number(match[1]) : 0;
+}
+
+const INTERNAL_PARTNER_CHECKOUT_BARCODE = "__EASYPAY_INTERNAL_PARTNER_CHECKOUT__";
+
+/**
+ * Ensures a hidden catalogue SKU exists for internal partner wallet checkouts (large stock pool).
+ */
+export async function ensureInternalPartnerCheckoutProduct(businessId: string): Promise<{ id: string }> {
+  const existing = await prisma.product.findFirst({
+    where: { businessId, barcodeValue: INTERNAL_PARTNER_CHECKOUT_BARCODE },
+    select: { id: true },
+  });
+  if (existing) {
+    return { id: existing.id };
+  }
+
+  const randomSuffix = randomBytes(10).toString("hex");
+  const row = await prisma.product.create({
+    data: {
+      businessId,
+      name: "Partner app checkout",
+      category: "Services",
+      description: "System SKU for internal partner wallet checkouts.",
+      price: new Prisma.Decimal("0.01"),
+      stock: 10_000_000,
+      reservedStock: 0,
+      barcodeValue: INTERNAL_PARTNER_CHECKOUT_BARCODE,
+      qrUrl: `internal://easypay-partner/${businessId}/${randomSuffix}`,
+    },
+  });
+  return { id: row.id };
+}
+
+/**
+ * Creates a single-line order for an internal partner booking payment (Wave/Yonna/APS via existing checkout).
+ */
+export async function createInternalPartnerCheckoutOrder(input: {
+  businessId: string;
+  partnerExternalBookingId: string;
+  amountGmd: number;
+  currency?: string;
+}) {
+  await assertInternalPartnerProvisionedBusiness(input.businessId);
+
+  const bookingId = input.partnerExternalBookingId.trim();
+  if (!bookingId) {
+    throw new HttpError(400, "partnerExternalBookingId is required.");
+  }
+
+  const amt = Number(input.amountGmd);
+  if (!Number.isFinite(amt) || amt <= 0) {
+    throw new HttpError(400, "amountGmd must be a positive number.");
+  }
+  if (amt > 99_999_999.99) {
+    throw new HttpError(400, "amountGmd is too large.");
+  }
+
+  const amountDec = new Prisma.Decimal(amt.toFixed(2));
+  const currency = (input.currency || "GMD").trim().toUpperCase() || "GMD";
+
+  const paid = await prisma.order.findFirst({
+    where: {
+      businessId: input.businessId,
+      partnerExternalBookingId: bookingId,
+      status: OrderStatus.PAID,
+    },
+    select: { id: true },
+  });
+  if (paid) {
+    throw new HttpError(409, "This partner booking is already paid.");
+  }
+
+  const pending = await prisma.order.findFirst({
+    where: {
+      businessId: input.businessId,
+      partnerExternalBookingId: bookingId,
+      status: OrderStatus.PENDING_PAYMENT,
+    },
+    include: { lines: true },
+  });
+  if (pending) {
+    return { order: pending, created: false as const };
+  }
+
+  await ensureInternalPartnerCheckoutProduct(input.businessId);
+
+  const order = await prisma.$transaction(
+    async (tx) => {
+      const product = await tx.product.findFirst({
+        where: { businessId: input.businessId, barcodeValue: INTERNAL_PARTNER_CHECKOUT_BARCODE },
+      });
+      if (!product) {
+        throw new HttpError(500, "Internal partner checkout product is missing.");
+      }
+
+      const neededByProduct = new Map([[product.id, 1]]);
+      await reserveStockForOrder(tx, input.businessId, neededByProduct);
+
+      const business = await tx.business.findUnique({
+        where: { id: input.businessId },
+        select: { name: true },
+      });
+      if (!business) {
+        throw new HttpError(404, "Business not found.");
+      }
+
+      const publicCode = await nextOrderPublicCode(tx, input.businessId, business.name);
+
+      return tx.order.create({
+        data: {
+          businessId: input.businessId,
+          publicCode,
+          status: OrderStatus.PENDING_PAYMENT,
+          subtotal: amountDec,
+          taxAmount: new Prisma.Decimal(0),
+          total: amountDec,
+          currency,
+          partnerExternalBookingId: bookingId,
+          lines: {
+            create: [
+              {
+                product: { connect: { id: product.id } },
+                productName: product.name,
+                quantity: 1,
+                unitPrice: amountDec,
+                lineTotal: amountDec,
+              },
+            ],
+          },
+        },
+        include: { lines: true },
+      });
+    },
+    { maxWait: 10_000, timeout: 15_000 },
+  );
+
+  return { order, created: true as const };
 }
 
 async function nextOrderPublicCode(
@@ -933,7 +1075,7 @@ export async function completeWalletPaymentByPublicToken(
     throw new HttpError(400, "Payment cannot be completed.");
   }
 
-  return prisma.$transaction(
+  const result = await prisma.$transaction(
     async (tx) => {
       if (options?.externalEventId) {
         try {
@@ -1083,6 +1225,14 @@ export async function completeWalletPaymentByPublicToken(
     },
     { maxWait: 10_000, timeout: 15_000 },
   );
+
+  if (!result.duplicate && result.orderId) {
+    void queueInternalPartnerPaymentCompleted(result).catch((err) => {
+      console.error("[internal-partner] Failed to queue payment.completed webhook:", err);
+    });
+  }
+
+  return result;
 }
 
 export async function completeWalletPaymentForOrder(
@@ -1119,27 +1269,40 @@ export async function completeWalletPaymentForOrder(
 
 /** Releases reservations and cancels pending wallet payments. Only for unpaid orders. */
 export async function cancelPendingOrder(orderId: string, businessId: string) {
-  return prisma.$transaction(
+  let cancelledWalletPaymentIds: string[] = [];
+
+  const order = await prisma.$transaction(
     async (tx) => {
-      const order = await tx.order.findFirst({
+      const row = await tx.order.findFirst({
         where: { id: orderId, businessId },
         include: { lines: true, receipt: true },
       });
 
-      if (!order) {
+      if (!row) {
         throw new HttpError(404, "Order not found.");
       }
-      if (order.receipt || order.status === OrderStatus.PAID) {
+      if (row.receipt || row.status === OrderStatus.PAID) {
         throw new HttpError(400, "Only unpaid orders can be cancelled.");
       }
-      if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      if (row.status !== OrderStatus.PENDING_PAYMENT) {
         throw new HttpError(400, "Order cannot be cancelled.");
       }
+
+      const pendingWallet = await tx.payment.findMany({
+        where: {
+          orderId,
+          businessId,
+          status: PaymentStatus.PENDING,
+          method: PaymentMethod.QR_WALLET,
+        },
+        select: { id: true },
+      });
+      cancelledWalletPaymentIds = pendingWallet.map((p) => p.id);
 
       await releaseReservedStockForCancelledOrder(
         tx,
         businessId,
-        order.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+        row.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
       );
 
       await tx.payment.updateMany({
@@ -1156,10 +1319,21 @@ export async function cancelPendingOrder(orderId: string, businessId: string) {
         data: { status: OrderStatus.CANCELLED },
       });
 
-      return order;
+      return row;
     },
     { maxWait: 10_000, timeout: 15_000 },
   );
+
+  if (cancelledWalletPaymentIds.length > 0 && order.partnerExternalBookingId?.trim()) {
+    void queueInternalPartnerPaymentCancelledForPaymentIds(
+      cancelledWalletPaymentIds,
+      "order_cancelled",
+    ).catch((err) => {
+      console.error("[internal-partner] Failed to queue cancel webhook:", err);
+    });
+  }
+
+  return order;
 }
 
 export async function getPublicPayInfo(publicToken: string) {

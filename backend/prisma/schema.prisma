@@ -309,6 +309,18 @@ model Business {
   ownerEmail                    String
   createdAt                     DateTime                       @default(now())
   updatedAt                     DateTime                       @updatedAt
+  /**
+   * When true, this tenant is comped (no platform subscription invoices). Used for internal partner apps.
+   */
+  platformBillingWaived         Boolean                        @default(false)
+  /**
+   * Stable id from the connecting app (e.g. 7-aside user id). Unique when set.
+   */
+  partnerProvisioningExternalUserId String?                  @unique
+  /**
+   * Optional override for outbound payment-status webhooks; defaults to INTERNAL_PARTNER_WEBHOOK_URL.
+   */
+  internalPartnerWebhookUrl     String?
   /// When set with corporate billing interval, subscription invoices use this template instead of list-plan prices.
   corporateBillingPlanId        String?
   corporateBillingPlan          CorporateBillingPlan?          @relation(fields: [corporateBillingPlanId], references: [id], onDelete: SetNull)
@@ -343,6 +355,30 @@ model Business {
 enum BusinessPaymentMethodStatus {
   ACTIVE
   ARCHIVED
+}
+
+/** Outbound partner app webhooks (retry queue). */
+enum PartnerOutboundWebhookJobStatus {
+  PENDING
+  SUCCEEDED
+  ABANDONED
+}
+
+model PartnerOutboundWebhookJob {
+  id             String                         @id @default(cuid())
+  status         PartnerOutboundWebhookJobStatus @default(PENDING)
+  attempts       Int                            @default(0)
+  maxAttempts    Int                            @default(8)
+  nextAttemptAt  DateTime                       @default(now())
+  webhookUrl     String                         @db.Text
+  /// Exact UTF-8 JSON string used for HMAC (must stay stable across retries).
+  bodyText       String                         @db.Text
+  lastHttpStatus Int?
+  lastError      String?                        @db.Text
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+
+  @@index([status, nextAttemptAt])
 }
 
 /// Distinguishes APS authorized_token rows: business merchant (POS/orders) vs platform env (subscription invoices).
@@ -1258,6 +1294,10 @@ model Order {
   createdByUserId    String?
   diningTableId      String?
   tableLabelSnapshot String?
+  /**
+   * Booking / checkout id from an internal partner app (server-to-server). Used for outbound webhooks.
+   */
+  partnerExternalBookingId String?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   business           Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -1272,6 +1312,7 @@ model Order {
   @@index([businessId, status])
   @@index([businessId, createdAt])
   @@index([diningTableId])
+  @@index([businessId, partnerExternalBookingId])
 }
 
 model OrderLine {
