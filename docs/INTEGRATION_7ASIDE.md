@@ -158,6 +158,22 @@ async function createEasypayOrder(
 
 **`GET …/businesses/{businessId}/orders/{orderId}/checkout-wallets`**
 
+Response `data` includes:
+
+| Field | Purpose |
+|-------|---------|
+| `wallets` | Gateways **ready for checkout** (same rules as Easypay POS): Wave needs a stored bearer; Yonna needs client id + secret; APS needs username + password **and** server env `APS_WALLET_BASE_URL`. |
+| `gatewayStatus` | One row per **enabled** platform gateway that has a checkout adapter — includes `hasCredential`, `checkoutConfigured`, and `fieldStatus` **booleans only** (no secrets). Use this when `wallets` is empty to see *why* (e.g. credential row present but bearer missing, or APS API base not configured). |
+| `readinessHint` | Short human-readable summary when `wallets` is empty, or `null` when at least one wallet is available. |
+
+**Common reasons `wallets` is empty while “credentials exist” on Easypay**
+
+- **Incomplete stored secrets** — e.g. Wave saved without `bearerToken`, or Yonna missing `clientId` / `secretKey`. Check `gatewayStatus[].fieldStatus`.
+- **APS** — merchant username/password can be saved, but listing requires **`APS_WALLET_BASE_URL`** (and related APS env) on the Easypay API server.
+- **Decryption** — if `APP_SECRET_ENCRYPTION_KEY` changed after secrets were saved, decrypt fails and `checkoutConfigured` stays false until credentials are re-saved.
+- **Wrong tenant** — credentials are on a different `businessId` than the one 7-aside uses (`hasCredential` false for all rows).
+- **Gateway disabled** — gateway not in `gatewayStatus` at all if it is disabled under Platform → Payment gateways.
+
 ```typescript
 async function listEasypayWallets(businessId: string, orderId: string) {
   const res = await fetch(
@@ -166,13 +182,30 @@ async function listEasypayWallets(businessId: string, orderId: string) {
   );
   const json = await res.json();
   if (!res.ok) throw new Error(JSON.stringify(json));
-  return json.data.wallets as Array<{
-    gatewayId: string;
-    code: string;
-    name: string;
-    checkoutAdapter: string;
-    hasStoredPayerPhone: boolean;
-  }>;
+  const { wallets, gatewayStatus, readinessHint } = json.data as {
+    wallets: Array<{
+      gatewayId: string;
+      code: string;
+      name: string;
+      checkoutAdapter: string;
+      hasStoredPayerPhone: boolean;
+    }>;
+    gatewayStatus: Array<{
+      gatewayId: string;
+      code: string;
+      name: string;
+      checkoutAdapter: string | null;
+      hasCredential: boolean;
+      checkoutConfigured: boolean;
+      fieldStatus: Record<string, boolean | undefined>;
+      updatedAt: string | null;
+    }>;
+    readinessHint: string | null;
+  };
+  if (wallets.length === 0 && readinessHint) {
+    console.warn("[7-aside] Easypay wallets empty:", readinessHint, gatewayStatus);
+  }
+  return { wallets, gatewayStatus, readinessHint };
 }
 ```
 

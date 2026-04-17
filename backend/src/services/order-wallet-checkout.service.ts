@@ -139,8 +139,9 @@ export type OrderCheckoutWalletRow = {
   hasStoredPayerPhone: boolean;
 };
 
-export async function listOrderCheckoutWallets(businessId: string): Promise<OrderCheckoutWalletRow[]> {
-  const rows = await listBusinessGatewayCredentialStatus(businessId);
+function mapGatewayStatusToWalletRows(
+  rows: Awaited<ReturnType<typeof listBusinessGatewayCredentialStatus>>,
+): OrderCheckoutWalletRow[] {
   return rows
     .filter((r) => r.checkoutConfigured)
     .map((r) => {
@@ -153,6 +154,52 @@ export async function listOrderCheckoutWallets(businessId: string): Promise<Orde
         hasStoredPayerPhone: false,
       };
     });
+}
+
+export async function listOrderCheckoutWallets(businessId: string): Promise<OrderCheckoutWalletRow[]> {
+  const rows = await listBusinessGatewayCredentialStatus(businessId);
+  return mapGatewayStatusToWalletRows(rows);
+}
+
+/**
+ * Single pass over gateway + credential rows (for partner diagnostics without a second query).
+ */
+export async function listOrderCheckoutWalletsWithGatewayStatus(businessId: string): Promise<{
+  wallets: OrderCheckoutWalletRow[];
+  gatewayStatus: Awaited<ReturnType<typeof listBusinessGatewayCredentialStatus>>;
+}> {
+  const gatewayStatus = await listBusinessGatewayCredentialStatus(businessId);
+  return {
+    wallets: mapGatewayStatusToWalletRows(gatewayStatus),
+    gatewayStatus,
+  };
+}
+
+/**
+ * Non-secret hint when `wallets` is empty — explains common misconfigurations (incomplete secrets, APS env, disabled gateways).
+ */
+export function partnerCheckoutWalletsReadinessHint(
+  gatewayStatus: Awaited<ReturnType<typeof listBusinessGatewayCredentialStatus>>,
+  walletCount: number,
+): string | null {
+  if (walletCount > 0) {
+    return null;
+  }
+  const partial = gatewayStatus.filter((r) => r.hasCredential && !r.checkoutConfigured);
+  if (partial.length > 0) {
+    return (
+      "Credentials exist but checkout is not ready yet. Inspect gatewayStatus[].fieldStatus — e.g. Wave needs apiBearer; " +
+      "Yonna needs clientId+secretKey; APS needs username+password and APS_WALLET_BASE_URL on the Easypay server. " +
+      "If secrets were saved under a different Easypay environment, decryption may fail after APP_SECRET_ENCRYPTION_KEY changes."
+    );
+  }
+  if (gatewayStatus.length === 0) {
+    return "No enabled payment gateways have a checkout adapter on Easypay. Enable Wave / Yonna / APS under Platform → Payment gateways.";
+  }
+  if (gatewayStatus.every((r) => !r.hasCredential)) {
+    return "No gateway credentials are saved for this business. Add APS / Wave / Yonna under Merchant API for this business.";
+  }
+  return null;
 }
 
 export type GatewayWalletCheckoutResult = {

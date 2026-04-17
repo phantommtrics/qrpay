@@ -171,7 +171,11 @@ import {
   completeGuestSalesInvoiceApsWalletCheckout,
   completeOrderApsWalletCheckout,
 } from "./services/order-aps-wallet-checkout.service.js";
-import { listOrderCheckoutWallets } from "./services/order-wallet-checkout.service.js";
+import {
+  listOrderCheckoutWallets,
+  listOrderCheckoutWalletsWithGatewayStatus,
+  partnerCheckoutWalletsReadinessHint,
+} from "./services/order-wallet-checkout.service.js";
 import {
   cancelPendingOrder,
   completeCashPayment,
@@ -5830,8 +5834,16 @@ app.get(
       if (!orderRow?.partnerExternalBookingId) {
         throw new HttpError(404, "Order not found.");
       }
-      const wallets = await listOrderCheckoutWallets(businessId);
-      response.json({ data: { wallets } });
+      const { wallets, gatewayStatus } = await listOrderCheckoutWalletsWithGatewayStatus(businessId);
+      const readinessHint = partnerCheckoutWalletsReadinessHint(gatewayStatus, wallets.length);
+      response.json({
+        data: {
+          wallets,
+          /** Same shape as GET /api/businesses/:id/gateway-credentials (no secrets); use when wallets is empty. */
+          gatewayStatus,
+          readinessHint,
+        },
+      });
     } catch (error) {
       next(error);
     }
