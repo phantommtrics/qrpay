@@ -20,6 +20,7 @@ import {
   type BusinessPaymentGatewayRow,
   type PaymentWebhookEndpoints,
 } from '../../services/subscriptionApi'
+import { checkoutWalletBrandImageSrc } from '../../utils/checkoutWalletBrandImage'
 
 type IntegrableGateway = BusinessPaymentGatewayRow & { checkoutAdapter: string }
 
@@ -549,22 +550,55 @@ export function MerchantApiIntegrationPanel({
                 {gateways.map((g) => {
                   const st = statusByCode.get(g.code)
                   const hasKeys = Boolean(st?.hasCredential)
+                  const brandImg = checkoutWalletBrandImageSrc(g.checkoutAdapter)
+                  const statusReady = Boolean(st?.checkoutConfigured)
+                  const statusPartial = Boolean(st?.hasCredential) && !statusReady
                   return (
                     <div
                       key={g.id}
-                      className="relative flex min-w-[min(100%,260px)] max-w-[280px] shrink-0 items-center justify-between gap-3 rounded-xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm ring-1 ring-slate-900/5"
+                      className="relative flex min-w-[min(100%,288px)] max-w-[300px] shrink-0 items-center justify-between gap-3 rounded-2xl border border-slate-200/90 bg-gradient-to-br from-white via-white to-slate-50/90 px-4 py-3.5 shadow-sm ring-1 ring-slate-900/[0.04] transition-[box-shadow,border-color] hover:border-slate-300 hover:shadow-md"
                     >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium text-slate-900">{g.name}</p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {st?.checkoutConfigured ? (
-                            <span className="text-emerald-700">Checkout ready</span>
-                          ) : st?.hasCredential ? (
-                            <span className="text-amber-700">Incomplete</span>
-                          ) : (
-                            <span>Not configured</span>
-                          )}
-                        </p>
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        {brandImg ? (
+                          <div className="relative shrink-0 overflow-hidden rounded-xl border border-slate-200/70 bg-white shadow-sm">
+                            <img
+                              src={brandImg}
+                              alt=""
+                              className="h-12 w-12 object-contain p-1"
+                              aria-hidden
+                            />
+                          </div>
+                        ) : (
+                          <div
+                            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-slate-50 text-[11px] font-bold uppercase leading-none tracking-wide text-slate-500"
+                            aria-hidden
+                          >
+                            {g.code.replace(/_/g, '').slice(0, 2)}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[15px] font-semibold leading-snug text-slate-900">{g.name}</p>
+                          <p className="mt-1 flex items-center gap-1.5 text-xs font-medium">
+                            <span
+                              className={[
+                                'h-1.5 w-1.5 shrink-0 rounded-full',
+                                statusReady
+                                  ? 'bg-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,0.25)]'
+                                  : statusPartial
+                                    ? 'bg-amber-500 shadow-[0_0_0_2px_rgba(245,158,11,0.22)]'
+                                    : 'bg-slate-300',
+                              ].join(' ')}
+                              aria-hidden
+                            />
+                            {statusReady ? (
+                              <span className="text-emerald-800">Checkout ready</span>
+                            ) : statusPartial ? (
+                              <span className="text-amber-800">Incomplete</span>
+                            ) : (
+                              <span className="text-slate-600">Not configured</span>
+                            )}
+                          </p>
+                        </div>
                       </div>
                       {hasKeys ? (
                         allowMutations ? (

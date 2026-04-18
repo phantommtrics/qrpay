@@ -1,8 +1,20 @@
-import html2canvas from 'html2canvas'
+import { toBlob, toCanvas } from 'html-to-image'
 
-/** html2canvas cannot parse Tailwind v4 / modern CSS color functions from stylesheets. */
-const UNSUPPORTED_IN_RASTER_COLOR_RE =
-  /oklab\s*\(|oklch\s*\(|\blab\s*\(|\blch\s*\(|color-mix\s*\(|color\s*\(/i
+/**
+ * Captures a DOM subtree as a bitmap using `html-to-image` (SVG foreignObject).
+ *
+ * Font embedding reads `document.styleSheets[].cssRules`, which throws SecurityError for
+ * cross-origin stylesheets (e.g. Google Fonts). `html-to-image` checks `fontEmbedCSS != null`
+ * *before* `skipFonts`; we set `fontEmbedCSS: ''` so the embed step is skipped entirely
+ * (empty string is not null, but `if (cssText)` is false — no @font-face inlining, no cssRules walk).
+ */
+const BASE_CAPTURE_OPTIONS = {
+  pixelRatio: 2,
+  cacheBust: true,
+  backgroundColor: '#ffffff',
+  skipFonts: true,
+  fontEmbedCSS: '',
+} as const
 
 async function waitForRender() {
   if (document.fonts?.ready) {
@@ -13,76 +25,77 @@ async function waitForRender() {
   })
 }
 
-/**
- * Strip stylesheet-based rules from the clone (they often contain `oklab()` / `oklch()`),
- * then copy resolved computed styles from the live DOM so html2canvas only sees `rgb()` etc.
- */
-function prepareClonedSubtreeForHtml2Canvas(
-  clonedDoc: Document,
-  clonedRoot: HTMLElement,
-  originalRoot: HTMLElement,
-): void {
-  clonedDoc.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => node.remove())
-
-  const walk = (orig: Element, clone: Element): void => {
-    if (orig instanceof HTMLElement && clone instanceof HTMLElement) {
-      const cs = window.getComputedStyle(orig)
-      const chunks: string[] = []
-      for (let i = 0; i < cs.length; i++) {
-        const prop = cs.item(i)
-        if (!prop || prop.startsWith('--')) continue
-        const value = cs.getPropertyValue(prop)
-        if (!value) continue
-        if (UNSUPPORTED_IN_RASTER_COLOR_RE.test(value)) continue
-        chunks.push(`${prop}: ${value}`)
-      }
-      clone.setAttribute('style', chunks.join('; '))
-      clone.removeAttribute('class')
-    } else {
-      clone.removeAttribute('class')
-    }
-
-    const n = Math.min(orig.children.length, clone.children.length)
-    for (let i = 0; i < n; i++) {
-      walk(orig.children[i], clone.children[i])
-    }
-  }
-
-  walk(originalRoot, clonedRoot)
+async function rasterizeElement(element: HTMLElement): Promise<HTMLCanvasElement> {
+  await waitForRender()
+  return toCanvas(element, BASE_CAPTURE_OPTIONS)
 }
 
-function html2canvasOptionsForElement(element: HTMLElement) {
-  return {
-    scale: 2,
-    useCORS: true,
-    allowTaint: false,
-    logging: false,
-    backgroundColor: '#ffffff',
-    onclone: (clonedDoc: Document, clonedElement: HTMLElement) => {
-      prepareClonedSubtreeForHtml2Canvas(clonedDoc, clonedElement, element)
-    },
-  } as const
+function triggerDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 2500)
+}
+
+/** Save a PNG blob as a file download (no DOM capture). */
+export function downloadImageBlob(blob: Blob, filename: string): void {
+  const name = filename.toLowerCase().endsWith('.png') ? filename : `${filename}.png`
+  triggerDownload(blob, name)
+}
+
+/** Rasterize a DOM subtree to a PNG blob (e.g. for Web Share API or custom download). */
+export async function captureElementAsPngBlob(element: HTMLElement): Promise<Blob> {
+  await waitForRender()
+  const blob = await toBlob(element, {
+    ...BASE_CAPTURE_OPTIONS,
+    type: 'image/png',
+    quality: 1,
+  })
+  if (!blob) {
+    throw new Error('Could not create PNG.')
+  }
+  return blob
 }
 
 /**
  * Rasterizes a DOM node (e.g. table tent card) to a PNG download.
  */
 export async function downloadHtmlElementAsPng(element: HTMLElement, filename: string): Promise<void> {
+  const pngBlob = await captureElementAsPngBlob(element)
+  downloadImageBlob(pngBlob, filename)
+}
+
+export type RasterImageFormat = 'image/png' | 'image/jpeg' | 'image/webp'
+
+/**
+ * Rasterizes a DOM node to a downloadable bitmap (PNG, JPEG, or WebP when the browser supports it).
+ */
+export async function downloadHtmlElementAsImage(
+  element: HTMLElement,
+  filename: string,
+  format: RasterImageFormat,
+  quality = 0.92,
+): Promise<void> {
   await waitForRender()
-  const canvas = await html2canvas(element, html2canvasOptionsForElement(element))
-  const pngBlob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob((b) => resolve(b), 'image/png', 1),
-  )
-  if (!pngBlob) {
-    throw new Error('Could not create PNG.')
+  const mime = format
+  const ext =
+    mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png'
+
+  const blob = await toBlob(element, {
+    ...BASE_CAPTURE_OPTIONS,
+    type: mime,
+    quality: mime === 'image/png' ? 1 : quality,
+  })
+
+  if (!blob) {
+    throw new Error(`Could not create ${ext.toUpperCase()} image.`)
   }
-  const name = filename.toLowerCase().endsWith('.png') ? filename : `${filename}.png`
-  const url = URL.createObjectURL(pngBlob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  a.click()
-  window.setTimeout(() => URL.revokeObjectURL(url), 2500)
+
+  const lower = filename.toLowerCase()
+  const name = lower.endsWith(`.${ext}`) ? filename : `${filename}.${ext}`
+  triggerDownload(blob, name)
 }
 
 /**
@@ -93,8 +106,7 @@ export async function downloadHtmlElementAsPdf(
   filename: string,
   pageLayout: 'portrait' | 'landscape',
 ): Promise<void> {
-  await waitForRender()
-  const canvas = await html2canvas(element, html2canvasOptionsForElement(element))
+  const canvas = await rasterizeElement(element)
   const imgData = canvas.toDataURL('image/png', 1)
 
   const { jsPDF } = await import('jspdf')

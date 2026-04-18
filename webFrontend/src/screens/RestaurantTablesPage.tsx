@@ -1,15 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Copy,
-  Download,
-  Plus,
-  Printer,
-  Trash2,
-} from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Plus, Printer, Trash2 } from 'lucide-react'
 
 import { TableGuestTentCard } from '../components/restaurant/TableGuestTentCard'
 import { FlashNotice } from '../components/ui/FlashNotice'
@@ -23,8 +14,7 @@ import {
   fetchDiningTables,
   type DiningTableRow,
 } from '../services/subscriptionApi'
-import { downloadSvgAsPng, sanitizeDownloadBasename } from '../utils/downloadSvgAsPng'
-import { downloadHtmlElementAsPdf, downloadHtmlElementAsPng } from '../utils/tentCardExport'
+import { fetchOrderCheckoutWallets, type OrderCheckoutWalletRow } from '../services/salesApi'
 import { guestMenuUrl } from '../utils/guestMenuUrl'
 import { isRestaurantIndustry } from '../utils/businessIndustry'
 
@@ -44,9 +34,9 @@ export function RestaurantTablesPage() {
   const [activeIndex, setActiveIndex] = useState(0)
 
   const portraitCardRef = useRef<HTMLDivElement>(null)
-  const landscapeCardRef = useRef<HTMLDivElement>(null)
-  const [downloadError, setDownloadError] = useState<string | null>(null)
-  const [downloadBusy, setDownloadBusy] = useState(false)
+
+  const canLoadCheckoutWallets = canAccess('pos.access') || canAccess('orders.manage')
+  const [checkoutWallets, setCheckoutWallets] = useState<OrderCheckoutWalletRow[]>([])
 
   const canCreate = canAccess('products.create')
   const canEdit = canAccess('products.edit')
@@ -72,6 +62,24 @@ export function RestaurantTablesPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!businessId || !allowed || !canLoadCheckoutWallets) {
+      setCheckoutWallets([])
+      return
+    }
+    let cancelled = false
+    void fetchOrderCheckoutWallets(businessId)
+      .then((rows) => {
+        if (!cancelled) setCheckoutWallets(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setCheckoutWallets([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [businessId, allowed, canLoadCheckoutWallets])
 
   useEffect(() => {
     if (tables.length === 0) {
@@ -112,48 +120,6 @@ export function RestaurantTablesPage() {
     window.print()
   }
 
-  const baseExportName = activeTable
-    ? sanitizeDownloadBasename(`${businessName || slug || 'table'}-${activeTable.label}-tent`)
-    : 'table-tent'
-
-  const runExport = async (fn: () => Promise<void>) => {
-    setDownloadError(null)
-    setDownloadBusy(true)
-    try {
-      await fn()
-    } catch (e) {
-      setDownloadError(e instanceof Error ? e.message : 'Could not download.')
-    } finally {
-      setDownloadBusy(false)
-    }
-  }
-
-  const handleDownloadQrPngOnly = () =>
-    void runExport(async () => {
-      if (!activeTable) return
-      const svg = portraitCardRef.current?.querySelector('[data-table-tent-qr] svg')
-      await downloadSvgAsPng(
-        svg as SVGSVGElement | null,
-        `${sanitizeDownloadBasename(activeTable.label)}-table-menu-qr`,
-      )
-    })
-
-  const handleDownloadCardPng = (orientation: 'portrait' | 'landscape') =>
-    void runExport(async () => {
-      const el =
-        orientation === 'portrait' ? portraitCardRef.current : landscapeCardRef.current
-      if (!el) throw new Error('Card is not ready to export.')
-      await downloadHtmlElementAsPng(el, `${baseExportName}-${orientation}`)
-    })
-
-  const handleDownloadCardPdf = (orientation: 'portrait' | 'landscape') =>
-    void runExport(async () => {
-      const el =
-        orientation === 'portrait' ? portraitCardRef.current : landscapeCardRef.current
-      if (!el) throw new Error('Card is not ready to export.')
-      await downloadHtmlElementAsPdf(el, `${baseExportName}-${orientation}`, orientation)
-    })
-
   return (
     <PageTransition className="mx-auto max-w-3xl px-4 py-6 print:max-w-none print:px-0 print:py-0">
       <style>{`
@@ -162,14 +128,6 @@ export function RestaurantTablesPage() {
             margin: 12mm;
             size: portrait;
           }
-        }
-        .tent-export-clone {
-          position: fixed;
-          left: -12000px;
-          top: 0;
-          width: max-content;
-          pointer-events: none;
-          visibility: visible;
         }
       `}</style>
 
@@ -312,79 +270,8 @@ export function RestaurantTablesPage() {
                     <Printer className="h-4 w-4" />
                     Print this card
                   </button>
-                  <details className="relative inline-block">
-                    <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-teal-700 [&::-webkit-details-marker]:hidden">
-                      <Download className="h-4 w-4 shrink-0" />
-                      Download
-                      <ChevronDown className="h-4 w-4 shrink-0 opacity-90" />
-                    </summary>
-                    <div className="absolute right-0 z-20 mt-1 w-[15.5rem] rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-lg">
-                      <p className="px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-wide text-slate-400">
-                        Full card (PNG)
-                      </p>
-                      <button
-                        type="button"
-                        disabled={downloadBusy}
-                        onClick={() => {
-                          void handleDownloadCardPng('portrait')
-                        }}
-                        className="block w-full px-3 py-2 text-left text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        Portrait
-                      </button>
-                      <button
-                        type="button"
-                        disabled={downloadBusy}
-                        onClick={() => {
-                          void handleDownloadCardPng('landscape')
-                        }}
-                        className="block w-full px-3 py-2 text-left text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        Landscape
-                      </button>
-                      <p className="mt-1 border-t border-slate-100 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-wide text-slate-400">
-                        Full card (PDF)
-                      </p>
-                      <button
-                        type="button"
-                        disabled={downloadBusy}
-                        onClick={() => {
-                          void handleDownloadCardPdf('portrait')
-                        }}
-                        className="block w-full px-3 py-2 text-left text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        Portrait (A4)
-                      </button>
-                      <button
-                        type="button"
-                        disabled={downloadBusy}
-                        onClick={() => {
-                          void handleDownloadCardPdf('landscape')
-                        }}
-                        className="block w-full px-3 py-2 text-left text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        Landscape (A4)
-                      </button>
-                      <p className="mt-1 border-t border-slate-100 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-wide text-slate-400">
-                        QR only
-                      </p>
-                      <button
-                        type="button"
-                        disabled={downloadBusy}
-                        onClick={handleDownloadQrPngOnly}
-                        className="block w-full px-3 py-2 text-left text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        QR code (PNG)
-                      </button>
-                    </div>
-                  </details>
                 </div>
               </div>
-
-              
-              {downloadError ? (
-                <p className="print:hidden mt-2 text-center text-xs text-red-600">{downloadError}</p>
-              ) : null}
 
               <div className="mt-6 flex justify-center print:mt-0 print:flex print:justify-center">
                 {activeTable ? (
@@ -396,23 +283,10 @@ export function RestaurantTablesPage() {
                     menuUrl={activeUrl}
                     isInactive={!activeTable.isActive}
                     layout="portrait"
+                    checkoutWallets={checkoutWallets}
                   />
                 ) : null}
               </div>
-
-              {activeTable ? (
-                <div className="tent-export-clone" aria-hidden>
-                  <TableGuestTentCard
-                    ref={landscapeCardRef}
-                    businessName={businessName}
-                    businessSlug={slug}
-                    tableLabel={activeTable.label}
-                    menuUrl={activeUrl}
-                    isInactive={!activeTable.isActive}
-                    layout="landscape"
-                  />
-                </div>
-              ) : null}
 
               <div className="print:hidden mx-auto mt-6 max-w-md rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm">
                 <p className="text-xs font-medium text-slate-500">Guest link (copy for messaging)</p>

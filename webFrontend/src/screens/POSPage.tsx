@@ -37,6 +37,7 @@ import {
 } from '../services/salesApi'
 import { ApiError, fetchDiningTables, type DiningTableRow } from '../services/subscriptionApi'
 import type { Product } from '../types'
+import { checkoutWalletBrandImageSrc } from '../utils/checkoutWalletBrandImage'
 import { formatMoney } from '../utils/formatMoney'
 import { productSellableUnits } from '../utils/productStock'
 import { isRestaurantIndustry } from '../utils/businessIndustry'
@@ -1029,6 +1030,7 @@ export function POSPage() {
                           <ul className="max-h-[40vh] space-y-2 overflow-y-auto pr-1">
                             {checkoutWallets.map((w) => {
                               const selected = selectedGatewayCode === w.code
+                              const brandImg = checkoutWalletBrandImageSrc(w.checkoutAdapter)
                               return (
                                 <li key={w.gatewayId}>
                                   <button
@@ -1058,8 +1060,20 @@ export function POSPage() {
                                         : 'border-slate-200 bg-white hover:border-slate-300'
                                     }`}
                                   >
-                                    <span className="font-semibold text-slate-900">{w.name}</span>
-                                    <span className="mt-0.5 block text-xs text-slate-500">{w.code}</span>
+                                    <span className="flex items-center gap-3">
+                                      {brandImg ? (
+                                        <img
+                                          src={brandImg}
+                                          alt=""
+                                          className="h-12 w-12 shrink-0 rounded-lg border border-slate-100 bg-white object-contain"
+                                          aria-hidden
+                                        />
+                                      ) : null}
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block font-semibold text-slate-900">{w.name}</span>
+                                        <span className="mt-0.5 block text-xs text-slate-500">{w.code}</span>
+                                      </span>
+                                    </span>
                                   </button>
                                 </li>
                               )

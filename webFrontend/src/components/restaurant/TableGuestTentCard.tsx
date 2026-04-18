@@ -2,6 +2,12 @@ import { forwardRef } from 'react'
 import QRCode from 'react-qr-code'
 import { QrCode as QrCodeIcon } from 'lucide-react'
 
+import type { OrderCheckoutWalletRow } from '../../services/salesApi'
+import { checkoutWalletBrandImageSrc } from '../../utils/checkoutWalletBrandImage'
+
+/** Same file as `backend/assets/easypay_logo_file.jpeg`; served from `webFrontend/public`. */
+const EASYPAY_LOGO_SRC = '/easypay_logo_file.jpeg'
+
 export type TableGuestTentCardProps = {
   businessName: string
   /** Used when `businessName` is empty — readable title from the URL slug. */
@@ -11,6 +17,8 @@ export type TableGuestTentCardProps = {
   isInactive?: boolean
   /** Wide layout: branding and table on the left, QR on the right. */
   layout?: 'portrait' | 'landscape'
+  /** Checkout-ready wallets for this business (logos + “Powered by” on card). */
+  checkoutWallets?: OrderCheckoutWalletRow[]
 }
 
 function humanizeSlug(slug: string): string {
@@ -318,6 +326,110 @@ function FloralBackdrop() {
   )
 }
 
+function WalletStripAndEasypayFooter({
+  wallets,
+  variant,
+}: {
+  wallets: OrderCheckoutWalletRow[]
+  variant: 'portrait' | 'landscape'
+}) {
+  const isLandscape = variant === 'landscape'
+  const logoBox = isLandscape ? 'h-7 w-7 p-0.5' : 'h-9 w-9 p-0.5 sm:h-10 sm:w-10 print:h-9 print:w-9'
+  const fallbackBox = isLandscape ? 'h-7 w-7 text-[7px]' : 'h-9 w-9 text-[8px] sm:h-10 sm:w-10 print:h-9 print:w-9'
+
+  return (
+    <div
+      className={[
+        'border-t border-slate-200/80',
+        isLandscape ? 'mt-4 space-y-3 pt-4 print:mt-3 print:pt-3' : 'mt-8 space-y-4 pt-7 print:mt-9 print:pt-8',
+      ].join(' ')}
+    >
+      {wallets.length > 0 ? (
+        <div className="space-y-2">
+          <p
+            className={[
+              'text-[0.6rem] font-semibold tracking-[0.22em] text-slate-500 uppercase',
+              isLandscape ? 'text-left' : 'text-center',
+            ].join(' ')}
+          >
+            Wallets accepted
+          </p>
+          <ul
+            className={[
+              'flex flex-wrap gap-2',
+              isLandscape ? 'justify-start' : 'items-end justify-center gap-3',
+            ].join(' ')}
+          >
+          {wallets.map((w) => {
+            const src = checkoutWalletBrandImageSrc(w.checkoutAdapter)
+            return (
+              <li
+                key={w.gatewayId}
+                className={[
+                  'flex flex-col',
+                  isLandscape ? 'items-center gap-0.5' : 'items-center gap-1 text-center',
+                ].join(' ')}
+                title={w.name}
+              >
+                {src ? (
+                  <div className="overflow-hidden rounded-lg border border-slate-200/80 bg-white shadow-sm print:shadow-none">
+                    <img src={src} alt="" className={`${logoBox} object-contain`} aria-hidden />
+                  </div>
+                ) : (
+                  <div
+                    className={`flex items-center justify-center rounded-lg border border-slate-200/80 bg-slate-50 font-bold uppercase leading-none tracking-wide text-slate-500 ${fallbackBox}`}
+                    aria-hidden
+                  >
+                    {w.code.replace(/_/g, '').slice(0, 2)}
+                  </div>
+                )}
+                {!isLandscape ? (
+                  <span className="max-w-[5.25rem] truncate text-[0.55rem] font-medium leading-tight text-slate-600 print:max-w-[5.75rem]">
+                    {w.name}
+                  </span>
+                ) : null}
+              </li>
+            )
+          })}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className={isLandscape ? '' : 'flex flex-col items-center'}>
+        {!isLandscape ? (
+          <div className="mb-3 flex w-full max-w-[11rem] items-center gap-2 print:max-w-[12rem]" aria-hidden>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent to-slate-200/70" />
+            <div className="h-1 w-1 shrink-0 rotate-45 bg-teal-600/25 print:bg-teal-800/35" />
+            <div className="h-px flex-1 bg-gradient-to-l from-transparent to-slate-200/70" />
+          </div>
+        ) : null}
+        <p
+          className={[
+            'text-[0.6rem] font-medium tracking-[0.24em] text-slate-500 uppercase',
+            isLandscape ? '' : 'text-center',
+          ].join(' ')}
+        >
+          Powered by
+        </p>
+        <div className={isLandscape ? 'mt-1.5' : 'mt-2 flex justify-center'}>
+          <img
+            src={EASYPAY_LOGO_SRC}
+            alt="EasyPay"
+            className={[
+              'h-auto object-contain',
+              isLandscape
+                ? 'max-h-8 w-auto max-w-[10.5rem] object-left print:max-h-9'
+                : 'max-h-10 w-auto max-w-[min(100%,200px)] print:max-h-11',
+            ].join(' ')}
+            width={200}
+            height={44}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function CardCornerBrackets() {
   const bracket = (className: string) => (
     <svg
@@ -346,7 +458,15 @@ function CardCornerBrackets() {
  */
 export const TableGuestTentCard = forwardRef<HTMLDivElement, TableGuestTentCardProps>(
   function TableGuestTentCard(
-    { businessName, businessSlug, tableLabel, menuUrl, isInactive, layout = 'portrait' },
+    {
+      businessName,
+      businessSlug,
+      tableLabel,
+      menuUrl,
+      isInactive,
+      layout = 'portrait',
+      checkoutWallets = [],
+    },
     ref,
   ) {
     const displayBusinessName = resolveBusinessDisplayName(businessName, businessSlug)
@@ -419,12 +539,7 @@ export const TableGuestTentCard = forwardRef<HTMLDivElement, TableGuestTentCardP
                 ) : null}
               </div>
 
-              <div className="border-t border-slate-200/80 pt-4">
-                <p className="text-[0.6rem] font-medium tracking-[0.24em] text-slate-500 uppercase">Powered by</p>
-                <p className="mt-1 bg-gradient-to-r from-teal-800 to-emerald-800 bg-clip-text text-sm font-semibold tracking-tight text-transparent print:bg-none print:text-teal-900">
-                  EASYPAY
-                </p>
-              </div>
+              <WalletStripAndEasypayFooter wallets={checkoutWallets} variant="landscape" />
             </div>
 
             <div className="relative flex shrink-0 flex-col items-center justify-center">
@@ -496,17 +611,7 @@ export const TableGuestTentCard = forwardRef<HTMLDivElement, TableGuestTentCardP
               </div>
             </div>
 
-            <div className="mt-8 flex flex-col items-center border-t border-slate-200/80 pt-7 print:mt-9 print:pt-8">
-              <div className="mb-3 flex w-full max-w-[11rem] items-center gap-2 print:max-w-[12rem]" aria-hidden>
-                <div className="h-px flex-1 bg-gradient-to-r from-transparent to-slate-200/70" />
-                <div className="h-1 w-1 shrink-0 rotate-45 bg-teal-600/25 print:bg-teal-800/35" />
-                <div className="h-px flex-1 bg-gradient-to-l from-transparent to-slate-200/70" />
-              </div>
-              <p className="text-[0.6rem] font-medium tracking-[0.24em] text-slate-500 uppercase">Powered by</p>
-              <p className="mt-1.5 bg-gradient-to-r from-teal-800 to-emerald-800 bg-clip-text text-base font-semibold tracking-tight text-transparent print:bg-none print:text-teal-900">
-                EASYPAY
-              </p>
-            </div>
+            <WalletStripAndEasypayFooter wallets={checkoutWallets} variant="portrait" />
           </div>
         )}
       </div>

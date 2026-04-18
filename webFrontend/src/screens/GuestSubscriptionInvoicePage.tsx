@@ -16,6 +16,7 @@ import {
   type OrderCheckoutWalletRow,
 } from '../services/salesApi'
 import { ApiError } from '../services/subscriptionApi'
+import { checkoutWalletBrandImageSrc } from '../utils/checkoutWalletBrandImage'
 import { formatMoney } from '../utils/formatMoney'
 
 function fmtLongDate(iso: string) {
@@ -482,6 +483,7 @@ export function GuestSubscriptionInvoicePage() {
                 <div className="mt-4 grid gap-3">
                   {wallets.map((w) => {
                     const selected = selectedGatewayCode === w.code
+                    const brandImg = checkoutWalletBrandImageSrc(w.checkoutAdapter)
                     return (
                       <button
                         key={w.code}
@@ -495,9 +497,32 @@ export function GuestSubscriptionInvoicePage() {
                             : 'border-slate-200 bg-white hover:border-slate-300',
                         ].join(' ')}
                       >
-                        <p className="font-semibold text-slate-900">{w.name}</p>
-                        <p className="mt-1 text-xs text-teal-800">Platform checkout (env credentials)</p>
-                        <p className="mt-1 font-mono text-xs text-slate-500">{w.code}</p>
+                        <span className="flex items-start gap-3">
+                          {brandImg ? (
+                            <div className="relative shrink-0 overflow-hidden rounded-xl border border-slate-200/70 bg-white shadow-sm">
+                              <img
+                                src={brandImg}
+                                alt=""
+                                className="h-12 w-12 object-contain p-1"
+                                aria-hidden
+                              />
+                            </div>
+                          ) : (
+                            <div
+                              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-slate-50 text-[11px] font-bold uppercase leading-none tracking-wide text-slate-500"
+                              aria-hidden
+                            >
+                              {w.code.replace(/_/g, '').slice(0, 2)}
+                            </div>
+                          )}
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-semibold text-slate-900">{w.name}</span>
+                            <span className="mt-1 block text-xs font-medium text-teal-800">
+                              Platform checkout (env credentials)
+                            </span>
+                            <span className="mt-1 block font-mono text-xs text-slate-500">{w.code}</span>
+                          </span>
+                        </span>
                       </button>
                     )
                   })}

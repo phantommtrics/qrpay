@@ -42,6 +42,7 @@ import {
   type CorporateBillingSnapshot,
 } from '../services/subscriptionApi'
 import type { PlanId, SubscriptionBillingInterval } from '../types'
+import { checkoutWalletBrandImageSrc } from '../utils/checkoutWalletBrandImage'
 
 function formatGmd(amount: string) {
   const n = Number(amount)
@@ -1046,17 +1047,37 @@ export function BillingPage() {
                 const alreadyAdded = gatewayCodesWithPaymentMethod.has(g.code)
                 const isSelected =
                   isOwner && !alreadyAdded && selectedGatewayCode === g.code
+                const brandImg = checkoutWalletBrandImageSrc(g.checkoutAdapter ?? '')
                 const blockInner = (
-                  <>
-                    <p className="font-semibold text-slate-900">{g.name}</p>
-                    <p className="mt-1 font-mono text-xs text-slate-500">{g.code}</p>
-                    {g.checkoutAdapter ? (
-                      <p className="mt-2 text-xs text-teal-700">Online checkout available</p>
-                    ) : null}
-                    {alreadyAdded ? (
-                      <p className="mt-3 text-xs font-semibold text-slate-500">Already added</p>
-                    ) : null}
-                  </>
+                  <div className="flex items-start gap-3">
+                    {brandImg ? (
+                      <div className="relative shrink-0 overflow-hidden rounded-xl border border-slate-200/70 bg-white shadow-sm">
+                        <img
+                          src={brandImg}
+                          alt=""
+                          className="h-12 w-12 object-contain p-1"
+                          aria-hidden
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-slate-50 text-[11px] font-bold uppercase leading-none tracking-wide text-slate-500"
+                        aria-hidden
+                      >
+                        {g.code.replace(/_/g, '').slice(0, 2)}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-slate-900">{g.name}</p>
+                      <p className="mt-1 font-mono text-xs text-slate-500">{g.code}</p>
+                      {g.checkoutAdapter ? (
+                        <p className="mt-2 text-xs font-medium text-teal-800">Online checkout available</p>
+                      ) : null}
+                      {alreadyAdded ? (
+                        <p className="mt-3 text-xs font-semibold text-slate-500">Already added</p>
+                      ) : null}
+                    </div>
+                  </div>
                 )
                 if (!isOwner) {
                   return (
@@ -1132,14 +1153,37 @@ export function BillingPage() {
 
         {methods.length > 0 ? (
           <ul className="space-y-2">
-            {methods.map((m) => (
+            {methods.map((m) => {
+              const methodAdapter =
+                gateways.find((x) => x.code === m.gateway.code)?.checkoutAdapter ?? ''
+              const methodBrandImg = checkoutWalletBrandImageSrc(methodAdapter)
+              return (
               <li
                 key={m.id}
-                className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3"
+                className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 px-4 py-3"
               >
-                <div>
-                  <p className="font-medium text-slate-900">{m.label}</p>
-                  <p className="text-xs text-slate-500">{m.gateway.name}</p>
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  {methodBrandImg ? (
+                    <div className="relative shrink-0 overflow-hidden rounded-lg border border-slate-200/70 bg-white shadow-sm">
+                      <img
+                        src={methodBrandImg}
+                        alt=""
+                        className="h-10 w-10 object-contain p-0.5"
+                        aria-hidden
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200/80 bg-slate-50 text-[10px] font-bold uppercase text-slate-500"
+                      aria-hidden
+                    >
+                      {m.gateway.code.replace(/_/g, '').slice(0, 2)}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-900">{m.label}</p>
+                    <p className="text-xs text-slate-500">{m.gateway.name}</p>
+                  </div>
                 </div>
                 {isOwner ? (
                   <button
@@ -1152,7 +1196,8 @@ export function BillingPage() {
                   </button>
                 ) : null}
               </li>
-            ))}
+              )
+            })}
           </ul>
         ) : (
           <p className="text-sm text-slate-500">No saved payment methods yet.</p>
@@ -1205,6 +1250,9 @@ export function BillingPage() {
                   <div className="mt-4 grid gap-3">
                     {methodsEligibleForInvoicePay.map((m) => {
                       const selected = selectedPayMethodId === m.id
+                      const payAdapter =
+                        gateways.find((x) => x.code === m.gateway.code)?.checkoutAdapter ?? ''
+                      const payBrandImg = checkoutWalletBrandImageSrc(payAdapter)
                       return (
                         <button
                           key={m.id}
@@ -1218,9 +1266,32 @@ export function BillingPage() {
                               : 'border-slate-200 bg-white hover:border-slate-300',
                           ].join(' ')}
                         >
-                          <p className="font-semibold text-slate-900">{m.label}</p>
-                          <p className="mt-1 text-sm text-slate-600">{m.gateway.name}</p>
-                          <p className="mt-1 font-mono text-xs text-slate-500">{m.gateway.code}</p>
+                          <span className="flex items-start gap-3">
+                            {payBrandImg ? (
+                              <div className="relative shrink-0 overflow-hidden rounded-xl border border-slate-200/70 bg-white shadow-sm">
+                                <img
+                                  src={payBrandImg}
+                                  alt=""
+                                  className="h-12 w-12 object-contain p-1"
+                                  aria-hidden
+                                />
+                              </div>
+                            ) : (
+                              <div
+                                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-slate-50 text-[11px] font-bold uppercase leading-none tracking-wide text-slate-500"
+                                aria-hidden
+                              >
+                                {m.gateway.code.replace(/_/g, '').slice(0, 2)}
+                              </div>
+                            )}
+                            <span className="min-w-0 flex-1">
+                              <span className="block font-semibold text-slate-900">{m.label}</span>
+                              <span className="mt-1 block text-sm text-slate-600">{m.gateway.name}</span>
+                              <span className="mt-1 block font-mono text-xs text-slate-500">
+                                {m.gateway.code}
+                              </span>
+                            </span>
+                          </span>
                         </button>
                       )
                     })}

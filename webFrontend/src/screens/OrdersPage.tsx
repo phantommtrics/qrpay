@@ -33,6 +33,7 @@ import {
 } from '../services/salesApi'
 import { ApiError } from '../services/subscriptionApi'
 import type { Order } from '../types'
+import { checkoutWalletBrandImageSrc } from '../utils/checkoutWalletBrandImage'
 import { formatMoney } from '../utils/formatMoney'
 
 type OrderTab = 'all' | 'pending_payment' | 'paid' | 'cancelled'
@@ -872,6 +873,7 @@ export function OrdersPage() {
                           <ul className="space-y-2">
                             {checkoutWallets.map((w) => {
                               const selected = selectedGatewayCode === w.code
+                              const brandImg = checkoutWalletBrandImageSrc(w.checkoutAdapter)
                               return (
                                 <li key={w.gatewayId}>
                                   <button
@@ -901,13 +903,25 @@ export function OrdersPage() {
                                         : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80'
                                     }`}
                                   >
-                                    <span className="block font-semibold text-slate-900">{w.name}</span>
-                                    <span className="mt-0.5 block text-xs text-slate-500">{w.code}</span>
-                                    {selected ? (
-                                      <span className="mt-2 inline-block text-xs font-medium text-teal-700">
-                                        Selected
+                                    <span className="flex items-start gap-3">
+                                      {brandImg ? (
+                                        <img
+                                          src={brandImg}
+                                          alt=""
+                                          className="h-12 w-12 shrink-0 rounded-lg border border-slate-100 bg-white object-contain"
+                                          aria-hidden
+                                        />
+                                      ) : null}
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block font-semibold text-slate-900">{w.name}</span>
+                                        <span className="mt-0.5 block text-xs text-slate-500">{w.code}</span>
+                                        {selected ? (
+                                          <span className="mt-2 inline-block text-xs font-medium text-teal-700">
+                                            Selected
+                                          </span>
+                                        ) : null}
                                       </span>
-                                    ) : null}
+                                    </span>
                                   </button>
                                 </li>
                               )

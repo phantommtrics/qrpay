@@ -12,6 +12,7 @@ import {
   type OrderCheckoutWalletRow,
 } from '../services/salesApi'
 import { ApiError } from '../services/subscriptionApi'
+import { checkoutWalletBrandImageSrc } from '../utils/checkoutWalletBrandImage'
 import { formatMoney } from '../utils/formatMoney'
 
 export function GuestInvoicePage() {
@@ -251,25 +252,48 @@ export function GuestInvoicePage() {
             ) : (
               <div className="space-y-4">
                 <p className="text-center text-sm font-medium text-slate-800">Pay with wallet</p>
-                <div className="flex flex-wrap justify-center gap-2">
-                  {wallets.map((w) => (
-                    <button
-                      key={w.code}
-                      type="button"
-                      onClick={() => {
-                        setSelectedGatewayCode(w.code)
-                        setApsAuthState(null)
-                        setApsOtp('')
-                      }}
-                      className={`rounded-lg border px-4 py-2 text-sm font-medium ${
-                        selectedGatewayCode === w.code
-                          ? 'border-teal-600 bg-teal-50 text-teal-900'
-                          : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
-                      }`}
-                    >
-                      {w.name}
-                    </button>
-                  ))}
+                <div className="mx-auto grid max-w-md gap-2">
+                  {wallets.map((w) => {
+                    const brandImg = checkoutWalletBrandImageSrc(w.checkoutAdapter)
+                    const selected = selectedGatewayCode === w.code
+                    return (
+                      <button
+                        key={w.code}
+                        type="button"
+                        onClick={() => {
+                          setSelectedGatewayCode(w.code)
+                          setApsAuthState(null)
+                          setApsOtp('')
+                        }}
+                        aria-pressed={selected}
+                        className={[
+                          'flex w-full items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left text-sm transition',
+                          selected
+                            ? 'border-teal-600 bg-teal-50 text-teal-950 ring-2 ring-teal-500/25'
+                            : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50/80',
+                        ].join(' ')}
+                      >
+                        {brandImg ? (
+                          <div className="relative shrink-0 overflow-hidden rounded-lg border border-slate-200/80 bg-white shadow-sm">
+                            <img
+                              src={brandImg}
+                              alt=""
+                              className="h-10 w-10 object-contain p-0.5"
+                              aria-hidden
+                            />
+                          </div>
+                        ) : (
+                          <div
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200/80 bg-slate-50 text-[10px] font-bold uppercase text-slate-500"
+                            aria-hidden
+                          >
+                            {w.code.replace(/_/g, '').slice(0, 2)}
+                          </div>
+                        )}
+                        <span className="min-w-0 flex-1 font-semibold">{w.name}</span>
+                      </button>
+                    )
+                  })}
                 </div>
                 {selectedGatewayCode &&
                 wallets.find((x) => x.code === selectedGatewayCode)?.checkoutAdapter === 'yonna_wallet' ? (
