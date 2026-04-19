@@ -24,6 +24,13 @@ CREATE TABLE "PlatformSupplier" (
     CONSTRAINT "PlatformSupplier_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateEnum (BillStatus must exist before PlatformBill; 20260419120000_purchase_bills also creates it idempotently)
+DO $migration$ BEGIN
+  CREATE TYPE "BillStatus" AS ENUM ('DRAFT', 'APPROVED', 'PAID', 'VOID');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $migration$;
+
 -- CreateTable
 CREATE TABLE "PlatformBill" (
     "id" TEXT NOT NULL,
