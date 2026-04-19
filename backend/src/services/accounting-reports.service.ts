@@ -27,6 +27,11 @@ function endOfUtcDay(d: Date): Date {
   );
 }
 
+/** P&amp;L detail lines omit accounts with net zero activity in the period (includes float tolerance). */
+function isNonZeroPnlAmount(amount: number): boolean {
+  return Math.abs(amount) > 1e-9;
+}
+
 function isCogsAccount(code: string): boolean {
   const u = code.toUpperCase();
   return u === "310" || u === "COGS" || u.startsWith("COGS_");
@@ -156,7 +161,6 @@ export async function getProfitLossReport(businessId: string, fromRaw: string, t
     }
   }
 
-  /** Every P&L account appears in the report, including zero activity in the period. */
   const pnlAccounts = await prisma.chartOfAccount.findMany({
     where: {
       businessId,
@@ -172,6 +176,9 @@ export async function getProfitLossReport(businessId: string, fromRaw: string, t
   for (const a of pnlAccounts) {
     const v = byAccount.get(a.id);
     const amount = v?.net ?? 0;
+    if (!isNonZeroPnlAmount(amount)) {
+      continue;
+    }
     const row: PnlLineRow = {
       chartOfAccountId: a.id,
       code: a.code,
