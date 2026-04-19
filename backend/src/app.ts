@@ -522,6 +522,8 @@ const createBusinessUserSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   role: z.enum(['ADMIN', 'MERCHANT', 'CASHIER']).default('CASHIER'),
+  /** Petrol: optional branch id for this staff login; omit for all stations. */
+  assignedStationId: z.string().min(1).optional().nullable(),
 });
 
 const createSubscriptionSchema = z.object({
@@ -3763,7 +3765,10 @@ app.post(
 
   const result = await createBusinessUser({
     businessId: businessId as string,
-    ...validatedData,
+    name: validatedData.name,
+    email: validatedData.email,
+    role: validatedData.role,
+    assignedStationId: validatedData.assignedStationId ?? null,
   });
 
   await appendActivityLog(prisma, {
@@ -3783,7 +3788,17 @@ app.post(
 
   res.status(201).json({
     data: {
-      user: formatUserResponse(result.user),
+      user: formatUserResponse({
+        id: result.user.id,
+        name: result.user.name,
+        email: result.user.email,
+        role: result.user.role,
+        isActive: result.user.isActive,
+        mustChangePassword: result.user.mustChangePassword,
+        createdAt: result.user.createdAt,
+        assignedStationId: result.assignedStationId,
+        assignedStationName: result.assignedStationName,
+      }),
       inviteType: result.inviteType,
     },
   });
@@ -4985,6 +5000,8 @@ function formatUserResponse(user: {
   createdAt: Date;
   isOwner?: boolean;
   membershipStatus?: BusinessMembershipStatus;
+  assignedStationId?: string | null;
+  assignedStationName?: string | null;
 }) {
   return {
     id: user.id,
@@ -4996,6 +5013,8 @@ function formatUserResponse(user: {
     createdAt: user.createdAt.toISOString(),
     isOwner: user.isOwner,
     ...(user.membershipStatus !== undefined ? { membershipStatus: user.membershipStatus } : {}),
+    ...(user.assignedStationId !== undefined ? { assignedStationId: user.assignedStationId } : {}),
+    ...(user.assignedStationName !== undefined ? { assignedStationName: user.assignedStationName } : {}),
   };
 }
 
@@ -5274,6 +5293,7 @@ function formatAccessibleBusinessResponse(entry: {
   currentSubscription: Parameters<typeof formatSubscriptionResponse>[0] | null;
   isOwner: boolean;
   membershipStatus: BusinessMembershipStatus;
+  assignedStationId: string | null;
 }) {
   const { subscriptions: _subscriptions, ...business } = entry.business;
 
@@ -5284,6 +5304,7 @@ function formatAccessibleBusinessResponse(entry: {
       : null,
     isOwner: entry.isOwner,
     membershipStatus: entry.membershipStatus,
+    assignedStationId: entry.assignedStationId ?? null,
   };
 }
 
@@ -5304,6 +5325,7 @@ async function accessibleBusinessesWithEntitlements(
     currentSubscription: Parameters<typeof formatSubscriptionResponse>[0] | null;
     isOwner: boolean;
     membershipStatus: BusinessMembershipStatus;
+    assignedStationId: string | null;
   }>,
 ) {
   return Promise.all(
@@ -6380,6 +6402,28 @@ app.post(
         }
         diningTableId = table.id;
         tableLabelSnapshot = table.label;
+      }
+
+      const businessRow = await prisma.business.findUnique({
+        where: { id: businessId as string },
+        select: { industry: true },
+      });
+      if (
+        businessRow &&
+        isPetrolStationIndustry(businessRow.industry) &&
+        membership &&
+        membership.assignedStationId &&
+        !membership.isOwner &&
+        !request.user?.isPlatformOwner &&
+        request.user?.role !== UserRole.PLATFORM_ADMIN
+      ) {
+        const sid = body.stationId?.trim() ?? "";
+        if (sid !== membership.assignedStationId) {
+          throw new HttpError(
+            403,
+            "You may only create orders at your assigned station.",
+          );
+        }
       }
 
       const order = await createOrder({

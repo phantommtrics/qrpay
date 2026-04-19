@@ -65,7 +65,26 @@ type PosPaymentPhase = 'choose' | 'pick_wallet' | 'wallet'
 const petrolStationStorageKey = (businessId: string) => `qrpay.petrol.station.${businessId}`
 
 export function POSPage() {
-  const { businessProducts, currentOrganization, refreshBusinessProducts } = useAuth()
+  const {
+    businessProducts,
+    currentOrganization,
+    refreshBusinessProducts,
+    user,
+    organizationMembers,
+  } = useAuth()
+
+  /** Branch lock must survive org merges that omit membership (e.g. subscription refresh). */
+  const effectiveAssignedStationId = useMemo(() => {
+    const fromOrg = currentOrganization?.assignedStationId
+    if (fromOrg != null && fromOrg !== '') {
+      return fromOrg
+    }
+    const self = organizationMembers.find((m) => m.id === user?.id)
+    return self?.assignedStationId ?? null
+  }, [currentOrganization?.assignedStationId, organizationMembers, user?.id])
+
+  /** Staff limited to one branch: station is fixed unless the owner changes assignment. */
+  const petrolStationLocked = Boolean(effectiveAssignedStationId)
   const restaurantPos = Boolean(
     currentOrganization && isRestaurantIndustry(currentOrganization.industry),
   )
@@ -172,6 +191,14 @@ export function POSPage() {
     [selectedPetrolStation],
   )
 
+  const visiblePetrolStations = useMemo(() => {
+    const active = petrolStations.filter((s) => s.isActive)
+    if (effectiveAssignedStationId) {
+      return active.filter((s) => s.id === effectiveAssignedStationId)
+    }
+    return active
+  }, [petrolStations, effectiveAssignedStationId])
+
   const petrolChargeReady = Boolean(
     petrolPos &&
       petrolProductId &&
@@ -255,6 +282,7 @@ export function POSPage() {
 
   useEffect(() => {
     const orgId = currentOrganization?.id
+    const branchId = effectiveAssignedStationId
     if (!orgId || !petrolPos) {
       return
     }
@@ -264,16 +292,20 @@ export function POSPage() {
       .then((rows) => {
         if (cancelled) return
         setPetrolStations(rows)
+        const visible = branchId
+          ? rows.filter((s) => s.isActive && s.id === branchId)
+          : rows.filter((s) => s.isActive)
         const stored =
           typeof window !== 'undefined'
             ? window.localStorage.getItem(petrolStationStorageKey(orgId))
             : null
         const preferred =
-          stored && rows.some((s) => s.id === stored && s.isActive) ? stored : null
-        const firstActive = rows.find((s) => s.isActive)?.id ?? ''
-        setPetrolStationId(preferred || firstActive || '')
-        if (preferred || firstActive) {
-          window.localStorage.setItem(petrolStationStorageKey(orgId), preferred || firstActive)
+          !branchId && stored && visible.some((s) => s.id === stored) ? stored : null
+        const firstActive = visible[0]?.id ?? ''
+        const nextId = branchId ? firstActive : preferred || firstActive || ''
+        setPetrolStationId(nextId)
+        if (nextId && !branchId) {
+          window.localStorage.setItem(petrolStationStorageKey(orgId), nextId)
         }
       })
       .catch((e) => {
@@ -286,15 +318,16 @@ export function POSPage() {
     return () => {
       cancelled = true
     }
-  }, [currentOrganization?.id, petrolPos])
+  }, [currentOrganization?.id, effectiveAssignedStationId, petrolPos])
 
   useEffect(() => {
     if (!petrolStationId || !currentOrganization?.id) return
+    if (petrolStationLocked) return
     window.localStorage.setItem(
       petrolStationStorageKey(currentOrganization.id),
       petrolStationId,
     )
-  }, [petrolStationId, currentOrganization?.id])
+  }, [petrolStationId, currentOrganization?.id, petrolStationLocked])
 
   useEffect(() => {
     setPetrolPumpId('')
@@ -902,20 +935,17 @@ export function POSPage() {
   const displaySubtotal = petrolPos ? petrolDisplayTotal : subtotal
 
   return (
-    <div className="relative flex h-auto flex-col gap-6 lg:h-[calc(100vh-8rem)] lg:flex-row">
+    <div
+      className={`relative flex h-auto flex-col gap-6 ${
+        petrolPos ? '' : 'lg:h-[calc(100vh-8rem)] lg:flex-row'
+      }`}
+    >
       <FlashNotice message={productFlash} onDismiss={dismissProductFlash} />
-      <div className="flex flex-1 flex-col gap-6">
+      <div className={`flex flex-col gap-6 ${petrolPos ? 'w-full' : 'flex-1'}`}>
         {petrolPos ? (
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
             <p className="text-base font-semibold text-slate-800">Petrol station checkout</p>
-            <p className="mt-2 text-sm leading-relaxed text-slate-600">
-              Post-pay fuel sale: pick station and pump, then grade and liters or cash amount (D). Litres
-              from cash = amount ÷ price/L. Configure sites under{' '}
-              <Link to={APP_PATHS.petrolStations} className="font-medium text-teal-700 hover:underline">
-                Stations &amp; pumps
-              </Link>
-              .
-            </p>
+            
           </div>
         ) : (
         <div className="relative flex min-h-[240px] flex-col items-center justify-center overflow-hidden rounded-2xl bg-slate-900 p-6">
@@ -1013,7 +1043,11 @@ export function POSPage() {
         </div>
       </div>
 
-      <div className="flex w-full min-h-0 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm lg:max-h-none lg:w-96 lg:shrink-0">
+      <div
+        className={`flex w-full min-h-0 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm ${
+          petrolPos ? 'max-w-lg self-center' : 'lg:max-h-none lg:w-96 lg:shrink-0'
+        }`}
+      >
         <div className="flex items-center justify-between border-b border-slate-100 p-4">
           <h2 className="text-lg font-bold text-slate-800">
             {petrolPos ? 'Fuel sale' : 'Current Order'}
@@ -1033,7 +1067,7 @@ export function POSPage() {
               {petrolStationsError ? (
                 <p className="text-xs text-amber-800">{petrolStationsError}</p>
               ) : null}
-              {petrolStations.length === 0 && !petrolStationsError ? (
+              {visiblePetrolStations.length === 0 && !petrolStationsError && !petrolStationLocked ? (
                 <p className="text-sm text-slate-600">
                   Add at least one station and pump in{' '}
                   <Link to={APP_PATHS.petrolStations} className="font-medium text-teal-600 hover:underline">
@@ -1042,105 +1076,195 @@ export function POSPage() {
                   before charging.
                 </p>
               ) : null}
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                  Station
-                </span>
-                <select
-                  value={petrolStationId}
-                  onChange={(e) => setPetrolStationId(e.target.value)}
-                  disabled={paymentModalOpen || placeOrderBusy || petrolStations.length === 0}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
-                >
-                  <option value="">Select station</option>
-                  {petrolStations.filter((s) => s.isActive).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                      {s.code ? ` (${s.code})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
+              {petrolStationLocked ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                    Station
+                  </p>
+                  {visiblePetrolStations[0] ? (
+                    <p className="mt-1.5 text-sm font-semibold text-slate-900">
+                      {visiblePetrolStations[0].name}
+                      {visiblePetrolStations[0].code ? ` (${visiblePetrolStations[0].code})` : ''}
+                    </p>
+                  ) : (
+                    <p className="mt-1.5 text-sm text-amber-800">
+                      Your assigned station is not available. Ask the owner to check{' '}
+                      <Link to={APP_PATHS.petrolStations} className="font-medium underline">
+                        Stations &amp; pumps
+                      </Link>{' '}
+                      or update your branch assignment.
+                    </p>
+                  )}
+                  {/* <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                    This branch is fixed for your login. Only the business owner can assign you to a
+                    different station.
+                  </p> */}
+                </div>
+              ) : (
+                <fieldset className="space-y-2 border-0 p-0">
+                  <legend className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                    Station
+                  </legend>
+                  <div className="space-y-2">
+                    {visiblePetrolStations.map((s) => {
+                      const selected = petrolStationId === s.id
+                      return (
+                        <label
+                          key={s.id}
+                          className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
+                            selected
+                              ? 'border-teal-600 bg-teal-50 text-teal-900'
+                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                          } ${paymentModalOpen || placeOrderBusy || visiblePetrolStations.length === 0 ? 'cursor-not-allowed opacity-50' : ''}`}
+                        >
+                          <input
+                            type="radio"
+                            name="petrol-station"
+                            className="mt-0.5"
+                            checked={selected}
+                            disabled={
+                              paymentModalOpen || placeOrderBusy || visiblePetrolStations.length === 0
+                            }
+                            onChange={() => setPetrolStationId(s.id)}
+                          />
+                          <span>
+                            {s.name}
+                            {s.code ? ` (${s.code})` : ''}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </fieldset>
+              )}
+              <fieldset className="space-y-2 border-0 p-0">
+                <legend className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
                   Pump / dispenser
-                </span>
-                <select
-                  value={petrolPumpId}
-                  onChange={(e) => setPetrolPumpId(e.target.value)}
-                  disabled={
-                    paymentModalOpen ||
-                    placeOrderBusy ||
-                    !petrolStationId ||
-                    activePumpsForStation.length === 0
-                  }
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
-                >
-                  <option value="">
-                    {activePumpsForStation.length === 0 ? 'No pumps — add in setup' : 'Select pump'}
-                  </option>
-                  {activePumpsForStation.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                </legend>
+                <div className="space-y-2">
+                  {!petrolStationId || activePumpsForStation.length === 0 ? (
+                    <p className="text-sm text-slate-500">
+                      {activePumpsForStation.length === 0 && petrolStationId
+                        ? 'No pumps — add in setup'
+                        : 'Select a station first'}
+                    </p>
+                  ) : null}
+                  {activePumpsForStation.map((p) => {
+                    const selected = petrolPumpId === p.id
+                    return (
+                      <label
+                        key={p.id}
+                        className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
+                          selected
+                            ? 'border-teal-600 bg-teal-50 text-teal-900'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        } ${
+                          paymentModalOpen ||
+                          placeOrderBusy ||
+                          !petrolStationId ||
+                          activePumpsForStation.length === 0
+                            ? 'cursor-not-allowed opacity-50'
+                            : ''
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="petrol-pump"
+                          className="mt-0.5"
+                          checked={selected}
+                          disabled={
+                            paymentModalOpen ||
+                            placeOrderBusy ||
+                            !petrolStationId ||
+                            activePumpsForStation.length === 0
+                          }
+                          onChange={() => setPetrolPumpId(p.id)}
+                        />
+                        <span>{p.label}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </fieldset>
+              <fieldset className="space-y-2 border-0 p-0">
+                <legend className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
                   Fuel grade
-                </span>
-                <select
-                  value={petrolProductId}
-                  onChange={(e) => setPetrolProductId(e.target.value)}
-                  disabled={paymentModalOpen || placeOrderBusy}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
-                >
-                  <option value="">Select grade</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} — D{p.price}/L
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="block">
-                <span className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                  Sale by
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={paymentModalOpen || placeOrderBusy}
-                    onClick={() => {
-                      setPetrolEntryMode('liters')
-                      setPetrolCashAmount('')
-                    }}
-                    className={`flex-1 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 ${
+                </legend>
+                <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                  {products.map((p) => {
+                    const selected = petrolProductId === p.id
+                    return (
+                      <label
+                        key={p.id}
+                        className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
+                          selected
+                            ? 'border-teal-600 bg-teal-50 text-teal-900'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        } ${paymentModalOpen || placeOrderBusy ? 'cursor-not-allowed opacity-50' : ''}`}
+                      >
+                        <input
+                          type="radio"
+                          name="petrol-grade"
+                          className="mt-0.5"
+                          checked={selected}
+                          disabled={paymentModalOpen || placeOrderBusy}
+                          onChange={() => setPetrolProductId(p.id)}
+                        />
+                        <span>
+                          {p.name} — D{p.price}/L
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </fieldset>
+              <fieldset className="space-y-2 border-0 p-0">
+                <legend className="mb-1.5 block text-center text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                  Charge
+                </legend>
+                <div className="space-y-2">
+                  <label
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
                       petrolEntryMode === 'liters'
                         ? 'border-teal-600 bg-teal-50 text-teal-900'
                         : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
+                    } ${paymentModalOpen || placeOrderBusy ? 'cursor-not-allowed opacity-50' : ''}`}
                   >
-                    Liters
-                  </button>
-                  <button
-                    type="button"
-                    disabled={paymentModalOpen || placeOrderBusy}
-                    onClick={() => {
-                      setPetrolEntryMode('cash')
-                      setPetrolLiters('')
-                    }}
-                    className={`flex-1 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 ${
+                    <input
+                      type="radio"
+                      name="petrol-charge"
+                      className="mt-0.5"
+                      checked={petrolEntryMode === 'liters'}
+                      disabled={paymentModalOpen || placeOrderBusy}
+                      onChange={() => {
+                        setPetrolEntryMode('liters')
+                        setPetrolCashAmount('')
+                      }}
+                    />
+                    <span>Liters × price/L</span>
+                  </label>
+                  <label
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
                       petrolEntryMode === 'cash'
                         ? 'border-teal-600 bg-teal-50 text-teal-900'
                         : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
+                    } ${paymentModalOpen || placeOrderBusy ? 'cursor-not-allowed opacity-50' : ''}`}
                   >
-                    Cash amount (D)
-                  </button>
+                    <input
+                      type="radio"
+                      name="petrol-charge"
+                      className="mt-0.5"
+                      checked={petrolEntryMode === 'cash'}
+                      disabled={paymentModalOpen || placeOrderBusy}
+                      onChange={() => {
+                        setPetrolEntryMode('cash')
+                        setPetrolLiters('')
+                      }}
+                    />
+                    <span>Cash amount (D)</span>
+                  </label>
                 </div>
-              </div>
+              </fieldset>
               {petrolEntryMode === 'liters' ? (
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">

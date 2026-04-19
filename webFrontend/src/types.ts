@@ -136,6 +136,8 @@ export interface Organization {
   isOwner?: boolean
   /** Staff access state for this login; owners are always ACTIVE in API responses. */
   membershipStatus?: BusinessMembershipStatus
+  /** Petrol: branch this login is limited to; omitted/null = all stations. */
+  assignedStationId?: string | null
   createdAt: string
 }
 
@@ -151,6 +153,9 @@ export interface LoginAccount {
   isPlatformAdmin?: boolean
   createdAt?: string
   membershipStatus?: BusinessMembershipStatus
+  /** Petrol: assigned branch (staff); managers/owners typically unset. */
+  assignedStationId?: string | null
+  assignedStationName?: string | null
 }
 
 export interface PermissionDefinition {

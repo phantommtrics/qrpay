@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { BadgeCheck, Mail, ShieldCheck, UserPlus, Users } from 'lucide-react'
 import { Navigate, NavLink } from 'react-router-dom'
 
@@ -6,7 +6,9 @@ import { APP_PATHS } from '../config/navigation'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { useAuth } from '../features/auth/AuthContext'
+import { ApiError, fetchBusinessStations, type BusinessStationRow } from '../services/subscriptionApi'
 import type { BusinessMembershipStatus, UserRole } from '../types'
+import { isPetrolStationIndustry } from '../utils/businessIndustry'
 
 const MEMBERSHIP_STATUS_OPTIONS: { value: BusinessMembershipStatus; label: string }[] = [
   { value: 'ACTIVE', label: 'Active' },
@@ -30,7 +32,12 @@ export function StaffPage() {
     name: '',
     email: '',
     role: 'cashier' as StaffRole,
+    /** Petrol: empty = all stations */
+    assignedStationId: '' as string,
   })
+  const [branchStations, setBranchStations] = useState<BusinessStationRow[]>([])
+  const [branchStationsLoading, setBranchStationsLoading] = useState(false)
+  const [branchStationsError, setBranchStationsError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -48,6 +55,43 @@ export function StaffPage() {
     () => organizationMembers.find((member) => member.role === 'merchant'),
     [organizationMembers],
   )
+
+  const petrolBusiness = Boolean(
+    currentOrganization && isPetrolStationIndustry(currentOrganization.industry),
+  )
+
+  useEffect(() => {
+    if (!currentOrganization?.id || !petrolBusiness) {
+      setBranchStations([])
+      setBranchStationsError(null)
+      return
+    }
+    let cancelled = false
+    setBranchStationsLoading(true)
+    setBranchStationsError(null)
+    void fetchBusinessStations(currentOrganization.id)
+      .then((rows) => {
+        if (!cancelled) {
+          setBranchStations(rows.filter((s) => s.isActive))
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setBranchStations([])
+          setBranchStationsError(
+            e instanceof ApiError ? e.message : 'Could not load stations for branch selection.',
+          )
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setBranchStationsLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentOrganization?.id, petrolBusiness])
 
   if (user && !user.isPlatformOwner && !currentOrganization?.isOwner) {
     return <Navigate to={APP_PATHS.dashboard} replace />
@@ -75,6 +119,9 @@ export function StaffPage() {
         name: form.name,
         email: form.email,
         role: form.role,
+        ...(petrolBusiness && form.assignedStationId
+          ? { assignedStationId: form.assignedStationId }
+          : {}),
       })
 
       if (!result.ok) {
@@ -87,6 +134,7 @@ export function StaffPage() {
         name: '',
         email: '',
         role: 'cashier',
+        assignedStationId: '',
       })
     } finally {
       setIsSubmitting(false)
@@ -217,6 +265,65 @@ export function StaffPage() {
                 <option value="merchant">Manager</option>
               </select>
             </label>
+
+            {petrolBusiness ? (
+              <fieldset className="space-y-3 border-0 p-0">
+                <legend className="mb-1 block text-sm font-medium text-slate-700">
+                  Branch (station)
+                </legend>
+                <p className="text-xs text-slate-500">
+                  Optional: limit this login to one station, or leave as all stations.
+                </p>
+                {branchStationsError ? (
+                  <p className="text-xs text-amber-800">{branchStationsError}</p>
+                ) : null}
+                {branchStationsLoading ? (
+                  <p className="text-xs text-slate-500">Loading stations…</p>
+                ) : null}
+                <label
+                  className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition-colors ${
+                    form.assignedStationId === ''
+                      ? 'border-teal-600 bg-teal-50'
+                      : 'border-slate-200 bg-white hover:border-teal-300'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="invite-branch"
+                    className="mt-0.5"
+                    checked={form.assignedStationId === ''}
+                    onChange={() =>
+                      setForm((current) => ({ ...current, assignedStationId: '' }))
+                    }
+                  />
+                  <span className="text-sm text-slate-800">All stations</span>
+                </label>
+                {branchStations.map((s) => (
+                  <label
+                    key={s.id}
+                    className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition-colors ${
+                      form.assignedStationId === s.id
+                        ? 'border-teal-600 bg-teal-50'
+                        : 'border-slate-200 bg-white hover:border-teal-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="invite-branch"
+                      className="mt-0.5"
+                      checked={form.assignedStationId === s.id}
+                      onChange={() =>
+                        setForm((current) => ({ ...current, assignedStationId: s.id }))
+                      }
+                    />
+                    <span className="text-sm text-slate-800">
+                      {s.name}
+                      {s.code ? ` (${s.code})` : ''}
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
 
             {error ? (
               <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

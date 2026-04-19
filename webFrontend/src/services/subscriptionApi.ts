@@ -91,6 +91,8 @@ export type BackendUser = {
   createdAt: string
   isOwner?: boolean
   membershipStatus?: BusinessMembershipStatus
+  assignedStationId?: string | null
+  assignedStationName?: string | null
   platformPermissions?: PlatformPermissionMatrix
 }
 
@@ -99,6 +101,7 @@ export type BackendAccessibleBusiness = {
   currentSubscription: (BackendSubscription & { invoices?: BackendInvoice[] }) | null
   isOwner: boolean
   membershipStatus?: BusinessMembershipStatus
+  assignedStationId?: string | null
   entitlements?: string[]
 }
 
@@ -245,6 +248,8 @@ export function mapBackendUserToLoginAccount(
     isPlatformAdmin: isPlatformAdminRole(user.role),
     createdAt: user.createdAt,
     membershipStatus: user.membershipStatus ?? 'ACTIVE',
+    assignedStationId: user.assignedStationId,
+    assignedStationName: user.assignedStationName,
   }
 }
 
@@ -275,6 +280,7 @@ export function mapAccessibleBusinessToOrganization(entry: BackendAccessibleBusi
     subscriptionBillingInterval: currentSubscription?.billingInterval,
     isOwner: entry.isOwner,
     membershipStatus: entry.membershipStatus,
+    assignedStationId: entry.assignedStationId ?? null,
     createdAt: entry.business.createdAt,
   }
 }
@@ -656,7 +662,17 @@ export async function createBusinessUser(payload: {
   name: string
   email: string
   role: Extract<UserRole, 'merchant' | 'cashier'>
+  /** Petrol: station id, or omit / null for all stations */
+  assignedStationId?: string | null
 }) {
+  const body: Record<string, unknown> = {
+    name: payload.name,
+    email: payload.email,
+    role: payload.role.toUpperCase(),
+  }
+  if (payload.assignedStationId) {
+    body.assignedStationId = payload.assignedStationId
+  }
   const response = await apiRequest<{
     data: {
       user: BackendUser
@@ -667,11 +683,7 @@ export async function createBusinessUser(payload: {
     headers: {
       'x-business-id': payload.businessId,
     },
-    body: JSON.stringify({
-      name: payload.name,
-      email: payload.email,
-      role: payload.role.toUpperCase(),
-    }),
+    body: JSON.stringify(body),
   })
 
   return {

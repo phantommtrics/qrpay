@@ -64,6 +64,8 @@ type CreateStaffPayload = {
   name: string
   email: string
   role: Extract<UserRole, 'merchant' | 'cashier'>
+  /** Petrol: limit invite to one station; omit or empty = all stations */
+  assignedStationId?: string
 }
 
 type AuthActionResult = {
@@ -468,6 +470,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         business: payload.business,
                         currentSubscription: payload.currentSubscription,
                         isOwner: organization.isOwner ?? false,
+                        membershipStatus:
+                          organization.membershipStatus ?? 'ACTIVE',
+                        assignedStationId: organization.assignedStationId ?? null,
                       }),
                       staffCount: organization.staffCount,
                     }
@@ -538,6 +543,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     business: payload.business,
                     currentSubscription: payload.currentSubscription,
                     isOwner: organization.isOwner ?? false,
+                    membershipStatus:
+                      organization.membershipStatus ?? 'ACTIVE',
+                    assignedStationId: organization.assignedStationId ?? null,
                   }),
                   staffCount: organization.staffCount,
                   planId: mappedPlan.id,
@@ -848,7 +856,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       },
-      createStaffAccount: async ({ name, email, role }) => {
+      createStaffAccount: async ({ name, email, role, assignedStationId }) => {
         if (!currentOrganization || !currentPlan) {
           return {
             ok: false,
@@ -875,6 +883,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             name: name.trim(),
             email: normalizedEmail,
             role,
+            ...(assignedStationId ? { assignedStationId } : {}),
           })
 
           setAccounts((current) => mergeById(current, [result.account]))

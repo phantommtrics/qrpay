@@ -36,6 +36,7 @@ import { getMergedPlatformPermissionsForUser } from "./platform-security.service
 import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
 import { isCorporateIndustry } from "../utils/corporate-industry.js";
 import { sendCorporateBusinessCreatedOperatorEmail } from "./corporate-signup-notify.service.js";
+import { isPetrolStationIndustry } from "./product.service.js";
 
 type RegisterBusinessOwnerInput = {
   ownerName: string;
@@ -69,6 +70,8 @@ type CreateBusinessUserInput = {
   name: string;
   email: string;
   role: "ADMIN" | "CASHIER" | "MERCHANT";
+  /** Petrol: branch for this staff member; omit or null = all stations. */
+  assignedStationId?: string | null;
 };
 
 function normalizeSlug(value: string) {
@@ -144,6 +147,7 @@ export type AccessibleBusinessEntry = {
   currentSubscription: Awaited<ReturnType<typeof getBusinessSubscription>>["currentSubscription"];
   isOwner: boolean;
   membershipStatus: BusinessMembershipStatus;
+  assignedStationId: string | null;
 };
 
 async function listAccessibleBusinesses(userId: string): Promise<{
@@ -167,6 +171,7 @@ async function listAccessibleBusinesses(userId: string): Promise<{
         currentSubscription: subscriptionContext.currentSubscription,
         isOwner: membership.isOwner,
         membershipStatus: membership.isOwner ? "ACTIVE" : membership.status,
+        assignedStationId: membership.assignedStationId ?? null,
       };
     }),
   );
@@ -544,6 +549,27 @@ export async function forgotPassword(input: ForgotPasswordInput) {
   };
 }
 
+async function resolveAssignedStationIdForStaffInvite(
+  businessId: string,
+  industry: string | null,
+  assignedStationId: string | null | undefined,
+): Promise<string | null> {
+  const raw = assignedStationId?.trim();
+  if (!raw) {
+    return null;
+  }
+  if (!isPetrolStationIndustry(industry)) {
+    throw new HttpError(400, "Branch assignment is only used for petrol station businesses.");
+  }
+  const st = await prisma.businessStation.findFirst({
+    where: { id: raw, businessId, isActive: true },
+  });
+  if (!st) {
+    throw new HttpError(400, "Invalid or inactive station for this business.");
+  }
+  return st.id;
+}
+
 export async function listBusinessUsers(businessId: string) {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
@@ -558,6 +584,7 @@ export async function listBusinessUsers(businessId: string) {
     orderBy: [{ isOwner: "desc" }, { createdAt: "asc" }],
     include: {
       user: true,
+      assignedStation: { select: { id: true, name: true } },
     },
   });
 
@@ -565,10 +592,17 @@ export async function listBusinessUsers(businessId: string) {
     ...sanitizeUser(membership.user),
     isOwner: membership.isOwner,
     membershipStatus: membership.status,
+    assignedStationId: membership.assignedStationId ?? null,
+    assignedStationName: membership.assignedStation?.name ?? null,
   }));
 }
 
-export async function createBusinessUser(input: CreateBusinessUserInput): Promise<{ user: User; inviteType: 'existing-user' | 'new-user' }> {
+export async function createBusinessUser(input: CreateBusinessUserInput): Promise<{
+  user: User;
+  inviteType: "existing-user" | "new-user";
+  assignedStationId: string | null;
+  assignedStationName: string | null;
+}> {
   const business = await prisma.business.findUnique({
     where: { id: input.businessId },
   });
@@ -576,6 +610,12 @@ export async function createBusinessUser(input: CreateBusinessUserInput): Promis
   if (!business) {
     throw new HttpError(404, "Business not found.");
   }
+
+  const resolvedStationId = await resolveAssignedStationIdForStaffInvite(
+    input.businessId,
+    business.industry,
+    input.assignedStationId,
+  );
 
   // Check if user already exists
   let user = await prisma.user.findUnique({
@@ -603,6 +643,7 @@ export async function createBusinessUser(input: CreateBusinessUserInput): Promis
         userId: user.id,
         businessId: input.businessId,
         isOwner: false,
+        assignedStationId: resolvedStationId,
       },
     });
 
@@ -665,7 +706,18 @@ export async function createBusinessUser(input: CreateBusinessUserInput): Promis
       }
     }
 
-    return { user, inviteType };
+    const stationRow = resolvedStationId
+      ? await prisma.businessStation.findFirst({
+          where: { id: resolvedStationId, businessId: input.businessId },
+          select: { name: true },
+        })
+      : null;
+    return {
+      user,
+      inviteType,
+      assignedStationId: resolvedStationId,
+      assignedStationName: stationRow?.name ?? null,
+    };
   }
 
   // User doesn't exist, so create a new one
@@ -689,6 +741,7 @@ export async function createBusinessUser(input: CreateBusinessUserInput): Promis
       userId: user.id,
       businessId: input.businessId,
       isOwner: false,
+      assignedStationId: resolvedStationId,
     },
   });
 
@@ -752,5 +805,17 @@ export async function createBusinessUser(input: CreateBusinessUserInput): Promis
     }
   }
 
-  return { user, inviteType };
+  const stationRow = resolvedStationId
+    ? await prisma.businessStation.findFirst({
+        where: { id: resolvedStationId, businessId: input.businessId },
+        select: { name: true },
+      })
+    : null;
+
+  return {
+    user,
+    inviteType,
+    assignedStationId: resolvedStationId,
+    assignedStationName: stationRow?.name ?? null,
+  };
 }
