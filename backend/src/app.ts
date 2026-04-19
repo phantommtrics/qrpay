@@ -383,6 +383,31 @@ import {
 import { requireInternalPartnerApiSecret } from "./middleware/internal-partner-auth.js";
 import { httpRequestLogger } from "./middleware/http-logger.js";
 
+/** mkdirSync(recursive) can still throw EEXIST (e.g. race with PM2 cluster, or path is a file). */
+function ensureDirectorySync(dirPath: string): void {
+  try {
+    fs.mkdirSync(dirPath, { recursive: true });
+    return;
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e?.code !== "EEXIST") {
+      throw err;
+    }
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(dirPath);
+    } catch {
+      throw err;
+    }
+    if (st.isDirectory()) {
+      return;
+    }
+    throw new Error(
+      `[uploads] ${dirPath} exists but is not a directory. Remove or rename it so product images can be stored there.`,
+    );
+  }
+}
+
 const app = express();
 // Behind nginx/PM2 the inbound connection is often HTTP; use X-Forwarded-Proto so
 // absolute URLs (e.g. product image uploads) use https:// on the live site.
@@ -394,10 +419,10 @@ const uploadsRoot = env.UPLOADS_DIR?.trim()
   : path.resolve(__dirname, "../uploads");
 const productUploadsDir = path.join(uploadsRoot, "products");
 try {
-  fs.mkdirSync(productUploadsDir, { recursive: true });
+  ensureDirectorySync(productUploadsDir);
 } catch (e) {
   console.error(
-    "[uploads] Failed to create product image directory (check UPLOADS_DIR and permissions):",
+    "[uploads] Failed to ensure product image directory (check UPLOADS_DIR and permissions):",
     productUploadsDir,
     e,
   );
