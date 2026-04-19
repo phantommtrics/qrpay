@@ -35,6 +35,7 @@ import { ApiError } from '../services/subscriptionApi'
 import type { Order } from '../types'
 import { checkoutWalletBrandImageSrc } from '../utils/checkoutWalletBrandImage'
 import { formatMoney } from '../utils/formatMoney'
+import { isPetrolStationIndustry } from '../utils/businessIndustry'
 
 type OrderTab = 'all' | 'pending_payment' | 'paid' | 'cancelled'
 
@@ -78,6 +79,7 @@ function saleOrderStatusLabel(status: string): string {
 export function OrdersPage() {
   const { currentOrganization, refreshBusinessProducts, canAccess } = useAuth()
   const businessId = currentOrganization?.id
+  const petrolBusiness = isPetrolStationIndustry(currentOrganization?.industry)
   const canCollectPaymentApi = canAccess('pos.access') || canAccess('orders.manage')
 
   const [orders, setOrders] = useState<SaleOrder[]>([])
@@ -643,7 +645,11 @@ export function OrdersPage() {
                 <th className="px-5 py-4 font-medium">Order</th>
                 <th className="px-5 py-4 font-medium">Date &amp; time</th>
                 <th className="px-5 py-4 font-medium">Items</th>
-                <th className="px-5 py-4 font-medium">Table</th>
+                {petrolBusiness ? (
+                  <th className="px-5 py-4 font-medium">Station</th>
+                ) : (
+                  <th className="px-5 py-4 font-medium">Table</th>
+                )}
                 <th className="px-5 py-4 font-medium">Total</th>
                 <th className="px-5 py-4 font-medium">Status</th>
                 <th className="px-5 py-4 font-medium"></th>
@@ -689,7 +695,9 @@ export function OrdersPage() {
                       </div>
                     </td>
                     <td className="px-5 py-4 text-sm font-medium text-slate-600">
-                      {order.tableLabel?.trim() || '—'}
+                      {petrolBusiness
+                        ? order.stationName?.trim() || '—'
+                        : order.tableLabel?.trim() || '—'}
                     </td>
                     <td className="px-5 py-4 font-semibold text-slate-800">
                       {formatMoney(order.total, { decimals: 2 })}
@@ -1132,7 +1140,23 @@ export function OrdersPage() {
                           timeStyle: 'short',
                         })}
                       </p>
-                      {detail.tableLabel?.trim() ? (
+                      {petrolBusiness ? (
+                        <>
+                          {detail.stationName?.trim() ? (
+                            <p className="mt-2 text-sm text-slate-700">
+                              <span className="font-medium text-slate-900">Station</span>{' '}
+                              {detail.stationName.trim()}
+                              {detail.stationCode?.trim() ? ` (${detail.stationCode.trim()})` : ''}
+                            </p>
+                          ) : null}
+                          {detail.pumpLabel?.trim() ? (
+                            <p className="mt-1 text-sm text-slate-700">
+                              <span className="font-medium text-slate-900">Pump</span>{' '}
+                              {detail.pumpLabel.trim()}
+                            </p>
+                          ) : null}
+                        </>
+                      ) : detail.tableLabel?.trim() ? (
                         <p className="mt-2 text-sm text-slate-700">
                           <span className="font-medium text-slate-900">Table</span>{' '}
                           {detail.tableLabel.trim()}
@@ -1200,11 +1224,19 @@ export function OrdersPage() {
                         </p>
                       </div>
                       <div className="min-w-0 py-1">
-                        <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Table</p>
-                        <p className="mt-2 text-lg font-semibold text-slate-900">
-                          {detail.tableLabel?.trim() || '—'}
+                        <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                          {petrolBusiness ? 'Station / pump' : 'Table'}
                         </p>
-                        <p className="text-xs text-slate-500">Dine-in assignment</p>
+                        <p className="mt-2 text-lg font-semibold text-slate-900">
+                          {petrolBusiness
+                            ? [detail.stationName?.trim(), detail.pumpLabel?.trim()]
+                                .filter(Boolean)
+                                .join(' · ') || '—'
+                            : detail.tableLabel?.trim() || '—'}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {petrolBusiness ? 'Branch and dispenser' : 'Dine-in assignment'}
+                        </p>
                       </div>
                       <div className="min-w-0 py-1">
                         <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Items</p>

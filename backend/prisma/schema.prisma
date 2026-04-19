@@ -334,6 +334,7 @@ model Business {
   products                      Product[]
   menuCategories                MenuCategory[]
   diningTables                  DiningTable[]
+  businessStations              BusinessStation[]
   userSystemProducts            BusinessUserSystemProduct[]
   orders                        Order[]
   payments                      Payment[]
@@ -929,6 +930,39 @@ model DiningTable {
   @@index([businessId])
 }
 
+/** Petrol (and similar): one merchant, many physical sites. Prices stay on Business / Product. */
+model BusinessStation {
+  id         String                @id @default(cuid())
+  businessId String
+  name       String
+  code       String?
+  address    String?
+  isActive   Boolean               @default(true)
+  sortOrder  Int                   @default(0)
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+  business   Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  pumps      BusinessStationPump[]
+  orders     Order[]
+
+  @@index([businessId])
+}
+
+model BusinessStationPump {
+  id        String          @id @default(cuid())
+  stationId String
+  label     String
+  isActive  Boolean         @default(true)
+  sortOrder Int             @default(0)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  station   BusinessStation @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  orders    Order[]
+
+  @@unique([stationId, label])
+  @@index([stationId])
+}
+
 model Product {
   id             String        @id @default(cuid())
   businessId     String
@@ -1294,6 +1328,11 @@ model Order {
   createdByUserId    String?
   diningTableId      String?
   tableLabelSnapshot String?
+  /** Petrol station: dispenser / pump identifier for this sale (required when industry is petrol). */
+  pumpLabel          String?
+  /** Petrol: which branch; pumpId references BusinessStationPump on this station. */
+  stationId          String?
+  pumpId             String?
   /**
    * Booking / checkout id from an internal partner app (server-to-server). Used for outbound webhooks.
    */
@@ -1303,6 +1342,8 @@ model Order {
   business           Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
   createdBy          User?              @relation("OrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   diningTable        DiningTable?       @relation(fields: [diningTableId], references: [id], onDelete: SetNull)
+  station            BusinessStation?   @relation(fields: [stationId], references: [id], onDelete: SetNull)
+  pump               BusinessStationPump? @relation(fields: [pumpId], references: [id], onDelete: SetNull)
   lines              OrderLine[]
   payments           Payment[]
   receipt            Receipt?
@@ -1313,6 +1354,8 @@ model Order {
   @@index([businessId, createdAt])
   @@index([diningTableId])
   @@index([businessId, partnerExternalBookingId])
+  @@index([stationId])
+  @@index([pumpId])
 }
 
 model OrderLine {
@@ -1320,7 +1363,8 @@ model OrderLine {
   orderId     String
   productId   String
   productName String
-  quantity    Int
+  /** Whole units (retail/restaurant) or liters for petrol (fractional). */
+  quantity    Decimal @db.Decimal(18, 6)
   unitPrice   Decimal @db.Decimal(10, 2)
   lineTotal   Decimal @db.Decimal(10, 2)
   order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)

@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { OrderStatus, PaymentStatus } from "../lib/prisma-sales-enums.js";
 import {
+  isPetrolStationIndustry,
   isRestaurantIndustry,
   isRetailOrWholesaleIndustry,
 } from "./product.service.js";
@@ -21,7 +22,11 @@ function addUtcDays(d: Date, days: number): Date {
 }
 
 function catalogEnabledForIndustry(industry: string | null): boolean {
-  return isRetailOrWholesaleIndustry(industry) || isRestaurantIndustry(industry);
+  return (
+    isRetailOrWholesaleIndustry(industry) ||
+    isRestaurantIndustry(industry) ||
+    isPetrolStationIndustry(industry)
+  );
 }
 
 export type DashboardRecentOrder = {
@@ -138,9 +143,13 @@ export async function getDashboardSummaryForBusiness(businessId: string): Promis
       select: { stock: true, reservedStock: true },
     });
     productCount = products.length;
-    lowStockCount = products.filter(
-      (p) => p.stock - p.reservedStock < LOW_STOCK_THRESHOLD,
-    ).length;
+    if (isPetrolStationIndustry(industry)) {
+      lowStockCount = null;
+    } else {
+      lowStockCount = products.filter(
+        (p) => p.stock - p.reservedStock < LOW_STOCK_THRESHOLD,
+      ).length;
+    }
   }
 
   const recentOrders: DashboardRecentOrder[] = recentOrderRows.map((o) => {

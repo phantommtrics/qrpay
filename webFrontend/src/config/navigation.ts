@@ -111,6 +111,8 @@ export const APP_PATHS = {
   restaurantTables: '/restaurant/tables',
   /** Menu category tree for restaurant products. */
   restaurantMenuSetup: '/restaurant/menu',
+  /** Petrol: branches and pumps (one merchant, many sites). */
+  petrolStations: '/petrol/stations',
 } as const
 
 export function salesQuotationDetailPath(quotationId: string) {
@@ -615,6 +617,9 @@ export function getPageTitle(pathname: string) {
   }
   if (pathname.includes(APP_PATHS.salesInvoices)) {
     return 'Sales invoices'
+  }
+  if (pathname.includes(APP_PATHS.petrolStations)) {
+    return 'Stations & pumps'
   }
 
   const matchedItem = [...MAIN_NAV_ITEMS].sort((a, b) => b.path.length - a.path.length).find(

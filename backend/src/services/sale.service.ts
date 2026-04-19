@@ -28,6 +28,7 @@ import {
 import { markSalesInvoicePaidWithWalletPayment } from "./sales-invoice.service.js";
 import { resolveDefaultBankSettlementAccountId } from "./sales-settlement-account.service.js";
 import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
+import { isPetrolStationIndustry } from "./product.service.js";
 
 const SIMULATOR_WEBHOOK_PROVIDER = "simulator";
 const APS_WALLET_WEBHOOK_LOG_PROVIDER = "aps_wallet";
@@ -39,11 +40,14 @@ function webhookLogProviderForWalletComplete(options?: { settlementSource?: stri
   return SIMULATOR_WEBHOOK_PROVIDER;
 }
 
-/** Sum quantities per product (order lines may repeat the same SKU). */
-function quantitiesByProductId(lines: { productId: string; quantity: number }[]): Map<string, number> {
+/** Sum quantities per product (order lines may repeat the same SKU). Petrol amount-lines omit quantity. */
+function quantitiesByProductId(
+  lines: { productId: string; quantity?: number; cashAmountGmd?: number }[],
+): Map<string, number> {
   const map = new Map<string, number>();
   for (const line of lines) {
-    map.set(line.productId, (map.get(line.productId) ?? 0) + line.quantity);
+    const q = line.quantity ?? 0;
+    map.set(line.productId, (map.get(line.productId) ?? 0) + q);
   }
   return map;
 }
@@ -61,6 +65,14 @@ async function reserveStockForOrder(
   businessId: string,
   neededByProduct: Map<string, number>,
 ): Promise<void> {
+  const biz = await tx.business.findUnique({
+    where: { id: businessId },
+    select: { industry: true },
+  });
+  if (isPetrolStationIndustry(biz?.industry)) {
+    return;
+  }
+
   const sortedIds = [...neededByProduct.keys()].sort();
   await lockProductRows(tx, sortedIds);
 
@@ -101,6 +113,14 @@ async function commitReservedStockForPaidOrder(
   businessId: string,
   lines: { productId: string; quantity: number }[],
 ): Promise<void> {
+  const biz = await tx.business.findUnique({
+    where: { id: businessId },
+    select: { industry: true },
+  });
+  if (isPetrolStationIndustry(biz?.industry)) {
+    return;
+  }
+
   const needed = quantitiesByProductId(lines);
   const sortedIds = [...needed.keys()].sort();
   await lockProductRows(tx, sortedIds);
@@ -132,6 +152,14 @@ async function releaseReservedStockForCancelledOrder(
   businessId: string,
   lines: { productId: string; quantity: number }[],
 ): Promise<void> {
+  const biz = await tx.business.findUnique({
+    where: { id: businessId },
+    select: { industry: true },
+  });
+  if (isPetrolStationIndustry(biz?.industry)) {
+    return;
+  }
+
   const needed = quantitiesByProductId(lines);
   const sortedIds = [...needed.keys()].sort();
   await lockProductRows(tx, sortedIds);
@@ -303,7 +331,7 @@ export async function createInternalPartnerCheckoutOrder(input: {
               {
                 product: { connect: { id: product.id } },
                 productName: product.name,
-                quantity: 1,
+                quantity: new Prisma.Decimal(1),
                 unitPrice: amountDec,
                 lineTotal: amountDec,
               },
@@ -347,15 +375,17 @@ async function nextPaymentPublicCode(
   return buildPublicCode(businessName, "PAY", parsePublicCodeSequence(last?.publicCode) + 1);
 }
 
-/** Order with line items (shape of `include: { lines: true }`). */
+/** Order with line items (shape of `include: { lines: true }` plus optional station for receipts). */
 type OrderWithLines = {
   id: string;
   businessId: string;
   total: Prisma.Decimal;
   currency: string;
+  pumpLabel?: string | null;
+  station?: { name: string } | null;
   lines: Array<{
     productName: string;
-    quantity: number;
+    quantity: Prisma.Decimal | number;
     unitPrice: Prisma.Decimal;
     lineTotal: Prisma.Decimal;
   }>;
@@ -396,12 +426,16 @@ async function createReceiptRecord(
 ) {
   const receiptNumber = await nextReceiptNumber(tx, order.businessId);
   const publicCode = await nextReceiptPublicCode(tx, order.businessId, businessName);
-  const linesSnapshot = order.lines.map((line) => ({
-    productName: line.productName,
-    quantity: line.quantity,
-    unitPrice: Number(line.unitPrice),
-    lineTotal: Number(line.lineTotal),
-  }));
+  const linesSnapshot = {
+    stationName: order.station?.name?.trim() ?? null,
+    pumpLabel: order.pumpLabel ?? null,
+    lines: order.lines.map((line) => ({
+      productName: line.productName,
+      quantity: Number(line.quantity),
+      unitPrice: Number(line.unitPrice),
+      lineTotal: Number(line.lineTotal),
+    })),
+  };
 
   return tx.receipt.create({
     data: {
@@ -419,12 +453,43 @@ async function createReceiptRecord(
   });
 }
 
+function assertPetrolLitersQuantity(value: number): void {
+  if (!Number.isFinite(value) || value < 0.01 || value > 99_999.999) {
+    throw new HttpError(400, "Liters must be between 0.01 and 99999.999.");
+  }
+  const scaled = Math.round(value * 1000);
+  if (Math.abs(value * 1000 - scaled) > 1e-6) {
+    throw new HttpError(400, "Liters may have at most 3 decimal places.");
+  }
+}
+
+function assertPetrolCashAmountGmd(value: number): void {
+  if (!Number.isFinite(value) || value < 0.01 || value > 999_999.99) {
+    throw new HttpError(400, "Cash amount must be between 0.01 and 999999.99.");
+  }
+  const scaled = Math.round(value * 100);
+  if (Math.abs(value * 100 - scaled) > 1e-6) {
+    throw new HttpError(400, "Cash amount may have at most 2 decimal places.");
+  }
+}
+
+export type CreateOrderLineInput = {
+  productId: string;
+  /** Liters (petrol) or units (retail). Omit when using cashAmountGmd. */
+  quantity?: number;
+  /** Petrol: fixed payment in GMD; liters = cashAmountGmd / price per litre. */
+  cashAmountGmd?: number;
+};
+
 export async function createOrder(input: {
   businessId: string;
   userId: string | null;
-  lines: { productId: string; quantity: number }[];
+  lines: CreateOrderLineInput[];
   diningTableId?: string | null;
   tableLabelSnapshot?: string | null;
+  /** Petrol: branch and dispenser (replaces free-text pump only). */
+  stationId?: string | null;
+  pumpId?: string | null;
 }) {
   if (input.lines.length === 0) {
     throw new HttpError(400, "Cart cannot be empty.");
@@ -437,10 +502,51 @@ export async function createOrder(input: {
     async (tx) => {
       const business = await tx.business.findUnique({
         where: { id: input.businessId },
-        select: { name: true },
+        select: { name: true, industry: true },
       });
       if (!business) {
         throw new HttpError(404, "Business not found.");
+      }
+
+      const petrol = isPetrolStationIndustry(business.industry);
+      let petrolStationId: string | null = null;
+      let petrolPumpId: string | null = null;
+      let petrolPumpLabel: string | null = null;
+
+      if (petrol) {
+        if (input.diningTableId) {
+          throw new HttpError(400, "Dining tables are not used for petrol station checkout.");
+        }
+        const sid = input.stationId?.trim();
+        const pid = input.pumpId?.trim();
+        if (!sid || !pid) {
+          throw new HttpError(400, "Station and pump are required for petrol station checkout.");
+        }
+        if (input.lines.length !== 1) {
+          throw new HttpError(400, "Petrol station checkout must include exactly one fuel line.");
+        }
+        const pumpRow = await tx.businessStationPump.findFirst({
+          where: {
+            id: pid,
+            stationId: sid,
+            isActive: true,
+            station: {
+              businessId: input.businessId,
+              isActive: true,
+            },
+          },
+        });
+        if (!pumpRow) {
+          throw new HttpError(
+            400,
+            "Pump not found for this station, or the station is inactive.",
+          );
+        }
+        petrolStationId = pumpRow.stationId;
+        petrolPumpId = pumpRow.id;
+        petrolPumpLabel = pumpRow.label.trim();
+      } else if (input.stationId?.trim() || input.pumpId?.trim()) {
+        throw new HttpError(400, "Station and pump are only used for petrol station businesses.");
       }
 
       const products = await tx.product.findMany({
@@ -456,7 +562,7 @@ export async function createOrder(input: {
       const lineCreates: Array<{
         product: { connect: { id: string } };
         productName: string;
-        quantity: number;
+        quantity: Prisma.Decimal;
         unitPrice: Prisma.Decimal;
         lineTotal: Prisma.Decimal;
       }> = [];
@@ -466,18 +572,58 @@ export async function createOrder(input: {
         if (!product) {
           throw new HttpError(400, "Invalid product in cart.");
         }
-        if (line.quantity < 1) {
-          throw new HttpError(400, "Each line must have quantity at least 1.");
-        }
 
         const unitPrice = product.price;
-        const lineTotal = unitPrice.mul(line.quantity);
+        let qtyDec: Prisma.Decimal;
+        let lineTotal: Prisma.Decimal;
+
+        if (petrol) {
+          const hasCash =
+            line.cashAmountGmd !== undefined &&
+            line.cashAmountGmd !== null &&
+            Number.isFinite(Number(line.cashAmountGmd));
+          const hasQty =
+            line.quantity !== undefined &&
+            line.quantity !== null &&
+            Number.isFinite(Number(line.quantity));
+          if (hasCash === hasQty) {
+            throw new HttpError(
+              400,
+              "For each petrol line, send either quantity (liters) or cashAmountGmd (dalasi), not both.",
+            );
+          }
+          if (hasCash) {
+            assertPetrolCashAmountGmd(Number(line.cashAmountGmd));
+            const cash = new Prisma.Decimal(String(line.cashAmountGmd));
+            if (unitPrice.lte(0)) {
+              throw new HttpError(400, "Invalid fuel price per litre.");
+            }
+            qtyDec = cash.div(unitPrice).toDecimalPlaces(6);
+            const minLiters = new Prisma.Decimal("0.000001");
+            if (qtyDec.lt(minLiters)) {
+              throw new HttpError(400, "Amount is too small for this fuel price.");
+            }
+            lineTotal = cash.toDecimalPlaces(2);
+          } else {
+            assertPetrolLitersQuantity(Number(line.quantity));
+            qtyDec = new Prisma.Decimal(String(line.quantity));
+            lineTotal = unitPrice.mul(qtyDec);
+          }
+        } else {
+          const q = Number(line.quantity);
+          if (!Number.isInteger(q) || q < 1) {
+            throw new HttpError(400, "Each line must have a whole-number quantity of at least 1.");
+          }
+          qtyDec = new Prisma.Decimal(q);
+          lineTotal = unitPrice.mul(qtyDec);
+        }
+
         subtotal = subtotal.add(lineTotal);
 
         lineCreates.push({
           product: { connect: { id: product.id } },
           productName: product.name,
-          quantity: line.quantity,
+          quantity: qtyDec,
           unitPrice,
           lineTotal,
         });
@@ -499,6 +645,9 @@ export async function createOrder(input: {
           createdByUserId: input.userId ?? undefined,
           diningTableId: input.diningTableId ?? undefined,
           tableLabelSnapshot: input.tableLabelSnapshot?.trim() || null,
+          stationId: petrol ? petrolStationId : null,
+          pumpId: petrol ? petrolPumpId : null,
+          pumpLabel: petrol ? petrolPumpLabel : null,
           lines: {
             create: lineCreates,
           },
@@ -508,6 +657,69 @@ export async function createOrder(input: {
     },
     { maxWait: 10_000, timeout: 15_000 },
   );
+}
+
+export async function updatePetrolOrderStation(input: {
+  orderId: string;
+  businessId: string;
+  stationId: string;
+  pumpId: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findFirst({
+      where: { id: input.orderId, businessId: input.businessId },
+      include: { business: { select: { industry: true } } },
+    });
+    if (!order) {
+      throw new HttpError(404, "Order not found.");
+    }
+    if (!isPetrolStationIndustry(order.business.industry)) {
+      throw new HttpError(400, "Station can only be changed on petrol station orders.");
+    }
+    if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      throw new HttpError(400, "Only unpaid orders can change station or pump.");
+    }
+    const sid = input.stationId.trim();
+    const pid = input.pumpId.trim();
+    const pumpRow = await tx.businessStationPump.findFirst({
+      where: {
+        id: pid,
+        stationId: sid,
+        isActive: true,
+        station: {
+          businessId: input.businessId,
+          isActive: true,
+        },
+      },
+    });
+    if (!pumpRow) {
+      throw new HttpError(
+        400,
+        "Pump not found for this station, or the station is inactive.",
+      );
+    }
+    return tx.order.update({
+      where: { id: order.id },
+      data: {
+        stationId: pumpRow.stationId,
+        pumpId: pumpRow.id,
+        pumpLabel: pumpRow.label.trim(),
+      },
+      include: {
+        lines: true,
+        station: { select: { id: true, name: true, code: true } },
+        pump: { select: { id: true, label: true } },
+        payments: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            recordedBy: { select: { id: true, name: true, email: true } },
+          },
+        },
+        receipt: true,
+        diningTable: { select: { id: true, label: true, publicToken: true } },
+      },
+    });
+  });
 }
 
 export async function getOrderForBusiness(orderId: string, businessId: string) {
@@ -523,6 +735,8 @@ export async function getOrderForBusiness(orderId: string, businessId: string) {
       },
       receipt: true,
       diningTable: { select: { id: true, label: true, publicToken: true } },
+      station: { select: { id: true, name: true, code: true } },
+      pump: { select: { id: true, label: true } },
     },
   });
 }
@@ -578,6 +792,8 @@ export async function listOrdersForBusiness(
       include: {
         lines: true,
         diningTable: { select: { id: true, label: true, publicToken: true } },
+        station: { select: { id: true, name: true, code: true } },
+        pump: { select: { id: true, label: true } },
       },
     }),
   ]);
@@ -737,7 +953,10 @@ export async function completeCashPayment(
       await commitReservedStockForPaidOrder(
         tx,
         businessId,
-        order.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+        order.lines.map((l) => ({
+          productId: l.productId,
+          quantity: Number(l.quantity),
+        })),
       );
 
       await tx.payment.updateMany({
@@ -775,7 +994,10 @@ export async function completeCashPayment(
 
       const orderWithLines = await tx.order.findUniqueOrThrow({
         where: { id: orderId },
-        include: { lines: true },
+        include: {
+          lines: true,
+          station: { select: { name: true } },
+        },
       });
 
       const receipt = await createReceiptRecord(
@@ -1145,7 +1367,10 @@ export async function completeWalletPaymentByPublicToken(
       await commitReservedStockForPaidOrder(
         tx,
         fresh.order.businessId,
-        fresh.order.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+        fresh.order.lines.map((l) => ({
+          productId: l.productId,
+          quantity: Number(l.quantity),
+        })),
       );
 
       await tx.payment.update({
@@ -1163,7 +1388,10 @@ export async function completeWalletPaymentByPublicToken(
 
       const orderWithLines = await tx.order.findUniqueOrThrow({
         where: { id: fresh.orderId },
-        include: { lines: true },
+        include: {
+          lines: true,
+          station: { select: { name: true } },
+        },
       });
 
       const updatedPayment = await tx.payment.findUniqueOrThrow({
@@ -1302,7 +1530,10 @@ export async function cancelPendingOrder(orderId: string, businessId: string) {
       await releaseReservedStockForCancelledOrder(
         tx,
         businessId,
-        row.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+        row.lines.map((l) => ({
+          productId: l.productId,
+          quantity: Number(l.quantity),
+        })),
       );
 
       await tx.payment.updateMany({

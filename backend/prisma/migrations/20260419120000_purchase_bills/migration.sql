@@ -1,5 +1,9 @@
--- CreateEnum
-CREATE TYPE "BillStatus" AS ENUM ('DRAFT', 'APPROVED', 'PAID', 'VOID');
+-- CreateEnum (idempotent: type may already exist from earlier platform bill work)
+DO $migration$ BEGIN
+  CREATE TYPE "BillStatus" AS ENUM ('DRAFT', 'APPROVED', 'PAID', 'VOID');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $migration$;
 
 -- AlterEnum
 ALTER TYPE "JournalSourceType" ADD VALUE 'PURCHASE_BILL_PAYMENT';

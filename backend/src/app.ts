@@ -108,6 +108,7 @@ import {
   createProduct,
   getPublicBusinessMenu,
   getPublicProductById,
+  isPetrolStationIndustry,
   isRestaurantIndustry,
   listProductsForBusiness,
   listProductsForBusinessPaged,
@@ -177,6 +178,15 @@ import {
   partnerCheckoutWalletsReadinessHint,
 } from "./services/order-wallet-checkout.service.js";
 import {
+  createBusinessStation,
+  createBusinessStationPump,
+  deleteBusinessStation,
+  deleteBusinessStationPump,
+  listBusinessStations,
+  updateBusinessStation,
+  updateBusinessStationPump,
+} from "./services/business-station.service.js";
+import {
   cancelPendingOrder,
   completeCashPayment,
   completeWalletPaymentByPublicToken,
@@ -190,6 +200,7 @@ import {
   isSimulatorPublicPayEnabled,
   listPaymentsForBusiness,
   startWalletPayment,
+  updatePetrolOrderStation,
   verifySimulatorWebhookSecret,
 } from "./services/sale.service.js";
 import { provisionInternalPartnerBusiness } from "./services/internal-partner-provision.service.js";
@@ -523,12 +534,31 @@ const createOrderBodySchema = z.object({
     .array(
       z.object({
         productId: z.string().min(1),
-        quantity: z.coerce.number().int().positive(),
+        /** Whole units for retail/restaurant; liters (fractional) for petrol when not using cashAmountGmd. */
+        quantity: z.coerce.number().positive().optional(),
+        /** Petrol only: customer pays this cash amount; litres = amount ÷ price/L. */
+        cashAmountGmd: z.coerce.number().positive().optional(),
       }),
     )
     .min(1),
   /** Staff POS: optional dining table for manual table service orders. */
   diningTableId: z.string().min(1).optional(),
+  /** Petrol: branch (required with pumpId). */
+  stationId: z.string().min(1).optional(),
+  /** Petrol: dispenser row id (required with stationId). */
+  pumpId: z.string().min(1).optional(),
+});
+
+/** Public restaurant table QR: whole-number quantities only (no petrol cash-amount lines). */
+const createRestaurantGuestOrderBodySchema = z.object({
+  lines: z
+    .array(
+      z.object({
+        productId: z.string().min(1),
+        quantity: z.coerce.number().positive(),
+      }),
+    )
+    .min(1),
 });
 
 const simulatorWebhookBodySchema = z.object({
@@ -590,6 +620,41 @@ const diningTablePatchSchema = z
     sortOrder: z.coerce.number().int().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: "At least one field is required." });
+
+const businessStationCreateSchema = z.object({
+  name: z.string().min(1).max(120),
+  code: z.union([z.string().max(32), z.null()]).optional(),
+  address: z.union([z.string().max(500), z.null()]).optional(),
+  sortOrder: z.coerce.number().int().optional(),
+});
+
+const businessStationPatchSchema = z
+  .object({
+    name: z.string().min(1).max(120).optional(),
+    code: z.union([z.string().max(32), z.null()]).optional(),
+    address: z.union([z.string().max(500), z.null()]).optional(),
+    isActive: z.boolean().optional(),
+    sortOrder: z.coerce.number().int().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, { message: "At least one field is required." });
+
+const businessStationPumpCreateSchema = z.object({
+  label: z.string().min(1).max(64),
+  sortOrder: z.coerce.number().int().optional(),
+});
+
+const businessStationPumpPatchSchema = z
+  .object({
+    label: z.string().min(1).max(64).optional(),
+    isActive: z.boolean().optional(),
+    sortOrder: z.coerce.number().int().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, { message: "At least one field is required." });
+
+const patchPetrolOrderLocationSchema = z.object({
+  stationId: z.string().min(1),
+  pumpId: z.string().min(1),
+});
 
 const menuCategoryCreateSchema = z.object({
   name: z.string().min(1),
@@ -3922,6 +3987,29 @@ app.patch(
         throw new HttpError(403, "Access denied to this business");
       }
 
+      if (body.price !== undefined) {
+        const bizRow = await prisma.business.findUnique({
+          where: { id: businessId as string },
+          select: { industry: true },
+        });
+        if (bizRow && isPetrolStationIndustry(bizRow.industry)) {
+          const canSetFuelPrice =
+            Boolean(membership?.isOwner) ||
+            Boolean(req.user?.isPlatformOwner) ||
+            (await userHasEntitlement(
+              req.user!.id,
+              businessId as string,
+              "organization.manage",
+            ));
+          if (!canSetFuelPrice) {
+            throw new HttpError(
+              403,
+              "Only the business owner or a manager can change fuel prices.",
+            );
+          }
+        }
+      }
+
       const product = await updateProduct({
         businessId: businessId as string,
         productId: productId as string,
@@ -4071,6 +4159,254 @@ app.delete(
         throw new HttpError(403, "Access denied to this business");
       }
       await deleteDiningTable(businessId as string, tableId as string);
+      res.status(204).end();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+function formatBusinessStationApi(row: {
+  id: string;
+  businessId: string;
+  name: string;
+  code: string | null;
+  address: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+  pumps: Array<{
+    id: string;
+    stationId: string;
+    label: string;
+    isActive: boolean;
+    sortOrder: number;
+    createdAt: Date;
+    updatedAt: Date;
+  }>;
+}) {
+  return {
+    id: row.id,
+    businessId: row.businessId,
+    name: row.name,
+    code: row.code,
+    address: row.address,
+    isActive: row.isActive,
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    pumps: row.pumps.map((p) => ({
+      id: p.id,
+      stationId: p.stationId,
+      label: p.label,
+      isActive: p.isActive,
+      sortOrder: p.sortOrder,
+      createdAt: p.createdAt.toISOString(),
+      updatedAt: p.updatedAt.toISOString(),
+    })),
+  };
+}
+
+function assertBusinessOwnerOrManager(
+  user: NonNullable<Express.Request["user"]>,
+  membership: { isOwner: boolean } | null,
+) {
+  if (user.isPlatformOwner || user.role === UserRole.PLATFORM_ADMIN) return;
+  if (membership?.isOwner) return;
+  if (user.role === UserRole.MERCHANT || user.role === UserRole.ADMIN) return;
+  throw new HttpError(403, "Only an owner or manager can manage stations.");
+}
+
+app.get(
+  "/api/businesses/:businessId/stations",
+  authenticateToken,
+  requireEntitlement("products.view"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner && req.user?.role !== UserRole.PLATFORM_ADMIN) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const rows = await listBusinessStations(businessId as string);
+      res.json({ data: rows.map(formatBusinessStationApi) });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/stations",
+  authenticateToken,
+  requireEntitlement("products.create"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner && req.user?.role !== UserRole.PLATFORM_ADMIN) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      assertBusinessOwnerOrManager(req.user!, membership);
+      const body = businessStationCreateSchema.parse(req.body);
+      const created = await createBusinessStation({
+        businessId: businessId as string,
+        name: body.name,
+        code: body.code ?? undefined,
+        address: body.address ?? undefined,
+        sortOrder: body.sortOrder,
+      });
+      res.status(201).json({ data: formatBusinessStationApi(created) });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.patch(
+  "/api/businesses/:businessId/stations/:stationId",
+  authenticateToken,
+  requireEntitlement("products.edit"),
+  async (req, res, next) => {
+    try {
+      const { businessId, stationId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner && req.user?.role !== UserRole.PLATFORM_ADMIN) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      assertBusinessOwnerOrManager(req.user!, membership);
+      const body = businessStationPatchSchema.parse(req.body);
+      const updated = await updateBusinessStation({
+        businessId: businessId as string,
+        stationId: stationId as string,
+        ...body,
+      });
+      res.json({ data: formatBusinessStationApi(updated) });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.delete(
+  "/api/businesses/:businessId/stations/:stationId",
+  authenticateToken,
+  requireEntitlement("products.delete"),
+  async (req, res, next) => {
+    try {
+      const { businessId, stationId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner && req.user?.role !== UserRole.PLATFORM_ADMIN) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      assertBusinessOwnerOrManager(req.user!, membership);
+      await deleteBusinessStation(businessId as string, stationId as string);
+      res.status(204).end();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/stations/:stationId/pumps",
+  authenticateToken,
+  requireEntitlement("products.create"),
+  async (req, res, next) => {
+    try {
+      const { businessId, stationId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner && req.user?.role !== UserRole.PLATFORM_ADMIN) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      assertBusinessOwnerOrManager(req.user!, membership);
+      const body = businessStationPumpCreateSchema.parse(req.body);
+      const created = await createBusinessStationPump({
+        businessId: businessId as string,
+        stationId: stationId as string,
+        label: body.label,
+        sortOrder: body.sortOrder,
+      });
+      res.status(201).json({
+        data: {
+          id: created.id,
+          stationId: created.stationId,
+          label: created.label,
+          isActive: created.isActive,
+          sortOrder: created.sortOrder,
+          createdAt: created.createdAt.toISOString(),
+          updatedAt: created.updatedAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.patch(
+  "/api/businesses/:businessId/stations/:stationId/pumps/:pumpId",
+  authenticateToken,
+  requireEntitlement("products.edit"),
+  async (req, res, next) => {
+    try {
+      const { businessId, pumpId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner && req.user?.role !== UserRole.PLATFORM_ADMIN) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      assertBusinessOwnerOrManager(req.user!, membership);
+      const body = businessStationPumpPatchSchema.parse(req.body);
+      const updated = await updateBusinessStationPump({
+        businessId: businessId as string,
+        pumpId: pumpId as string,
+        ...body,
+      });
+      res.json({
+        data: {
+          id: updated.id,
+          stationId: updated.stationId,
+          label: updated.label,
+          isActive: updated.isActive,
+          sortOrder: updated.sortOrder,
+          createdAt: updated.createdAt.toISOString(),
+          updatedAt: updated.updatedAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.delete(
+  "/api/businesses/:businessId/stations/:stationId/pumps/:pumpId",
+  authenticateToken,
+  requireEntitlement("products.delete"),
+  async (req, res, next) => {
+    try {
+      const { businessId, pumpId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner && req.user?.role !== UserRole.PLATFORM_ADMIN) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      assertBusinessOwnerOrManager(req.user!, membership);
+      await deleteBusinessStationPump(businessId as string, pumpId as string);
       res.status(204).end();
     } catch (e) {
       next(e);
@@ -4333,7 +4669,7 @@ app.post(
       if (!allowPublicRestaurantOrder(rlKey)) {
         throw new HttpError(429, "Too many orders from this device. Try again in a minute.");
       }
-      const body = createOrderBodySchema.parse(req.body);
+      const body = createRestaurantGuestOrderBodySchema.parse(req.body);
       const order = await createRestaurantGuestOrder({
         businessSlug: req.params.businessSlug as string,
         tableToken: req.params.tableToken as string,
@@ -4800,12 +5136,17 @@ function formatSaleOrder(order: {
   createdAt: Date;
   diningTableId?: string | null;
   tableLabelSnapshot?: string | null;
+  stationId?: string | null;
+  pumpId?: string | null;
+  pumpLabel?: string | null;
+  station?: { id: string; name: string; code: string | null } | null;
+  pump?: { id: string; label: string } | null;
   diningTable?: { label: string } | null;
   lines: Array<{
     id: string;
     productId: string;
     productName: string;
-    quantity: number;
+    quantity: Prisma.Decimal | number;
     unitPrice: Prisma.Decimal;
     lineTotal: Prisma.Decimal;
   }>;
@@ -4830,11 +5171,16 @@ function formatSaleOrder(order: {
     createdAt: order.createdAt.toISOString(),
     diningTableId: order.diningTableId ?? null,
     tableLabel,
+    stationId: order.stationId ?? null,
+    stationName: order.station?.name?.trim() || null,
+    stationCode: order.station?.code?.trim() || null,
+    pumpId: order.pumpId ?? null,
+    pumpLabel: order.pumpLabel?.trim() || order.pump?.label?.trim() || null,
     lines: order.lines.map((line) => ({
       id: line.id,
       productId: line.productId,
       productName: line.productName,
-      quantity: line.quantity,
+      quantity: Number(line.quantity),
       unitPrice: Number(line.unitPrice),
       lineTotal: Number(line.lineTotal),
     })),
@@ -4847,6 +5193,24 @@ function formatSaleOrder(order: {
         }
       : null,
   };
+}
+
+function normalizeReceiptLinesSnapshot(snapshot: Prisma.JsonValue): {
+  stationName: string | null;
+  pumpLabel: string | null;
+  lines: unknown[];
+} {
+  if (Array.isArray(snapshot)) {
+    return { stationName: null, pumpLabel: null, lines: snapshot };
+  }
+  if (snapshot && typeof snapshot === "object" && snapshot !== null && "lines" in snapshot) {
+    const o = snapshot as { stationName?: unknown; pumpLabel?: unknown; lines?: unknown };
+    const lines = Array.isArray(o.lines) ? o.lines : [];
+    const pumpLabel = typeof o.pumpLabel === "string" ? o.pumpLabel : null;
+    const stationName = typeof o.stationName === "string" ? o.stationName : null;
+    return { stationName, pumpLabel, lines };
+  }
+  return { stationName: null, pumpLabel: null, lines: [] };
 }
 
 function formatReceiptDetail(receipt: {
@@ -4862,14 +5226,16 @@ function formatReceiptDetail(receipt: {
   createdAt: Date;
   business: { name: string };
   order: {
+    pumpLabel?: string | null;
     lines: Array<{
       productName: string;
-      quantity: number;
+      quantity: Prisma.Decimal | number;
       unitPrice: Prisma.Decimal;
       lineTotal: Prisma.Decimal;
     }>;
   };
 }) {
+  const snap = normalizeReceiptLinesSnapshot(receipt.linesSnapshot);
   return {
     id: receipt.id,
     publicCode: receipt.publicCode,
@@ -4877,10 +5243,12 @@ function formatReceiptDetail(receipt: {
     businessName: receipt.business.name,
     total: Number(receipt.total),
     currency: receipt.currency,
-    lines: receipt.linesSnapshot,
+    lines: snap.lines,
+    stationName: snap.stationName,
+    pumpLabel: snap.pumpLabel ?? receipt.order.pumpLabel ?? null,
     linesFromOrder: receipt.order.lines.map((line) => ({
       productName: line.productName,
-      quantity: line.quantity,
+      quantity: Number(line.quantity),
       unitPrice: Number(line.unitPrice),
       lineTotal: Number(line.lineTotal),
     })),
@@ -6020,6 +6388,8 @@ app.post(
         lines: body.lines,
         diningTableId,
         tableLabelSnapshot,
+        stationId: body.stationId?.trim() || null,
+        pumpId: body.pumpId?.trim() || null,
       });
 
       response.status(201).json({
@@ -6150,6 +6520,43 @@ app.get(
           ...order,
           receipt: order.receipt,
         }),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.patch(
+  "/api/businesses/:businessId/orders/:orderId/petrol-location",
+  authenticateToken,
+  requireAnyEntitlement(["orders.view", "pos.access"]),
+  async (request, response, next) => {
+    try {
+      const { businessId, orderId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+      if (
+        !membership &&
+        !request.user?.isPlatformOwner &&
+        request.user?.role !== UserRole.PLATFORM_ADMIN
+      ) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      assertBusinessOwnerOrManager(request.user!, membership);
+      const body = patchPetrolOrderLocationSchema.parse(request.body);
+      const order = await updatePetrolOrderStation({
+        orderId: orderId as string,
+        businessId: businessId as string,
+        stationId: body.stationId,
+        pumpId: body.pumpId,
+      });
+      response.json({
+        data: formatSaleOrder(order),
       });
     } catch (error) {
       next(error);

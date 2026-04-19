@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Banknote,
@@ -35,23 +36,50 @@ import {
   startWalletCheckout,
   type OrderCheckoutWalletRow,
 } from '../services/salesApi'
-import { ApiError, fetchDiningTables, type DiningTableRow } from '../services/subscriptionApi'
+import {
+  ApiError,
+  fetchBusinessStations,
+  fetchDiningTables,
+  type BusinessStationRow,
+  type DiningTableRow,
+} from '../services/subscriptionApi'
 import type { Product } from '../types'
 import { checkoutWalletBrandImageSrc } from '../utils/checkoutWalletBrandImage'
 import { formatMoney } from '../utils/formatMoney'
 import { productSellableUnits } from '../utils/productStock'
-import { isRestaurantIndustry } from '../utils/businessIndustry'
+import { isPetrolStationIndustry, isRestaurantIndustry } from '../utils/businessIndustry'
 import { playPosScanError, playPosScanSuccess } from '../utils/posSounds'
+import { APP_PATHS } from '../config/navigation'
+
+/** Match backend GMD money rounding for amount-based fuel sales. */
+function roundMoneyGmd(n: number): number {
+  return Number(n.toFixed(2))
+}
+
+type PetrolEntryMode = 'liters' | 'cash'
 
 type ScanFeedback = { text: string; variant: 'success' | 'error' }
 
 type PosPaymentPhase = 'choose' | 'pick_wallet' | 'wallet'
+
+const petrolStationStorageKey = (businessId: string) => `qrpay.petrol.station.${businessId}`
 
 export function POSPage() {
   const { businessProducts, currentOrganization, refreshBusinessProducts } = useAuth()
   const restaurantPos = Boolean(
     currentOrganization && isRestaurantIndustry(currentOrganization.industry),
   )
+  const petrolPos = Boolean(
+    currentOrganization && isPetrolStationIndustry(currentOrganization.industry),
+  )
+  const [petrolProductId, setPetrolProductId] = useState('')
+  const [petrolEntryMode, setPetrolEntryMode] = useState<PetrolEntryMode>('liters')
+  const [petrolLiters, setPetrolLiters] = useState('')
+  const [petrolCashAmount, setPetrolCashAmount] = useState('')
+  const [petrolStationId, setPetrolStationId] = useState('')
+  const [petrolPumpId, setPetrolPumpId] = useState('')
+  const [petrolStations, setPetrolStations] = useState<BusinessStationRow[]>([])
+  const [petrolStationsError, setPetrolStationsError] = useState<string | null>(null)
   const [diningTables, setDiningTables] = useState<DiningTableRow[]>([])
   const [diningTablesError, setDiningTablesError] = useState<string | null>(null)
   const [selectedTableId, setSelectedTableId] = useState('')
@@ -94,6 +122,66 @@ export function POSPage() {
     [businessProducts],
   )
 
+  const petrolLitersNum = useMemo(() => {
+    const raw = petrolLiters.replace(',', '.').trim()
+    if (!raw) return Number.NaN
+    return Number(raw)
+  }, [petrolLiters])
+
+  const petrolCashNum = useMemo(() => {
+    const raw = petrolCashAmount.replace(',', '.').trim()
+    if (!raw) return Number.NaN
+    return Number(raw)
+  }, [petrolCashAmount])
+
+  const petrolDisplayTotal = useMemo(() => {
+    if (!petrolPos || !petrolProductId) return 0
+    const p = getProductById(petrolProductId)
+    if (!p) return 0
+    if (petrolEntryMode === 'cash') {
+      if (!Number.isFinite(petrolCashNum) || petrolCashNum <= 0) return 0
+      return roundMoneyGmd(petrolCashNum)
+    }
+    if (!Number.isFinite(petrolLitersNum) || petrolLitersNum <= 0) return 0
+    return p.price * petrolLitersNum
+  }, [
+    petrolPos,
+    petrolProductId,
+    petrolEntryMode,
+    petrolLitersNum,
+    petrolCashNum,
+    getProductById,
+  ])
+
+  const petrolDerivedLitersFromCash = useMemo(() => {
+    if (!petrolPos || petrolEntryMode !== 'cash' || !petrolProductId) return null
+    const p = getProductById(petrolProductId)
+    if (!p || p.price <= 0) return null
+    if (!Number.isFinite(petrolCashNum) || petrolCashNum <= 0) return null
+    const cash = roundMoneyGmd(petrolCashNum)
+    return cash / p.price
+  }, [petrolPos, petrolEntryMode, petrolProductId, petrolCashNum, getProductById])
+
+  const selectedPetrolStation = useMemo(
+    () => petrolStations.find((s) => s.id === petrolStationId),
+    [petrolStations, petrolStationId],
+  )
+
+  const activePumpsForStation = useMemo(
+    () => selectedPetrolStation?.pumps.filter((p) => p.isActive) ?? [],
+    [selectedPetrolStation],
+  )
+
+  const petrolChargeReady = Boolean(
+    petrolPos &&
+      petrolProductId &&
+      petrolStationId &&
+      petrolPumpId &&
+      (petrolEntryMode === 'cash'
+        ? Number.isFinite(petrolCashNum) && petrolCashNum > 0
+        : Number.isFinite(petrolLitersNum) && petrolLitersNum > 0),
+  )
+
   const sellableForLine = useCallback(
     (fallback: Product) => {
       const live = getProductById(fallback.id) ?? fallback
@@ -124,6 +212,14 @@ export function POSPage() {
     clearCart,
   } = useCart({ getProductById, catalogStockSignature })
 
+  const clearPetrolForm = useCallback(() => {
+    setPetrolProductId('')
+    setPetrolEntryMode('liters')
+    setPetrolLiters('')
+    setPetrolCashAmount('')
+    setPetrolPumpId('')
+  }, [])
+
   useEffect(() => {
     const orgId = currentOrganization?.id
     if (!orgId) return
@@ -145,6 +241,64 @@ export function POSPage() {
   }, [currentOrganization?.id, refreshBusinessProducts])
 
   const products = businessProducts
+
+  useEffect(() => {
+    setPetrolProductId('')
+    setPetrolEntryMode('liters')
+    setPetrolLiters('')
+    setPetrolCashAmount('')
+    setPetrolPumpId('')
+    setPetrolStations([])
+    setPetrolStationsError(null)
+    setPetrolStationId('')
+  }, [currentOrganization?.id])
+
+  useEffect(() => {
+    const orgId = currentOrganization?.id
+    if (!orgId || !petrolPos) {
+      return
+    }
+    let cancelled = false
+    setPetrolStationsError(null)
+    void fetchBusinessStations(orgId)
+      .then((rows) => {
+        if (cancelled) return
+        setPetrolStations(rows)
+        const stored =
+          typeof window !== 'undefined'
+            ? window.localStorage.getItem(petrolStationStorageKey(orgId))
+            : null
+        const preferred =
+          stored && rows.some((s) => s.id === stored && s.isActive) ? stored : null
+        const firstActive = rows.find((s) => s.isActive)?.id ?? ''
+        setPetrolStationId(preferred || firstActive || '')
+        if (preferred || firstActive) {
+          window.localStorage.setItem(petrolStationStorageKey(orgId), preferred || firstActive)
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setPetrolStationsError(
+            e instanceof ApiError ? e.message : 'Could not load stations.',
+          )
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentOrganization?.id, petrolPos])
+
+  useEffect(() => {
+    if (!petrolStationId || !currentOrganization?.id) return
+    window.localStorage.setItem(
+      petrolStationStorageKey(currentOrganization.id),
+      petrolStationId,
+    )
+  }, [petrolStationId, currentOrganization?.id])
+
+  useEffect(() => {
+    setPetrolPumpId('')
+  }, [petrolStationId])
 
   useEffect(() => {
     setSelectedTableId('')
@@ -267,7 +421,63 @@ export function POSPage() {
 
   /** Walk-in / counter or non-restaurant: create order and open payment on this device. */
   const handleCharge = async () => {
-    if (!currentOrganization || cart.length === 0) return
+    if (!currentOrganization) return
+    if (petrolPos) {
+      if (!petrolChargeReady) {
+        setProductFlash(
+          petrolEntryMode === 'cash'
+            ? 'Select station, pump, fuel grade, and cash amount (D).'
+            : 'Select station, pump, fuel grade, and liters dispensed.',
+        )
+        return
+      }
+      setCheckoutError(null)
+      setReceiptLabel(null)
+      setPaymentStatus('waiting')
+      setPaymentPhase('choose')
+      setQrPayload(null)
+      setWalletLaunchUrl(null)
+      setWalletPaymentHtml(null)
+      setWalletCheckoutAdapter(null)
+      setCheckoutWallets([])
+      setSelectedGatewayCode(null)
+      setYonnaPhone('')
+      setApsPayerPhone('')
+      setApsAuthState(null)
+      setApsOtp('')
+      checkoutWalletsCacheRef.current = null
+      setCheckoutOrderId(null)
+      setPaymentModalOpen(true)
+      setWalletLoading(true)
+      try {
+        const order =
+          petrolEntryMode === 'cash'
+            ? await createSaleOrder(
+                currentOrganization.id,
+                [
+                  {
+                    productId: petrolProductId,
+                    cashAmountGmd: roundMoneyGmd(petrolCashNum),
+                  },
+                ],
+                { stationId: petrolStationId, pumpId: petrolPumpId },
+              )
+            : await createSaleOrder(
+                currentOrganization.id,
+                [{ productId: petrolProductId, quantity: petrolLitersNum }],
+                { stationId: petrolStationId, pumpId: petrolPumpId },
+              )
+        setCheckoutOrderId(order.id)
+        setCheckoutTotal(order.total)
+      } catch (e) {
+        setCheckoutError(e instanceof ApiError ? e.message : 'Could not create order.')
+        setPaymentModalOpen(false)
+      } finally {
+        setWalletLoading(false)
+      }
+      return
+    }
+    if (cart.length === 0) return
     if (isTableServiceOrder) return
     setCheckoutError(null)
     setReceiptLabel(null)
@@ -318,6 +528,7 @@ export function POSPage() {
         diningTableId: selectedTableId,
       })
       clearCart()
+      clearPetrolForm()
       void refreshBusinessProducts()
       void playPosScanSuccess()
       setScanFeedback({
@@ -400,6 +611,7 @@ export function POSPage() {
             )
             setPaymentStatus('success')
             clearCart()
+            clearPetrolForm()
             void refreshBusinessProducts()
           }
         } catch {
@@ -422,6 +634,7 @@ export function POSPage() {
     walletCheckoutAdapter,
     apsAuthState,
     clearCart,
+    clearPetrolForm,
     refreshBusinessProducts,
   ])
 
@@ -548,6 +761,7 @@ export function POSPage() {
             setReceiptLabel(order.receipt ? `Receipt ${order.receipt.publicCode}` : 'Paid')
             setPaymentStatus('success')
             clearCart()
+            clearPetrolForm()
             void refreshBusinessProducts()
           }
         } else {
@@ -624,6 +838,7 @@ export function POSPage() {
         setReceiptLabel(order.receipt ? `Receipt ${order.receipt.publicCode}` : 'Paid')
         setPaymentStatus('success')
         clearCart()
+        clearPetrolForm()
         void refreshBusinessProducts()
       }
     } catch (e) {
@@ -650,6 +865,7 @@ export function POSPage() {
       setReceiptLabel(`Receipt ${result.receipt.publicCode}`)
       setPaymentStatus('success')
       clearCart()
+      clearPetrolForm()
       void refreshBusinessProducts()
     } catch (e) {
       setCheckoutError(e instanceof ApiError ? e.message : 'Cash payment failed.')
@@ -671,6 +887,7 @@ export function POSPage() {
         )
         setPaymentStatus('success')
         clearCart()
+        clearPetrolForm()
         void refreshBusinessProducts()
       }
     } catch (e) {
@@ -682,10 +899,25 @@ export function POSPage() {
     }
   }
 
+  const displaySubtotal = petrolPos ? petrolDisplayTotal : subtotal
+
   return (
     <div className="relative flex h-auto flex-col gap-6 lg:h-[calc(100vh-8rem)] lg:flex-row">
       <FlashNotice message={productFlash} onDismiss={dismissProductFlash} />
       <div className="flex flex-1 flex-col gap-6">
+        {petrolPos ? (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+            <p className="text-base font-semibold text-slate-800">Petrol station checkout</p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
+              Post-pay fuel sale: pick station and pump, then grade and liters or cash amount (D). Litres
+              from cash = amount ÷ price/L. Configure sites under{' '}
+              <Link to={APP_PATHS.petrolStations} className="font-medium text-teal-700 hover:underline">
+                Stations &amp; pumps
+              </Link>
+              .
+            </p>
+          </div>
+        ) : (
         <div className="relative flex min-h-[240px] flex-col items-center justify-center overflow-hidden rounded-2xl bg-slate-900 p-6">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(20,184,166,0.25),transparent_55%)] opacity-60" />
           <div className="relative z-10 flex flex-col items-center">
@@ -735,9 +967,12 @@ export function POSPage() {
             ) : null}
           </div>
         </div>
+        )}
 
         {/* Manual product browse — desktop / large screens only (mobile POS is scan + cart) */}
-        <div className="hidden flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:flex">
+        <div
+          className={`hidden flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:flex ${petrolPos ? 'lg:hidden' : ''}`}
+        >
           <div className="border-b border-slate-100 p-4">
             <div className="relative">
               <Search className="absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2 text-slate-400" />
@@ -780,13 +1015,174 @@ export function POSPage() {
 
       <div className="flex w-full min-h-0 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm lg:max-h-none lg:w-96 lg:shrink-0">
         <div className="flex items-center justify-between border-b border-slate-100 p-4">
-          <h2 className="text-lg font-bold text-slate-800">Current Order</h2>
+          <h2 className="text-lg font-bold text-slate-800">
+            {petrolPos ? 'Fuel sale' : 'Current Order'}
+          </h2>
           <span className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-            {itemCount} items
+            {petrolPos
+              ? petrolEntryMode === 'cash'
+                ? 'Cash amount (D)'
+                : 'Liters × price/L'
+              : `${itemCount} items`}
           </span>
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
+          {petrolPos ? (
+            <div className="space-y-4">
+              {petrolStationsError ? (
+                <p className="text-xs text-amber-800">{petrolStationsError}</p>
+              ) : null}
+              {petrolStations.length === 0 && !petrolStationsError ? (
+                <p className="text-sm text-slate-600">
+                  Add at least one station and pump in{' '}
+                  <Link to={APP_PATHS.petrolStations} className="font-medium text-teal-600 hover:underline">
+                    Stations &amp; pumps
+                  </Link>{' '}
+                  before charging.
+                </p>
+              ) : null}
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                  Station
+                </span>
+                <select
+                  value={petrolStationId}
+                  onChange={(e) => setPetrolStationId(e.target.value)}
+                  disabled={paymentModalOpen || placeOrderBusy || petrolStations.length === 0}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                >
+                  <option value="">Select station</option>
+                  {petrolStations.filter((s) => s.isActive).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {s.code ? ` (${s.code})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                  Pump / dispenser
+                </span>
+                <select
+                  value={petrolPumpId}
+                  onChange={(e) => setPetrolPumpId(e.target.value)}
+                  disabled={
+                    paymentModalOpen ||
+                    placeOrderBusy ||
+                    !petrolStationId ||
+                    activePumpsForStation.length === 0
+                  }
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                >
+                  <option value="">
+                    {activePumpsForStation.length === 0 ? 'No pumps — add in setup' : 'Select pump'}
+                  </option>
+                  {activePumpsForStation.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                  Fuel grade
+                </span>
+                <select
+                  value={petrolProductId}
+                  onChange={(e) => setPetrolProductId(e.target.value)}
+                  disabled={paymentModalOpen || placeOrderBusy}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                >
+                  <option value="">Select grade</option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} — D{p.price}/L
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="block">
+                <span className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                  Sale by
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={paymentModalOpen || placeOrderBusy}
+                    onClick={() => {
+                      setPetrolEntryMode('liters')
+                      setPetrolCashAmount('')
+                    }}
+                    className={`flex-1 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 ${
+                      petrolEntryMode === 'liters'
+                        ? 'border-teal-600 bg-teal-50 text-teal-900'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    Liters
+                  </button>
+                  <button
+                    type="button"
+                    disabled={paymentModalOpen || placeOrderBusy}
+                    onClick={() => {
+                      setPetrolEntryMode('cash')
+                      setPetrolLiters('')
+                    }}
+                    className={`flex-1 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 ${
+                      petrolEntryMode === 'cash'
+                        ? 'border-teal-600 bg-teal-50 text-teal-900'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    Cash amount (D)
+                  </button>
+                </div>
+              </div>
+              {petrolEntryMode === 'liters' ? (
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                    Liters dispensed
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    placeholder="e.g. 12.45"
+                    value={petrolLiters}
+                    onChange={(e) => setPetrolLiters(e.target.value)}
+                    disabled={paymentModalOpen || placeOrderBusy}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                  />
+                </label>
+              ) : (
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                    Cash amount (D)
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    placeholder="e.g. 1000"
+                    value={petrolCashAmount}
+                    onChange={(e) => setPetrolCashAmount(e.target.value)}
+                    disabled={paymentModalOpen || placeOrderBusy}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                  />
+                  {petrolDerivedLitersFromCash != null &&
+                  Number.isFinite(petrolDerivedLitersFromCash) ? (
+                    <p className="mt-1.5 text-xs text-slate-600">
+                      ≈ {petrolDerivedLitersFromCash.toFixed(4)} L at current price/L (pump to this
+                      volume).
+                    </p>
+                  ) : null}
+                </label>
+              )}
+            </div>
+          ) : (
           <AnimatePresence mode="popLayout">
             {cart.length === 0 ? (
               <motion.div
@@ -857,6 +1253,7 @@ export function POSPage() {
               ))
             )}
           </AnimatePresence>
+          )}
         </div>
 
         <div className="rounded-b-2xl border-t border-slate-100 bg-slate-50 p-4">
@@ -900,7 +1297,7 @@ export function POSPage() {
           <div className="mb-4 space-y-2 text-sm">
             <div className="flex justify-between text-slate-500">
               <span>Subtotal</span>
-              <span>{formatMoney(subtotal)}</span>
+              <span>{formatMoney(displaySubtotal)}</span>
             </div>
             <div className="flex justify-between text-slate-500">
               <span>Tax (0%)</span>
@@ -908,15 +1305,29 @@ export function POSPage() {
             </div>
             <div className="flex justify-between border-t border-slate-200 pt-2 text-lg font-bold text-slate-800">
               <span>Total</span>
-              <span>{formatMoney(subtotal)}</span>
+              <span>{formatMoney(displaySubtotal)}</span>
             </div>
           </div>
 
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={clearCart}
-              disabled={cart.length === 0 || paymentModalOpen || placeOrderBusy}
+              onClick={() => {
+                clearCart()
+                clearPetrolForm()
+              }}
+              disabled={
+                (petrolPos
+                  ? !petrolProductId &&
+                    !petrolStationId &&
+                    !petrolPumpId &&
+                    (petrolEntryMode === 'liters'
+                      ? !petrolLiters.trim()
+                      : !petrolCashAmount.trim())
+                  : cart.length === 0) ||
+                paymentModalOpen ||
+                placeOrderBusy
+              }
               className="rounded-xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50"
             >
               Clear
@@ -924,7 +1335,11 @@ export function POSPage() {
             <button
               type="button"
               onClick={() => void handlePrimaryCheckout()}
-              disabled={cart.length === 0 || paymentModalOpen || placeOrderBusy}
+              disabled={
+                (petrolPos ? !petrolChargeReady : cart.length === 0) ||
+                paymentModalOpen ||
+                placeOrderBusy
+              }
               className="flex flex-1 flex-col items-center justify-center rounded-xl bg-teal-600 py-3 text-lg font-bold text-white transition-colors hover:bg-teal-700 disabled:opacity-50"
             >
               {placeOrderBusy ? (
@@ -936,11 +1351,11 @@ export function POSPage() {
                 <>
                   <span>Order placement</span>
                   <span className="mt-0.5 text-sm font-semibold opacity-90">
-                    {formatMoney(subtotal)}
+                    {formatMoney(displaySubtotal)}
                   </span>
                 </>
               ) : (
-                <>Charge {formatMoney(subtotal)}</>
+                <>Charge {formatMoney(displaySubtotal)}</>
               )}
             </button>
           </div>
@@ -1311,6 +1726,7 @@ export function POSPage() {
       {addProductOpen && currentOrganization ? (
         <AddProductModal
           businessId={currentOrganization.id}
+          mode={petrolPos ? 'petrol' : 'retail'}
           onClose={() => setAddProductOpen(false)}
           onCreated={() => {
             void refreshBusinessProducts()

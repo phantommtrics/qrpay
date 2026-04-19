@@ -35,10 +35,11 @@ export function AddProductModal({
   businessId: string
   onClose: () => void
   onCreated: () => void
-  mode?: 'retail' | 'restaurant'
+  mode?: 'retail' | 'restaurant' | 'petrol'
 }) {
   const isRestaurant = mode === 'restaurant'
-  const [step, setStep] = useState<Step>(isRestaurant ? 2 : 1)
+  const isPetrol = mode === 'petrol'
+  const [step, setStep] = useState<Step>(isRestaurant || isPetrol ? 2 : 1)
 
   const [name, setName] = useState('')
   const [menuCategoryId, setMenuCategoryId] = useState('')
@@ -46,7 +47,7 @@ export function AddProductModal({
   const [menuLoadError, setMenuLoadError] = useState<string | null>(null)
   const [description, setDescription] = useState('')
   const [price, setPrice] = useState('')
-  const [stock, setStock] = useState('0')
+  const [stock, setStock] = useState(isPetrol ? '999999' : '0')
 
   const [packImageUrl, setPackImageUrl] = useState('')
   const [imageHint, setImageHint] = useState<string | null>(null)
@@ -215,11 +216,15 @@ export function AddProductModal({
       <div className="relative z-10 max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
         <div className="mb-6 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Add product</h2>
+            <h2 className="text-xl font-bold text-slate-900">
+              {isPetrol ? 'Add fuel grade' : 'Add product'}
+            </h2>
             <p className="mt-1 text-xs text-slate-500">
               {isRestaurant
                 ? 'Restaurant menu item (leaf category)'
-                : `Step ${step} of 2 — ${STEP_LABELS[step - 1]}`}
+                : isPetrol
+                  ? 'Name, category, and price per litre (no barcode)'
+                  : `Step ${step} of 2 — ${STEP_LABELS[step - 1]}`}
             </p>
           </div>
           <button
@@ -232,7 +237,7 @@ export function AddProductModal({
           </button>
         </div>
 
-        {!isRestaurant ? (
+        {!isRestaurant && !isPetrol ? (
           <ol className="mb-6 flex items-center justify-center gap-2 sm:gap-4" aria-hidden>
             {([1, 2] as const).map((n) => (
               <li key={n} className="flex items-center gap-2 sm:gap-4">
@@ -253,7 +258,7 @@ export function AddProductModal({
           </ol>
         ) : null}
 
-        {!isRestaurant && step === 1 ? (
+        {!isRestaurant && !isPetrol && step === 1 ? (
           <div className="space-y-4">
             <p className="text-sm text-slate-600">
               Barcode is generated automatically by the system for POS and printing labels. Continue to
@@ -292,9 +297,9 @@ export function AddProductModal({
           </div>
         ) : null}
 
-        {(isRestaurant || step === 2) ? (
+        {(isRestaurant || isPetrol || step === 2) ? (
           <form className="space-y-4" onSubmit={handleSubmit}>
-            {!isRestaurant ? (
+            {!isRestaurant && !isPetrol ? (
               <button
                 type="button"
                 onClick={() => {
@@ -430,18 +435,36 @@ export function AddProductModal({
               {imageFieldError ? <p className="mt-2 text-sm text-red-600">{imageFieldError}</p> : null}
             </div>
 
+            {isPetrol ? (
+              <div className="rounded-xl border border-teal-200 bg-teal-50/80 px-3 py-2.5 text-sm text-teal-950">
+                <p className="font-medium text-teal-900">Fuel grade product</p>
+                <p className="mt-1 text-teal-900/90">
+                  Add one product per grade you sell (e.g. Unleaded, Diesel, Kerosene). The price is{' '}
+                  <strong>per litre</strong>; POS will multiply by litres at checkout.
+                </p>
+              </div>
+            ) : null}
             <label className="block">
-              <span className="mb-1 block text-sm font-medium text-slate-700">Name</span>
+              <span className="mb-1 block text-sm font-medium text-slate-700">
+                {isPetrol ? 'Grade name (e.g. Diesel)' : 'Name'}
+              </span>
               <input
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                placeholder={isPetrol ? 'e.g. Diesel' : undefined}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-teal-500"
               />
             </label>
             <div>
               <SearchableListbox
-                fieldLabel={isRestaurant ? 'Menu category (leaf)' : 'Product category (leaf)'}
+                fieldLabel={
+                  isRestaurant
+                    ? 'Menu category (leaf)'
+                    : isPetrol
+                      ? 'Category (leaf)'
+                      : 'Product category (leaf)'
+                }
                 fieldLabelClassName="text-sm font-medium text-slate-700"
                 options={leafPickerOptions}
                 value={menuCategoryId}
@@ -456,7 +479,9 @@ export function AddProductModal({
                 <p className="mt-1 text-xs text-amber-700">
                   {isRestaurant
                     ? 'Create a leaf category under Menu setup first.'
-                    : 'Create a leaf category under Catalog → Categories first.'}
+                    : isPetrol
+                      ? 'Create a category (e.g. Fuel) under Catalog → Categories, then pick it here.'
+                      : 'Create a leaf category under Catalog → Categories first.'}
                 </p>
               ) : null}
             </div>
@@ -471,7 +496,9 @@ export function AddProductModal({
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">Price (D)</span>
+                <span className="mb-1 block text-sm font-medium text-slate-700">
+                  {isPetrol ? 'Price per litre (D)' : 'Price (D)'}
+                </span>
                 <input
                   required
                   type="number"
@@ -483,7 +510,9 @@ export function AddProductModal({
                 />
               </label>
               <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">Stock</span>
+                <span className="mb-1 block text-sm font-medium text-slate-700">
+                  {isPetrol ? 'Stock (optional)' : 'Stock'}
+                </span>
                 <input
                   required
                   type="number"
@@ -491,10 +520,16 @@ export function AddProductModal({
                   step="1"
                   value={stock}
                   onChange={(e) => setStock(e.target.value)}
+                  title={isPetrol ? 'Pump sales do not deduct this stock.' : undefined}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-teal-500"
                 />
               </label>
             </div>
+            {isPetrol ? (
+              <p className="text-xs text-slate-500">
+                Stock is kept for reference only; litre sales at POS do not reduce it.
+              </p>
+            ) : null}
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="mb-3 text-sm font-semibold text-slate-800">Preview</p>
@@ -510,10 +545,15 @@ export function AddProductModal({
                 <div className="p-3">
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="line-clamp-1 font-semibold text-slate-800">{previewProduct.name}</h3>
-                    <span className="shrink-0 font-bold text-teal-600">D{previewProduct.price || '—'}</span>
+                    <span className="shrink-0 font-bold text-teal-600">
+                      D{previewProduct.price || '—'}
+                      {isPetrol ? '/L' : ''}
+                    </span>
                   </div>
                   <p className="mt-1 text-xs text-slate-500">{previewProduct.category}</p>
-                  <p className="mt-2 text-xs text-slate-600">{previewProduct.stock} in stock</p>
+                  <p className="mt-2 text-xs text-slate-600">
+                    {isPetrol ? 'Price per litre · stock not used at pump' : `${previewProduct.stock} in stock`}
+                  </p>
                 </div>
               </div>
             </div>

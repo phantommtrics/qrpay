@@ -21,7 +21,11 @@ import { PlatformDashboardPage } from './PlatformDashboardPage'
 import { fetchDashboardSummary, type DashboardSummary } from '../services/salesApi'
 import { ApiError } from '../services/subscriptionApi'
 import type { Order } from '../types'
-import { isRestaurantIndustry, isRetailOrWholesaleIndustry } from '../utils/businessIndustry'
+import {
+  isPetrolStationIndustry,
+  isRestaurantIndustry,
+  isRetailOrWholesaleIndustry,
+} from '../utils/businessIndustry'
 import { formatMoney } from '../utils/formatMoney'
 
 function mapDashboardOrderStatus(
@@ -87,6 +91,9 @@ function MerchantDashboardPage() {
     }
     if (isRetailOrWholesaleIndustry(industry)) {
       return 'Retail overview'
+    }
+    if (isPetrolStationIndustry(industry)) {
+      return 'Petrol station overview'
     }
     return 'Overview built from your live sales orders and completed payments.'
   }, [industry])

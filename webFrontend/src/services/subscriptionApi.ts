@@ -1003,6 +1003,125 @@ export async function deleteDiningTable(businessId: string, tableId: string): Pr
   })
 }
 
+export type BusinessStationPumpRow = {
+  id: string
+  stationId: string
+  label: string
+  isActive: boolean
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type BusinessStationRow = {
+  id: string
+  businessId: string
+  name: string
+  code: string | null
+  address: string | null
+  isActive: boolean
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+  pumps: BusinessStationPumpRow[]
+}
+
+export async function fetchBusinessStations(businessId: string): Promise<BusinessStationRow[]> {
+  const response = await apiRequest<{ data: BusinessStationRow[] }>(
+    `/businesses/${businessId}/stations`,
+    { headers: { 'x-business-id': businessId } },
+  )
+  return response.data
+}
+
+export async function createBusinessStation(
+  businessId: string,
+  body: { name: string; code?: string | null; address?: string | null; sortOrder?: number },
+): Promise<BusinessStationRow> {
+  const response = await apiRequest<{ data: BusinessStationRow }>(
+    `/businesses/${businessId}/stations`,
+    {
+      method: 'POST',
+      headers: { 'x-business-id': businessId },
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export async function updateBusinessStation(
+  businessId: string,
+  stationId: string,
+  body: {
+    name?: string
+    code?: string | null
+    address?: string | null
+    isActive?: boolean
+    sortOrder?: number
+  },
+): Promise<BusinessStationRow> {
+  const response = await apiRequest<{ data: BusinessStationRow }>(
+    `/businesses/${businessId}/stations/${stationId}`,
+    {
+      method: 'PATCH',
+      headers: { 'x-business-id': businessId },
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export async function deleteBusinessStation(businessId: string, stationId: string): Promise<void> {
+  await apiRequest<unknown>(`/businesses/${businessId}/stations/${stationId}`, {
+    method: 'DELETE',
+    headers: { 'x-business-id': businessId },
+  })
+}
+
+export async function createBusinessStationPump(
+  businessId: string,
+  stationId: string,
+  body: { label: string; sortOrder?: number },
+): Promise<BusinessStationPumpRow> {
+  const response = await apiRequest<{ data: BusinessStationPumpRow }>(
+    `/businesses/${businessId}/stations/${stationId}/pumps`,
+    {
+      method: 'POST',
+      headers: { 'x-business-id': businessId },
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export async function updateBusinessStationPump(
+  businessId: string,
+  stationId: string,
+  pumpId: string,
+  body: { label?: string; isActive?: boolean; sortOrder?: number },
+): Promise<BusinessStationPumpRow> {
+  const response = await apiRequest<{ data: BusinessStationPumpRow }>(
+    `/businesses/${businessId}/stations/${stationId}/pumps/${pumpId}`,
+    {
+      method: 'PATCH',
+      headers: { 'x-business-id': businessId },
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export async function deleteBusinessStationPump(
+  businessId: string,
+  stationId: string,
+  pumpId: string,
+): Promise<void> {
+  await apiRequest<unknown>(`/businesses/${businessId}/stations/${stationId}/pumps/${pumpId}`, {
+    method: 'DELETE',
+    headers: { 'x-business-id': businessId },
+  })
+}
+
 export type MenuCategoryRow = {
   id: string
   name: string

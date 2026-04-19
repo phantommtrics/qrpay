@@ -5,11 +5,23 @@ function isRestaurantIndustryValue(industry: string | null | undefined): boolean
   return (industry ?? "").trim().toLowerCase() === "restaurant";
 }
 
-/** Restaurant, retail, wholesale, and pharmacy share the same `MenuCategory` / `menuCategoryId` model. */
-function isMenuCategoryCatalogIndustry(industry: string | null | undefined): boolean {
+/** Matches `product.service` retail/pharmacy check (avoid importing product.service — circular via menu-category). */
+function isRetailOrWholesaleIndustryValue(industry: string | null | undefined): boolean {
   const n = (industry ?? "").trim().toLowerCase();
+  return n === "retail" || n === "wholesale" || n === "pharmacy";
+}
+
+function isPetrolStationIndustryValue(industry: string | null | undefined): boolean {
+  const n = (industry ?? "").trim().toLowerCase();
+  return n === "petrol station" || n === "petrol_station";
+}
+
+/** Restaurant, retail, wholesale, pharmacy, and petrol station share the same `MenuCategory` / `menuCategoryId` model. */
+function isMenuCategoryCatalogIndustry(industry: string | null | undefined): boolean {
   return (
-    n === "restaurant" || n === "retail" || n === "wholesale" || n === "pharmacy"
+    (industry ?? "").trim().toLowerCase() === "restaurant" ||
+    isRetailOrWholesaleIndustryValue(industry) ||
+    isPetrolStationIndustryValue(industry)
   );
 }
 
@@ -24,7 +36,7 @@ export async function assertMenuCategoryCatalogBusiness(businessId: string): Pro
   if (!isMenuCategoryCatalogIndustry(business.industry)) {
     throw new HttpError(
       403,
-      "Categories are only available for Restaurant, Retail, Wholesale, or Pharmacy businesses.",
+      "Categories are only available for Restaurant, Retail, Wholesale, Pharmacy, or Petrol station businesses.",
     );
   }
 }

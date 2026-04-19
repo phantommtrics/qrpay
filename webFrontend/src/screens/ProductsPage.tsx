@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { Link } from 'react-router-dom'
 import { Plus, Search } from 'lucide-react'
 
 import { AddProductModal } from '../components/products/AddProductModal'
@@ -16,8 +17,13 @@ import {
   fetchMenuCategories,
   type MenuCategoryRow,
 } from '../services/subscriptionApi'
+import { APP_PATHS } from '../config/navigation'
 import { categoryBreadcrumb, leafMenuCategories } from '../utils/menuCategoryTree'
-import { isProductCatalogIndustry, isRestaurantIndustry } from '../utils/businessIndustry'
+import {
+  isPetrolStationIndustry,
+  isProductCatalogIndustry,
+  isRestaurantIndustry,
+} from '../utils/businessIndustry'
 
 const PAGE_SIZE = 20
 
@@ -54,6 +60,7 @@ export function ProductsPage() {
   const businessId = currentOrganization?.id
   const industryAllowed = isProductCatalogIndustry(currentOrganization?.industry)
   const restaurantMode = isRestaurantIndustry(currentOrganization?.industry)
+  const petrolMode = isPetrolStationIndustry(currentOrganization?.industry)
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebouncedSearch(searchTerm), 300)
@@ -212,9 +219,32 @@ export function ProductsPage() {
       {showIndustryGate ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           The product catalog is enabled for <strong>Retail</strong>, <strong>Wholesale</strong>,{' '}
-          <strong>Pharmacy</strong>, and <strong>Restaurant</strong> businesses. Your organization industry is “
-          {currentOrganization?.industry ?? '—'}”. Update the business industry or register a matching
-          business to use this feature.
+          <strong>Pharmacy</strong>, <strong>Petrol station</strong>, and <strong>Restaurant</strong>{' '}
+          businesses. Your organization industry is “{currentOrganization?.industry ?? '—'}”. Update the
+          business industry or register a matching business to use this feature.
+        </div>
+      ) : null}
+
+      {industryAllowed && petrolMode ? (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-800">
+          <p className="font-semibold text-slate-900">Setting up fuel grades</p>
+          <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-slate-700">
+            <li>
+              Under{' '}
+              <Link to={APP_PATHS.catalogCategories} className="font-medium text-teal-700 hover:underline">
+                Catalog → Categories
+              </Link>
+              , create at least one <strong>leaf</strong> category (e.g. “Fuel” or “Pumps”).
+            </li>
+            <li>
+              Use <strong>Add product</strong> for each grade you sell — name them clearly (e.g. Unleaded,
+              Diesel, Kerosene).
+            </li>
+            <li>
+              Enter the <strong>price per litre</strong> in Dalasi. Owners and managers can change those
+              prices later; cashiers use POS with litres × price.
+            </li>
+          </ol>
         </div>
       ) : null}
 
@@ -241,7 +271,9 @@ export function ProductsPage() {
               className="w-full sm:w-auto sm:max-w-[min(100%,22rem)]"
               layout="inline"
               clearable
-              fieldLabel={restaurantMode ? 'Menu category' : 'Product category'}
+              fieldLabel={
+                restaurantMode ? 'Menu category' : petrolMode ? 'Fuel category' : 'Product category'
+              }
               fieldLabelClassName="text-sm font-medium text-slate-700"
               listId="products-page-menu-category-filter"
               options={menuCategoryFilterOptions}
@@ -270,7 +302,9 @@ export function ProductsPage() {
 
       {!listLoading && listedProducts.length === 0 && !listError && industryAllowed && businessId ? (
         <p className="text-center text-sm text-slate-500">
-          No products yet. Add one to set a barcode and product details.
+          {petrolMode
+            ? 'No fuel grades yet. Add each grade (e.g. Diesel) with price per litre.'
+            : 'No products yet. Add one to set a barcode and product details.'}
         </p>
       ) : null}
 
@@ -292,19 +326,28 @@ export function ProductsPage() {
             <div className="p-4">
               <div className="mb-2 flex items-start justify-between gap-3">
                 <h3 className="line-clamp-1 font-semibold text-slate-800">{product.name}</h3>
-                <span className="font-bold text-teal-600">D{product.price}</span>
+                <span className="font-bold text-teal-600">
+                  D{product.price}
+                  {petrolMode ? '/L' : ''}
+                </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-500">{product.category}</span>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                    product.stock < 20
-                      ? 'bg-red-100 text-red-700'
-                      : 'bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  {product.stock} in stock
-                </span>
+                {petrolMode ? (
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                    per litre
+                  </span>
+                ) : (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      product.stock < 20
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    {product.stock} in stock
+                  </span>
+                )}
               </div>
               <div className="mt-3 text-xs font-medium text-slate-500">
                 {canEditProducts ? 'Editing allowed for this plan' : 'Editing limited by plan'}
@@ -342,7 +385,7 @@ export function ProductsPage() {
       {addOpen && businessId && industryAllowed ? (
         <AddProductModal
           businessId={businessId}
-          mode={restaurantMode ? 'restaurant' : 'retail'}
+          mode={restaurantMode ? 'restaurant' : petrolMode ? 'petrol' : 'retail'}
           onClose={() => setAddOpen(false)}
           onCreated={() => {
             void refreshBusinessProducts()

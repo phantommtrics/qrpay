@@ -23,6 +23,12 @@ export function isRestaurantIndustry(industry: string | null | undefined): boole
   return normalizeIndustryLabel(industry) === "restaurant";
 }
 
+/** Canonical industry label from signup/UI: "Petrol station". */
+export function isPetrolStationIndustry(industry: string | null | undefined): boolean {
+  const n = normalizeIndustryLabel(industry);
+  return n === "petrol station" || n === "petrol_station";
+}
+
 function productPublicPath(productId: string): string {
   return `/p/${productId}`;
 }
@@ -137,10 +143,11 @@ export async function createProduct(input: CreateProductInput) {
 
   const isRetailWholesale = isRetailOrWholesaleIndustry(business.industry);
   const isRestaurant = isRestaurantIndustry(business.industry);
-  if (!isRetailWholesale && !isRestaurant) {
+  const isPetrol = isPetrolStationIndustry(business.industry);
+  if (!isRetailWholesale && !isRestaurant && !isPetrol) {
     throw new HttpError(
       403,
-      "Products are only available for Retail, Wholesale, Pharmacy, or Restaurant businesses.",
+      "Products are only available for Retail, Wholesale, Pharmacy, Petrol station, or Restaurant businesses.",
     );
   }
 
@@ -171,7 +178,7 @@ export async function createProduct(input: CreateProductInput) {
   }
 
   const trimmedBarcode = input.barcodeValue?.trim();
-  if (isRetailWholesale) {
+  if (isRetailWholesale || isPetrol) {
     if (trimmedBarcode && !/^[A-Za-z0-9]{4,48}$/.test(trimmedBarcode)) {
       throw new HttpError(400, "Barcode must be 4–48 alphanumeric characters (A–Z, a–z, 0–9).");
     }
@@ -260,10 +267,11 @@ export async function updateProduct(input: UpdateProductInput) {
 
   const isRetailWholesale = isRetailOrWholesaleIndustry(product.business.industry);
   const isRestaurant = isRestaurantIndustry(product.business.industry);
-  if (!isRetailWholesale && !isRestaurant) {
+  const isPetrol = isPetrolStationIndustry(product.business.industry);
+  if (!isRetailWholesale && !isRestaurant && !isPetrol) {
     throw new HttpError(
       403,
-      "Products are only available for Retail, Wholesale, Pharmacy, or Restaurant businesses.",
+      "Products are only available for Retail, Wholesale, Pharmacy, Petrol station, or Restaurant businesses.",
     );
   }
 
@@ -281,7 +289,7 @@ export async function updateProduct(input: UpdateProductInput) {
   if (input.name !== undefined) {
     data.name = input.name.trim();
   }
-  if (input.menuCategoryId !== undefined && (isRestaurant || isRetailWholesale)) {
+  if (input.menuCategoryId !== undefined && (isRestaurant || isRetailWholesale || isPetrol)) {
     if (input.menuCategoryId === null) {
       if (isRestaurant) {
         throw new HttpError(400, "menuCategoryId cannot be cleared for restaurant items.");
@@ -304,7 +312,7 @@ export async function updateProduct(input: UpdateProductInput) {
     if (isRestaurant) {
       throw new HttpError(400, "Use menuCategoryId to change category for restaurant items.");
     }
-    if (isRetailWholesale && product.menuCategoryId) {
+    if ((isRetailWholesale || isPetrol) && product.menuCategoryId) {
       throw new HttpError(
         400,
         "Use menuCategoryId to change category. Manage categories under Catalog → Categories.",
@@ -436,7 +444,8 @@ export async function getPublicProductById(productId: string) {
 
   if (
     !isRetailOrWholesaleIndustry(product.business.industry) &&
-    !isRestaurantIndustry(product.business.industry)
+    !isRestaurantIndustry(product.business.industry) &&
+    !isPetrolStationIndustry(product.business.industry)
   ) {
     throw new HttpError(404, "Product not found.");
   }

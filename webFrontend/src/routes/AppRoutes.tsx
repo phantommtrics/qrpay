@@ -47,6 +47,11 @@ const RestaurantMenuSetupPage = lazy(() =>
     default: module.RestaurantMenuSetupPage,
   })),
 )
+const PetrolStationsPage = lazy(() =>
+  import('../screens/PetrolStationsPage').then((module) => ({
+    default: module.PetrolStationsPage,
+  })),
+)
 const DashboardPage = lazy(() =>
   import('../screens/DashboardPage').then((module) => ({
     default: module.DashboardPage,
@@ -656,6 +661,12 @@ export function AppRoutes() {
     {
       path: APP_PATHS.restaurantMenuSetup,
       element: <RestaurantMenuSetupPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.roles,
+      permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.permission,
+    },
+    {
+      path: APP_PATHS.petrolStations,
+      element: <PetrolStationsPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.roles,
       permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.permission,
     },

@@ -126,6 +126,12 @@ export type SaleOrder = {
   createdAt: string
   diningTableId?: string | null
   tableLabel?: string | null
+  stationId?: string | null
+  stationName?: string | null
+  stationCode?: string | null
+  pumpId?: string | null
+  /** Petrol: dispenser label (snapshot). */
+  pumpLabel?: string | null
   lines: SaleOrderLine[]
   payments?: SalePayment[]
   receipt?: { id: string; publicCode: string; receiptNumber: number } | null
@@ -248,20 +254,56 @@ export async function postPublicRestaurantOrder(
   return data.data
 }
 
+/** Retail/restaurant: `quantity` only. Petrol: either `quantity` (liters) or `cashAmountGmd` (fixed D amount). */
+export type CreateSaleOrderLineInput =
+  | { productId: string; quantity: number }
+  | { productId: string; cashAmountGmd: number }
+
 export async function createSaleOrder(
   businessId: string,
-  lines: { productId: string; quantity: number }[],
-  options?: { diningTableId?: string | null },
+  lines: CreateSaleOrderLineInput[],
+  options?: {
+    diningTableId?: string | null
+    stationId?: string | null
+    pumpId?: string | null
+  },
 ): Promise<SaleOrder> {
-  const body: { lines: typeof lines; diningTableId?: string } = { lines }
+  const body: {
+    lines: CreateSaleOrderLineInput[]
+    diningTableId?: string
+    stationId?: string
+    pumpId?: string
+  } = { lines }
   if (options?.diningTableId) {
     body.diningTableId = options.diningTableId
+  }
+  if (options?.stationId?.trim()) {
+    body.stationId = options.stationId.trim()
+  }
+  if (options?.pumpId?.trim()) {
+    body.pumpId = options.pumpId.trim()
   }
   const res = await apiRequest<{ data: SaleOrder }>(`/businesses/${businessId}/orders`, {
     method: 'POST',
     businessId,
     body: JSON.stringify(body),
   })
+  return res.data
+}
+
+export async function patchPetrolOrderLocation(
+  businessId: string,
+  orderId: string,
+  body: { stationId: string; pumpId: string },
+): Promise<SaleOrder> {
+  const res = await apiRequest<{ data: SaleOrder }>(
+    `/businesses/${businessId}/orders/${orderId}/petrol-location`,
+    {
+      method: 'PATCH',
+      businessId,
+      body: JSON.stringify(body),
+    },
+  )
   return res.data
 }
 

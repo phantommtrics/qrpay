@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   Cog,
+  Fuel,
   LayoutGrid,
   ListTree,
   LockKeyhole,
@@ -41,7 +42,7 @@ import {
   fetchDiningTables,
   type NavigationMenuService,
 } from '../services/subscriptionApi'
-import { isRestaurantIndustry } from '../utils/businessIndustry'
+import { isPetrolStationIndustry, isRestaurantIndustry } from '../utils/businessIndustry'
 
 const BUSINESS_SECTION_STORAGE_KEY = 'qrpay.sidebar.businesses.open.v1'
 const PLATFORM_BUSINESSES_SECTION_KEY = 'qrpay.sidebar.platform-businesses.open.v1'
@@ -865,6 +866,32 @@ export function Sidebar({
                 <RESTAURANT_NAV_ITEM.icon className="mr-3 h-5 w-5" />
                 <span className="font-medium">{RESTAURANT_NAV_ITEM.name}</span>
               </NavLink>
+            </>
+          ) : null}
+
+          {user.role !== 'cashier' &&
+          currentOrganization &&
+          isPetrolStationIndustry(currentOrganization.industry) ? (
+            <>
+              <div className="mt-6 mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Petrol
+              </div>
+              {canAccess('products.view') ? (
+                <NavLink
+                  to={APP_PATHS.petrolStations}
+                  onClick={() => setIsOpen(false)}
+                  className={({ isActive }) =>
+                    `mb-0.5 flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white ${
+                      isActive
+                        ? 'border-teal-500 bg-teal-500/10 text-teal-400'
+                        : 'border-transparent'
+                    }`
+                  }
+                >
+                  <Fuel className="mr-3 h-5 w-5" />
+                  <span className="font-medium">Stations &amp; pumps</span>
+                </NavLink>
+              ) : null}
             </>
           ) : null}
         </div>

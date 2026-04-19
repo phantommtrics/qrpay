@@ -202,6 +202,7 @@ export function SignupPage() {
                   <option>Restaurant</option>
                   <option>Wholesale</option>
                   <option>Pharmacy</option>
+                  <option>Petrol station</option>
                   <option>Corporate</option>
                 </select>
               </label>

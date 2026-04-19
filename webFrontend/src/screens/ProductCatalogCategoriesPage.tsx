@@ -4,13 +4,20 @@ import { MenuCategoriesSalesBlock } from '../components/menu/MenuCategoriesSales
 import { PageTransition } from '../components/ui/PageTransition'
 import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
-import { isRetailOrWholesaleIndustry, isRestaurantIndustry } from '../utils/businessIndustry'
+import {
+  isPetrolStationIndustry,
+  isRetailOrWholesaleIndustry,
+  isRestaurantIndustry,
+} from '../utils/businessIndustry'
 
 export function ProductCatalogCategoriesPage() {
   const { currentOrganization, canAccess, user } = useAuth()
   const businessId = currentOrganization?.id
   const industry = currentOrganization?.industry
-  const retailLike = Boolean(currentOrganization && isRetailOrWholesaleIndustry(industry))
+  const retailLike = Boolean(
+    currentOrganization &&
+      (isRetailOrWholesaleIndustry(industry) || isPetrolStationIndustry(industry)),
+  )
   const isRestaurant = Boolean(currentOrganization && isRestaurantIndustry(industry))
   const allowed = retailLike && canAccess('products.categories')
   const canExportReports = canAccess('reports.export')
@@ -49,7 +56,7 @@ export function ProductCatalogCategoriesPage() {
 
       {showWrongIndustry ? (
         <div className="border-b border-amber-200 bg-amber-50/90 py-3 text-sm text-amber-900">
-          Categories are available for Retail, Wholesale, and Pharmacy businesses.
+          Categories are available for Retail, Wholesale, Pharmacy, and Petrol station businesses.
         </div>
       ) : null}
 

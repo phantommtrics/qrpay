@@ -14,6 +14,6 @@ UPDATE "JournalEntry"
 SET
   "approvedAt" = "postedAt",
   "journalApprovalExempt" = CASE
-    WHEN "sourceType" IN ('CUSTOMER_SALE_PAYMENT', 'CUSTOMER_SALE_WALLET_FEE') THEN true
+    WHEN "sourceType"::text IN ('CUSTOMER_SALE_PAYMENT', 'CUSTOMER_SALE_WALLET_FEE') THEN true
     ELSE false
   END;
