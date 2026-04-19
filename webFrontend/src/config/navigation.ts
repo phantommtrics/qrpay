@@ -53,6 +53,7 @@ export const APP_PATHS = {
   accountingReversedJournalDetail: '/accounting/journals/reversed/:journalEntryId',
   accountingReportGlBalance: '/accounting/reports/gl-balance',
   accountingReportProfitLoss: '/accounting/reports/profit-loss',
+  accountingReportBalanceSheet: '/accounting/reports/balance-sheet',
   accountingReportAccountStatement: '/accounting/reports/account-statement',
   accountingTransactionJournal: '/accounting/transaction-journal',
   /** Dynamic: `/accounting/transaction-journal/:journalEntryId` */
@@ -602,6 +603,9 @@ export function getPageTitle(pathname: string) {
   }
   if (pathname.includes(APP_PATHS.accountingReportProfitLoss)) {
     return 'Profit & loss report'
+  }
+  if (pathname.includes(APP_PATHS.accountingReportBalanceSheet)) {
+    return 'Balance sheet'
   }
   if (pathname.includes(APP_PATHS.accountingReportAccountStatement)) {
     return 'Account statement'

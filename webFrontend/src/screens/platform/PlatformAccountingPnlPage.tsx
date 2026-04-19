@@ -32,7 +32,7 @@ function pnlSectionRows(
   const headers = ['Code', 'Account', 'Amount']
   const rows =
     lines.length === 0
-      ? [['—', 'No P&L accounts', formatMoney(0, { decimals: 2 })]]
+      ? [['—', 'No activity in this period', formatMoney(0, { decimals: 2 })]]
       : lines.map((l) => [l.code, l.name, formatMoney(l.amount, { decimals: 2 })])
   rows.push(['', `Total ${title}`, formatMoney(total, { decimals: 2 })])
   return {
@@ -127,13 +127,15 @@ export function PlatformAccountingPnlPage() {
 
   function AccountLines({
     lines,
+    emptyHint,
   }: {
     lines: PlatformProfitLossReportData['revenue']['lines']
+    emptyHint: string
   }) {
     if (lines.length === 0) {
       return (
         <p className="rounded-sm border border-dashed border-qb-border bg-qb-surface/30 px-3 py-3 text-sm text-qb-muted">
-          No income or expense accounts on the chart of accounts.
+          {emptyHint}
         </p>
       )
     }
@@ -160,7 +162,7 @@ export function PlatformAccountingPnlPage() {
     <PageTransition>
       <FinanceReportChrome
         title="Profit & loss report"
-        description="Trading income, cost of sales, gross profit, and operating expenses for the selected period. All P&L accounts are listed, including accounts with no activity."
+        description="Income statement for the selected period. Only revenue and expense accounts appear. Account lines with net zero activity in the period are hidden; positive and negative amounts are shown as posted."
         backTo={APP_PATHS.platformAccounting}
         backLabel="Back to platform accounting"
         toolbar={
@@ -230,7 +232,10 @@ export function PlatformAccountingPnlPage() {
                   <h3 className={rowLabel}>Total trading income</h3>
                   <span className={rowValue}>{formatMoney(data.revenue.total, { decimals: 2 })}</span>
                 </div>
-                <AccountLines lines={data.revenue.lines} />
+                <AccountLines
+                  lines={data.revenue.lines}
+                  emptyHint="No trading income in this period."
+                />
               </section>
 
               <section className="space-y-3">
@@ -238,7 +243,10 @@ export function PlatformAccountingPnlPage() {
                   <h3 className={rowLabel}>Cost of sales</h3>
                   <span className={rowValue}>{formatMoney(data.costOfSales.total, { decimals: 2 })}</span>
                 </div>
-                <AccountLines lines={data.costOfSales.lines} />
+                <AccountLines
+                  lines={data.costOfSales.lines}
+                  emptyHint="No cost of sales in this period."
+                />
               </section>
 
               <div className="flex items-baseline justify-between gap-4 border-y border-qb-border py-4">
@@ -255,7 +263,10 @@ export function PlatformAccountingPnlPage() {
                     {formatMoney(data.operatingExpenses.total, { decimals: 2 })}
                   </span>
                 </div>
-                <AccountLines lines={data.operatingExpenses.lines} />
+                <AccountLines
+                  lines={data.operatingExpenses.lines}
+                  emptyHint="No operating expenses in this period."
+                />
               </section>
             </div>
           ) : null}

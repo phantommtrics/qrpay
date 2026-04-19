@@ -207,6 +207,7 @@ import { provisionInternalPartnerBusiness } from "./services/internal-partner-pr
 import { assertInternalPartnerProvisionedBusiness } from "./services/internal-partner-guard.service.js";
 import {
   getAccountStatementsReports,
+  getBalanceSheetReport,
   getGlBalanceReport,
   getProfitLossReport,
   listChartAccountsForReports,
@@ -6980,6 +6981,7 @@ app.get(
   requireAnyEntitlement([
     "accounting.reports.gl",
     "accounting.reports.pnl",
+    "accounting.reports.balance_sheet",
     "accounting.reports.statement",
   ]),
   async (request, response, next) => {
@@ -7029,6 +7031,37 @@ app.get(
       }
 
       const data = await getGlBalanceReport(businessId as string, asOf);
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/accounting/reports/balance-sheet",
+  authenticateToken,
+  requireEntitlement("accounting.reports.balance_sheet"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const asOf =
+        typeof request.query.asOf === "string" && request.query.asOf.trim()
+          ? request.query.asOf.trim()
+          : new Date().toISOString().slice(0, 10);
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const data = await getBalanceSheetReport(businessId as string, asOf);
       response.json({ data });
     } catch (error) {
       next(error);

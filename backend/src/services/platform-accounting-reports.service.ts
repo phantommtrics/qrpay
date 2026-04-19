@@ -25,6 +25,10 @@ function endOfUtcDay(d: Date): Date {
   );
 }
 
+function isNonZeroPnlAmount(amount: number): boolean {
+  return Math.abs(amount) > 1e-9;
+}
+
 function isCogsAccount(code: string): boolean {
   const u = code.toUpperCase();
   return u === "310" || u === "COGS" || u.startsWith("COGS_");
@@ -149,6 +153,9 @@ export async function getPlatformProfitLossReport(fromRaw: string, toRaw: string
 
   for (const [chartOfAccountId, v] of byAccount) {
     if (v.category !== ChartAccountCategory.REVENUE && v.category !== ChartAccountCategory.EXPENSE) {
+      continue;
+    }
+    if (!isNonZeroPnlAmount(v.net)) {
       continue;
     }
     const row: PlatformPnlLineRow = {
