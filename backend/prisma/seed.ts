@@ -3,16 +3,8 @@ import { PrismaClient, PlanCode, UserRole } from "@prisma/client";
 import { hashPassword } from "../src/utils/password.js";
 import { syncSystemCatalogAndPlanEntitlements } from "../src/services/system-catalog-sync.service.js";
 import { ensurePlatformModulesSeeded } from "../src/services/platform-module-sync.service.js";
-import { ensureDefaultChartOfAccountsForBusiness } from "../src/services/chart-of-accounts.service.js";
 
 const prisma = new PrismaClient();
-
-async function backfillChartOfAccountsForAllBusinesses() {
-  const businesses = await prisma.business.findMany({ select: { id: true } });
-  for (const { id } of businesses) {
-    await ensureDefaultChartOfAccountsForBusiness(prisma, id);
-  }
-}
 
 async function main() {
   const plans = [
@@ -93,8 +85,6 @@ async function main() {
   }
 
   await syncSystemCatalogAndPlanEntitlements();
-
-  await backfillChartOfAccountsForAllBusinesses();
 
   await ensurePlatformModulesSeeded();
 

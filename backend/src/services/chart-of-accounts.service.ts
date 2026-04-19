@@ -172,6 +172,32 @@ export async function ensureDefaultChartOfAccountsForBusiness(
   }
 }
 
+/**
+ * Inserts default catalog accounts only when missing for this business.
+ * Never updates existing rows, so manually edited names/descriptions stay intact.
+ */
+export async function createMissingDefaultChartAccountsForBusiness(
+  client: Prisma.TransactionClient | typeof prisma,
+  businessId: string,
+): Promise<void> {
+  for (const def of DEFAULT_ACCOUNTS) {
+    const existing = await client.chartOfAccount.findUnique({
+      where: { businessId_code: { businessId, code: def.code } },
+    });
+    if (existing) continue;
+    await client.chartOfAccount.create({
+      data: {
+        businessId,
+        code: def.code,
+        name: def.name,
+        description: def.description,
+        category: def.category,
+        isSystem: def.isSystem,
+      },
+    });
+  }
+}
+
 export async function getChartAccountByCode(
   client: Prisma.TransactionClient | typeof prisma,
   businessId: string,

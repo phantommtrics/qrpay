@@ -15,6 +15,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "node scripts/check-prisma-migrations.mjs && prisma migrate deploy",
     "prisma:seed": "tsx prisma/seed.ts",
+    "prisma:seed:default-chart-of-accounts": "tsx prisma/seed-default-chart-of-accounts.ts",
     "check:migrations": "node scripts/check-prisma-migrations.mjs"
   },
   "dependencies": {
