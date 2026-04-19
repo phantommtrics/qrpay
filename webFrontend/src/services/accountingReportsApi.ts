@@ -43,6 +43,59 @@ export async function fetchGlBalanceReport(
   return res.data
 }
 
+export type BalanceSheetLine = {
+  chartOfAccountId: string
+  code: string
+  name: string
+  amount: number
+}
+
+export type BalanceSheetGroup = {
+  key: string
+  label: string
+  lines: BalanceSheetLine[]
+  subtotal: number
+}
+
+export type BalanceSheetReportData = {
+  asOf: string
+  assets: {
+    bank: BalanceSheetGroup
+    otherCurrentAssets: BalanceSheetGroup
+    total: number
+  }
+  liabilities: {
+    current: BalanceSheetGroup
+    nonCurrent: BalanceSheetGroup
+    total: number
+  }
+  netAssets: number
+  equity: {
+    glLines: BalanceSheetLine[]
+    equityFromGl: number
+    ytdNetIncome: number
+    retainedAndOtherEquity: number
+    total: number
+    ytdRange: { from: string; to: string }
+  }
+  checks: {
+    netAssetsEqualsEquity: boolean
+    equationResidual: number
+  }
+}
+
+export async function fetchBalanceSheetReport(
+  businessId: string,
+  asOf: string,
+): Promise<BalanceSheetReportData> {
+  const qs = new URLSearchParams({ asOf })
+  const res = await apiRequest<{ data: BalanceSheetReportData }>(
+    `/businesses/${businessId}/accounting/reports/balance-sheet?${qs}`,
+    { method: 'GET', businessId },
+  )
+  return res.data
+}
+
 export type PnlLine = { chartOfAccountId: string; code: string; name: string; amount: number }
 
 export type ProfitLossReportData = {

@@ -1,4 +1,4 @@
-import { ChartAccountCategory } from "@prisma/client";
+import { ChartAccountCategory, ChartAccountKind } from "@prisma/client";
 
 import type { Prisma } from "@prisma/client";
 
@@ -208,6 +208,168 @@ export async function getProfitLossReport(businessId: string, fromRaw: string, t
     operatingExpenses: { lines: opexLines, total: totalOpex },
     grossProfit,
     netProfit,
+  };
+}
+
+export type BalanceSheetLine = {
+  chartOfAccountId: string;
+  code: string;
+  name: string;
+  amount: number;
+};
+
+function isNonZeroBsAmount(n: number): boolean {
+  return Math.abs(n) > 1e-9;
+}
+
+/** Long-term debt / non-current — heuristic from code and name (e.g. LOAN, NC_*). */
+function isNonCurrentLiability(code: string, name: string): boolean {
+  const trimmed = code.trim();
+  if (/^NC[_-]/i.test(trimmed)) {
+    return true;
+  }
+  const t = `${code} ${name}`.toUpperCase();
+  return /\b(LOAN|BORROWING|MORTGAGE|TERM\s*LOAN|LONG[\s-]*TERM|DEBENTURE)\b/.test(t);
+}
+
+/**
+ * Statement of financial position: assets and liabilities from GL balances; equity reconciles to net assets
+ * using posted equity accounts plus YTD P&amp;L and a residual for retained / prior periods.
+ */
+export async function getBalanceSheetReport(businessId: string, asOfRaw: string) {
+  await ensureDefaultChartOfAccountsForBusiness(prisma, businessId);
+  const asOf = endOfUtcDay(parseYmdUtc(asOfRaw, "as of"));
+
+  const accounts = await prisma.chartOfAccount.findMany({
+    where: { businessId },
+    orderBy: [{ code: "asc" }],
+  });
+
+  const sums = await prisma.journalLine.groupBy({
+    by: ["chartOfAccountId"],
+    where: {
+      journalEntry: {
+        businessId,
+        postedAt: { lte: asOf },
+        ...merchantJournalReportingWhere,
+      },
+    },
+    _sum: { debitAmount: true, creditAmount: true },
+  });
+  const sumBy = new Map(
+    sums.map((s) => [
+      s.chartOfAccountId,
+      {
+        dr: Number(s._sum.debitAmount ?? 0),
+        cr: Number(s._sum.creditAmount ?? 0),
+      },
+    ]),
+  );
+
+  function signedBalance(a: { id: string; category: ChartAccountCategory }): number {
+    const agg = sumBy.get(a.id) ?? { dr: 0, cr: 0 };
+    return lineNetMovement(a.category, agg.dr, agg.cr);
+  }
+
+  const bankLines: BalanceSheetLine[] = [];
+  const otherAssetLines: BalanceSheetLine[] = [];
+  const currentLiabLines: BalanceSheetLine[] = [];
+  const nonCurrentLiabLines: BalanceSheetLine[] = [];
+  const equityGlLines: BalanceSheetLine[] = [];
+
+  for (const a of accounts) {
+    const bal = signedBalance(a);
+    if (!isNonZeroBsAmount(bal)) {
+      continue;
+    }
+    const row: BalanceSheetLine = {
+      chartOfAccountId: a.id,
+      code: a.code,
+      name: a.name,
+      amount: bal,
+    };
+
+    if (a.category === ChartAccountCategory.ASSET) {
+      if (a.kind === ChartAccountKind.BANK) {
+        bankLines.push(row);
+      } else {
+        otherAssetLines.push(row);
+      }
+    } else if (a.category === ChartAccountCategory.LIABILITY) {
+      if (isNonCurrentLiability(a.code, a.name)) {
+        nonCurrentLiabLines.push(row);
+      } else {
+        currentLiabLines.push(row);
+      }
+    } else if (a.category === ChartAccountCategory.EQUITY) {
+      equityGlLines.push(row);
+    }
+  }
+
+  const sumLines = (lines: BalanceSheetLine[]) => lines.reduce((s, r) => s + r.amount, 0);
+
+  const bankSubtotal = sumLines(bankLines);
+  const otherAssetsSubtotal = sumLines(otherAssetLines);
+  const totalAssets = bankSubtotal + otherAssetsSubtotal;
+
+  const currentLiabSubtotal = sumLines(currentLiabLines);
+  const nonCurrentLiabSubtotal = sumLines(nonCurrentLiabLines);
+  const totalLiabilities = currentLiabSubtotal + nonCurrentLiabSubtotal;
+
+  const netAssets = totalAssets - totalLiabilities;
+
+  const equityFromGl = sumLines(equityGlLines);
+
+  const yearStartYmd = `${asOf.getUTCFullYear()}-01-01`;
+  const asOfYmd = asOfRaw.trim();
+  const pnlYtd = await getProfitLossReport(businessId, yearStartYmd, asOfYmd);
+  const ytdNetIncome = pnlYtd.netProfit;
+
+  const retainedAndOtherEquity = netAssets - equityFromGl - ytdNetIncome;
+  const totalEquity = equityFromGl + ytdNetIncome + retainedAndOtherEquity;
+
+  const equationResidual = Math.abs(netAssets - totalEquity);
+
+  return {
+    asOf: asOf.toISOString(),
+    assets: {
+      bank: { key: "bank", label: "Bank", lines: bankLines, subtotal: bankSubtotal },
+      otherCurrentAssets: {
+        key: "other_assets",
+        label: "Other current assets",
+        lines: otherAssetLines,
+        subtotal: otherAssetsSubtotal,
+      },
+      total: totalAssets,
+    },
+    liabilities: {
+      current: {
+        key: "current_liab",
+        label: "Current liabilities",
+        lines: currentLiabLines,
+        subtotal: currentLiabSubtotal,
+      },
+      nonCurrent: {
+        key: "non_current_liab",
+        label: "Non-current liabilities",
+        lines: nonCurrentLiabLines,
+        subtotal: nonCurrentLiabSubtotal,
+      },
+      total: totalLiabilities,
+    },
+    netAssets,
+    equity: {
+      glLines: equityGlLines,
+      equityFromGl,
+      ytdNetIncome,
+      retainedAndOtherEquity,
+      total: totalEquity,
+      ytdRange: { from: pnlYtd.from, to: pnlYtd.to },
+    },
+    checks: {
+      netAssetsEqualsEquity: equationResidual < 1e-6,
+      equationResidual,
+    },
   };
 }
 

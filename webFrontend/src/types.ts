@@ -77,6 +77,7 @@ export type PermissionKey =
   | 'accounting.chart.view'
   | 'accounting.reports.gl'
   | 'accounting.reports.pnl'
+  | 'accounting.reports.balance_sheet'
   | 'accounting.reports.statement'
   | 'accounting.reports.export'
   | 'accounting.journals.general'

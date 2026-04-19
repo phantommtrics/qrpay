@@ -197,6 +197,11 @@ const ProfitLossReportPage = lazy(() =>
     default: module.ProfitLossReportPage,
   })),
 )
+const BalanceSheetReportPage = lazy(() =>
+  import('../screens/BalanceSheetReportPage').then((module) => ({
+    default: module.BalanceSheetReportPage,
+  })),
+)
 const AccountStatementReportPage = lazy(() =>
   import('../screens/AccountStatementReportPage').then((module) => ({
     default: module.AccountStatementReportPage,
@@ -811,6 +816,12 @@ export function AppRoutes() {
       element: <ProfitLossReportPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
       permission: 'accounting.reports.pnl' as const,
+    },
+    {
+      path: APP_PATHS.accountingReportBalanceSheet,
+      element: <BalanceSheetReportPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'accounting.reports.balance_sheet' as const,
     },
     {
       path: APP_PATHS.accountingReportAccountStatement,

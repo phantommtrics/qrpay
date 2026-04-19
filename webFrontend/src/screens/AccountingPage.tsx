@@ -14,6 +14,7 @@ import {
   ChartNoAxesCombined,
   ClipboardList,
   FileSpreadsheet,
+  Landmark,
   NotebookPen,
   Scale,
   ScrollText,
@@ -40,10 +41,11 @@ export function AccountingPage() {
   const canOpenChartOfAccounts = canAccess('accounting.chart.view')
   const canGlReport = canAccess('accounting.reports.gl')
   const canPnlReport = canAccess('accounting.reports.pnl')
+  const canBalanceSheet = canAccess('accounting.reports.balance_sheet')
   const canStatement = canAccess('accounting.reports.statement')
   const canTransactionJournal = canAccess('accounting.transaction_journal')
   const canGeneralJournal = canAccess('accounting.journals.general')
-  const hasFinanceReports = canGlReport || canPnlReport || canStatement
+  const hasFinanceReports = canGlReport || canPnlReport || canBalanceSheet || canStatement
   const [data, setData] = useState<AccountingSummary | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -247,7 +249,7 @@ export function AccountingPage() {
               Period-based reports similar to Xero: trial balance, detailed profit &amp; loss, and
               single-account activity. Export to CSV or PDF when your plan includes export access.
             </p>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {canGlReport ? (
                 <button
                   type="button"
@@ -274,6 +276,22 @@ export function AccountingPage() {
                     <FileSpreadsheet className="h-5 w-5 text-qb-heading" strokeWidth={1.5} />
                     <p className="mt-3 text-sm font-semibold text-qb-heading">Profit &amp; loss</p>
                     <p className="mt-1 text-xs text-qb-muted">Revenue &amp; expenses by period</p>
+                    <p className="mt-2 flex items-center text-xs font-medium text-qb-heading">
+                      Open <ArrowRight className="ml-1 h-3 w-3" />
+                    </p>
+                  </div>
+                </button>
+              ) : null}
+              {canBalanceSheet ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(APP_PATHS.accountingReportBalanceSheet)}
+                  className="text-left"
+                >
+                  <div className="rounded-md border border-qb-border bg-qb-surface/40 p-4 transition-shadow hover:shadow-md">
+                    <Landmark className="h-5 w-5 text-qb-heading" strokeWidth={1.5} />
+                    <p className="mt-3 text-sm font-semibold text-qb-heading">Balance sheet</p>
+                    <p className="mt-1 text-xs text-qb-muted">Assets, liabilities &amp; equity as at a date</p>
                     <p className="mt-2 flex items-center text-xs font-medium text-qb-heading">
                       Open <ArrowRight className="ml-1 h-3 w-3" />
                     </p>
