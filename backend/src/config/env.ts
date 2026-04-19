@@ -31,6 +31,11 @@ const envSchema = z.object({
    * Example: owner@phantommetrics.gm — assign billing template under Platform → Corporate → Businesses.
    */
   CORPORATE_SIGNUP_NOTIFY_EMAIL: z.string().optional(),
+  /**
+   * Absolute path for on-disk uploads (product images under …/products).
+   * Default: `uploads/` next to compiled `dist/` (may be read-only in some hosts — set this on production).
+   */
+  UPLOADS_DIR: z.string().optional(),
 });
 
 const parsed = envSchema.parse(process.env);

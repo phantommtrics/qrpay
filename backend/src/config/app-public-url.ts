@@ -72,6 +72,26 @@ export function getPaymentWebhookEndpoints(): PaymentWebhookEndpoints | null {
  * Public origin for **browser** return URLs after checkout (e.g. `/pay/:token`).
  * Prefers `APP_PUBLIC_BASE_URL`, then **`PLATFORM_URL`** (same as guest links / emails), then request origin.
  */
+/**
+ * Origin used in returned URLs for files served at `/uploads/*` (e.g. product images).
+ * Prefer `APP_PUBLIC_BASE_URL` so links stay correct behind reverse proxies; otherwise forwarded Host/Proto or the request.
+ */
+export function resolveUploadsPublicOrigin(req: Request): string {
+  const fromEnv = process.env.APP_PUBLIC_BASE_URL?.trim().replace(/\/$/, "");
+  if (fromEnv) {
+    return fromEnv;
+  }
+  const forwardedProto = (req.headers["x-forwarded-proto"] as string | undefined)
+    ?.split(",")[0]
+    ?.trim();
+  const proto = forwardedProto || req.protocol || "http";
+  const forwardedHost = (req.headers["x-forwarded-host"] as string | undefined)
+    ?.split(",")[0]
+    ?.trim();
+  const host = forwardedHost || req.get("host") || "localhost";
+  return `${proto}://${host}`;
+}
+
 export function resolveAppPublicBaseForBrowserReturns(req: Request): string {
   const appPublic = process.env.APP_PUBLIC_BASE_URL?.trim();
   if (appPublic) {

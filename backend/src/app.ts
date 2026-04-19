@@ -353,7 +353,10 @@ import {
   updatePlatformStaffUser,
   updateRoleTemplate,
 } from "./services/platform-security.service.js";
-import { getPaymentWebhookEndpoints } from "./config/app-public-url.js";
+import {
+  getPaymentWebhookEndpoints,
+  resolveUploadsPublicOrigin,
+} from "./config/app-public-url.js";
 import { env } from "./config/env.js";
 import { PLATFORM_MODULE_SLUGS } from "./config/platform-modules.js";
 import { HttpError } from "./lib/http-error.js";
@@ -386,9 +389,45 @@ const app = express();
 app.set("trust proxy", 1);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const uploadsRoot = path.resolve(__dirname, "../uploads");
+const uploadsRoot = env.UPLOADS_DIR?.trim()
+  ? path.resolve(env.UPLOADS_DIR.trim())
+  : path.resolve(__dirname, "../uploads");
 const productUploadsDir = path.join(uploadsRoot, "products");
-fs.mkdirSync(productUploadsDir, { recursive: true });
+try {
+  fs.mkdirSync(productUploadsDir, { recursive: true });
+} catch (e) {
+  console.error(
+    "[uploads] Failed to create product image directory (check UPLOADS_DIR and permissions):",
+    productUploadsDir,
+    e,
+  );
+  throw e;
+}
+
+const PRODUCT_IMAGE_EXT = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
+  ".avif",
+  ".bmp",
+  ".heic",
+  ".heif",
+]);
+
+function isAllowedProductImageFile(file: Express.Multer.File): boolean {
+  const mime = (file.mimetype || "").toLowerCase();
+  if (mime.startsWith("image/")) {
+    return true;
+  }
+  const ext = path.extname(file.originalname || "").toLowerCase();
+  if (!PRODUCT_IMAGE_EXT.has(ext)) {
+    return false;
+  }
+  // Some mobile clients send application/octet-stream or omit mimetype for camera picks.
+  return mime === "" || mime === "application/octet-stream";
+}
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -403,7 +442,7 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024,
   },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) {
+    if (isAllowedProductImageFile(file)) {
       cb(null, true);
       return;
     }
@@ -3916,7 +3955,7 @@ app.post(
         throw new HttpError(400, "Image file is required.");
       }
 
-      const imageUrl = `${req.protocol}://${req.get("host")}/uploads/products/${req.file.filename}`;
+      const imageUrl = `${resolveUploadsPublicOrigin(req)}/uploads/products/${req.file.filename}`;
       res.status(201).json({
         data: {
           imageUrl,
@@ -8712,6 +8751,20 @@ app.use(
       return response.status(400).json({
         error: "Invalid upload request.",
       });
+    }
+
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      typeof (error as NodeJS.ErrnoException).code === "string"
+    ) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EACCES" || code === "EROFS" || code === "ENOSPC") {
+        return response.status(503).json({
+          error:
+            "Cannot save the image to disk. Set UPLOADS_DIR to a writable directory or fix permissions on the uploads folder.",
+        });
+      }
     }
 
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
