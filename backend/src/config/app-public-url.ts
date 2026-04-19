@@ -24,11 +24,11 @@ function normalizeToHttpsOrigin(raw: string): string {
 }
 
 /**
- * Base URL used to build provider webhook URLs. Uses **only** `APP_PUBLIC_BASE_URL`
- * so Wave/Yonna dashboards match where this API is reachable (same host must route `/api/webhooks/*` here).
+ * Base URL used to build provider webhook URLs (Wave integration, etc.). Uses **only**
+ * `APP_PUBLIC_BASE_URL` so dashboards match where this API’s `/api/webhooks/*` is reachable.
  */
 export function appPublicBaseUrlForWebhooks(): string {
-  const raw = (process.env.APP_PUBLIC_BASE_URL || "").trim();
+  const raw = (env.APP_PUBLIC_BASE_URL ?? "").trim();
   if (!raw) {
     throw new HttpError(
       503,
@@ -40,7 +40,7 @@ export function appPublicBaseUrlForWebhooks(): string {
 
 /** Same as {@link appPublicBaseUrlForWebhooks} but returns null if unset or invalid. */
 export function tryAppPublicBaseUrlForWebhooks(): string | null {
-  const raw = (process.env.APP_PUBLIC_BASE_URL || "").trim();
+  const raw = (env.APP_PUBLIC_BASE_URL ?? "").trim();
   if (!raw) {
     return null;
   }
@@ -69,31 +69,21 @@ export function getPaymentWebhookEndpoints(): PaymentWebhookEndpoints | null {
 }
 
 /**
- * Public origin for **browser** return URLs after checkout (e.g. `/pay/:token`).
- * Prefers `APP_PUBLIC_BASE_URL`, then **`PLATFORM_URL`** (same as guest links / emails), then request origin.
+ * Origin for absolute URLs of product images (`/uploads/products/*`).
+ * Uses **`PLATFORM_URL`** (host only) so links match the web app; your reverse proxy should forward
+ * `/uploads/*` from that host to this API (or serve the same static files).
  */
-/**
- * Origin used in returned URLs for files served at `/uploads/*` (e.g. product images).
- * Prefer `APP_PUBLIC_BASE_URL` so links stay correct behind reverse proxies; otherwise forwarded Host/Proto or the request.
- */
-export function resolveUploadsPublicOrigin(req: Request): string {
-  const fromEnv = process.env.APP_PUBLIC_BASE_URL?.trim().replace(/\/$/, "");
-  if (fromEnv) {
-    return fromEnv;
+export function resolveUploadsPublicOrigin(_req: Request): string {
+  try {
+    const u = new URL(env.PLATFORM_URL);
+    return u.origin;
+  } catch {
+    throw new HttpError(500, "PLATFORM_URL must be a valid URL for product image links.");
   }
-  const forwardedProto = (req.headers["x-forwarded-proto"] as string | undefined)
-    ?.split(",")[0]
-    ?.trim();
-  const proto = forwardedProto || req.protocol || "http";
-  const forwardedHost = (req.headers["x-forwarded-host"] as string | undefined)
-    ?.split(",")[0]
-    ?.trim();
-  const host = forwardedHost || req.get("host") || "localhost";
-  return `${proto}://${host}`;
 }
 
 export function resolveAppPublicBaseForBrowserReturns(req: Request): string {
-  const appPublic = process.env.APP_PUBLIC_BASE_URL?.trim();
+  const appPublic = (env.APP_PUBLIC_BASE_URL ?? "").trim();
   if (appPublic) {
     return normalizeToHttpsOrigin(appPublic);
   }

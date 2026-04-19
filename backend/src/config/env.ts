@@ -20,6 +20,11 @@ const envSchema = z.object({
     .min(1, "Set CORS_ORIGINS to a comma-separated list of allowed browser origins"),
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM_EMAIL: z.string().min(1).optional(),
+  /**
+   * Public base URL where provider webhooks hit this API (Wave/Yonna, etc.): same host must serve
+   * `/api/webhooks/*`. Not used for product image URLs (those use `PLATFORM_URL`).
+   */
+  APP_PUBLIC_BASE_URL: z.string().optional(),
   PLATFORM_URL: z
     .string()
     .url()

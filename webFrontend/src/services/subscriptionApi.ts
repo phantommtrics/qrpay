@@ -1,4 +1,4 @@
-import { API_BASE_URL } from '../config/api'
+import { API_BASE_URL, normalizeProductImageUrlForDisplay } from '../config/api'
 import type {
   BusinessMembershipStatus,
   LoginAccount,
@@ -758,7 +758,9 @@ export function mapBackendProductToProduct(p: BackendProduct): Product {
     barcodeType: p.barcodeType,
     barcodeValue: p.barcodeValue,
     qrUrl: p.qrUrl,
-    imageUrl: p.imageUrl,
+    imageUrl: p.imageUrl?.trim()
+      ? normalizeProductImageUrlForDisplay(p.imageUrl)
+      : null,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   }
@@ -956,7 +958,7 @@ export async function uploadBusinessProductImage(businessId: string, file: File)
     },
   )
 
-  return response.data.imageUrl
+  return normalizeProductImageUrlForDisplay(response.data.imageUrl)
 }
 
 export type DiningTableRow = {
@@ -1202,7 +1204,13 @@ export async function fetchPublicProduct(productId: string) {
   const response = await apiRequest<{ data: PublicProductPayload }>(
     `/public/products/${productId}`,
   )
-  return response.data
+  const d = response.data
+  return {
+    ...d,
+    imageUrl: d.imageUrl?.trim()
+      ? normalizeProductImageUrlForDisplay(d.imageUrl)
+      : null,
+  }
 }
 
 export type PlatformSystemService = {

@@ -45,6 +45,10 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    // Product image URLs use PLATFORM_URL (dev: localhost:5173); backend stores files on :4000.
+    proxy: {
+      '/uploads': { target: 'http://localhost:4000', changeOrigin: true },
+    },
   },
   preview: {
     host: true,
