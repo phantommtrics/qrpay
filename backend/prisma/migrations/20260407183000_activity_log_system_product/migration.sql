@@ -1,3 +1,26 @@
+-- Ensure Organization service exists (FK target for SystemProduct.serviceId).
+INSERT INTO "SystemService" (
+  "id",
+  "name",
+  "description",
+  "sortOrder",
+  "createdAt",
+  "updatedAt"
+)
+VALUES (
+  'svc_org',
+  'Organization',
+  'Staff and organization',
+  5,
+  CURRENT_TIMESTAMP,
+  CURRENT_TIMESTAMP
+)
+ON CONFLICT ("id") DO UPDATE SET
+  "name" = EXCLUDED."name",
+  "description" = EXCLUDED."description",
+  "sortOrder" = EXCLUDED."sortOrder",
+  "updatedAt" = CURRENT_TIMESTAMP;
+
 -- Activity log: Organization service system product + plan entitlements (slug activity.log).
 INSERT INTO "SystemProduct" (
   "id",
@@ -32,8 +55,12 @@ ON CONFLICT ("slug") DO UPDATE SET
   "navLabel" = EXCLUDED."navLabel",
   "updatedAt" = CURRENT_TIMESTAMP;
 
+-- Deterministic ids (no pgcrypto / gen_random_uuid); stable per (planId, systemProductId).
 INSERT INTO "PlanSystemProduct" ("id", "planId", "systemProductId")
-SELECT gen_random_uuid()::text, pl."id", sp."id"
+SELECT
+  md5(pl."id" || '|' || sp."id" || '|PlanSystemProduct'),
+  pl."id",
+  sp."id"
 FROM "Plan" pl
 CROSS JOIN "SystemProduct" sp
 WHERE sp."slug" = 'activity.log'

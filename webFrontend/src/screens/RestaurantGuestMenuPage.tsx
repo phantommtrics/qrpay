@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Minus,
   Plus,
-  QrCode,
   Utensils,
 } from 'lucide-react'
 
@@ -369,16 +368,27 @@ export function RestaurantGuestMenuPage() {
           >
             <ChevronLeft className="h-6 w-6" />
           </button>
-          <h1 className="ml-2 text-lg font-bold text-slate-800">Checkout</h1>
+          <h1 className="ml-2 text-lg font-bold text-slate-800">Confirm</h1>
         </header>
-        <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center p-6">
-          <div className="w-full rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-            <h2 className="mb-2 text-xl font-bold text-slate-800">Pay via wallet</h2>
-            <p className="mb-6 text-sm text-slate-500">Scan with your mobile money app (demo)</p>
-            <div className="mb-6 inline-block rounded-2xl border-2 border-slate-100 bg-white p-4 shadow-inner">
-              <QrCode className="h-48 w-48 text-slate-800" />
-            </div>
-            <div className="mb-6 flex items-center justify-between border-t border-slate-100 py-4">
+        <div className="mx-auto flex w-full max-w-md flex-1 flex-col p-6 pb-10">
+          <div className="w-full rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-4 text-lg font-bold text-slate-800">Order summary</h2>
+            <ul className="mb-6 max-h-[min(50vh,22rem)] space-y-3 overflow-y-auto border-b border-slate-100 pb-4">
+              {cart.map((line) => (
+                <li key={line.product.id} className="flex items-start justify-between gap-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-800">{line.product.name}</p>
+                    <p className="mt-0.5 text-slate-500">
+                      {formatMoney(line.product.price)} × {line.quantity}
+                    </p>
+                  </div>
+                  <p className="shrink-0 font-semibold text-slate-800">
+                    {formatMoney(line.product.price * line.quantity)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+            <div className="mb-6 flex items-center justify-between">
               <span className="font-medium text-slate-600">Total</span>
               <span className="text-2xl font-bold text-teal-600">{formatMoney(total)}</span>
             </div>
@@ -412,7 +422,7 @@ export function RestaurantGuestMenuPage() {
               }}
               className="w-full rounded-xl bg-teal-600 py-4 text-lg font-bold text-white shadow-md shadow-teal-600/20 hover:bg-teal-700 disabled:opacity-60"
             >
-              {submitting ? 'Placing order…' : 'Place order'}
+              {submitting ? 'Confirming…' : 'Confirm'}
             </button>
           </div>
         </div>
@@ -712,7 +722,7 @@ export function RestaurantGuestMenuPage() {
                   onClick={() => setOrderStatus('paying')}
                   className="w-full rounded-xl bg-teal-600 py-4 text-lg font-bold text-white shadow-lg shadow-teal-600/30"
                 >
-                  Continue to checkout
+                  Continue
                 </button>
               </div>
             </BottomSheet>
