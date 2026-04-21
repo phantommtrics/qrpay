@@ -4,8 +4,20 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
-import type { PlanId, SubscriptionBillingInterval } from '../types'
+import type { PlanId, SubscriptionBillingInterval, SubscriptionPlan } from '../types'
 import { isCorporateIndustry } from '../utils/businessIndustry'
+
+/** When switching plan, staff count defaults to the plan cap (or min when unlimited). */
+function defaultStaffCountForPlan(plan: SubscriptionPlan): number {
+  return plan.maxStaff !== null ? plan.maxStaff : plan.minStaff
+}
+
+function alignStaffCountToPlan(plan: SubscriptionPlan, current: number): number {
+  let n = Number.isFinite(current) && current > 0 ? Math.floor(current) : plan.minStaff
+  if (n < plan.minStaff) n = plan.minStaff
+  if (plan.maxStaff !== null && n > plan.maxStaff) n = plan.maxStaff
+  return n
+}
 
 export function SignupPage() {
   const navigate = useNavigate()
@@ -16,7 +28,8 @@ export function SignupPage() {
     organizationName: '',
     industry: 'Retail',
     planId: 'basic' as PlanId,
-    staffCount: 3,
+    /** Basic plan max in default catalog; effect syncs when plans load. */
+    staffCount: 5,
     billingInterval: 'MONTHLY' as SubscriptionBillingInterval,
   })
   const [message, setMessage] = useState<string | null>(null)
@@ -39,6 +52,16 @@ export function SignupPage() {
       )
     }
   }, [form.industry])
+
+  /** When the user picks a plan (or plans load), set staff count to that plan's maximum (or min if unlimited). */
+  useEffect(() => {
+    setForm((current) => {
+      const plan = plans.find((p) => p.id === current.planId)
+      if (!plan) return current
+      const next = defaultStaffCountForPlan(plan)
+      return next === current.staffCount ? current : { ...current, staffCount: next }
+    })
+  }, [form.planId, plans])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -281,7 +304,8 @@ export function SignupPage() {
                 <span className="mb-2 block text-sm font-medium text-slate-700">Staff count</span>
                 <input
                   type="number"
-                  min={1}
+                  min={selectedPlan?.minStaff ?? 1}
+                  max={selectedPlan?.maxStaff ?? undefined}
                   value={form.staffCount}
                   onChange={(event) =>
                     setForm((current) => ({
@@ -289,9 +313,24 @@ export function SignupPage() {
                       staffCount: Number(event.target.value) || 0,
                     }))
                   }
+                  onBlur={() => {
+                    if (!selectedPlan) return
+                    setForm((current) => {
+                      const aligned = alignStaffCountToPlan(selectedPlan, current.staffCount)
+                      return aligned === current.staffCount ? current : { ...current, staffCount: aligned }
+                    })
+                  }}
                   required
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500"
                 />
+                {selectedPlan ? (
+                  <span className="mt-2 block text-xs text-slate-500">
+                    {selectedPlan.name} allows{' '}
+                    {selectedPlan.maxStaff === null
+                      ? `at least ${selectedPlan.minStaff} staff (${selectedPlan.staffLabel}).`
+                      : `${selectedPlan.minStaff}–${selectedPlan.maxStaff} staff (${selectedPlan.staffLabel}).`}{' '}
+                  </span>
+                ) : null}
               </label>
             </div>
 
