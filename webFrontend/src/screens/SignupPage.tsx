@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { ArrowRight, Building2, CheckCircle2, QrCode } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 
@@ -24,6 +24,11 @@ export function SignupPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const isCorp = isCorporateIndustry(form.industry)
+
+  const selectedPlan = useMemo(
+    () => plans.find((plan) => plan.id === form.planId) ?? null,
+    [plans, form.planId],
+  )
 
   useEffect(() => {
     if (isCorporateIndustry(form.industry)) {
@@ -85,49 +90,55 @@ export function SignupPage() {
           </div>
 
           <div className="mt-10 space-y-4">
-            {plans.map((plan) => (
-              <div
-                key={plan.id}
-                className={`rounded-2xl border p-4 ${
-                  form.planId === plan.id
-                    ? 'border-teal-400 bg-teal-500/10'
-                    : 'border-white/10 bg-white/5'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">{plan.name}</h3>
-                    <p className="text-sm text-slate-400">{plan.staffLabel}</p>
+            <p className="text-sm font-medium text-slate-400">Select a plan</p>
+            {plans.map((plan) => {
+              const selected = form.planId === plan.id
+              const disabled = isCorp && plan.id !== 'corporate'
+              return (
+                <button
+                  key={plan.id}
+                  type="button"
+                  disabled={disabled}
+                  aria-pressed={selected}
+                  onClick={() =>
+                    setForm((current) => ({ ...current, planId: plan.id as PlanId }))
+                  }
+                  className={`w-full rounded-2xl border p-4 text-left transition ${
+                    selected
+                      ? 'border-teal-400 bg-teal-500/10 ring-1 ring-teal-400/40'
+                      : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/[0.07]'
+                  } ${disabled ? 'cursor-not-allowed opacity-40 hover:border-white/10 hover:bg-white/5' : ''}`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold">{plan.name}</h3>
+                      <p className="text-sm text-slate-400">{plan.staffLabel}</p>
+                    </div>
+                    <div className="text-right text-sm">
+                      <p
+                        className={`font-semibold ${
+                          selected && form.billingInterval === 'MONTHLY'
+                            ? 'text-teal-300'
+                            : 'text-slate-400'
+                        }`}
+                      >
+                        {plan.priceLabel}
+                      </p>
+                      <p
+                        className={`mt-0.5 font-semibold ${
+                          selected && form.billingInterval === 'YEARLY'
+                            ? 'text-teal-300'
+                            : 'text-slate-500'
+                        }`}
+                      >
+                        {plan.yearlyPriceLabel}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right text-sm">
-                    <p
-                      className={`font-semibold ${
-                        form.planId === plan.id && form.billingInterval === 'MONTHLY'
-                          ? 'text-teal-300'
-                          : 'text-slate-400'
-                      }`}
-                    >
-                      {plan.priceLabel}
-                    </p>
-                    <p
-                      className={`mt-0.5 font-semibold ${
-                        form.planId === plan.id && form.billingInterval === 'YEARLY'
-                          ? 'text-teal-300'
-                          : 'text-slate-500'
-                      }`}
-                    >
-                      {plan.yearlyPriceLabel}
-                    </p>
-                  </div>
-                </div>
-                <p className="mt-2 text-sm text-slate-300">{plan.description}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-            EasyPay demo login:
-            <div className="mt-2 font-mono text-teal-300">owner@qrpay.com / demo123</div>
+                  <p className="mt-2 text-sm text-slate-300">{plan.description}</p>
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -141,6 +152,32 @@ export function SignupPage() {
               Businesses can onboard here and the system will attach the selected subscription plan
               to the organization, then give one week to complete the first payment.
             </p>
+            {selectedPlan ? (
+              <div className="mt-6 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 text-sm text-slate-700">
+                <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">
+                  Your plan selection
+                </p>
+                <p className="mt-2 text-lg font-bold text-slate-900">{selectedPlan.name}</p>
+                <p className="mt-0.5 text-slate-600">{selectedPlan.staffLabel}</p>
+                <p className="mt-3 text-slate-600">{selectedPlan.description}</p>
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-teal-200/80 pt-3 text-slate-800">
+                  <span className="font-medium">
+                    {form.billingInterval === 'MONTHLY'
+                      ? selectedPlan.priceLabel
+                      : selectedPlan.yearlyPriceLabel}
+                  </span>
+                  <span className="text-slate-500">
+                    {form.billingInterval === 'MONTHLY' ? 'Monthly billing' : 'Yearly billing'}
+                  </span>
+                </div>
+                {!isCorp ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Change plan anytime before you submit — use the selectable plan cards in the
+                    dark panel.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <form className="space-y-5" onSubmit={handleSubmit}>
@@ -221,26 +258,6 @@ export function SignupPage() {
 
             <div className="grid gap-5 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Plan</span>
-                <select
-                  value={form.planId}
-                  disabled={isCorp}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      planId: event.target.value as PlanId,
-                    }))
-                  }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
-                >
-                  {plans.map((plan) => (
-                    <option key={plan.id} value={plan.id}>
-                      {plan.name} ({plan.staffLabel})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Billing cycle</span>
                 <select
                   value={form.billingInterval}
@@ -260,7 +277,7 @@ export function SignupPage() {
                   <option value="YEARLY">Yearly (renewal every 12 months)</option>
                 </select>
               </label>
-              <label className="block sm:col-span-2">
+              <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Staff count</span>
                 <input
                   type="number"

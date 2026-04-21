@@ -25,6 +25,23 @@ export function LandingPage() {
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
+      <header className="border-b border-slate-200 bg-white sm:hidden">
+        <div className="mx-auto flex max-w-7xl items-center justify-end gap-2 px-4 py-3">
+          <Link
+            to={APP_PATHS.login}
+            className="rounded-full border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Sign in
+          </Link>
+          <Link
+            to={user ? APP_PATHS.dashboard : APP_PATHS.signup}
+            className="rounded-full bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-500"
+          >
+            {user ? 'Open Dashboard' : 'Create organization'}
+          </Link>
+        </div>
+      </header>
+
       <section className="relative overflow-hidden bg-slate-950 text-white">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(20,184,166,0.35),transparent_45%)]" />
         <div className="relative mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
@@ -93,6 +110,12 @@ export function LandingPage() {
                   >
                     Create Organization
                     <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                  <Link
+                    to={APP_PATHS.aboutEasypay}
+                    className="inline-flex w-full items-center justify-center rounded-full border border-white/25 bg-white/5 px-6 py-3 font-semibold text-white backdrop-blur hover:bg-white/10 sm:w-auto"
+                  >
+                    Learn more
                   </Link>
                 </div>
               </motion.div>

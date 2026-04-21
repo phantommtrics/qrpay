@@ -12,6 +12,11 @@ const LandingPage = lazy(() =>
     default: module.LandingPage,
   })),
 )
+const AboutEasyPayPage = lazy(() =>
+  import('../screens/AboutEasyPayPage').then((module) => ({
+    default: module.AboutEasyPayPage,
+  })),
+)
 const LoginPage = lazy(() =>
   import('../screens/LoginPage').then((module) => ({
     default: module.LoginPage,
@@ -922,6 +927,7 @@ export function AppRoutes() {
     <Suspense fallback={null}>
       <Routes>
         <Route path={APP_PATHS.root} element={<LandingPage />} />
+        <Route path={APP_PATHS.aboutEasypay} element={<AboutEasyPayPage />} />
         <Route
           path={APP_PATHS.login}
           element={

@@ -18,6 +18,8 @@ import type { PermissionKey, User } from '../types'
 
 export const APP_PATHS = {
   root: '/',
+  /** Public marketing / product detail (no auth). */
+  aboutEasypay: '/about-easypay',
   login: '/login',
   signup: '/signup',
   forgotPassword: '/forgot-password',
