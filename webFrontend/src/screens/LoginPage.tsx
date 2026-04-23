@@ -53,7 +53,7 @@ export function LoginPage() {
           <p className="mt-4 text-sm font-semibold uppercase tracking-[0.2em] text-teal-600">
             Sign In
           </p>
-          <h1 className="mt-3 text-3xl font-bold text-slate-900">Welcome back to EasyPay</h1>
+          <h1 className="mt-3 text-3xl font-bold text-slate-900">Welcome back to DPay</h1>
         </div>
 
         <motion.div

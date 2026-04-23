@@ -808,7 +808,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return {
               ok: true,
               message: isCorp
-                ? 'Account created. EasyPay will follow up with corporate billing details. Check your email for a temporary password, then sign in.'
+                ? 'Account created. DPay will follow up with corporate billing details. Check your email for a temporary password, then sign in.'
                 : 'Account created and your trial has started. Check your email for a temporary password, then sign in.',
               redirectPath: APP_PATHS.login,
             }

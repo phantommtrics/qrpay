@@ -284,7 +284,7 @@ export function BusinessesPage() {
               <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950">
                 <p className="font-semibold text-teal-900">Custom billing (Corporate plan)</p>
                 <p className="mt-1 text-teal-900/90">
-                  EasyPay will send an invoice and set up your corporate needs. The Corporate plan excludes
+                  DPay will send an invoice and set up your corporate needs. The Corporate plan excludes
                   POS, products, orders, and categories; pricing is assigned under Corporate in the operator
                   console.
                 </p>

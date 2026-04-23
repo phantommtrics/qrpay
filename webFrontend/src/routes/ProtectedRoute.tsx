@@ -69,7 +69,7 @@ export function ProtectedRoute({
               completed payment before protected tools can be opened again.
             </p>
             <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
-              EasyPay can still sign in and manage plan permissions. Business users are
+              DPay can still sign in and manage plan permissions. Business users are
               blocked once the payment window ends.
             </div>
           </div>
@@ -95,7 +95,7 @@ export function ProtectedRoute({
             </div>
             <h2 className="text-2xl font-bold text-slate-900">Access blocked by plan settings</h2>
             <p className="mt-3 text-slate-600">
-              Your role or subscription plan does not currently allow this module. EasyPay
+              Your role or subscription plan does not currently allow this module. DPay
               can update plan permissions from the plan controls screen.
             </p>
           </div>

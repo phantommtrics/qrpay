@@ -1,4 +1,4 @@
-/** EasyPay or staff with PLATFORM_ADMIN role (JWT flags). */
+/** DPay or staff with PLATFORM_ADMIN role (JWT flags). */
 export function isPlatformOperator(user: {
   isPlatformOwner?: boolean
   isPlatformAdmin?: boolean

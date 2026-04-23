@@ -2578,7 +2578,7 @@ export async function unlinkBusinessApsWalletCustomerAuth(businessId: string, au
   return response.data
 }
 
-// --- Platform accounting (EasyPay operator GL; no x-business-id) ---
+// --- Platform accounting (DPay operator GL; no x-business-id) ---
 
 export type PlatformGlBalanceReportData = {
   asOf: string

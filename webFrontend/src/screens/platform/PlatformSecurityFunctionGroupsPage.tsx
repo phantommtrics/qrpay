@@ -205,7 +205,7 @@ export function PlatformSecurityFunctionGroupsPage() {
 
         {!canCreate && user?.isPlatformAdmin ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            You can edit mappings here, but only EasyPay (or an admin with create access) can add
+            You can edit mappings here, but only DPay (or an admin with create access) can add
             new groups.
           </div>
         ) : null}

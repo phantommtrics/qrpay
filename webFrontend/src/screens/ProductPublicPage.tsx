@@ -52,7 +52,7 @@ export function ProductPublicPage() {
             <QrCode className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-teal-600">EASYPay</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-teal-600">DPay</p>
             <p className="text-sm text-slate-500">Product link</p>
           </div>
         </div>
@@ -91,7 +91,7 @@ export function ProductPublicPage() {
           to={APP_PATHS.root}
           className="mt-8 block text-center text-sm font-medium text-teal-600 hover:underline"
         >
-          Back to EASYPAY
+          Back to DPay
         </Link>
       </div>
     </div>

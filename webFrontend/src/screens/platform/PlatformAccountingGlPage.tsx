@@ -66,7 +66,7 @@ export function PlatformAccountingGlPage() {
   const exportPdf = async () => {
     if (!data) return
     await downloadFinancePdf({
-      title: 'EasyPay platform — GL balance',
+      title: 'DPay platform — GL balance',
       subtitle: `As at ${asOf}`,
       sections: [
         {
@@ -107,7 +107,7 @@ export function PlatformAccountingGlPage() {
     <PageTransition>
       <FinanceReportChrome
         title="Platform GL balance"
-        description="Trial balance for EasyPay platform accounts (subscription revenue, clearing, infrastructure expenses)."
+        description="Trial balance for DPay platform accounts (subscription revenue, clearing, infrastructure expenses)."
         backTo={APP_PATHS.platformAccounting}
         backLabel="Back to platform accounting"
         toolbar={

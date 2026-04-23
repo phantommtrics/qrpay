@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 
 import { formatBrowserDocumentTitle } from '../config/navigation'
 
-/** Syncs `document.title` to `EasyPay | <page>` on route change (HashRouter pathname). */
+/** Syncs `document.title` to `DPay | <page>` on route change (HashRouter pathname). */
 export function DocumentTitle() {
   const { pathname } = useLocation()
 

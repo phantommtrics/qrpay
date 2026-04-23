@@ -414,7 +414,7 @@ function WalletStripAndEasypayFooter({
         <div className={isLandscape ? 'mt-1.5' : 'mt-2 flex justify-center'}>
           <img
             src={EASYPAY_LOGO_SRC}
-            alt="EasyPay"
+            alt="DPay"
             className={[
               'h-auto object-contain',
               isLandscape

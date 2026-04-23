@@ -634,7 +634,7 @@ export function getPageTitle(pathname: string) {
   return matchedItem?.title ?? 'EASYPAY'
 }
 
-export const DOCUMENT_TITLE_BRAND = 'EasyPay'
+export const DOCUMENT_TITLE_BRAND = 'DPay'
 
 /** Human-readable segment for `<title>` when `getPageTitle` falls back to `EASYPAY`. */
 function browserTabTitleFallback(pathname: string): string {
@@ -672,7 +672,7 @@ function browserTabTitleFallback(pathname: string): string {
   return 'Page'
 }
 
-/** `EasyPay | …` for the browser tab; uses `getPageTitle` and a small fallback map. */
+/** `DPay | …` for the browser tab; uses `getPageTitle` and a small fallback map. */
 export function formatBrowserDocumentTitle(pathname: string): string {
   const page = getPageTitle(pathname)
   const subtitle = page === 'EASYPAY' ? browserTabTitleFallback(pathname) : page

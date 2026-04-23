@@ -12,9 +12,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['app_logo.png'],
       manifest: {
-        name: 'EasyPay',
-        short_name: 'EasyPay',
-        description: 'EasyPay',
+        name: 'DPay',
+        short_name: 'DPay',
+        description: 'DPay',
         theme_color: '#0d1b2a',
         background_color: '#0d1b2a',
         display: 'standalone',

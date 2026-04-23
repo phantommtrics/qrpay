@@ -93,7 +93,7 @@ export function PlatformOperatorMerchantJournalEntriesPage() {
     <PageTransition>
       <FinanceReportChrome
         title="Platform operator journal"
-        description="Manual and reversal journals on the EasyPay platform chart of accounts (operator-posted only). Use Operator journals to post or reverse entries. For all platform GL activity including subscriptions, see Journal entries."
+        description="Manual and reversal journals on the DPay platform chart of accounts (operator-posted only). Use Operator journals to post or reverse entries. For all platform GL activity including subscriptions, see Journal entries."
         toolbar={null}
       >
         <PageCard

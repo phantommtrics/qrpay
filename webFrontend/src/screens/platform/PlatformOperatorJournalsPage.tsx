@@ -155,7 +155,7 @@ export function PlatformOperatorJournalsPage() {
           </Link>
           <h1 className="mt-3 text-2xl font-semibold text-qb-heading">Operator journals</h1>
           <p className="mt-2 text-sm text-qb-muted">
-            Manual journals and reversals on the EasyPay platform chart of accounts. Merchant business postings
+            Manual journals and reversals on the DPay platform chart of accounts. Merchant business postings
             are under{' '}
             <Link
               to={APP_PATHS.platformAccountingMerchantJournalEntries}
@@ -301,7 +301,7 @@ export function PlatformOperatorJournalsPage() {
         <PageCard variant="default" className="rounded-md border-qb-border p-5">
           <h2 className="text-lg font-semibold text-qb-heading">Platform ledger — operator entries</h2>
           <p className="mt-1 text-sm text-qb-muted">
-            Manual journals and reversals on the EasyPay platform chart of accounts (not merchant businesses).
+            Manual journals and reversals on the DPay platform chart of accounts (not merchant businesses).
           </p>
           {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
           {loading ? (

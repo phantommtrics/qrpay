@@ -90,7 +90,7 @@ export function PlatformAccountingPnlPage() {
   const exportPdf = async () => {
     if (!data) return
     await downloadFinancePdf({
-      title: 'EasyPay platform — Profit & loss',
+      title: 'DPay platform — Profit & loss',
       subtitle: periodLabel,
       sections: [
         pnlSectionRows('Total trading income', data.revenue.lines, data.revenue.total),
