@@ -145,6 +145,11 @@ function formatStaffLabel(staffLimit: number) {
   return `Up to ${staffLimit} staff`
 }
 
+/** Public display name: legacy “EasyPay” / “EASYPay” strings from API/DB read as DPay. */
+function displayProductBrandInPlanText(value: string): string {
+  return value.replace(/EasyPay/gi, 'DPay')
+}
+
 export function mapBackendPlanToSubscriptionPlan(plan: BackendPlan): SubscriptionPlan {
   const yearly =
     plan.yearlyPrice !== undefined && plan.yearlyPrice !== ''
@@ -153,13 +158,13 @@ export function mapBackendPlanToSubscriptionPlan(plan: BackendPlan): Subscriptio
   const isCorporate = plan.code === 'CORPORATE'
   return {
     id: toPlanId(plan.code),
-    name: plan.name,
+    name: displayProductBrandInPlanText(plan.name),
     priceLabel: formatPriceLabel(plan.monthlyPrice),
     yearlyPriceLabel: formatYearlyPriceLabel(yearly),
     staffLabel: isCorporate ? 'Unlimited staff' : formatStaffLabel(plan.staffLimit),
     minStaff: 1,
     maxStaff: isCorporate ? null : plan.staffLimit,
-    description: plan.description,
+    description: displayProductBrandInPlanText(plan.description),
     highlighted: plan.code === 'PRO',
   }
 }
