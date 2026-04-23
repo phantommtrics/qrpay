@@ -3,6 +3,7 @@ import { ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ContactSearchCombobox } from '../components/ui/ContactSearchCombobox'
+import { LineNarrationTextarea, QB_LINE_NARRATION_SHELL } from '../components/ui/LineNarrationTextarea'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/SearchableSelect'
@@ -374,13 +375,15 @@ export function AccountingGeneralJournalPage() {
                           className="min-w-[12rem]"
                         />
                       </td>
-                      <td className="p-2 pr-2">
-                        <input
-                          value={l.description}
-                          onChange={(e) => updateLine(l.id, { description: e.target.value })}
-                          className="w-full min-w-[140px] rounded-sm border border-qb-border bg-white px-2 py-1.5 text-xs text-qb-heading placeholder:text-qb-muted/60 focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35"
-                          placeholder="Line description"
-                        />
+                      <td className="max-w-[min(28rem,42vw)] min-w-[10rem] p-2 pr-2 align-top">
+                        <div className={QB_LINE_NARRATION_SHELL}>
+                          <LineNarrationTextarea
+                            value={l.description}
+                            onValueChange={(description) => updateLine(l.id, { description })}
+                            placeholder="Line description"
+                            ariaLabel="Line description"
+                          />
+                        </div>
                       </td>
                       <td className="p-2 pr-2">
                         <input

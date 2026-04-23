@@ -556,7 +556,7 @@ export function BillingPage() {
         const f = intervalPriceField(targetBillingInterval)
         const n = parseMoneyToNumber(p[f])
         if (n == null || n <= 0) {
-          setError('That billing cycle is not priced on your corporate template. Ask EasyPay to set it.')
+          setError('That billing cycle is not priced on your corporate template. Ask DPay to set it.')
           return
         }
       }
@@ -761,6 +761,33 @@ export function BillingPage() {
             </div>
           </div>
 
+          {subscription.status === 'EXPIRED' || subscription.status === 'CANCELLED' ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
+              <p className="font-semibold text-amber-950">Subscription ended</p>
+              <p className="mt-1 text-amber-900/90">
+                {pendingInvoices.length > 0
+                  ? 'Pay the pending invoice below to restore your plan. We also email the business owner a guest pay link when a renewal invoice is issued.'
+                  : 'Hang tight — we are preparing your renewal invoice. Refresh this page in a moment, or check the business owner inbox for an email with a pay link.'}
+              </p>
+            </div>
+          ) : null}
+
+          {subscription.status === 'ACTIVE' &&
+          subscription.currentPeriodEnd &&
+          (() => {
+            const end = new Date(subscription.currentPeriodEnd).getTime()
+            const days = Math.ceil((end - Date.now()) / (1000 * 60 * 60 * 24))
+            return days >= 0 && days <= 7
+          })() ? (
+            <div className="rounded-2xl border border-teal-200 bg-teal-50/80 px-4 py-3 text-sm text-teal-950">
+              <p className="font-semibold text-teal-900">Renewal window</p>
+              <p className="mt-1 text-teal-900/90">
+                Your billing period is ending soon. When a renewal invoice is ready, it appears below
+                and we email the owner — you can pay here without leaving DPay.
+              </p>
+            </div>
+          ) : null}
+
           {isCorporateProgram && corporateBilling ? (
             <div className="rounded-2xl border border-teal-100 bg-teal-50/50 p-4">
               <h3 className="text-sm font-semibold text-teal-950">Corporate billing</h3>
@@ -770,7 +797,7 @@ export function BillingPage() {
                 </p>
               ) : (
                 <p className="mt-1 text-sm text-amber-900">
-                  No billing template is assigned yet. Subscription invoices stay at zero until EasyPay
+                  No billing template is assigned yet. Subscription invoices stay at zero until DPay
                   configures your corporate template.
                 </p>
               )}

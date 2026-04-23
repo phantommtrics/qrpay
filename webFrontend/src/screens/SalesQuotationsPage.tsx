@@ -3,6 +3,7 @@ import { ArrowLeft, ExternalLink, Loader2, Pencil, Plus, Trash2 } from 'lucide-r
 import { Link } from 'react-router-dom'
 
 import { ContactSearchCombobox } from '../components/ui/ContactSearchCombobox'
+import { LineNarrationTextarea, QB_LINE_NARRATION_SHELL } from '../components/ui/LineNarrationTextarea'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/SearchableSelect'
@@ -482,13 +483,15 @@ export function SalesQuotationsPage() {
                   <tbody className="divide-y divide-qb-border">
                     {lines.map((l) => (
                       <tr key={l.id} className="align-top hover:bg-qb-surface/40">
-                        <td className="p-2 pr-2">
-                          <input
-                            value={l.narration}
-                            onChange={(e) => updateLine(l.id, { narration: e.target.value })}
-                            className="w-full min-w-[120px] rounded-sm border border-qb-border bg-white px-2 py-1.5 text-xs text-qb-heading placeholder:text-qb-muted/60 focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35"
-                            placeholder="Description"
-                          />
+                        <td className="max-w-[min(28rem,42vw)] min-w-[10rem] p-2 pr-2 align-top">
+                          <div className={QB_LINE_NARRATION_SHELL}>
+                            <LineNarrationTextarea
+                              value={l.narration}
+                              onValueChange={(narration) => updateLine(l.id, { narration })}
+                              placeholder="Description"
+                              ariaLabel="Line narration"
+                            />
+                          </div>
                         </td>
                         <td className="p-2 pr-2">
                           <input

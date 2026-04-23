@@ -21,6 +21,10 @@ import {
   dueInDays,
 } from "../utils/billing.js";
 import { queueSubscriptionInvoiceOwnerEmail } from "./subscription-invoice-email.service.js";
+import {
+  ensureSubscriptionRenewalInvoiceForSubscription,
+  listBusinessIdsForSubscriptionRenewalSweep,
+} from "./subscription-renewal-invoice.service.js";
 import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
 import { newGuestToken } from "../lib/guest-token.js";
 import { resolveSubscriptionInvoiceAmount } from "./corporate-billing.service.js";
@@ -225,14 +229,64 @@ export async function getBusinessSubscription(businessId: string) {
     throw new HttpError(404, "Business not found.");
   }
 
-  const currentSubscription = business.subscriptions[0]
+  let currentSubscription = business.subscriptions[0]
     ? await expireTrialIfNeeded(business.subscriptions[0])
     : null;
+
+  if (currentSubscription) {
+    const issued = await ensureSubscriptionRenewalInvoiceForSubscription(currentSubscription);
+    if (issued) {
+      const reloaded = await prisma.subscription.findUnique({
+        where: { id: currentSubscription.id },
+        include: {
+          plan: true,
+          invoices: {
+            orderBy: { createdAt: "desc" },
+            take: 6,
+          },
+        },
+      });
+      if (reloaded) {
+        currentSubscription = reloaded;
+      }
+    }
+  }
 
   return {
     business,
     currentSubscription,
   };
+}
+
+/**
+ * Expire trial if needed, then ensure a renewal / reactivation invoice exists when in the reminder window.
+ * Used by the background sweep so owners get emailed even if they never open Billing.
+ */
+export async function runSubscriptionRenewalMaintenanceForBusiness(businessId: string): Promise<void> {
+  const sub = await prisma.subscription.findFirst({
+    where: { businessId },
+    orderBy: { createdAt: "desc" },
+    include: {
+      plan: true,
+      invoices: {
+        orderBy: { createdAt: "desc" },
+        take: 12,
+      },
+    },
+  });
+  if (!sub) {
+    return;
+  }
+  const afterTrial = await expireTrialIfNeeded(sub);
+  await ensureSubscriptionRenewalInvoiceForSubscription(afterTrial);
+}
+
+export async function runSubscriptionRenewalInvoiceSweepOnce(): Promise<{ scanned: number }> {
+  const ids = await listBusinessIdsForSubscriptionRenewalSweep(400);
+  for (const id of ids) {
+    await runSubscriptionRenewalMaintenanceForBusiness(id);
+  }
+  return { scanned: ids.length };
 }
 
 export async function createSubscriptionForBusinessTx(
@@ -261,13 +315,21 @@ export async function createSubscriptionForBusinessTx(
   const blockingSubscription = await tx.subscription.findFirst({
     where: {
       businessId: input.businessId,
-      status: {
-        in: [
-          SubscriptionStatus.ACTIVE,
-          SubscriptionStatus.TRIALING,
-          SubscriptionStatus.PAST_DUE,
-        ],
-      },
+      OR: [
+        {
+          status: {
+            in: [
+              SubscriptionStatus.ACTIVE,
+              SubscriptionStatus.TRIALING,
+              SubscriptionStatus.PAST_DUE,
+            ],
+          },
+        },
+        {
+          status: { in: [SubscriptionStatus.EXPIRED, SubscriptionStatus.CANCELLED] },
+          invoices: { some: { status: InvoiceStatus.PENDING } },
+        },
+      ],
     },
     orderBy: { createdAt: "desc" },
   });
@@ -275,7 +337,7 @@ export async function createSubscriptionForBusinessTx(
   if (blockingSubscription) {
     throw new HttpError(
       409,
-      "Business already has an active or past-due subscription. Pay open invoices or cancel before starting a new one.",
+      "Business already has a subscription in progress. Pay open invoices or cancel before starting a new one.",
     );
   }
 
@@ -345,13 +407,21 @@ export async function createInternalPartnerForeverBasicSubscriptionForBusinessTx
   const blockingSubscription = await tx.subscription.findFirst({
     where: {
       businessId: input.businessId,
-      status: {
-        in: [
-          SubscriptionStatus.ACTIVE,
-          SubscriptionStatus.TRIALING,
-          SubscriptionStatus.PAST_DUE,
-        ],
-      },
+      OR: [
+        {
+          status: {
+            in: [
+              SubscriptionStatus.ACTIVE,
+              SubscriptionStatus.TRIALING,
+              SubscriptionStatus.PAST_DUE,
+            ],
+          },
+        },
+        {
+          status: { in: [SubscriptionStatus.EXPIRED, SubscriptionStatus.CANCELLED] },
+          invoices: { some: { status: InvoiceStatus.PENDING } },
+        },
+      ],
     },
     orderBy: { createdAt: "desc" },
   });
@@ -359,7 +429,7 @@ export async function createInternalPartnerForeverBasicSubscriptionForBusinessTx
   if (blockingSubscription) {
     throw new HttpError(
       409,
-      "Business already has an active or trialing subscription. Use a fresh business or cancel the existing subscription first.",
+      "Business already has a subscription in progress. Use a fresh business or resolve billing first.",
     );
   }
 
@@ -610,7 +680,12 @@ export async function renewSubscription(subscriptionId: string) {
 
 async function applySubscriptionActivationAfterInvoicePayment(
   tx: Prisma.TransactionClient,
-  subscription: { id: string; status: SubscriptionStatus; billingInterval: BillingInterval },
+  subscription: {
+    id: string;
+    status: SubscriptionStatus;
+    billingInterval: BillingInterval;
+    currentPeriodEnd: Date | null;
+  },
   paidInvoice: { billingPeriodStart: Date; billingPeriodEnd: Date },
 ): Promise<void> {
   if (
@@ -629,6 +704,27 @@ async function applySubscriptionActivationAfterInvoicePayment(
         endedAt: null,
       },
     });
+    return;
+  }
+
+  if (
+    subscription.status === SubscriptionStatus.ACTIVE &&
+    subscription.billingInterval !== BillingInterval.CONTRACT_INFINITE &&
+    subscription.currentPeriodEnd
+  ) {
+    const cep = subscription.currentPeriodEnd.getTime();
+    const bps = paidInvoice.billingPeriodStart.getTime();
+    /** Next-period renewal invoices start at the current period end; plan-change invoices start at period start. */
+    if (Math.abs(cep - bps) <= 3_600_000) {
+      await tx.subscription.update({
+        where: { id: subscription.id },
+        data: {
+          currentPeriodStart: paidInvoice.billingPeriodStart,
+          currentPeriodEnd: paidInvoice.billingPeriodEnd,
+          endedAt: null,
+        },
+      });
+    }
   }
 }
 
