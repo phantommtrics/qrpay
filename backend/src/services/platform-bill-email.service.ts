@@ -13,7 +13,7 @@ import { guestPlatformBillUrl } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
 import { buildPlatformBillPdfBuffer, loadPlatformBillForPdf } from "./platform-bill-document-pdf.service.js";
 
-const PLATFORM_NAME = "EasyPay";
+const PLATFORM_NAME = "DPay";
 
 function firstName(fullName: string) {
   const t = fullName.trim();

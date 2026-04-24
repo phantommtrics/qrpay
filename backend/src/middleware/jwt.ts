@@ -164,10 +164,10 @@ export async function optionalAuthenticateToken(
   }
 }
 
-// Middleware for EasyPay (platform owner) only
+// Middleware for DPay / platform owner only
 export function requirePlatformOwner(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   if (!req.user?.isPlatformOwner) {
-    throw new HttpError(403, 'EasyPay access required');
+    throw new HttpError(403, 'DPay access required');
   }
   next();
 }

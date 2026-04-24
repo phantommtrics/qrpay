@@ -22,7 +22,7 @@ type NewStaffInviteInput = StaffInviteContext & {
   temporaryPassword: string;
 };
 
-const PLATFORM_NAME = "EasyPay";
+const PLATFORM_NAME = "DPay";
 
 type StaffInviteEmailContent = {
   subject: string;

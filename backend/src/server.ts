@@ -13,7 +13,7 @@ ensurePlatformModulesSeeded()
   .then(() => {
     app.listen(env.PORT, "0.0.0.0", () => {
       console.log(
-        `EASYPAY backend listening on http://localhost:${env.PORT} (all interfaces — use your PC LAN IP from other devices)`,
+        `DPay backend listening on http://localhost:${env.PORT} (all interfaces — use your PC LAN IP from other devices)`,
       );
       startPartnerOutboundWebhookWorker();
       const sweepMs = Math.max(

@@ -3,7 +3,7 @@ import { Resend } from "resend";
 import { env } from "../config/env.js";
 import { easypayEmailLogoHtml } from "../lib/easypay-logo.js";
 
-const PLATFORM_NAME = "EasyPay";
+const PLATFORM_NAME = "DPay";
 
 function parseRecipientList(raw: string | undefined): string[] {
   if (!raw?.trim()) {

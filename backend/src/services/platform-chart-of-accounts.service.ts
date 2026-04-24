@@ -35,7 +35,7 @@ const DEFAULT_PLATFORM_ACCOUNTS: Array<{
     code: PLATFORM_CHART_SUBSCRIPTION_CLEARING,
     name: "Subscription collections clearing",
     description:
-      "Debit when a merchant pays an EasyPay subscription invoice (cash in transit to platform bank). Pair with subscription revenue.",
+      "Debit when a merchant pays a DPay subscription invoice (cash in transit to platform bank). Pair with subscription revenue.",
     category: ChartAccountCategory.ASSET,
     isSystem: true,
   },
@@ -95,7 +95,7 @@ const DEFAULT_PLATFORM_ACCOUNTS: Array<{
   {
     code: PLATFORM_CHART_DOMAIN,
     name: "Domain & DNS",
-    description: "Domain registration, SSL, and DNS services for EasyPay.",
+    description: "Domain registration, SSL, and DNS services for DPay.",
     category: ChartAccountCategory.EXPENSE,
     isSystem: true,
   },

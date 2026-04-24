@@ -12,7 +12,7 @@ import { guestInvoiceUrl } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
 import { buildSalesInvoicePdfBuffer, loadSalesInvoiceForPdfById } from "./sales-document-pdf.service.js";
 
-const PLATFORM_NAME = "EasyPay";
+const PLATFORM_NAME = "DPay";
 
 export type SalesInvoiceEmailContent = {
   subject: string;

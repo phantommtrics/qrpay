@@ -11,7 +11,7 @@ import { easypayEmailLogoHtml } from "../lib/easypay-logo.js";
 import { prisma } from "../lib/prisma.js";
 import { generateSubscriptionInvoicePdf } from "./subscription-invoice-pdf.service.js";
 
-const PLATFORM_NAME = "EasyPay";
+const PLATFORM_NAME = "DPay";
 
 function firstName(fullName: string) {
   const t = fullName.trim();

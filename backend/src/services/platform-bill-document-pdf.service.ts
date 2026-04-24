@@ -19,7 +19,7 @@ const COL = {
   slate50: "#f8fafc",
 };
 
-const PLATFORM_PAYER_NAME = "EasyPay";
+const PLATFORM_PAYER_NAME = "DPay";
 
 function money(n: number): string {
   return n.toFixed(2);
@@ -190,7 +190,7 @@ export function buildPlatformBillPdfBuffer(row: PlatformBillPdfRow): Promise<Buf
 
     doc.font("Helvetica").fontSize(7).fillColor(COL.slate400);
     doc.text(
-      "This purchase bill records amounts owed by EasyPay to the supplier. Please retain a copy for your files.",
+      "This purchase bill records amounts owed by DPay to the supplier. Please retain a copy for your files.",
       margin,
       y,
       { width: contentW, align: "center" },

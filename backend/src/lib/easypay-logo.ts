@@ -25,7 +25,7 @@ export function resolveEasypayLogoFilePath(): string {
     }
   }
   throw new Error(
-    "EasyPay logo not found. Add backend/assets/easypay_logo_file.jpeg or webFrontend/public/easypay_logo_file.jpeg.",
+    "Product logo not found. Add backend/assets/easypay_logo_file.jpeg or webFrontend/public/easypay_logo_file.jpeg.",
   );
 }
 
@@ -53,7 +53,7 @@ function escapeHtmlAttr(s: string): string {
 export function easypayEmailLogoHtml(): string {
   const src = escapeHtmlAttr(easypayLogoUrlForEmail());
   return `<div style="margin:0 0 20px;padding-bottom:16px;border-bottom:1px solid #e2e8f0;">
-  <img src="${src}" alt="EasyPay" width="220" style="max-width:min(92%,240px);height:auto;display:block;border:0;outline:none;text-decoration:none;" />
+  <img src="${src}" alt="DPay" width="220" style="max-width:min(92%,240px);height:auto;display:block;border:0;outline:none;text-decoration:none;" />
 </div>`;
 }
 
@@ -61,7 +61,7 @@ const PDF_LOGO_MAX_W = 190;
 const PDF_LOGO_MAX_H = 52;
 
 /**
- * Draws the EasyPay logo at the top-left. Returns the Y coordinate to continue below the logo
+ * Draws the product logo at the top-left. Returns the Y coordinate to continue below the logo
  * (or startY if the file is missing).
  */
 export function drawEasypayLogoPdfHeader(doc: PdfDoc, margin: number, startY: number): number {

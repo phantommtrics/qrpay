@@ -631,12 +631,12 @@ export function getPageTitle(pathname: string) {
   const matchedItem = [...MAIN_NAV_ITEMS].sort((a, b) => b.path.length - a.path.length).find(
     (item) => pathname === item.path || pathname.startsWith(`${item.path}/`),
   )
-  return matchedItem?.title ?? 'EASYPAY'
+  return matchedItem?.title ?? 'DPay'
 }
 
 export const DOCUMENT_TITLE_BRAND = 'DPay'
 
-/** Human-readable segment for `<title>` when `getPageTitle` falls back to `EASYPAY`. */
+/** Human-readable segment for `<title>` when `getPageTitle` falls back to `DPay`. */
 function browserTabTitleFallback(pathname: string): string {
   if (pathname === '/') {
     return 'Home'
@@ -675,7 +675,7 @@ function browserTabTitleFallback(pathname: string): string {
 /** `DPay | …` for the browser tab; uses `getPageTitle` and a small fallback map. */
 export function formatBrowserDocumentTitle(pathname: string): string {
   const page = getPageTitle(pathname)
-  const subtitle = page === 'EASYPAY' ? browserTabTitleFallback(pathname) : page
+  const subtitle = page === 'DPay' ? browserTabTitleFallback(pathname) : page
   return `${DOCUMENT_TITLE_BRAND} | ${subtitle}`
 }
 

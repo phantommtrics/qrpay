@@ -11,7 +11,7 @@ import { guestQuotationUrl } from "../lib/public-guest-urls.js";
 import { prisma } from "../lib/prisma.js";
 import { buildSalesQuotationPdfBuffer, loadSalesQuotationForPdf } from "./sales-document-pdf.service.js";
 
-const PLATFORM_NAME = "EasyPay";
+const PLATFORM_NAME = "DPay";
 
 function firstName(fullName: string) {
   const t = fullName.trim();

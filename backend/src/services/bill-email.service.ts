@@ -11,7 +11,7 @@ import { easypayEmailLogoHtml } from "../lib/easypay-logo.js";
 import { prisma } from "../lib/prisma.js";
 import { buildBillPdfBuffer, loadBillForPdfById } from "./bill-document-pdf.service.js";
 
-const PLATFORM_NAME = "EasyPay";
+const PLATFORM_NAME = "DPay";
 
 export type BillEmailContent = {
   subject: string;
