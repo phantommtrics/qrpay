@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { Request } from "express";
 import { ActivityActorKind, Prisma, SalesInvoiceStatus } from "@prisma/client";
 
@@ -1686,9 +1686,11 @@ export function isSimulatorPublicPayEnabled(): boolean {
 }
 
 export function verifySimulatorWebhookSecret(headerValue: string | undefined): boolean {
-  const secret = process.env.SIMULATOR_WEBHOOK_SECRET;
-  if (!secret || secret.length === 0) {
-    return true;
+  const secret = process.env.SIMULATOR_WEBHOOK_SECRET?.trim();
+  if (!secret || !headerValue) {
+    return false;
   }
-  return headerValue === secret;
+  const expected = Buffer.from(secret);
+  const received = Buffer.from(headerValue.trim());
+  return expected.length === received.length && timingSafeEqual(expected, received);
 }

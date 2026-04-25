@@ -20,7 +20,7 @@ import {
 import multer from "multer";
 import { z } from "zod";
 import { prisma } from "./lib/prisma.js";
-import { allowPublicRestaurantOrder } from "./lib/public-rate-limit.js";
+import { allowPublicRestaurantOrder, allowRateLimitedAction } from "./lib/public-rate-limit.js";
 import { isDevSubscriptionInvoicePayAllowed } from "./config/dev-billing.js";
 import {
   changePassword,
@@ -540,6 +540,10 @@ app.post(
         response.status(400).json({ error: message });
         return;
       }
+      if (message === "YONNA_FOREX_WEBHOOK_SECRET not configured") {
+        response.status(500).json({ error: message });
+        return;
+      }
       console.error("Yonna Forex webhook:", error);
       next(error);
     }
@@ -549,6 +553,102 @@ app.post(
 app.use(express.json());
 app.use(httpRequestLogger);
 app.use("/uploads", express.static(uploadsRoot));
+
+function getRequestClientKey(request: express.Request): string {
+  return request.ip || request.socket.remoteAddress || "unknown";
+}
+
+function rateLimitPublicAction(
+  scope: string,
+  options: { windowMs: number; maxRequests: number; message: string },
+  keyForRequest?: (request: express.Request) => string,
+) {
+  return (request: express.Request, _response: express.Response, next: express.NextFunction) => {
+    const clientKey = keyForRequest?.(request) ?? getRequestClientKey(request);
+    if (!allowRateLimitedAction(scope, clientKey, options)) {
+      next(new HttpError(429, options.message));
+      return;
+    }
+    next();
+  };
+}
+
+function publicParamKey(paramName: string) {
+  return (request: express.Request) =>
+    `${getRequestClientKey(request)}:${String(request.params[paramName] ?? "")}`;
+}
+
+function authEmailKey(request: express.Request): string {
+  const body = request.body as { email?: unknown } | undefined;
+  const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+  return `${getRequestClientKey(request)}:${email}`;
+}
+
+const authWriteLimiter = rateLimitPublicAction(
+  "auth-write",
+  {
+    windowMs: 15 * 60_000,
+    maxRequests: 20,
+    message: "Too many authentication attempts. Try again later.",
+  },
+  authEmailKey,
+);
+
+const authRegisterLimiter = rateLimitPublicAction("auth-register", {
+  windowMs: 15 * 60_000,
+  maxRequests: 8,
+  message: "Too many registration attempts. Try again later.",
+});
+
+const publicPayReadLimiter = rateLimitPublicAction(
+  "public-pay-read",
+  {
+    windowMs: 60_000,
+    maxRequests: 60,
+    message: "Too many payment lookups. Try again in a minute.",
+  },
+  publicParamKey("publicToken"),
+);
+
+const guestReadLimiter = rateLimitPublicAction(
+  "guest-read",
+  {
+    windowMs: 60_000,
+    maxRequests: 60,
+    message: "Too many guest portal requests. Try again in a minute.",
+  },
+  publicParamKey("guestToken"),
+);
+
+const guestPdfLimiter = rateLimitPublicAction(
+  "guest-pdf",
+  {
+    windowMs: 60_000,
+    maxRequests: 12,
+    message: "Too many PDF requests. Try again in a minute.",
+  },
+  publicParamKey("guestToken"),
+);
+
+const guestPaymentLimiter = rateLimitPublicAction(
+  "guest-payment",
+  {
+    windowMs: 5 * 60_000,
+    maxRequests: 20,
+    message: "Too many payment attempts. Try again later.",
+  },
+  publicParamKey("guestToken"),
+);
+
+const publicPaySimulationLimiter = rateLimitPublicAction(
+  "public-pay-simulate",
+  {
+    windowMs: 5 * 60_000,
+    maxRequests: 10,
+    message: "Too many payment simulation attempts. Try again later.",
+  },
+  publicParamKey("publicToken"),
+);
 
 const createBusinessSchema = z.object({
   name: z.string().min(2),
@@ -5401,7 +5501,7 @@ async function accessibleBusinessesWithEntitlements(
   );
 }
 
-app.post("/api/auth/register", optionalAuthenticateToken, async (request, response, next) => {
+app.post("/api/auth/register", authRegisterLimiter, optionalAuthenticateToken, async (request, response, next) => {
   try {
     const payload = registerSchema.parse(request.body);
     const result = await registerBusinessOwner({
@@ -5437,7 +5537,7 @@ app.post("/api/auth/register", optionalAuthenticateToken, async (request, respon
   }
 });
 
-app.post("/api/auth/login", async (request, response, next) => {
+app.post("/api/auth/login", authWriteLimiter, async (request, response, next) => {
   try {
     const payload = loginSchema.parse(request.body);
     const result = await loginUser(payload);
@@ -5464,7 +5564,7 @@ app.post("/api/auth/login", async (request, response, next) => {
   }
 });
 
-app.post("/api/auth/change-password", async (request, response, next) => {
+app.post("/api/auth/change-password", authWriteLimiter, async (request, response, next) => {
   try {
     const payload = changePasswordSchema.parse(request.body);
     const user = await changePassword(payload);
@@ -5479,7 +5579,7 @@ app.post("/api/auth/change-password", async (request, response, next) => {
   }
 });
 
-app.post("/api/auth/forgot-password", async (request, response, next) => {
+app.post("/api/auth/forgot-password", authWriteLimiter, async (request, response, next) => {
   try {
     const payload = forgotPasswordSchema.parse(request.body);
     const result = await forgotPassword(payload);
@@ -5937,7 +6037,7 @@ app.post("/api/subscriptions/:subscriptionId/renew", async (request, response, n
   }
 });
 
-app.get("/api/public/pay/:publicToken", async (request, response, next) => {
+app.get("/api/public/pay/:publicToken", publicPayReadLimiter, async (request, response, next) => {
   try {
     const info = await getPublicPayInfo(request.params.publicToken as string);
     if (info.kind === "sales_invoice") {
@@ -5971,7 +6071,7 @@ app.get("/api/public/pay/:publicToken", async (request, response, next) => {
   }
 });
 
-app.get("/api/public/guest/quotation/:guestToken", async (request, response, next) => {
+app.get("/api/public/guest/quotation/:guestToken", guestReadLimiter, async (request, response, next) => {
   try {
     const data = await getGuestQuotationByToken(request.params.guestToken as string);
     response.json({ data });
@@ -5980,7 +6080,10 @@ app.get("/api/public/guest/quotation/:guestToken", async (request, response, nex
   }
 });
 
-app.post("/api/public/guest/quotation/:guestToken/respond", async (request, response, next) => {
+app.post(
+  "/api/public/guest/quotation/:guestToken/respond",
+  guestPaymentLimiter,
+  async (request, response, next) => {
   try {
     const body = guestQuotationRespondBodySchema.parse(request.body ?? {});
     const data = await guestRespondQuotation(request.params.guestToken as string, body.action);
@@ -5988,9 +6091,10 @@ app.post("/api/public/guest/quotation/:guestToken/respond", async (request, resp
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-app.get("/api/public/guest/invoice/:guestToken", async (request, response, next) => {
+app.get("/api/public/guest/invoice/:guestToken", guestReadLimiter, async (request, response, next) => {
   try {
     const data = await getGuestInvoiceByToken(request.params.guestToken as string);
     response.json({ data });
@@ -5999,16 +6103,23 @@ app.get("/api/public/guest/invoice/:guestToken", async (request, response, next)
   }
 });
 
-app.get("/api/public/guest/invoice/:guestToken/wallets", async (request, response, next) => {
+app.get(
+  "/api/public/guest/invoice/:guestToken/wallets",
+  guestReadLimiter,
+  async (request, response, next) => {
   try {
     const wallets = await listGuestInvoiceWallets(request.params.guestToken as string);
     response.json({ data: { wallets } });
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-app.post("/api/public/guest/invoice/:guestToken/payments/wallet", async (request, response, next) => {
+app.post(
+  "/api/public/guest/invoice/:guestToken/payments/wallet",
+  guestPaymentLimiter,
+  async (request, response, next) => {
   try {
     const body = orderWalletPaymentBodySchema.parse(request.body ?? {});
     const gatewayCode = body.gatewayCode?.trim();
@@ -6038,10 +6149,12 @@ app.post("/api/public/guest/invoice/:guestToken/payments/wallet", async (request
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
 app.post(
   "/api/public/guest/invoice/:guestToken/payments/aps-wallet/authorize",
+  guestPaymentLimiter,
   async (request, response, next) => {
     try {
       const body = apsWalletAuthorizeBodySchema.parse(request.body ?? {});
@@ -6060,6 +6173,7 @@ app.post(
 
 app.post(
   "/api/public/guest/invoice/:guestToken/payments/aps-wallet/complete",
+  guestPaymentLimiter,
   async (request, response, next) => {
     try {
       const body = apsWalletCompleteBodySchema.parse(request.body ?? {});
@@ -6077,7 +6191,7 @@ app.post(
   },
 );
 
-app.get("/api/public/guest/platform-bill/:guestToken", async (request, response, next) => {
+app.get("/api/public/guest/platform-bill/:guestToken", guestReadLimiter, async (request, response, next) => {
   try {
     const data = await getGuestPlatformBillPayload(request.params.guestToken as string);
     response.json({ data });
@@ -6086,7 +6200,10 @@ app.get("/api/public/guest/platform-bill/:guestToken", async (request, response,
   }
 });
 
-app.get("/api/public/guest/platform-bill/:guestToken/pdf", async (request, response, next) => {
+app.get(
+  "/api/public/guest/platform-bill/:guestToken/pdf",
+  guestPdfLimiter,
+  async (request, response, next) => {
   try {
     const { buffer, filename } = await renderGuestPlatformBillPdf(request.params.guestToken as string);
     response.setHeader("Content-Type", "application/pdf");
@@ -6095,18 +6212,26 @@ app.get("/api/public/guest/platform-bill/:guestToken/pdf", async (request, respo
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-app.get("/api/public/guest/subscription-invoice/:guestToken", async (request, response, next) => {
+app.get(
+  "/api/public/guest/subscription-invoice/:guestToken",
+  guestReadLimiter,
+  async (request, response, next) => {
   try {
     const data = await getGuestSubscriptionInvoiceByToken(request.params.guestToken as string);
     response.json({ data });
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-app.get("/api/public/guest/subscription-invoice/:guestToken/pdf", async (request, response, next) => {
+app.get(
+  "/api/public/guest/subscription-invoice/:guestToken/pdf",
+  guestPdfLimiter,
+  async (request, response, next) => {
   try {
     const { buffer, filename } = await renderGuestSubscriptionInvoicePdf(
       request.params.guestToken as string,
@@ -6117,10 +6242,12 @@ app.get("/api/public/guest/subscription-invoice/:guestToken/pdf", async (request
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
 app.get(
   "/api/public/guest/subscription-invoice/:guestToken/wallets",
+  guestReadLimiter,
   async (request, response, next) => {
     try {
       const wallets = await listGuestSubscriptionInvoiceWallets(request.params.guestToken as string);
@@ -6133,6 +6260,7 @@ app.get(
 
 app.post(
   "/api/public/guest/subscription-invoice/:guestToken/payments/wallet",
+  guestPaymentLimiter,
   async (request, response, next) => {
     try {
       const body = orderWalletPaymentBodySchema.parse(request.body ?? {});
@@ -6165,6 +6293,7 @@ app.post(
 
 app.post(
   "/api/public/guest/subscription-invoice/:guestToken/payments/aps-wallet/authorize",
+  guestPaymentLimiter,
   async (request, response, next) => {
     try {
       const body = apsWalletAuthorizeBodySchema.parse(request.body ?? {});
@@ -6183,6 +6312,7 @@ app.post(
 
 app.post(
   "/api/public/guest/subscription-invoice/:guestToken/payments/aps-wallet/complete",
+  guestPaymentLimiter,
   async (request, response, next) => {
     try {
       const body = apsWalletCompleteBodySchema.parse(request.body ?? {});
@@ -6200,7 +6330,10 @@ app.post(
   },
 );
 
-app.post("/api/public/pay/:publicToken/simulate", async (request, response, next) => {
+app.post(
+  "/api/public/pay/:publicToken/simulate",
+  publicPaySimulationLimiter,
+  async (request, response, next) => {
   try {
     if (!isSimulatorPublicPayEnabled()) {
       throw new HttpError(403, "Public pay simulation is disabled.");
@@ -6213,7 +6346,8 @@ app.post("/api/public/pay/:publicToken/simulate", async (request, response, next
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
 app.post("/api/webhooks/payments/simulator", async (request, response, next) => {
   try {

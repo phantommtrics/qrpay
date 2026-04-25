@@ -65,7 +65,10 @@ function verifyWebhookSignature(payload: YonnaForexWebhookPayload, signatureHead
     .createHmac("sha256", secret)
     .update(JSON.stringify(payload))
     .digest("hex");
-  return signatureHeader === `sha256=${expectedSignature}`;
+  const receivedSignature = signatureHeader.trim().replace(/^sha256=/i, "");
+  const expected = Buffer.from(expectedSignature, "hex");
+  const received = Buffer.from(receivedSignature, "hex");
+  return expected.length === received.length && crypto.timingSafeEqual(expected, received);
 }
 
 /**
@@ -79,11 +82,12 @@ export async function processYonnaSubscriptionWebhook(
   const secret = process.env.YONNA_FOREX_WEBHOOK_SECRET?.trim();
   const payload = unwrapPayload(body);
 
-  if (secret) {
-    const ok = verifyWebhookSignature(payload, signatureHeader);
-    if (!ok) {
-      throw new Error("Invalid Yonna webhook signature");
-    }
+  if (!secret) {
+    throw new Error("YONNA_FOREX_WEBHOOK_SECRET not configured");
+  }
+  const ok = verifyWebhookSignature(payload, signatureHeader);
+  if (!ok) {
+    throw new Error("Invalid Yonna webhook signature");
   }
 
   const appTransactionId = payload.appTransactionId?.trim();
