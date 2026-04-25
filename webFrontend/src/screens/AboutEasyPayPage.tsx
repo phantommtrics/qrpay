@@ -5,7 +5,6 @@ import {
   Building2,
   FileText,
   Link2,
-  QrCode,
   Shield,
   Store,
   UtensilsCrossed,
@@ -112,6 +111,15 @@ export function AboutEasyPayPage() {
       </section>
 
       <article className="mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
+        <div className="mb-10 flex justify-center">
+          <img
+            src="/easypay_logo_file.png"
+            alt="DirectPay"
+            className="h-auto w-full max-w-xs object-contain sm:max-w-sm"
+            width={360}
+            height={360}
+          />
+        </div>
         <div className="prose prose-slate max-w-none prose-headings:font-bold prose-p:text-slate-600 prose-li:text-slate-600">
           <h2 className="text-2xl text-slate-900">What DirectPay is</h2>
           <p>
@@ -196,7 +204,13 @@ export function AboutEasyPayPage() {
 
           <div className="not-prose mt-10 flex flex-col items-start gap-4 rounded-2xl border border-teal-200 bg-teal-50/60 p-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
-              <QrCode className="mt-0.5 h-8 w-8 shrink-0 text-teal-700" aria-hidden />
+              <img
+                src="/easypay_logo_file.png"
+                alt="DirectPay"
+                className="h-12 w-12 shrink-0 object-contain"
+                width={48}
+                height={48}
+              />
               <div>
                 <p className="font-semibold text-slate-900">Ready to onboard?</p>
                 <p className="mt-1 text-sm text-slate-600">
