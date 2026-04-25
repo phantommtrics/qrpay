@@ -17,7 +17,7 @@ import { useAuth } from '../features/auth/AuthContext'
 export function LandingPage() {
   const { plans, planPermissions, permissionDefinitions, user } = useAuth()
 
-  /** Omit DPay admin-only (platform) permissions from the public plan preview table. */
+  /** Omit DirectPay admin-only (platform) permissions from the public plan preview table. */
   const businessPermissionRows = useMemo(
     () => permissionDefinitions.filter((p) => !p.key.startsWith('platform.')),
     [permissionDefinitions],
@@ -55,7 +55,7 @@ export function LandingPage() {
                 <div className="relative rounded-2xl bg-gradient-to-br from-white/15 to-white/5 p-[3px] shadow-[0_4px_24px_rgba(45,212,191,0.35)] ring-1 ring-teal-400/60 ring-offset-2 ring-offset-slate-950">
                   <img
                     src="/app_logo.png"
-                    alt="DPay"
+                    alt="DirectPay"
                     className="h-12 w-12 rounded-[13px] object-cover shadow-inner sm:h-14 sm:w-14 sm:rounded-[15px]"
                     width={56}
                     height={56}
@@ -63,18 +63,8 @@ export function LandingPage() {
                 </div>
               </div>
               <div className="min-w-0">
-                <p className="text-lg font-bold">DPay</p>
-                <p className="flex items-center gap-x-1.5 text-xs text-slate-400">
-                  <span>Scan</span>
-                  <span className="inline-flex h-[1lh] select-none items-center justify-center leading-none">
-                    .
-                  </span>
-                  <span>pay</span>
-                  <span className="inline-flex h-[1lh] select-none items-center justify-center leading-none">
-                    .
-                  </span>
-                  <span>go</span>
-                </p>
+                <p className="text-lg font-bold">DirectPay</p>
+                <p className="text-xs text-slate-400">Payments made simple</p>
               </div>
             </div>
             <div className="hidden w-full shrink-0 flex-wrap items-center gap-2 sm:flex sm:w-auto sm:justify-end sm:gap-3">
@@ -97,7 +87,7 @@ export function LandingPage() {
             <div>
               <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
                 <h1 className="max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl lg:text-6xl">
-                  Launch your DPay storefront, team, and subscription access in one place.
+                  Launch your DirectPay storefront, team, and subscription access in one place.
                 </h1>
                 <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
                   Showcase your business online, create an organization, choose a plan, and let
@@ -137,12 +127,12 @@ export function LandingPage() {
                   {
                     icon: ShieldCheck,
                     title: 'Platform controls',
-                    text: 'DPay can assign module permissions per plan with check marks.',
+                    text: 'DirectPay can assign module permissions per plan with check marks.',
                   },
                   {
                     icon: BookOpen,
                     title: 'Books & journals',
-                    text: 'Accounts, journal, and ledgers in DPay—linked to sales and payments.',
+                    text: 'Accounts, journal, and ledgers in DirectPay—linked to sales and payments.',
                   },
                 ].map((item) => (
                   <div key={item.title} className="rounded-2xl border border-white/10 bg-slate-900/55 p-4">
@@ -166,7 +156,7 @@ export function LandingPage() {
             Choose the plan that fits your team
           </h2>
           <p className="mt-3 text-slate-600 leading-relaxed">
-            Each plan can be configured by DPay, while businesses use the plan that
+            Each plan can be configured by DirectPay, while businesses use the plan that
             matches their current staff size.
           </p>
         </div>
@@ -233,8 +223,8 @@ export function LandingPage() {
                 Permission-based plans your business can grow into
               </h2>
               <p className="mt-3 text-slate-600 leading-relaxed">
-                Customers can see exactly how DPay scales from startup teams to enterprise
-                operations. DPay assigns these permissions per subscription plan.
+                Customers can see exactly how DirectPay scales from startup teams to enterprise
+                operations. DirectPay assigns these permissions per subscription plan.
               </p>
             </div>
 
