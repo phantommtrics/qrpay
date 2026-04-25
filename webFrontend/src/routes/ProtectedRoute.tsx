@@ -11,6 +11,7 @@ export function ProtectedRoute({
   children,
   requiredPermission,
   requiredAnyOfPermissions,
+  requiredAllPermissions,
   allowedRoles,
   requireBusinessOwner,
 }: {
@@ -19,6 +20,8 @@ export function ProtectedRoute({
   requiredPermission?: PermissionKey
   /** User passes if they satisfy any of these (e.g. move users OR legacy system users view). */
   requiredAnyOfPermissions?: PermissionKey[]
+  /** User passes only if they satisfy every listed permission. */
+  requiredAllPermissions?: PermissionKey[]
   allowedRoles: UserRole[]
   /** When true, only the selected organization’s business owner may open this route. */
   requireBusinessOwner?: boolean
@@ -79,7 +82,9 @@ export function ProtectedRoute({
   }
 
   const permissionOk =
-    requiredAnyOfPermissions && requiredAnyOfPermissions.length > 0
+    requiredAllPermissions && requiredAllPermissions.length > 0
+      ? requiredAllPermissions.every((p) => canAccess(p))
+      : requiredAnyOfPermissions && requiredAnyOfPermissions.length > 0
       ? requiredAnyOfPermissions.some((p) => canAccess(p))
       : requiredPermission
         ? canAccess(requiredPermission)

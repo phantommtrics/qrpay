@@ -63,6 +63,7 @@ export type PermissionKey =
   | 'products.manage'
   | 'products.view'
   | 'products.categories'
+  | 'products.barcode'
   | 'products.create'
   | 'products.edit'
   | 'products.delete'

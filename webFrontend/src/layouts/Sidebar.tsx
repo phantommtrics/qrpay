@@ -8,6 +8,7 @@ import {
   Cog,
   Fuel,
   LayoutGrid,
+  LibraryBig,
   ListTree,
   LockKeyhole,
   LogOut,
@@ -141,6 +142,8 @@ export function Sidebar({
   const [openServiceIds, setOpenServiceIds] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(DEFAULT_EXPANDED_PLAN_SERVICE_IDS.map((id) => [id, true])),
   )
+  const canReadProducts = canAccess('products.view')
+  const canUseProductBarcode = canReadProducts && canAccess('products.barcode')
 
   const loadPlanMenu = useCallback(async (businessId: string) => {
     setPlanMenuLoading(true)
@@ -824,7 +827,7 @@ export function Sidebar({
               <div className="mt-6 mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Restaurant
               </div>
-              {canAccess('products.view') ? (
+              {canReadProducts ? (
                 <>
                   <NavLink
                     to={APP_PATHS.restaurantTables}
@@ -855,6 +858,22 @@ export function Sidebar({
                     <span className="font-medium">Menu setup</span>
                   </NavLink>
                 </>
+              ) : null}
+              {canUseProductBarcode ? (
+                <NavLink
+                  to={APP_PATHS.restaurantManualMenu}
+                  onClick={() => setIsOpen(false)}
+                  className={({ isActive }) =>
+                    `mb-0.5 flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white ${
+                      isActive
+                        ? 'border-teal-500 bg-teal-500/10 text-teal-400'
+                        : 'border-transparent'
+                    }`
+                  }
+                >
+                  <LibraryBig className="mr-3 h-5 w-5" />
+                  <span className="font-medium">Manual Menu</span>
+                </NavLink>
               ) : null}
               <NavLink
                 to={

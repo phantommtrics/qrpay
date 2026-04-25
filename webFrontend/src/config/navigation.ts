@@ -114,6 +114,8 @@ export const APP_PATHS = {
   restaurantTables: '/restaurant/tables',
   /** Menu category tree for restaurant products. */
   restaurantMenuSetup: '/restaurant/menu',
+  /** Restaurant-only printable menu grid with product barcodes. */
+  restaurantManualMenu: '/restaurant/manual-menu',
   /** Petrol: branches and pumps (one merchant, many sites). */
   petrolStations: '/petrol/stations',
 } as const
@@ -583,6 +585,9 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.startsWith('/b/')) {
     return 'Restaurant menu'
+  }
+  if (pathname.includes(APP_PATHS.restaurantManualMenu)) {
+    return 'Manual Menu'
   }
   if (pathname.startsWith('/restaurant/')) {
     return 'Restaurant'

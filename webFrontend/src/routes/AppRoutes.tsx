@@ -52,6 +52,11 @@ const RestaurantMenuSetupPage = lazy(() =>
     default: module.RestaurantMenuSetupPage,
   })),
 )
+const RestaurantManualMenuPage = lazy(() =>
+  import('../screens/RestaurantManualMenuPage').then((module) => ({
+    default: module.RestaurantManualMenuPage,
+  })),
+)
 const PetrolStationsPage = lazy(() =>
   import('../screens/PetrolStationsPage').then((module) => ({
     default: module.PetrolStationsPage,
@@ -675,6 +680,12 @@ export function AppRoutes() {
       permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.permission,
     },
     {
+      path: APP_PATHS.restaurantManualMenu,
+      element: <RestaurantManualMenuPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.roles,
+      requiredAllPermissions: ['products.view', 'products.barcode'] satisfies PermissionKey[],
+    },
+    {
       path: APP_PATHS.petrolStations,
       element: <PetrolStationsPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.products)!.roles,
@@ -973,6 +984,9 @@ export function AppRoutes() {
                 requiredPermission={'permission' in route ? route.permission : undefined}
                 requiredAnyOfPermissions={
                   'anyOfPermissions' in route ? route.anyOfPermissions : undefined
+                }
+                requiredAllPermissions={
+                  'requiredAllPermissions' in route ? route.requiredAllPermissions : undefined
                 }
                 allowedRoles={route.roles}
                 requireBusinessOwner={
