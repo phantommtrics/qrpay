@@ -17,7 +17,7 @@ export function PlatformOwnerDashboard() {
         <div>
           <h1 className="text-3xl font-bold">Platform Dashboard</h1>
           <p className="text-muted-foreground">
-            Welcome back, {user.name}. Manage your entire DPay platform from here.
+            Welcome back, {user.name}. Manage your entire DirectPay platform from here.
           </p>
         </div>
       </div>

@@ -5,12 +5,12 @@ type Props = {
   className?: string
 }
 
-/** Horizontal DPay logo for headers, print, and PDF export views. */
+/** Horizontal DirectPay logo for headers, print, and PDF export views. */
 export function EasypayLogoMark({ className }: Props) {
   return (
     <img
       src={EASYPAY_LOGO_PUBLIC_PATH}
-      alt="DPay"
+      alt="DirectPay"
       className={className}
       loading="lazy"
       decoding="async"

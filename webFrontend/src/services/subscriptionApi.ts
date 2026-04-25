@@ -145,9 +145,9 @@ function formatStaffLabel(staffLimit: number) {
   return `Up to ${staffLimit} staff`
 }
 
-/** Public display name: legacy product-brand strings from API/DB read as DPay. */
+/** Public display name: legacy product-brand strings from API/DB read as DirectPay. */
 function displayProductBrandInPlanText(value: string): string {
-  return value.replace(/easypay/gi, 'DPay')
+  return value.replace(/easypay/gi, 'DirectPay')
 }
 
 export function mapBackendPlanToSubscriptionPlan(plan: BackendPlan): SubscriptionPlan {
@@ -2583,7 +2583,7 @@ export async function unlinkBusinessApsWalletCustomerAuth(businessId: string, au
   return response.data
 }
 
-// --- Platform accounting (DPay operator GL; no x-business-id) ---
+// --- Platform accounting (DirectPay operator GL; no x-business-id) ---
 
 export type PlatformGlBalanceReportData = {
   asOf: string

@@ -218,7 +218,7 @@ export function PlatformAccountingChartPage() {
                 Chart of accounts
               </h1>
               <p className="mt-1 text-sm text-qb-muted">
-                DPay platform ledger. System accounts support automation; add custom accounts for your
+                DirectPay platform ledger. System accounts support automation; add custom accounts for your
                 own reporting.
               </p>
             </div>

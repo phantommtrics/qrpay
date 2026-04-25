@@ -205,7 +205,7 @@ export function PlatformInvoiceDetailPage() {
           </div>
 
           <footer className="mt-12 border-t border-slate-100 pt-6 text-center text-xs text-slate-400">
-            <p>Thank you for using DPay.</p>
+            <p>Thank you for using DirectPay.</p>
             <p className="mt-1">This document was generated from the platform billing system.</p>
           </footer>
         </div>

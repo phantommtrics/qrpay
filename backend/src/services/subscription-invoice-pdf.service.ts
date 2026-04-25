@@ -215,7 +215,7 @@ export function generateSubscriptionInvoicePdf(payload: InvoicePdfPayload): Prom
     y += 20;
 
     doc.font("Helvetica").fontSize(8).fillColor(COL.slate400);
-    doc.text("Thank you for using DPay.", margin, y, {
+    doc.text("Thank you for using DirectPay.", margin, y, {
       width: contentW,
       align: "center",
     });

@@ -556,7 +556,7 @@ export function BillingPage() {
         const f = intervalPriceField(targetBillingInterval)
         const n = parseMoneyToNumber(p[f])
         if (n == null || n <= 0) {
-          setError('That billing cycle is not priced on your corporate template. Ask DPay to set it.')
+          setError('That billing cycle is not priced on your corporate template. Ask DirectPay to set it.')
           return
         }
       }
@@ -783,7 +783,7 @@ export function BillingPage() {
               <p className="font-semibold text-teal-900">Renewal window</p>
               <p className="mt-1 text-teal-900/90">
                 Your billing period is ending soon. When a renewal invoice is ready, it appears below
-                and we email the owner — you can pay here without leaving DPay.
+                and we email the owner — you can pay here without leaving DirectPay.
               </p>
             </div>
           ) : null}
@@ -797,7 +797,7 @@ export function BillingPage() {
                 </p>
               ) : (
                 <p className="mt-1 text-sm text-amber-900">
-                  No billing template is assigned yet. Subscription invoices stay at zero until DPay
+                  No billing template is assigned yet. Subscription invoices stay at zero until DirectPay
                   configures your corporate template.
                 </p>
               )}

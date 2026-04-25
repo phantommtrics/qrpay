@@ -49,7 +49,7 @@ export function LoginPage() {
         <div className="mb-8 flex flex-col items-center text-center">
           <img
             src="/logos/Direct%20Pay-02.png"
-            alt="DPay"
+            alt="DirectPay"
             className="h-auto max-h-28 w-full max-w-[15rem] object-contain"
             width={220}
             height={110}
@@ -57,7 +57,7 @@ export function LoginPage() {
           <p className="mt-4 text-sm font-semibold uppercase tracking-[0.2em] text-teal-600">
             Sign In
           </p>
-          <h1 className="mt-3 text-3xl font-bold text-slate-900">Welcome back to DPay</h1>
+          <h1 className="mt-3 text-3xl font-bold text-slate-900">Welcome back to DirectPay</h1>
         </div>
 
         <motion.div

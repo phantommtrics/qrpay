@@ -87,7 +87,7 @@ export function PlanControlsPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-600">
-              DPay controls
+              DirectPay controls
             </p>
             <h2 className="mt-2 text-2xl font-bold text-slate-900">Plan entitlements overview</h2>
             <p className="mt-2 max-w-3xl text-slate-600">

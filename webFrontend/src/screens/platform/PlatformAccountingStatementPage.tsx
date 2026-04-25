@@ -242,7 +242,7 @@ export function PlatformAccountingStatementPage() {
   const exportPdf = async () => {
     if (statements.length === 0) return
     await downloadFinancePdf({
-      title: 'DPay platform — Account statement',
+      title: 'DirectPay platform — Account statement',
       subtitle: `${from} → ${to} · ${statements.length} account(s)`,
       sections: statements.map((s) => statementPdfSection(s)),
       filename: `platform-account-statement-${from}-${to}.pdf`,
@@ -256,7 +256,7 @@ export function PlatformAccountingStatementPage() {
     <PageTransition>
       <FinanceReportChrome
         title="Platform account statement"
-        description="DPay general ledger: opening balance, period activity, and running balance per account."
+        description="DirectPay general ledger: opening balance, period activity, and running balance per account."
         backTo={APP_PATHS.platformAccounting}
         backLabel="Back to platform accounting"
         toolbar={

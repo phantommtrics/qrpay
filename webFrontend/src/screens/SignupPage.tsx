@@ -105,7 +105,7 @@ export function SignupPage() {
               <QrCode className="h-6 w-6 text-teal-400" />
             </div>
             <div>
-              <p className="text-xl font-bold">Create your DPay organization</p>
+              <p className="text-xl font-bold">Create your DirectPay organization</p>
               <p className="text-sm text-slate-400">
                 Choose a plan, create an account, and start a 7-day payment trial.
               </p>
@@ -272,7 +272,7 @@ export function SignupPage() {
               <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950">
                 <p className="font-semibold text-teal-900">Custom billing (Corporate plan)</p>
                 <p className="mt-1 text-teal-900/90">
-                  DPay will send an invoice and set up your corporate needs. Your subscription uses the
+                  DirectPay will send an invoice and set up your corporate needs. Your subscription uses the
                   Corporate plan (without POS, products, orders, or categories); platform staff will assign
                   your pricing and billing cycle after onboarding.
                 </p>

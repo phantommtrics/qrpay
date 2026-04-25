@@ -12,9 +12,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['app_logo.png', 'favicon-32x32.png', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
-        name: 'DPay',
-        short_name: 'DPay',
-        description: 'DPay',
+        name: 'DirectPay',
+        short_name: 'DirectPay',
+        description: 'DirectPay',
         id: '/',
         theme_color: '#0d1b2a',
         background_color: '#0d1b2a',

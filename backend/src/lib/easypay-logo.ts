@@ -53,7 +53,7 @@ function escapeHtmlAttr(s: string): string {
 export function easypayEmailLogoHtml(): string {
   const src = escapeHtmlAttr(easypayLogoUrlForEmail());
   return `<div style="margin:0 0 20px;padding-bottom:16px;border-bottom:1px solid #e2e8f0;">
-  <img src="${src}" alt="DPay" width="220" style="max-width:min(92%,240px);height:auto;display:block;border:0;outline:none;text-decoration:none;" />
+  <img src="${src}" alt="DirectPay" width="220" style="max-width:min(92%,240px);height:auto;display:block;border:0;outline:none;text-decoration:none;" />
 </div>`;
 }
 

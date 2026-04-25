@@ -434,12 +434,12 @@ export function Sidebar({
         <div className="flex h-20 items-center border-b border-slate-800 px-4">
           <img
             src="/logos/Direct%20Pay-02.png"
-            alt="DPay"
+            alt="DirectPay"
             className="h-16 w-auto max-w-[8.5rem] object-contain"
             width={136}
             height={64}
           />
-          <span className="ml-3 text-xl font-bold tracking-tight text-white">DPay</span>
+          <span className="ml-3 text-xl font-bold tracking-tight text-white">DirectPay</span>
         </div>
 
         <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-6">
@@ -910,7 +910,7 @@ export function Sidebar({
               <p className="truncate text-sm font-medium text-white">{user.name}</p>
               <p className="text-xs text-slate-400">
                 {user.isPlatformOwner
-                  ? 'DPay'
+                  ? 'DirectPay'
                   : user.isPlatformAdmin
                     ? 'Platform admin'
                     : currentOrganization

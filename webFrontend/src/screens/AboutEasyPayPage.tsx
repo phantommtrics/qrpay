@@ -62,7 +62,7 @@ const pillars = [
     icon: Link2,
     title: 'Integrations & ecosystem',
     body:
-      'Beyond wallet adapters, the platform supports structured internal partner APIs for trusted server-to-server integrations—useful when another system should provision or synchronize data with DPay under your control.',
+      'Beyond wallet adapters, the platform supports structured internal partner APIs for trusted server-to-server integrations—useful when another system should provision or synchronize data with DirectPay under your control.',
   },
 ] as const
 
@@ -98,12 +98,12 @@ export function AboutEasyPayPage() {
       <section className="relative overflow-hidden bg-slate-950 text-white">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(20,184,166,0.3),transparent_50%)]" aria-hidden />
         <div className="relative mx-auto max-w-5xl px-4 py-14 sm:px-6 sm:py-20 lg:px-8">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-400">About DPay</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-400">About DirectPay</p>
           <h1 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
             The subscription-ready platform for serious merchants
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-slate-300">
-            DPay brings storefront tools, staff-aware subscriptions, wallet checkout,
+            DirectPay brings storefront tools, staff-aware subscriptions, wallet checkout,
             sales documents, optional restaurant QR ordering, and real accounting into one
             coherent product—so you spend less time stitching spreadsheets and more time serving
             customers.
@@ -113,16 +113,16 @@ export function AboutEasyPayPage() {
 
       <article className="mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
         <div className="prose prose-slate max-w-none prose-headings:font-bold prose-p:text-slate-600 prose-li:text-slate-600">
-          <h2 className="text-2xl text-slate-900">What DPay is</h2>
+          <h2 className="text-2xl text-slate-900">What DirectPay is</h2>
           <p>
-            DPay is a <strong>multi-tenant web application</strong>: each <strong>business</strong>{' '}
+            DirectPay is a <strong>multi-tenant web application</strong>: each <strong>business</strong>{' '}
             you operate is its own space for products, orders, contacts, quotations, invoices,
             payments, and books. One user account can be granted access to <strong>multiple</strong>{' '}
             businesses—ideal for owners with more than one brand or location—using an in-app
             business switcher after sign-in.
           </p>
           <p>
-            The product is developed by <strong>Phantom Metrics Ltd</strong> (The Gambia). DPay
+            The product is developed by <strong>Phantom Metrics Ltd</strong> (The Gambia). DirectPay
             is offered on a <strong>subscription</strong> basis: you receive invoices for the
             software, and your subscription status controls access to modules according to your
             plan.
@@ -154,7 +154,7 @@ export function AboutEasyPayPage() {
 
           <h2 className="mt-12 text-2xl text-slate-900">Two kinds of payments (kept separate)</h2>
           <p>
-            The system deliberately separates <strong>what you pay DPay</strong> for your
+            The system deliberately separates <strong>what you pay DirectPay</strong> for your
             subscription from <strong>what your customers pay you</strong> for goods and services.
             Subscription checkout uses <strong>platform</strong> configuration. Customer wallet
             flows use <strong>your business&apos;s</strong> gateway credentials where you connect
@@ -214,7 +214,7 @@ export function AboutEasyPayPage() {
           </div>
 
           <p className="mt-10 text-center text-xs text-slate-500">
-            DPay is a product of Phantom Metrics Ltd, The Gambia. Features available to your
+            DirectPay is a product of Phantom Metrics Ltd, The Gambia. Features available to your
             organization depend on your subscription plan and platform configuration.
           </p>
         </div>

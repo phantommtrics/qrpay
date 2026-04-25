@@ -437,7 +437,7 @@ export function PlatformPaymentGatewaysPage() {
         </PageCard>
       ) : (
         <p className="text-sm text-slate-500">
-          Your role can view gateways but not create new ones. Ask DPay to grant{' '}
+          Your role can view gateways but not create new ones. Ask DirectPay to grant{' '}
           <span className="font-medium">Create</span> on the payment gateways module.
         </p>
       )}

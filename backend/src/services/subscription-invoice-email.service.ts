@@ -13,7 +13,7 @@ import { newGuestToken } from "../lib/guest-token.js";
 import { isCorporateIndustry } from "../utils/corporate-industry.js";
 import { generateSubscriptionInvoicePdf } from "./subscription-invoice-pdf.service.js";
 
-const PLATFORM_NAME = "DPay";
+const PLATFORM_NAME = "DirectPay";
 
 export type SubscriptionInvoiceEmailContent = {
   subject: string;

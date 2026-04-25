@@ -15,7 +15,7 @@ export const PLATFORM_MODULE_SLUGS = {
   BILLING_TRANSACTIONS: "platform.billing_transactions",
   /** Paid subscription invoices + ledger: refund review flags (no in-app money movement). */
   BILLING_REVIEW: "platform.billing_review",
-  /** DPay operator: overview, journals, manual entries (legacy “full finance” uses this view). */
+  /** DirectPay operator: overview, journals, manual entries (legacy “full finance” uses this view). */
   ACCOUNTING: "platform.accounting",
   /** Post manual GL journals (mirrors merchant `accounting.journals.general`). */
   ACCOUNTING_JOURNALS_POST: "platform.accounting.journals_post",

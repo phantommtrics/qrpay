@@ -50,7 +50,7 @@ export function GuestPlatformBillPage() {
       <div className="mx-auto max-w-3xl">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <EasypayLogoMark className="h-10 w-10 text-teal-600" />
-          <h1 className="text-xl font-semibold text-slate-900">DPay — Purchase bill</h1>
+          <h1 className="text-xl font-semibold text-slate-900">DirectPay — Purchase bill</h1>
           <p className="text-sm text-slate-600">
             View this bill without signing in. For questions, reply to the email you received.
           </p>

@@ -3,7 +3,7 @@ import type { Request } from "express";
 import { env } from "./env.js";
 import { HttpError } from "../lib/http-error.js";
 
-/** Paths where DPay listens for provider → server webhooks (POST). */
+/** Paths where DirectPay listens for provider → server webhooks (POST). */
 export const PAYMENT_WEBHOOK_HTTP_PATHS = {
   wave: "/api/webhooks/wave",
   yonnaForex: "/api/webhooks/yonna-forex",

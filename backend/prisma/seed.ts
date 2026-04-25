@@ -13,7 +13,7 @@ async function main() {
       name: "Basic",
       monthlyPrice: "499.00",
       yearlyPrice: "4990.00",
-      description: "Starter plan for small merchants getting started with DPay.",
+      description: "Starter plan for small merchants getting started with DirectPay.",
       staffLimit: 3,
       outletLimit: 1,
       productLimit: 100,

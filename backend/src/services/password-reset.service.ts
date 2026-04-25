@@ -3,7 +3,7 @@ import { env } from "../config/env.js";
 import { HttpError } from "../lib/http-error.js";
 import { easypayEmailLogoHtml } from "../lib/easypay-logo.js";
 
-const PLATFORM_NAME = "DPay";
+const PLATFORM_NAME = "DirectPay";
 
 type PasswordResetEmailInput = {
   userName: string;
@@ -21,7 +21,7 @@ export type SignUpTemporaryPasswordEmailContent = {
 export type SignUpEmailExtras = {
   subscriptionPayOnlineUrl?: string | null;
   subscriptionInvoiceRef?: string | null;
-  /** Corporate industry: custom copy; no self-serve invoice link until DPay configures billing. */
+  /** Corporate industry: custom copy; no self-serve invoice link until DirectPay configures billing. */
   corporateWelcome?: boolean;
 };
 
@@ -226,7 +226,7 @@ export function buildPlatformAdminTemporaryPasswordEmailContent(
     <p>Your temporary password is:</p>
     <p><strong>${input.temporaryPassword}</strong></p>
     <p>Visit <a href="${env.PLATFORM_URL}">${env.PLATFORM_URL}</a> to sign in. You will be asked to create a new password after you log in.</p>
-    <p>If you were not expecting this, contact DPay support immediately.</p>
+    <p>If you were not expecting this, contact DirectPay support immediately.</p>
   </div>
   `;
   const textBody = [
@@ -236,7 +236,7 @@ export function buildPlatformAdminTemporaryPasswordEmailContent(
     `Temporary password: ${input.temporaryPassword}`,
     `Sign in: ${env.PLATFORM_URL}`,
     "You will be prompted to choose a new password after signing in.",
-    "If you were not expecting this, contact DPay support immediately.",
+    "If you were not expecting this, contact DirectPay support immediately.",
   ].join("\n");
 
   return { subject, htmlBody, textBody };

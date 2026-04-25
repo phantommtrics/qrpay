@@ -70,7 +70,7 @@ export function PlatformAccountingHomePage() {
       <div className="space-y-10 py-4">
         <PageCard variant="plain">
           <h1 className="text-2xl font-semibold tracking-tight text-qb-heading">Accounting</h1>
-          <p className="mt-1 text-sm text-qb-muted">DPay platform — books, journals, and reports</p>
+          <p className="mt-1 text-sm text-qb-muted">DirectPay platform — books, journals, and reports</p>
         </PageCard>
 
         <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">

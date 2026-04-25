@@ -334,7 +334,7 @@ export function PlatformSecurityRolesPage() {
 
         {!canCreateTpl && user?.isPlatformAdmin ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            You can view and edit templates, but only DPay (or an admin with create access
+            You can view and edit templates, but only DirectPay (or an admin with create access
             on this screen) can add new templates.
           </div>
         ) : null}

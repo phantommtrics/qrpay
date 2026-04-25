@@ -20,7 +20,7 @@ import {
   type PlatformChartAccountDetail,
 } from '../services/subscriptionApi'
 
-const PLATFORM_PAPER_BUSINESS_NAME = 'DPay'
+const PLATFORM_PAPER_BUSINESS_NAME = 'DirectPay'
 
 function platformBillToPaperDocument(row: PlatformBillRow): BillRow {
   return {
