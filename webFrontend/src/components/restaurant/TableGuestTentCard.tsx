@@ -5,8 +5,8 @@ import { QrCode as QrCodeIcon } from 'lucide-react'
 import type { OrderCheckoutWalletRow } from '../../services/salesApi'
 import { checkoutWalletBrandImageSrc } from '../../utils/checkoutWalletBrandImage'
 
-/** Same file as `backend/assets/easypay_logo_file.jpeg`; served from `webFrontend/public`. */
-const EASYPAY_LOGO_SRC = '/easypay_logo_file.jpeg'
+/** Same file as `backend/assets/easypay_logo_file.png`; served from `webFrontend/public`. */
+const EASYPAY_LOGO_SRC = '/easypay_logo_file.png'
 
 export type TableGuestTentCardProps = {
   businessName: string

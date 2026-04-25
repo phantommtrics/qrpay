@@ -10,11 +10,12 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['app_logo.png'],
+      includeAssets: ['app_logo.png', 'favicon-32x32.png', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
         name: 'DPay',
         short_name: 'DPay',
         description: 'DPay',
+        id: '/',
         theme_color: '#0d1b2a',
         background_color: '#0d1b2a',
         display: 'standalone',
@@ -23,16 +24,28 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: '/app_logo.png',
+            src: '/pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/pwa-512x512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/app_logo.png',
+            src: '/pwa-192x192.png',
             sizes: '192x192',
             type: 'image/png',
-            purpose: 'any',
+            purpose: 'maskable',
+          },
+          {
+            src: '/pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
           },
         ],
       },

@@ -13,11 +13,11 @@ let cachedLogo: Buffer | null = null;
 
 export function resolveEasypayLogoFilePath(): string {
   const candidates = [
-    path.join(__dirname, "../../assets/easypay_logo_file.jpeg"),
-    path.join(__dirname, "../../../webFrontend/public/easypay_logo_file.jpeg"),
-    path.join(process.cwd(), "assets/easypay_logo_file.jpeg"),
-    path.join(process.cwd(), "webFrontend/public/easypay_logo_file.jpeg"),
-    path.join(process.cwd(), "../webFrontend/public/easypay_logo_file.jpeg"),
+    path.join(__dirname, "../../assets/easypay_logo_file.png"),
+    path.join(__dirname, "../../../webFrontend/public/easypay_logo_file.png"),
+    path.join(process.cwd(), "assets/easypay_logo_file.png"),
+    path.join(process.cwd(), "webFrontend/public/easypay_logo_file.png"),
+    path.join(process.cwd(), "../webFrontend/public/easypay_logo_file.png"),
   ];
   for (const p of candidates) {
     if (existsSync(p)) {
@@ -25,7 +25,7 @@ export function resolveEasypayLogoFilePath(): string {
     }
   }
   throw new Error(
-    "Product logo not found. Add backend/assets/easypay_logo_file.jpeg or webFrontend/public/easypay_logo_file.jpeg.",
+    "Product logo not found. Add backend/assets/easypay_logo_file.png or webFrontend/public/easypay_logo_file.png.",
   );
 }
 
@@ -42,7 +42,7 @@ export function easypayLogoUrlForEmail(): string {
     return env.EASYPAY_LOGO_URL.trim();
   }
   const origin = env.PLATFORM_URL.split("#")[0].trim().replace(/\/+$/, "");
-  return `${origin}/easypay_logo_file.jpeg`;
+  return `${origin}/easypay_logo_file.png`;
 }
 
 function escapeHtmlAttr(s: string): string {

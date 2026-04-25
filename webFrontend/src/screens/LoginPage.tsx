@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowRight, LockKeyhole, QrCode } from 'lucide-react'
+import { ArrowRight, LockKeyhole } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { APP_PATHS } from '../config/navigation'
@@ -47,9 +47,13 @@ export function LoginPage() {
         className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-sm"
       >
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900">
-            <QrCode className="h-7 w-7 text-teal-400" />
-          </div>
+          <img
+            src="/logos/Direct%20Pay-02.png"
+            alt="DPay"
+            className="h-auto max-h-28 w-full max-w-[15rem] object-contain"
+            width={220}
+            height={110}
+          />
           <p className="mt-4 text-sm font-semibold uppercase tracking-[0.2em] text-teal-600">
             Sign In
           </p>

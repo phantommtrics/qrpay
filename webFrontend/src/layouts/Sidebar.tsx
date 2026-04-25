@@ -12,7 +12,6 @@ import {
   LockKeyhole,
   LogOut,
   Plus,
-  QrCode,
   Shield,
 } from 'lucide-react'
 import { generatePath, NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -432,9 +431,15 @@ export function Sidebar({
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
-        <div className="flex h-16 items-center border-b border-slate-800 px-6">
-          <QrCode className="mr-3 h-8 w-8 text-teal-500" />
-          <span className="text-xl font-bold tracking-tight text-white">DPay</span>
+        <div className="flex h-20 items-center border-b border-slate-800 px-4">
+          <img
+            src="/logos/Direct%20Pay-02.png"
+            alt="DPay"
+            className="h-16 w-auto max-w-[8.5rem] object-contain"
+            width={136}
+            height={64}
+          />
+          <span className="ml-3 text-xl font-bold tracking-tight text-white">DPay</span>
         </div>
 
         <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-6">

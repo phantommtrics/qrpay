@@ -29,7 +29,7 @@ const envSchema = z.object({
     .string()
     .url()
     .min(1, "Set PLATFORM_URL in your environment (used in emails, e.g. app login link)"),
-  /** Optional override for the logo image URL in HTML emails (defaults to PLATFORM_URL/easypay_logo_file.jpeg). */
+  /** Optional override for the logo image URL in HTML emails (defaults to PLATFORM_URL/easypay_logo_file.png). */
   EASYPAY_LOGO_URL: z.string().url().optional(),
   /**
    * Comma-separated inbox(es) for internal alerts when a Corporate industry business is created.

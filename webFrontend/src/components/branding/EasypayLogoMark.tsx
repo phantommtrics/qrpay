@@ -1,5 +1,5 @@
-/** Served from `webFrontend/public/easypay_logo_file.jpeg`. */
-export const EASYPAY_LOGO_PUBLIC_PATH = '/easypay_logo_file.jpeg'
+/** Served from `webFrontend/public/easypay_logo_file.png`. */
+export const EASYPAY_LOGO_PUBLIC_PATH = '/easypay_logo_file.png'
 
 type Props = {
   className?: string
