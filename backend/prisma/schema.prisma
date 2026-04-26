@@ -1323,6 +1323,34 @@ model StaffCreationNotificationLog {
   @@map("staffCreationNotificationLogs")
 }
 
+model CorporateInvitationEmailLog {
+  id                 String                          @id @default(cuid())
+  organizationName   String
+  contactName        String
+  contactTitle       String?
+  recipientEmail     String
+  ccEmails           String[]                        @default([])
+  senderName         String
+  senderTitle        String?
+  subject            String
+  attachmentFilename String
+  provider           String                          @default("resend")
+  deliveryStatus     StaffCreationNotificationStatus @default(PENDING)
+  resendEmailId      String?
+  failureReason      String?
+  sentAt             DateTime?
+  createdByUserId    String?
+  createdByName      String?
+  createdByEmail     String?
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
+
+  @@index([createdAt])
+  @@index([deliveryStatus])
+  @@index([recipientEmail])
+  @@map("corporateInvitationEmailLogs")
+}
+
 model Order {
   id                 String             @id @default(cuid())
   businessId         String

@@ -267,6 +267,16 @@ const PlatformCorporateBillingsPage = lazy(() =>
     default: module.PlatformCorporateBillingsPage,
   })),
 )
+const PlatformCorporateInvitationLetterPage = lazy(() =>
+  import('../screens/platform/PlatformCorporateInvitationLetterPage').then((module) => ({
+    default: module.PlatformCorporateInvitationLetterPage,
+  })),
+)
+const PlatformCorporateInvitationRecordsPage = lazy(() =>
+  import('../screens/platform/PlatformCorporateInvitationRecordsPage').then((module) => ({
+    default: module.PlatformCorporateInvitationRecordsPage,
+  })),
+)
 const PlatformSubscriptionsPage = lazy(() =>
   import('../screens/platform/PlatformSubscriptionsPage').then((module) => ({
     default: module.PlatformSubscriptionsPage,
@@ -493,6 +503,18 @@ export function AppRoutes() {
     {
       path: APP_PATHS.platformCorporateBills,
       element: <PlatformCorporateBillingsPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.billing.manage' as const,
+    },
+    {
+      path: APP_PATHS.platformCorporateInvitationLetter,
+      element: <PlatformCorporateInvitationLetterPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.billing.manage' as const,
+    },
+    {
+      path: APP_PATHS.platformCorporateInvitationRecords,
+      element: <PlatformCorporateInvitationRecordsPage />,
       roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.billing.manage' as const,
     },

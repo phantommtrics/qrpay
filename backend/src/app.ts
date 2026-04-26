@@ -57,6 +57,11 @@ import {
   listCorporateBillingPlansForPlatform,
   updateCorporateBillingPlan,
 } from "./services/corporate-billing.service.js";
+import {
+  buildCorporateInvitationLetterText,
+  listCorporateInvitationEmailLogs,
+  sendCorporateInvitationLetter,
+} from "./services/corporate-invitation-letter.service.js";
 import { createSubscriptionInvoiceCheckout } from "./services/subscription-invoice-checkout.service.js";
 import {
   authorizeGuestSubscriptionInvoiceApsCheckout,
@@ -892,6 +897,34 @@ const assignCorporateBusinessBodySchema = z.object({
   billingInterval: z.nativeEnum(BillingInterval),
   corporateEntitlementSystemProductIds: z.array(z.string().min(1)).optional(),
 });
+
+const corporateInvitationLetterBodySchema = z
+  .object({
+    templateMode: z.enum(["default", "manual"]).default("default"),
+    organizationName: z.string().trim().min(2).max(160),
+    contactName: z.string().trim().min(2).max(120),
+    contactTitle: z.string().trim().max(120).optional().nullable(),
+    toEmail: z.string().trim().email(),
+    ccEmails: z.array(z.string().trim().email()).max(20).default([]),
+    senderName: z.string().trim().min(2).max(120),
+    senderTitle: z.string().trim().max(120).optional().nullable(),
+    proposalReference: z.string().trim().max(80).optional().nullable(),
+    monthlyFeeLabel: z.string().trim().max(120).optional().nullable(),
+    onboardingTimeline: z.string().trim().max(160).optional().nullable(),
+    nextStep: z.string().trim().max(260).optional().nullable(),
+    subject: z.string().trim().max(160).optional().nullable(),
+    personalNote: z.string().trim().max(700).optional().nullable(),
+    manualTemplateContent: z.string().trim().max(12_000).optional().nullable(),
+  })
+  .superRefine((body, ctx) => {
+    if (body.templateMode === "manual" && !body.manualTemplateContent?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["manualTemplateContent"],
+        message: "Manual template content is required.",
+      });
+    }
+  });
 
 const platformSecurityPermissionRowSchema = z.object({
   moduleId: z.string().min(1),
@@ -2285,6 +2318,96 @@ app.get(
     try {
       const data = await getCorporateEntitlementCatalog();
       res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/corporate/invitation-letter/preview",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BILLING, "view"),
+  async (req, res, next) => {
+    try {
+      const body = corporateInvitationLetterBodySchema.parse(req.body);
+      if (!req.user) {
+        throw new HttpError(401, "Authentication required");
+      }
+      res.json({
+        data: {
+          letterText: buildCorporateInvitationLetterText({
+            ...body,
+            senderEmail: req.user.email,
+          }),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/corporate/invitation-letter/send",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BILLING, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = corporateInvitationLetterBodySchema.parse(req.body);
+      if (!req.user) {
+        throw new HttpError(401, "Authentication required");
+      }
+      const result = await sendCorporateInvitationLetter(
+        { ...body, senderEmail: req.user.email },
+        {
+          userId: req.user.id,
+          userName: req.user.name,
+          userEmail: req.user.email,
+        },
+      );
+      res.status(202).json({ data: result });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/corporate/invitation-letter/logs",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BILLING, "view"),
+  async (req, res, next) => {
+    try {
+      const limit = z.coerce.number().int().min(1).max(250).default(100).parse(req.query.limit);
+      const rows = await listCorporateInvitationEmailLogs(limit);
+      res.json({
+        data: rows.map((row) => ({
+          id: row.id,
+          organizationName: row.organizationName,
+          contactName: row.contactName,
+          contactTitle: row.contactTitle,
+          recipientEmail: row.recipientEmail,
+          ccEmails: row.ccEmails,
+          senderName: row.senderName,
+          senderTitle: row.senderTitle,
+          subject: row.subject,
+          attachmentFilename: row.attachmentFilename,
+          provider: row.provider,
+          deliveryStatus: row.deliveryStatus,
+          resendEmailId: row.resendEmailId,
+          failureReason: row.failureReason,
+          sentAt: row.sentAt?.toISOString() ?? null,
+          createdByUserId: row.createdByUserId,
+          createdByName: row.createdByName,
+          createdByEmail: row.createdByEmail,
+          createdAt: row.createdAt.toISOString(),
+          updatedAt: row.updatedAt.toISOString(),
+        })),
+      });
     } catch (e) {
       next(e);
     }

@@ -307,6 +307,12 @@ export function Sidebar({
     if (path === APP_PATHS.platformCorporateBills) {
       return p.startsWith('/platform/corporate/bills')
     }
+    if (path === APP_PATHS.platformCorporateInvitationLetter) {
+      return p.startsWith('/platform/corporate/invitation-letter')
+    }
+    if (path === APP_PATHS.platformCorporateInvitationRecords) {
+      return p.startsWith('/platform/corporate/invitation-records')
+    }
     return false
   }
 

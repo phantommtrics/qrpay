@@ -511,6 +511,76 @@ export async function patchCorporateBusinessSettings(
   })
 }
 
+export type CorporateInvitationLetterPayload = {
+  templateMode?: 'default' | 'manual'
+  organizationName: string
+  contactName: string
+  contactTitle?: string | null
+  toEmail: string
+  ccEmails: string[]
+  senderName: string
+  senderTitle?: string | null
+  proposalReference?: string | null
+  monthlyFeeLabel?: string | null
+  onboardingTimeline?: string | null
+  nextStep?: string | null
+  subject?: string | null
+  personalNote?: string | null
+  manualTemplateContent?: string | null
+}
+
+export async function previewCorporateInvitationLetter(body: CorporateInvitationLetterPayload) {
+  const response = await apiRequest<{ data: { letterText: string } }>(
+    '/platform/corporate/invitation-letter/preview',
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
+  return response.data
+}
+
+export async function sendCorporateInvitationLetter(body: CorporateInvitationLetterPayload) {
+  const response = await apiRequest<{
+    data: { id: string; providerMessageId: string; attachmentFilename: string }
+  }>('/platform/corporate/invitation-letter/send', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  return response.data
+}
+
+export type CorporateInvitationEmailLogRow = {
+  id: string
+  organizationName: string
+  contactName: string
+  contactTitle: string | null
+  recipientEmail: string
+  ccEmails: string[]
+  senderName: string
+  senderTitle: string | null
+  subject: string
+  attachmentFilename: string
+  provider: string
+  deliveryStatus: 'PENDING' | 'SENT' | 'FAILED'
+  resendEmailId: string | null
+  failureReason: string | null
+  sentAt: string | null
+  createdByUserId: string | null
+  createdByName: string | null
+  createdByEmail: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export async function fetchCorporateInvitationEmailLogs(limit = 100) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  const response = await apiRequest<{ data: CorporateInvitationEmailLogRow[] }>(
+    `/platform/corporate/invitation-letter/logs?${params.toString()}`,
+  )
+  return response.data
+}
+
 export async function createBusiness(payload: {
   name: string
   slug: string

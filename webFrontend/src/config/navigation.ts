@@ -97,6 +97,8 @@ export const APP_PATHS = {
   /** Corporate industry: tenant list and custom bill templates (platform operator). */
   platformCorporateBusinesses: '/platform/corporate/businesses',
   platformCorporateBills: '/platform/corporate/bills',
+  platformCorporateInvitationLetter: '/platform/corporate/invitation-letter',
+  platformCorporateInvitationRecords: '/platform/corporate/invitation-records',
   platformSubscriptions: '/platform/subscriptions',
   platformInvoices: '/platform/invoices',
   platformInvoiceDetail: '/platform/invoices/:invoiceId',
@@ -330,6 +332,18 @@ export const PLATFORM_CORPORATE_SUBNAV: PlatformBusinessesSubNavItem[] = [
     title: 'Corporate bill',
     permission: 'platform.billing.manage',
   },
+  {
+    name: 'corporate-invitation-letter',
+    path: APP_PATHS.platformCorporateInvitationLetter,
+    title: 'Invitation letter',
+    permission: 'platform.billing.manage',
+  },
+  {
+    name: 'corporate-invitation-records',
+    path: APP_PATHS.platformCorporateInvitationRecords,
+    title: 'Sent invitations',
+    permission: 'platform.billing.manage',
+  },
 ]
 
 export type NavigationItem = {
@@ -485,6 +499,14 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.platformCorporateBills)) {
     return 'Corporate bill'
+  }
+
+  if (pathname.includes(APP_PATHS.platformCorporateInvitationLetter)) {
+    return 'Business invitation letter'
+  }
+
+  if (pathname.includes(APP_PATHS.platformCorporateInvitationRecords)) {
+    return 'Sent invitations'
   }
 
   if (pathname.includes(APP_PATHS.platformCorporateBusinesses)) {
