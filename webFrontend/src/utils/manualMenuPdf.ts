@@ -69,13 +69,14 @@ export function downloadManualMenuPdf(opts: {
   categories: ManualMenuPdfCategory[]
   generatedAt?: Date
 }): void {
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
   const pageW = pdf.internal.pageSize.getWidth()
   const pageH = pdf.internal.pageSize.getHeight()
   const margin = 36
-  const gap = 14
-  const cardW = (pageW - margin * 2 - gap) / 2
-  const cardH = 128
+  const columns = 5
+  const gap = 10
+  const cardW = (pageW - margin * 2 - gap * (columns - 1)) / columns
+  const cardH = 118
   const bottom = pageH - margin
   let y = 48
 
@@ -125,9 +126,9 @@ export function downloadManualMenuPdf(opts: {
       continue
     }
 
-    for (let i = 0; i < category.products.length; i += 2) {
+    for (let i = 0; i < category.products.length; i += columns) {
       ensureSpace(cardH + 18)
-      const row = category.products.slice(i, i + 2)
+      const row = category.products.slice(i, i + columns)
       row.forEach((product, col) => {
         const x = margin + col * (cardW + gap)
         pdf.setFillColor(255, 255, 255)
@@ -135,22 +136,22 @@ export function downloadManualMenuPdf(opts: {
         pdf.roundedRect(x, y, cardW, cardH, 8, 8, 'FD')
 
         pdf.setFont('helvetica', 'bold')
-        pdf.setFontSize(10.5)
+        pdf.setFontSize(9)
         pdf.setTextColor(15, 23, 42)
         const nameLines = pdf.splitTextToSize(safePdfText(product.name), cardW - 24).slice(0, 2)
-        pdf.text(nameLines, x + 12, y + 20)
+        pdf.text(nameLines, x + 10, y + 18)
 
         pdf.setFont('helvetica', 'normal')
-        pdf.setFontSize(9)
+        pdf.setFontSize(8)
         pdf.setTextColor(20, 184, 166)
-        pdf.text(formatMoney(product.price, { decimals: 2 }), x + 12, y + 48)
+        pdf.text(formatMoney(product.price, { decimals: 2 }), x + 10, y + 42)
 
         const barcodeValue = product.barcodeValue?.trim() ?? ''
         if (barcodeValue) {
           const barcode = renderBarcode(barcodeValue)
           if (barcode) {
-            const maxW = cardW - 28
-            const maxH = 44
+            const maxW = cardW - 20
+            const maxH = 40
             const aspect = barcode.width / barcode.height
             let drawW = maxW
             let drawH = drawW / aspect
@@ -162,7 +163,7 @@ export function downloadManualMenuPdf(opts: {
               barcode.dataUrl,
               'PNG',
               x + (cardW - drawW) / 2,
-              y + 66,
+              y + 62,
               drawW,
               drawH,
               undefined,
@@ -171,12 +172,12 @@ export function downloadManualMenuPdf(opts: {
           } else {
             pdf.setFontSize(8.5)
             pdf.setTextColor(100, 116, 139)
-            pdf.text(`Barcode: ${safePdfText(barcodeValue)}`, x + 12, y + 84)
+            pdf.text(`Barcode: ${safePdfText(barcodeValue)}`, x + 10, y + 80)
           }
         } else {
           pdf.setFontSize(8.5)
           pdf.setTextColor(148, 163, 184)
-          pdf.text('No barcode', x + 12, y + 86)
+          pdf.text('No barcode', x + 10, y + 80)
         }
       })
       y += cardH + 14
