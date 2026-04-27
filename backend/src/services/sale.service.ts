@@ -28,6 +28,7 @@ import {
 import { markSalesInvoicePaidWithWalletPayment } from "./sales-invoice.service.js";
 import { resolveDefaultBankSettlementAccountId } from "./sales-settlement-account.service.js";
 import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
+import { notifyBusinessOwnersOfPayment } from "./business-owner-push.service.js";
 import { isPetrolStationIndustry } from "./product.service.js";
 
 const SIMULATOR_WEBHOOK_PROVIDER = "simulator";
@@ -930,7 +931,7 @@ export async function completeCashPayment(
   businessId: string,
   recordedByUserId: string,
 ) {
-  return prisma.$transaction(
+  const result = await prisma.$transaction(
     async (tx) => {
       const order = await tx.order.findFirst({
         where: { id: orderId, businessId },
@@ -1037,10 +1038,28 @@ export async function completeCashPayment(
         },
       });
 
-      return { payment, receipt };
+      return {
+        payment,
+        receipt,
+        ownerNotification: {
+          businessId,
+          orderPublicCode: order.publicCode,
+          paymentPublicCode: payment.publicCode,
+          amount: payment.amount,
+          currency: payment.currency,
+          methodLabel: "Cash",
+          receiptPublicCode: receipt.publicCode,
+        },
+      };
     },
     { maxWait: 10_000, timeout: 15_000 },
   );
+
+  void notifyBusinessOwnersOfPayment(result.ownerNotification).catch((err) => {
+    console.error("[web-push] Failed to notify business owner of cash payment:", err);
+  });
+
+  return { payment: result.payment, receipt: result.receipt };
 }
 
 export type CompleteWalletPaymentByPublicTokenOptions = {
@@ -1449,6 +1468,15 @@ export async function completeWalletPaymentByPublicToken(
         duplicate: false as const,
         orderId: fresh.orderId,
         receiptId: receipt.id,
+        ownerNotification: {
+          businessId: fresh.order.businessId,
+          orderPublicCode: fresh.order.publicCode,
+          paymentPublicCode: updatedPayment.publicCode,
+          amount: updatedPayment.amount,
+          currency: updatedPayment.currency,
+          methodLabel: "QR Wallet",
+          receiptPublicCode: receipt.publicCode,
+        },
       };
     },
     { maxWait: 10_000, timeout: 15_000 },
@@ -1457,6 +1485,12 @@ export async function completeWalletPaymentByPublicToken(
   if (!result.duplicate && result.orderId) {
     void queueInternalPartnerPaymentCompleted(result).catch((err) => {
       console.error("[internal-partner] Failed to queue payment.completed webhook:", err);
+    });
+  }
+
+  if (!result.duplicate && "ownerNotification" in result && result.ownerNotification) {
+    void notifyBusinessOwnersOfPayment(result.ownerNotification).catch((err) => {
+      console.error("[web-push] Failed to notify business owner of wallet payment:", err);
     });
   }
 

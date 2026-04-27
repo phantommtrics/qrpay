@@ -49,6 +49,10 @@ import { formatMoney } from '../utils/formatMoney'
 import { productSellableUnits } from '../utils/productStock'
 import { isPetrolStationIndustry, isRestaurantIndustry } from '../utils/businessIndustry'
 import { playPosScanError, playPosScanSuccess } from '../utils/posSounds'
+import {
+  requestPaymentNotificationPermission,
+  showPaymentProcessedNotification,
+} from '../utils/paymentNotifications'
 import { APP_PATHS } from '../config/navigation'
 
 /** Match backend GMD money rounding for amount-based fuel sales. */
@@ -133,6 +137,24 @@ export function POSPage() {
     businessId: string
     wallets: OrderCheckoutWalletRow[]
   } | null>(null)
+
+  const notifyPosPaymentSuccess = useCallback(
+    (payment: {
+      methodLabel: string
+      amount: number
+      receiptLabel?: string | null
+      orderCode?: string | null
+    }) => {
+      void showPaymentProcessedNotification({
+        source: 'POS',
+        methodLabel: payment.methodLabel,
+        amountLabel: formatMoney(payment.amount, { decimals: 2 }),
+        receiptLabel: payment.receiptLabel,
+        orderCode: payment.orderCode,
+      })
+    },
+    [],
+  )
 
   const isTableServiceOrder = restaurantPos && Boolean(selectedTableId)
 
@@ -455,6 +477,7 @@ export function POSPage() {
   /** Walk-in / counter or non-restaurant: create order and open payment on this device. */
   const handleCharge = async () => {
     if (!currentOrganization) return
+    void requestPaymentNotificationPermission()
     if (petrolPos) {
       if (!petrolChargeReady) {
         setProductFlash(
@@ -637,12 +660,19 @@ export function POSPage() {
         try {
           const order = await fetchSaleOrder(currentOrganization.id, checkoutOrderId)
           if (order.status === 'paid') {
+            const receiptLabel = order.receipt
+              ? `Receipt ${order.receipt.publicCode}`
+              : 'Paid'
             setReceiptLabel(
-              order.receipt
-                ? `Receipt ${order.receipt.publicCode}`
-                : 'Paid',
+              receiptLabel,
             )
             setPaymentStatus('success')
+            notifyPosPaymentSuccess({
+              methodLabel: 'Wallet',
+              amount: order.total,
+              receiptLabel,
+              orderCode: order.publicCode,
+            })
             clearCart()
             clearPetrolForm()
             void refreshBusinessProducts()
@@ -668,6 +698,7 @@ export function POSPage() {
     apsAuthState,
     clearCart,
     clearPetrolForm,
+    notifyPosPaymentSuccess,
     refreshBusinessProducts,
   ])
 
@@ -791,8 +822,15 @@ export function POSPage() {
           })
           const order = await fetchSaleOrder(currentOrganization.id, checkoutOrderId)
           if (order.status === 'paid') {
-            setReceiptLabel(order.receipt ? `Receipt ${order.receipt.publicCode}` : 'Paid')
+            const receiptLabel = order.receipt ? `Receipt ${order.receipt.publicCode}` : 'Paid'
+            setReceiptLabel(receiptLabel)
             setPaymentStatus('success')
+            notifyPosPaymentSuccess({
+              methodLabel: 'APS Wallet',
+              amount: order.total,
+              receiptLabel,
+              orderCode: order.publicCode,
+            })
             clearCart()
             clearPetrolForm()
             void refreshBusinessProducts()
@@ -843,9 +881,11 @@ export function POSPage() {
   }, [
     applyWalletStartResult,
     clearCart,
+    clearPetrolForm,
     checkoutOrderId,
     checkoutWallets,
     currentOrganization,
+    notifyPosPaymentSuccess,
     refreshBusinessProducts,
     selectedGatewayCode,
     yonnaPhone,
@@ -868,8 +908,15 @@ export function POSPage() {
       })
       const order = await fetchSaleOrder(currentOrganization.id, checkoutOrderId)
       if (order.status === 'paid') {
-        setReceiptLabel(order.receipt ? `Receipt ${order.receipt.publicCode}` : 'Paid')
+        const receiptLabel = order.receipt ? `Receipt ${order.receipt.publicCode}` : 'Paid'
+        setReceiptLabel(receiptLabel)
         setPaymentStatus('success')
+        notifyPosPaymentSuccess({
+          methodLabel: 'APS Wallet',
+          amount: order.total,
+          receiptLabel,
+          orderCode: order.publicCode,
+        })
         clearCart()
         clearPetrolForm()
         void refreshBusinessProducts()
@@ -884,7 +931,9 @@ export function POSPage() {
     apsOtp,
     checkoutOrderId,
     clearCart,
+    clearPetrolForm,
     currentOrganization,
+    notifyPosPaymentSuccess,
     refreshBusinessProducts,
     selectedGatewayCode,
   ])
@@ -895,8 +944,14 @@ export function POSPage() {
     setPaymentBusy(true)
     try {
       const result = await confirmCashPayment(currentOrganization.id, checkoutOrderId)
-      setReceiptLabel(`Receipt ${result.receipt.publicCode}`)
+      const receiptLabel = `Receipt ${result.receipt.publicCode}`
+      setReceiptLabel(receiptLabel)
       setPaymentStatus('success')
+      notifyPosPaymentSuccess({
+        methodLabel: 'Cash',
+        amount: result.receipt.total,
+        receiptLabel,
+      })
       clearCart()
       clearPetrolForm()
       void refreshBusinessProducts()
@@ -915,10 +970,15 @@ export function POSPage() {
       await simulateWalletPayment(currentOrganization.id, checkoutOrderId)
       const order = await fetchSaleOrder(currentOrganization.id, checkoutOrderId)
       if (order.status === 'paid') {
-        setReceiptLabel(
-          order.receipt ? `Receipt ${order.receipt.publicCode}` : 'Paid',
-        )
+        const receiptLabel = order.receipt ? `Receipt ${order.receipt.publicCode}` : 'Paid'
+        setReceiptLabel(receiptLabel)
         setPaymentStatus('success')
+        notifyPosPaymentSuccess({
+          methodLabel: 'Wallet (demo)',
+          amount: order.total,
+          receiptLabel,
+          orderCode: order.publicCode,
+        })
         clearCart()
         clearPetrolForm()
         void refreshBusinessProducts()

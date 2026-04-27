@@ -362,6 +362,11 @@ import {
   getPaymentWebhookEndpoints,
   resolveUploadsPublicOrigin,
 } from "./config/app-public-url.js";
+import {
+  deleteBusinessOwnerPushSubscription,
+  getWebPushPublicKey,
+  upsertBusinessOwnerPushSubscription,
+} from "./services/business-owner-push.service.js";
 import { env } from "./config/env.js";
 import { PLATFORM_MODULE_SLUGS } from "./config/platform-modules.js";
 import { HttpError } from "./lib/http-error.js";
@@ -686,6 +691,14 @@ const changePasswordSchema = z.object({
 
 const forgotPasswordSchema = z.object({
   email: z.string().email(),
+});
+
+const pushSubscriptionSchema = z.object({
+  endpoint: z.string().url(),
+  keys: z.object({
+    p256dh: z.string().min(1),
+    auth: z.string().min(1),
+  }),
 });
 
 const createBusinessUserSchema = z.object({
@@ -5722,6 +5735,45 @@ app.get("/api/health", (_request, response) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+app.get("/api/web-push/public-key", authenticateToken, (_request, response) => {
+  response.json({ data: { publicKey: getWebPushPublicKey() } });
+});
+
+app.post(
+  "/api/businesses/:businessId/owner-push-subscriptions",
+  authenticateToken,
+  async (request, response, next) => {
+    try {
+      const body = pushSubscriptionSchema.parse(request.body);
+      const result = await upsertBusinessOwnerPushSubscription({
+        businessId: request.params.businessId as string,
+        userId: request.user!.id,
+        endpoint: body.endpoint,
+        p256dh: body.keys.p256dh,
+        auth: body.keys.auth,
+        userAgent: request.get("user-agent") ?? null,
+      });
+      response.status(result.saved ? 204 : 403).send();
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.delete(
+  "/api/businesses/:businessId/owner-push-subscriptions",
+  authenticateToken,
+  async (request, response, next) => {
+    try {
+      const body = z.object({ endpoint: z.string().url() }).parse(request.body);
+      await deleteBusinessOwnerPushSubscription(body.endpoint);
+      response.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 app.get("/api/plans", async (_request, response, next) => {
   try {

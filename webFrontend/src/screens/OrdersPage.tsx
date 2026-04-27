@@ -36,6 +36,10 @@ import type { Order } from '../types'
 import { checkoutWalletBrandImageSrc } from '../utils/checkoutWalletBrandImage'
 import { formatMoney } from '../utils/formatMoney'
 import { isPetrolStationIndustry } from '../utils/businessIndustry'
+import {
+  requestPaymentNotificationPermission,
+  showPaymentProcessedNotification,
+} from '../utils/paymentNotifications'
 
 type OrderTab = 'all' | 'pending_payment' | 'paid' | 'cancelled'
 
@@ -129,6 +133,24 @@ export function OrdersPage() {
     title: string
     message: string
   } | null>(null)
+
+  const notifyOrderPaymentSuccess = useCallback(
+    (payment: {
+      methodLabel: string
+      amount: number
+      receiptLabel?: string | null
+      orderCode?: string | null
+    }) => {
+      void showPaymentProcessedNotification({
+        source: 'Orders',
+        methodLabel: payment.methodLabel,
+        amountLabel: formatMoney(payment.amount, { decimals: 2 }),
+        receiptLabel: payment.receiptLabel,
+        orderCode: payment.orderCode,
+      })
+    },
+    [],
+  )
 
   const load = useCallback(async () => {
     if (!businessId) {
@@ -258,6 +280,12 @@ export function OrdersPage() {
               title: 'Payment confirmed',
               message: `Wallet payment received. ${receiptPart} Total ${formatMoney(o.total, { decimals: 2 })}.`,
             })
+            notifyOrderPaymentSuccess({
+              methodLabel: 'Wallet',
+              amount: o.total,
+              receiptLabel: o.receipt ? `Receipt ${o.receipt.publicCode}` : null,
+              orderCode: o.publicCode,
+            })
             resetPaymentUi()
           }
         } catch {
@@ -280,11 +308,13 @@ export function OrdersPage() {
     businessId,
     detailOrderId,
     load,
+    notifyOrderPaymentSuccess,
     refreshBusinessProducts,
     resetPaymentUi,
   ])
 
   const handleProcessToPayment = useCallback(() => {
+    void requestPaymentNotificationPermission()
     setPaymentError(null)
     setDetailStep('payment')
     setPaymentPhase('choose')
@@ -329,12 +359,18 @@ export function OrdersPage() {
         title: 'Payment confirmed',
         message: `Cash recorded. Receipt ${result.receipt.publicCode}. Amount ${formatMoney(result.receipt.total, { decimals: 2 })}.`,
       })
+      notifyOrderPaymentSuccess({
+        methodLabel: 'Cash',
+        amount: result.receipt.total,
+        receiptLabel: `Receipt ${result.receipt.publicCode}`,
+        orderCode: o.publicCode,
+      })
     } catch (e) {
       setPaymentError(e instanceof ApiError ? e.message : 'Cash payment failed.')
     } finally {
       setPaymentBusy(false)
     }
-  }, [businessId, detail, load, refreshBusinessProducts, resetPaymentUi])
+  }, [businessId, detail, load, notifyOrderPaymentSuccess, refreshBusinessProducts, resetPaymentUi])
 
   const applyWalletStartResult = useCallback(
     (r: {
@@ -454,6 +490,12 @@ export function OrdersPage() {
               title: 'Payment confirmed',
               message: `APS Wallet payment received. ${receiptPart} Total ${formatMoney(o.total, { decimals: 2 })}.`,
             })
+            notifyOrderPaymentSuccess({
+              methodLabel: 'APS Wallet',
+              amount: o.total,
+              receiptLabel: o.receipt ? `Receipt ${o.receipt.publicCode}` : null,
+              orderCode: o.publicCode,
+            })
             resetPaymentUi()
           }
         } else {
@@ -501,6 +543,7 @@ export function OrdersPage() {
     checkoutWallets,
     detail,
     load,
+    notifyOrderPaymentSuccess,
     refreshBusinessProducts,
     resetPaymentUi,
     selectedGatewayCode,
@@ -534,6 +577,12 @@ export function OrdersPage() {
           title: 'Payment confirmed',
           message: `APS Wallet payment received. ${receiptPart} Total ${formatMoney(o.total, { decimals: 2 })}.`,
         })
+        notifyOrderPaymentSuccess({
+          methodLabel: 'APS Wallet',
+          amount: o.total,
+          receiptLabel: o.receipt ? `Receipt ${o.receipt.publicCode}` : null,
+          orderCode: o.publicCode,
+        })
         resetPaymentUi()
       }
     } catch (e) {
@@ -547,6 +596,7 @@ export function OrdersPage() {
     businessId,
     detail,
     load,
+    notifyOrderPaymentSuccess,
     refreshBusinessProducts,
     resetPaymentUi,
     selectedGatewayCode,
@@ -570,6 +620,12 @@ export function OrdersPage() {
           title: 'Payment confirmed',
           message: `Wallet payment received (demo). ${receiptPart} Total ${formatMoney(o.total, { decimals: 2 })}.`,
         })
+        notifyOrderPaymentSuccess({
+          methodLabel: 'Wallet (demo)',
+          amount: o.total,
+          receiptLabel: o.receipt ? `Receipt ${o.receipt.publicCode}` : null,
+          orderCode: o.publicCode,
+        })
         resetPaymentUi()
       }
     } catch (e) {
@@ -577,7 +633,15 @@ export function OrdersPage() {
     } finally {
       setPaymentBusy(false)
     }
-  }, [businessId, detail, load, refreshBusinessProducts, resetPaymentUi, walletCheckoutAdapter])
+  }, [
+    businessId,
+    detail,
+    load,
+    notifyOrderPaymentSuccess,
+    refreshBusinessProducts,
+    resetPaymentUi,
+    walletCheckoutAdapter,
+  ])
 
   const ordersRangeLabel = useMemo(() => {
     if (ordersTotal === 0) return 'No orders'

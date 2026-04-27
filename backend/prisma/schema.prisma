@@ -336,6 +336,7 @@ model Business {
   diningTables                  DiningTable[]
   businessStations              BusinessStation[]
   userSystemProducts            BusinessUserSystemProduct[]
+  pushSubscriptions             BusinessOwnerPushSubscription[]
   orders                        Order[]
   payments                      Payment[]
   receipts                      Receipt[]
@@ -1021,8 +1022,30 @@ model User {
   journalEntriesApproved             JournalEntry[]                 @relation("JournalEntryApprovedBy")
   journalEntriesCancelled            JournalEntry[]                 @relation("JournalEntryCancelledBy")
   journalEntriesPostedAsPlatform     JournalEntry[]                 @relation("JournalEntryPostedByPlatform")
+  ownerPushSubscriptions             BusinessOwnerPushSubscription[]
 
   @@index([platformFunctionGroupId])
+}
+
+model BusinessOwnerPushSubscription {
+  id        String   @id @default(cuid())
+  businessId String
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastSeenAt DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([userId])
+  @@index([businessId, userId])
+  @@map("businessOwnerPushSubscriptions")
 }
 
 /**
