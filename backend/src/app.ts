@@ -7128,6 +7128,7 @@ app.post(
         gatewayCode: body.gatewayCode,
         otp: body.otp,
         authState: body.authState,
+        completedByUserId: request.user!.id,
         req: request,
       });
       response.json({ data });

@@ -41,6 +41,36 @@ function webhookLogProviderForWalletComplete(options?: { settlementSource?: stri
   return SIMULATOR_WEBHOOK_PROVIDER;
 }
 
+async function shouldSendOwnerPaymentPush(
+  businessId: string,
+  processingUserId?: string | null,
+): Promise<boolean> {
+  const userId = processingUserId?.trim();
+  if (!userId) {
+    return true;
+  }
+
+  const ownerMembership = await prisma.businessMembership.findFirst({
+    where: { businessId, userId, isOwner: true },
+    select: { id: true },
+  });
+
+  return !ownerMembership;
+}
+
+async function shouldSendOwnerPaymentPushSafely(
+  businessId: string,
+  processingUserId: string | null | undefined,
+  context: string,
+): Promise<boolean> {
+  try {
+    return await shouldSendOwnerPaymentPush(businessId, processingUserId);
+  } catch (err) {
+    console.error(`[web-push] Failed to determine owner notification eligibility for ${context}:`, err);
+    return true;
+  }
+}
+
 /** Sum quantities per product (order lines may repeat the same SKU). Petrol amount-lines omit quantity. */
 function quantitiesByProductId(
   lines: { productId: string; quantity?: number; cashAmountGmd?: number }[],
@@ -1055,9 +1085,11 @@ export async function completeCashPayment(
     { maxWait: 10_000, timeout: 15_000 },
   );
 
-  void notifyBusinessOwnersOfPayment(result.ownerNotification).catch((err) => {
-    console.error("[web-push] Failed to notify business owner of cash payment:", err);
-  });
+  if (await shouldSendOwnerPaymentPushSafely(businessId, recordedByUserId, "cash payment")) {
+    void notifyBusinessOwnersOfPayment(result.ownerNotification).catch((err) => {
+      console.error("[web-push] Failed to notify business owner of cash payment:", err);
+    });
+  }
 
   return { payment: result.payment, receipt: result.receipt };
 }
@@ -1488,7 +1520,16 @@ export async function completeWalletPaymentByPublicToken(
     });
   }
 
-  if (!result.duplicate && "ownerNotification" in result && result.ownerNotification) {
+  if (
+    !result.duplicate &&
+    "ownerNotification" in result &&
+    result.ownerNotification &&
+    (await shouldSendOwnerPaymentPushSafely(
+      result.ownerNotification.businessId,
+      options?.settledByStaffUserId,
+      "wallet payment",
+    ))
+  ) {
     void notifyBusinessOwnersOfPayment(result.ownerNotification).catch((err) => {
       console.error("[web-push] Failed to notify business owner of wallet payment:", err);
     });

@@ -368,6 +368,7 @@ export async function completeOrderApsWalletCheckout(input: {
   gatewayCode: string;
   otp?: string;
   authState: string;
+  completedByUserId?: string | null;
   req: Request;
 }): Promise<{ paid: true; receiptId: string | null }> {
   void input.req;
@@ -491,6 +492,7 @@ export async function completeOrderApsWalletCheckout(input: {
   const result = await completeWalletPaymentByPublicToken(payment.publicToken, {
     externalEventId,
     settlementSource: "aps_wallet",
+    settledByStaffUserId: input.completedByUserId,
   });
 
   try {
