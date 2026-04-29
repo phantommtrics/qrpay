@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 
+import { LineNarrationTextarea, QB_LINE_NARRATION_SHELL } from '../components/ui/LineNarrationTextarea'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
+import { SearchableSelect, type SearchableSelectOption } from '../components/ui/SearchableSelect'
+import { Toast, type ToastVariant } from '../components/ui/Toast'
 import { APP_PATHS, platformBillDetailPath } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
 import {
@@ -14,8 +18,10 @@ import {
   type PlatformChartAccountDetail,
   type PlatformSupplierRow,
 } from '../services/subscriptionApi'
+import { formatMoney } from '../utils/formatMoney'
 
 type LineDraft = {
+  id: string
   chartOfAccountId: string
   narration: string
   quantity: string
@@ -23,9 +29,55 @@ type LineDraft = {
   taxAmount: string
 }
 
-function emptyLine(): LineDraft {
-  return { chartOfAccountId: '', narration: '', quantity: '1', unitAmount: '', taxAmount: '0' }
+function newLineId(): string {
+  const c = globalThis.crypto
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID()
+  if (c && typeof c.getRandomValues === 'function') {
+    const buf = new Uint8Array(16)
+    c.getRandomValues(buf)
+    buf[6] = (buf[6] & 0x0f) | 0x40
+    buf[8] = (buf[8] & 0x3f) | 0x80
+    const h = Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('')
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`
 }
+
+function emptyLine(): LineDraft {
+  return {
+    id: newLineId(),
+    chartOfAccountId: '',
+    narration: '',
+    quantity: '1',
+    unitAmount: '',
+    taxAmount: '0',
+  }
+}
+
+function parseNum(value: string): number {
+  const n = Number.parseFloat(value.replace(/,/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
+
+function lineTotal(line: LineDraft): number {
+  return parseNum(line.quantity) * parseNum(line.unitAmount) + parseNum(line.taxAmount)
+}
+
+function accountOptions(accounts: PlatformChartAccountDetail[]): SearchableSelectOption[] {
+  return accounts
+    .slice()
+    .sort((a, b) => a.code.localeCompare(b.code))
+    .map((a) => ({
+      value: a.id,
+      label: `${a.code} — ${a.name}`,
+      hint: a.description ?? undefined,
+    }))
+}
+
+const QB_SELECT_TABLE =
+  '!rounded-sm !border-qb-border !px-2 !py-1.5 !text-xs !font-normal !text-qb-heading !shadow-sm focus:!border-qb-primary focus:!ring-1 focus:!ring-qb-primary/35'
+const QB_DROPDOWN = '!rounded-md !border-qb-border'
+const ACCOUNT_LIST_MAX = 'max-h-[7.5rem]'
 
 export function PlatformBillNewPage() {
   const navigate = useNavigate()
@@ -45,6 +97,11 @@ export function PlatformBillNewPage() {
   const [newSupplierName, setNewSupplierName] = useState('')
   const [newSupplierEmail, setNewSupplierEmail] = useState('')
   const [creatingSupplier, setCreatingSupplier] = useState(false)
+  const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null)
+
+  const dismissToast = useCallback(() => setToast(null), [])
+  const lineSelectOptions = useMemo(() => accountOptions(accounts), [accounts])
+  const billTotal = useMemo(() => lines.reduce((sum, line) => sum + lineTotal(line), 0), [lines])
 
   useEffect(() => {
     let cancelled = false
@@ -57,7 +114,11 @@ export function PlatformBillNewPage() {
         setAccounts(a)
         if (s[0]) setSupplierId(s[0].id)
       } catch (e) {
-        if (!cancelled) setError(e instanceof ApiError ? e.message : 'Could not load form data.')
+        if (!cancelled) {
+          const message = e instanceof ApiError ? e.message : 'Could not load form data.'
+          setError(message)
+          setToast({ message, variant: 'error' })
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -67,38 +128,70 @@ export function PlatformBillNewPage() {
     }
   }, [])
 
-  if (!canManage) {
-    return (
-      <PageTransition>
-        <PageCard variant="default" className="p-5">
-          <p className="text-sm text-qb-muted">You do not have permission to create platform bills.</p>
-          <Link to={APP_PATHS.platformBills} className="mt-2 inline-block text-sm text-qb-primary">
-            Back
-          </Link>
-        </PageCard>
-      </PageTransition>
-    )
+  const reportError = (message: string) => {
+    setError(message)
+    setToast({ message, variant: 'error' })
   }
 
-  const submit = async () => {
+  const updateLine = (id: string, patch: Partial<LineDraft>) => {
+    setLines((prev) => prev.map((line) => (line.id === id ? { ...line, ...patch } : line)))
+  }
+
+  const addLine = () => setLines((prev) => [...prev, emptyLine()])
+
+  const removeLine = (id: string) => {
+    if (lines.length <= 2) return
+    setLines((prev) => prev.filter((line) => line.id !== id))
+  }
+
+  const createSupplier = async () => {
     setError(null)
+    setToast(null)
+    if (!newSupplierName.trim() || !newSupplierEmail.trim()) {
+      reportError('Name and email are required.')
+      return
+    }
+    setCreatingSupplier(true)
+    try {
+      const supplier = await createPlatformSupplier({
+        name: newSupplierName.trim(),
+        email: newSupplierEmail.trim(),
+      })
+      setSuppliers([supplier])
+      setSupplierId(supplier.id)
+      setNewSupplierName('')
+      setNewSupplierEmail('')
+      setToast({ message: 'Supplier added.', variant: 'success' })
+    } catch (e) {
+      reportError(e instanceof ApiError ? e.message : 'Could not create supplier.')
+    } finally {
+      setCreatingSupplier(false)
+    }
+  }
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setToast(null)
     const parsed = lines
-      .map((l) => ({
-        chartOfAccountId: l.chartOfAccountId.trim(),
-        narration: l.narration.trim() || 'Line',
-        quantity: parseFloat(l.quantity) || 0,
-        unitAmount: parseFloat(l.unitAmount) || 0,
-        taxAmount: parseFloat(l.taxAmount) || 0,
+      .map((line) => ({
+        chartOfAccountId: line.chartOfAccountId.trim(),
+        narration: line.narration.trim() || 'Line',
+        quantity: parseNum(line.quantity),
+        unitAmount: parseNum(line.unitAmount),
+        taxAmount: parseNum(line.taxAmount),
       }))
-      .filter((l) => l.chartOfAccountId && (l.quantity * l.unitAmount + l.taxAmount > 0))
+      .filter((line) => line.chartOfAccountId && line.quantity * line.unitAmount + line.taxAmount > 0)
+
     if (!supplierId) {
-      setError('Select a supplier.')
+      reportError('Select a supplier.')
       return
     }
     if (parsed.length === 0) {
-      setError('Add at least one line with an account and amount.')
+      reportError('Add at least one line with an account and amount.')
       return
     }
+
     setSubmitting(true)
     try {
       const row = await createPlatformBillApi({
@@ -110,39 +203,96 @@ export function PlatformBillNewPage() {
       })
       navigate(platformBillDetailPath(row.id))
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Could not create bill.')
+      reportError(e instanceof ApiError ? e.message : 'Could not create bill.')
     } finally {
       setSubmitting(false)
     }
   }
 
   const fieldClass =
-    'rounded-sm border border-qb-border bg-white px-2 py-1.5 text-sm text-qb-heading focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35'
+    'w-full rounded-sm border border-qb-border bg-white px-3 py-2 text-sm text-qb-heading placeholder:text-qb-muted/60 focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35'
+  const amountInputClass =
+    'w-full rounded-sm border border-qb-border bg-white px-2 py-1.5 text-xs tabular-nums text-qb-heading focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35'
+
+  if (!canManage) {
+    return (
+      <PageTransition>
+        <PageCard
+          variant="default"
+          className="space-y-3 rounded-md border-qb-border p-5 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
+        >
+          <p className="text-sm text-qb-muted">You do not have permission to create platform bills.</p>
+          <Link
+            to={APP_PATHS.platformBills}
+            className="inline-flex items-center text-sm font-medium text-qb-muted hover:text-qb-heading"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back
+          </Link>
+        </PageCard>
+      </PageTransition>
+    )
+  }
 
   return (
     <PageTransition>
-      <div className="space-y-6 py-2">
-        <PageCard variant="default" className="rounded-md border-qb-border p-5">
+      <Toast
+        message={toast?.message ?? null}
+        variant={toast?.variant ?? 'success'}
+        onDismiss={dismissToast}
+      />
+      <div className="space-y-5 py-2 lg:space-y-6">
+        <PageCard
+          variant="default"
+          className="space-y-4 rounded-md border-qb-border p-5 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
+        >
           <Link
             to={APP_PATHS.platformBills}
-            className="text-sm font-medium text-qb-muted hover:text-qb-heading"
+            className="inline-flex items-center text-sm font-medium text-qb-muted hover:text-qb-heading"
           >
-            ← Back
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back
           </Link>
-          <h1 className="mt-3 text-2xl font-semibold text-qb-heading">New platform bill</h1>
-          {loading ? <p className="mt-4 text-sm text-qb-muted">Loading…</p> : null}
-          {error ? <p className="mt-4 text-sm text-red-700">{error}</p> : null}
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-qb-heading">New platform bill</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-qb-muted">
+              Create a supplier bill against the DirectPay platform chart of accounts. Add line
+              items with an account, narration, quantity, amount, and tax.
+            </p>
+          </div>
         </PageCard>
 
+        {loading ? (
+          <PageCard
+            variant="default"
+            className="flex items-center gap-2 rounded-md border-qb-border py-10 text-qb-muted shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
+          >
+            <Loader2 className="h-5 w-5 animate-spin text-qb-muted" />
+            Loading form data...
+          </PageCard>
+        ) : null}
+
+        {error ? (
+          <PageCard
+            variant="default"
+            className="rounded-md border-red-200 bg-red-50/80 p-4 shadow-[0_1px_2px_rgba(57,58,61,0.06)]"
+          >
+            <p className="text-sm font-medium text-red-800">{error}</p>
+          </PageCard>
+        ) : null}
+
         {!loading ? (
-          <PageCard variant="default" className="space-y-4 rounded-md border-qb-border p-5">
+          <PageCard
+            variant="default"
+            className="space-y-6 rounded-md border-qb-border p-5 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
+          >
             {suppliers.length === 0 ? (
-              <div className="rounded-sm border border-amber-200 bg-amber-50 p-4 text-sm">
-                <p className="font-medium text-amber-900">No suppliers yet</p>
-                <p className="mt-1 text-amber-800">
-                  Add a supplier (email required before you can approve bills).
+              <div className="rounded-md border border-amber-200 bg-amber-50/90 p-4 text-sm shadow-[0_1px_2px_rgba(57,58,61,0.06)]">
+                <p className="font-semibold text-amber-950">No suppliers yet</p>
+                <p className="mt-1 text-amber-900">
+                  Add a supplier first. Email is required before bills can be approved.
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
                   <input
                     placeholder="Supplier name"
                     value={newSupplierName}
@@ -159,55 +309,36 @@ export function PlatformBillNewPage() {
                   <button
                     type="button"
                     disabled={creatingSupplier}
-                    onClick={async () => {
-                      setError(null)
-                      if (!newSupplierName.trim() || !newSupplierEmail.trim()) {
-                        setError('Name and email are required.')
-                        return
-                      }
-                      setCreatingSupplier(true)
-                      try {
-                        const s = await createPlatformSupplier({
-                          name: newSupplierName.trim(),
-                          email: newSupplierEmail.trim(),
-                        })
-                        setSuppliers([s])
-                        setSupplierId(s.id)
-                        setNewSupplierName('')
-                        setNewSupplierEmail('')
-                      } catch (e) {
-                        setError(e instanceof ApiError ? e.message : 'Could not create supplier.')
-                      } finally {
-                        setCreatingSupplier(false)
-                      }
-                    }}
-                    className="rounded-sm bg-qb-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    onClick={() => void createSupplier()}
+                    className="rounded-sm border border-qb-border bg-white px-4 py-2 text-sm font-semibold text-qb-heading shadow-sm hover:bg-qb-surface disabled:opacity-50"
                   >
-                    {creatingSupplier ? 'Saving…' : 'Add supplier'}
+                    {creatingSupplier ? 'Saving...' : 'Add supplier'}
                   </button>
                 </div>
               </div>
             ) : (
-              <label className="block space-y-1 text-sm">
-                <span className="text-xs font-semibold uppercase text-qb-muted">Supplier</span>
-                <select
-                  value={supplierId}
-                  onChange={(e) => setSupplierId(e.target.value)}
-                  className={`${fieldClass} w-full max-w-md`}
-                >
-                  {suppliers.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {suppliers.length > 0 ? (
-              <>
-                <div className="flex flex-wrap gap-4">
-                  <label className="space-y-1 text-sm">
-                    <span className="text-xs font-semibold uppercase text-qb-muted">Issue date</span>
+              <form noValidate onSubmit={(e) => void submit(e)} className="space-y-6">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <label className="block space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                      Supplier
+                    </span>
+                    <select
+                      value={supplierId}
+                      onChange={(e) => setSupplierId(e.target.value)}
+                      className={fieldClass}
+                    >
+                      {suppliers.map((supplier) => (
+                        <option key={supplier.id} value={supplier.id}>
+                          {supplier.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                      Issue date
+                    </span>
                     <input
                       type="date"
                       value={issueDate}
@@ -215,8 +346,10 @@ export function PlatformBillNewPage() {
                       className={fieldClass}
                     />
                   </label>
-                  <label className="space-y-1 text-sm">
-                    <span className="text-xs font-semibold uppercase text-qb-muted">Due date</span>
+                  <label className="block space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                      Due date
+                    </span>
                     <input
                       type="date"
                       value={dueDate}
@@ -224,105 +357,141 @@ export function PlatformBillNewPage() {
                       className={fieldClass}
                     />
                   </label>
-                  <label className="min-w-[10rem] flex-1 space-y-1 text-sm">
-                    <span className="text-xs font-semibold uppercase text-qb-muted">Reference</span>
+                  <label className="block space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                      Reference
+                    </span>
                     <input
                       value={reference}
                       onChange={(e) => setReference(e.target.value)}
-                      className={`${fieldClass} w-full`}
+                      className={fieldClass}
+                      placeholder="Optional"
                     />
                   </label>
                 </div>
 
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase text-qb-muted">Lines</p>
-                  {lines.map((line, i) => (
-                <div
-                  key={i}
-                  className="flex flex-wrap items-end gap-2 rounded-sm border border-qb-border bg-qb-surface/30 p-3"
-                >
-                  <select
-                    value={line.chartOfAccountId}
-                    onChange={(e) =>
-                      setLines((p) => p.map((x, j) => (j === i ? { ...x, chartOfAccountId: e.target.value } : x)))
-                    }
-                    className={`${fieldClass} min-w-[10rem] flex-1`}
-                  >
-                    <option value="">Account…</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.code} — {a.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    placeholder="Description"
-                    value={line.narration}
-                    onChange={(e) =>
-                      setLines((p) => p.map((x, j) => (j === i ? { ...x, narration: e.target.value } : x)))
-                    }
-                    className={`${fieldClass} min-w-[6rem] flex-1`}
-                  />
-                  <input
-                    type="number"
-                    placeholder="Qty"
-                    value={line.quantity}
-                    onChange={(e) =>
-                      setLines((p) => p.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))
-                    }
-                    className={`${fieldClass} w-20 tabular-nums`}
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Amount"
-                    value={line.unitAmount}
-                    onChange={(e) =>
-                      setLines((p) => p.map((x, j) => (j === i ? { ...x, unitAmount: e.target.value } : x)))
-                    }
-                    className={`${fieldClass} w-28 tabular-nums`}
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Tax"
-                    value={line.taxAmount}
-                    onChange={(e) =>
-                      setLines((p) => p.map((x, j) => (j === i ? { ...x, taxAmount: e.target.value } : x)))
-                    }
-                    className={`${fieldClass} w-24 tabular-nums`}
-                  />
-                  {lines.length > 2 ? (
+                <div className="overflow-x-auto rounded-sm border border-qb-border bg-white">
+                  <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-qb-border bg-qb-surface text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                        <th className="px-2 py-2.5 pr-2">Account</th>
+                        <th className="px-2 py-2.5 pr-2">Narration</th>
+                        <th className="px-2 py-2.5 pr-2 text-right">Qty</th>
+                        <th className="px-2 py-2.5 pr-2 text-right">Amount</th>
+                        <th className="px-2 py-2.5 pr-2 text-right">Tax</th>
+                        <th className="px-2 py-2.5 pr-2 text-right">Line total</th>
+                        <th className="w-10 px-1 py-2.5" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-qb-border">
+                      {lines.map((line) => (
+                        <tr key={line.id} className="align-top hover:bg-qb-surface/40">
+                          <td className="py-2 pr-2">
+                            <SearchableSelect
+                              value={line.chartOfAccountId}
+                              onChange={(chartOfAccountId) => updateLine(line.id, { chartOfAccountId })}
+                              options={lineSelectOptions}
+                              placeholder="Account"
+                              emptyMessage="No accounts"
+                              noResultsMessage="No match"
+                              buttonClassName={QB_SELECT_TABLE}
+                              listMaxHeightClass={ACCOUNT_LIST_MAX}
+                              dropdownClassName={QB_DROPDOWN}
+                              className="min-w-[12rem]"
+                            />
+                          </td>
+                          <td className="max-w-[min(28rem,42vw)] min-w-[10rem] p-2 pr-2 align-top">
+                            <div className={QB_LINE_NARRATION_SHELL}>
+                              <LineNarrationTextarea
+                                value={line.narration}
+                                onValueChange={(narration) => updateLine(line.id, { narration })}
+                                placeholder="Line narration"
+                                ariaLabel="Line narration"
+                              />
+                            </div>
+                          </td>
+                          <td className="p-2 pr-2">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={line.quantity}
+                              onChange={(e) => updateLine(line.id, { quantity: e.target.value })}
+                              className={amountInputClass}
+                              placeholder="1"
+                            />
+                          </td>
+                          <td className="p-2 pr-2">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={line.unitAmount}
+                              onChange={(e) => updateLine(line.id, { unitAmount: e.target.value })}
+                              className={amountInputClass}
+                              placeholder="0.00"
+                            />
+                          </td>
+                          <td className="p-2 pr-2">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={line.taxAmount}
+                              onChange={(e) => updateLine(line.id, { taxAmount: e.target.value })}
+                              className={amountInputClass}
+                              placeholder="0.00"
+                            />
+                          </td>
+                          <td className="p-2 pr-2 text-right text-xs tabular-nums text-qb-heading">
+                            {formatMoney(lineTotal(line), { decimals: 2 })}
+                          </td>
+                          <td className="p-2">
+                            <button
+                              type="button"
+                              onClick={() => removeLine(line.id)}
+                              className="rounded-sm p-1.5 text-qb-muted hover:bg-qb-surface hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+                              aria-label="Remove line"
+                              disabled={lines.length <= 2}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="border-t border-qb-border bg-qb-surface/50 px-2 py-2">
                     <button
                       type="button"
-                      onClick={() => setLines((p) => p.filter((_, j) => j !== i))}
-                      className="text-xs text-qb-muted hover:text-red-600"
+                      onClick={addLine}
+                      className="inline-flex items-center gap-1.5 text-sm font-semibold text-qb-heading underline decoration-qb-border underline-offset-2 hover:text-qb-muted"
                     >
-                      Remove
+                      <Plus className="h-4 w-4" />
+                      Add line
                     </button>
-                  ) : null}
                   </div>
-                  ))}
                 </div>
-                <div className="flex flex-wrap gap-2">
+
+                <div className="flex flex-wrap items-end justify-between gap-4 border-t border-qb-border pt-5">
+                  <div className="space-y-1 text-sm tabular-nums">
+                    <p className="text-qb-muted">
+                      Bill total{' '}
+                      <span className="font-semibold text-qb-heading">
+                        {formatMoney(billTotal, { decimals: 2 })}
+                      </span>
+                    </p>
+                    <p className="text-xs text-qb-muted">
+                      Empty or zero-value lines are ignored when the draft is saved.
+                    </p>
+                  </div>
                   <button
-                    type="button"
-                    onClick={() => setLines((p) => [...p, emptyLine()])}
-                    className="rounded-sm border border-qb-border bg-white px-3 py-2 text-sm"
-                  >
-                    Add line
-                  </button>
-                  <button
-                    type="button"
+                    type="submit"
                     disabled={submitting}
-                    onClick={() => void submit()}
-                    className="rounded-sm bg-qb-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    className="rounded-sm border border-qb-border bg-white px-6 py-2.5 text-sm font-semibold text-qb-heading shadow-sm hover:bg-qb-surface disabled:opacity-50"
                   >
-                    {submitting ? 'Saving…' : 'Save draft'}
+                    {submitting ? 'Saving...' : 'Save draft'}
                   </button>
                 </div>
-              </>
-            ) : null}
+              </form>
+            )}
           </PageCard>
         ) : null}
       </div>
