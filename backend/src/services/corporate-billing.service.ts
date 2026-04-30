@@ -9,7 +9,6 @@ import {
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
 import { newGuestToken } from "../lib/guest-token.js";
-import { CORPORATE_EXCLUDED_SLUGS } from "../config/plan-entitlement-matrix.js";
 import { cancelPendingInvoicePaymentLedgers } from "./billing-ledger.service.js";
 import { billingPeriodEndFromStart, createInvoiceReference, dueInDays } from "../utils/billing.js";
 import { queueSubscriptionInvoiceOwnerEmail } from "./subscription-invoice-email.service.js";
@@ -235,10 +234,7 @@ export async function getCorporateEntitlementCatalog() {
   try {
     const plan = await getPlanEntitlementsDetail(PlanCode.BUSINESS_PRO);
     const items = plan.planSystemProducts
-      .filter(
-        (l) =>
-          l.systemProduct?.slug && !CORPORATE_EXCLUDED_SLUGS.has(l.systemProduct.slug),
-      )
+      .filter((l) => l.systemProduct?.slug)
       .map((l) => ({
         id: l.systemProduct.id,
         serviceId: l.systemProduct.serviceId,

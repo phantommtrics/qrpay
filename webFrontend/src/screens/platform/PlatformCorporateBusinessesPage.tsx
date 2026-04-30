@@ -308,8 +308,9 @@ function AssignCorporateModal({
               </button>
             </div>
             <p className="mt-1 text-xs text-slate-500">
-              Leave all unchecked for the full Corporate plan entitlements. Select one or more products to
-              restrict this business to only those modules (otherwise the default Corporate catalog applies).
+              Leave all unchecked for the default Corporate plan entitlements. Select one or more products
+              to restrict this business to only those modules. POS, products, and orders can be selected for
+              corporates that need retail-style access.
             </p>
             <div className="mt-3 max-h-48 space-y-2 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/80 p-3">
               {catalog.map((item) => (
