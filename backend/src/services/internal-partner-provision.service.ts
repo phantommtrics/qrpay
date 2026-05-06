@@ -42,7 +42,7 @@ export type ProvisionInternalPartnerBusinessInput = {
   businessName: string;
   slug?: string;
   industry?: string;
-  /** Optional per-business webhook URL (otherwise INTERNAL_PARTNER_WEBHOOK_URL). */
+  /** Optional per-business webhook URL (otherwise comma-separated INTERNAL_PARTNER_WEBHOOK_URL defaults). */
   webhookUrl?: string | null;
 };
 

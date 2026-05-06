@@ -7,8 +7,8 @@ import {
 } from "@prisma/client";
 
 import {
-  internalPartnerWebhookSigningSecretFromEnv,
-  internalPartnerWebhookUrlFromEnv,
+  internalPartnerWebhookSigningSecretForOutboundUrl,
+  internalPartnerWebhookTargetsFromEnv,
 } from "../config/internal-partner-env.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -18,8 +18,16 @@ const BACKOFF_MS = [
 
 let workerStarted = false;
 
-function partnerWebhookUrlForBusiness(internalPartnerWebhookUrl: string | null | undefined): string | null {
-  return internalPartnerWebhookUrl?.trim() || internalPartnerWebhookUrlFromEnv() || null;
+function partnerWebhookUrlsForBusiness(internalPartnerWebhookUrl: string | null | undefined): string[] {
+  const perBiz = internalPartnerWebhookUrl?.trim();
+  if (perBiz) {
+    if (!internalPartnerWebhookSigningSecretForOutboundUrl(perBiz)) {
+      return [];
+    }
+    return [perBiz];
+  }
+  const targets = internalPartnerWebhookTargetsFromEnv();
+  return targets ? targets.map((t) => t.url) : [];
 }
 
 export async function enqueuePartnerOutboundWebhookJob(
@@ -87,11 +95,10 @@ export async function queueInternalPartnerPaymentCompleted(
     return;
   }
 
-  const url = partnerWebhookUrlForBusiness(order.business.internalPartnerWebhookUrl);
-  const secret = internalPartnerWebhookSigningSecretFromEnv();
-  if (!url || !secret) {
+  const urls = partnerWebhookUrlsForBusiness(order.business.internalPartnerWebhookUrl);
+  if (urls.length === 0) {
     console.warn(
-      "[internal-partner] Webhook not queued: set INTERNAL_PARTNER_WEBHOOK_URL and INTERNAL_PARTNER_WEBHOOK_SECRET (or per-business internalPartnerWebhookUrl).",
+      "[internal-partner] Webhook not queued: set INTERNAL_PARTNER_WEBHOOK_URL and INTERNAL_PARTNER_WEBHOOK_SECRET (comma-separated URLs; optional INTERNAL_PARTNER_WEBHOOK_SECRETS for per-URL keys), or per-business webhookUrl with a matching or fallback signing secret.",
     );
     return;
   }
@@ -114,7 +121,10 @@ export async function queueInternalPartnerPaymentCompleted(
     occurredAt: payment.completedAt?.toISOString() ?? new Date().toISOString(),
   };
 
-  await enqueuePartnerOutboundWebhookJob(url, JSON.stringify(body));
+  const bodyText = JSON.stringify(body);
+  for (const url of urls) {
+    await enqueuePartnerOutboundWebhookJob(url, bodyText);
+  }
 }
 
 export async function queueInternalPartnerPaymentCancelledForPaymentIds(
@@ -122,10 +132,6 @@ export async function queueInternalPartnerPaymentCancelledForPaymentIds(
   reason: string,
 ): Promise<void> {
   const unique = [...new Set(paymentIds.filter(Boolean))];
-  const secret = internalPartnerWebhookSigningSecretFromEnv();
-  if (!secret) {
-    return;
-  }
 
   for (const paymentId of unique) {
     const payment = await prisma.payment.findUnique({
@@ -159,8 +165,8 @@ export async function queueInternalPartnerPaymentCancelledForPaymentIds(
       continue;
     }
 
-    const url = partnerWebhookUrlForBusiness(payment.order.business.internalPartnerWebhookUrl);
-    if (!url) {
+    const urls = partnerWebhookUrlsForBusiness(payment.order.business.internalPartnerWebhookUrl);
+    if (urls.length === 0) {
       continue;
     }
 
@@ -177,7 +183,10 @@ export async function queueInternalPartnerPaymentCancelledForPaymentIds(
       paymentStatus: payment.status,
       occurredAt: new Date().toISOString(),
     };
-    await enqueuePartnerOutboundWebhookJob(url, JSON.stringify(body));
+    const bodyText = JSON.stringify(body);
+    for (const url of urls) {
+      await enqueuePartnerOutboundWebhookJob(url, bodyText);
+    }
   }
 }
 
@@ -186,11 +195,6 @@ export async function queueInternalPartnerPaymentFailed(
   reason: string,
   detail?: string | null,
 ): Promise<void> {
-  const secret = internalPartnerWebhookSigningSecretFromEnv();
-  if (!secret) {
-    return;
-  }
-
   const payment = await prisma.payment.findUnique({
     where: { id: paymentId },
     select: {
@@ -222,8 +226,8 @@ export async function queueInternalPartnerPaymentFailed(
     return;
   }
 
-  const url = partnerWebhookUrlForBusiness(payment.order.business.internalPartnerWebhookUrl);
-  if (!url) {
+  const urls = partnerWebhookUrlsForBusiness(payment.order.business.internalPartnerWebhookUrl);
+  if (urls.length === 0) {
     return;
   }
 
@@ -241,16 +245,23 @@ export async function queueInternalPartnerPaymentFailed(
     paymentStatus: payment.status,
     occurredAt: new Date().toISOString(),
   };
-  await enqueuePartnerOutboundWebhookJob(url, JSON.stringify(body));
+  const bodyText = JSON.stringify(body);
+  for (const url of urls) {
+    await enqueuePartnerOutboundWebhookJob(url, bodyText);
+  }
 }
 
 async function sendPartnerOutboundWebhookOnce(
   webhookUrl: string,
   bodyText: string,
 ): Promise<{ ok: boolean; httpStatus: number | null; error: string | null }> {
-  const secret = internalPartnerWebhookSigningSecretFromEnv();
+  const secret = internalPartnerWebhookSigningSecretForOutboundUrl(webhookUrl);
   if (!secret) {
-    return { ok: false, httpStatus: null, error: "INTERNAL_PARTNER_WEBHOOK_SECRET not configured" };
+    return {
+      ok: false,
+      httpStatus: null,
+      error: "No signing secret for this webhook URL (INTERNAL_PARTNER_WEBHOOK_SECRET or matching INTERNAL_PARTNER_WEBHOOK_URL / INTERNAL_PARTNER_WEBHOOK_SECRETS pair)",
+    };
   }
   const signature = crypto.createHmac("sha256", secret).update(bodyText).digest("hex");
   try {

@@ -282,16 +282,17 @@ async function cancelEasypayOrder(businessId: string, orderId: string) {
 
 Configure on Easypay:
 
-- `INTERNAL_PARTNER_WEBHOOK_URL` — default POST URL  
-- `INTERNAL_PARTNER_WEBHOOK_SECRET` — shared secret for HMAC  
-- Optional: `webhookUrl` on **provision** overrides the URL for that business only.
+- `INTERNAL_PARTNER_WEBHOOK_URL` — one or more default POST URLs (**comma-separated**). Each URL gets its own queued delivery with the same JSON body.
+- `INTERNAL_PARTNER_WEBHOOK_SECRET` — default HMAC key: used for every default URL when `INTERNAL_PARTNER_WEBHOOK_SECRETS` is unset, and as fallback for **provision** `webhookUrl` values that are not listed in the env URL list.
+- `INTERNAL_PARTNER_WEBHOOK_SECRETS` (optional) — comma-separated signing keys: **one** value reuses the same key for all default URLs; **N** values must match **N** URLs (same order) so each partner verifies with its own secret (smaller blast radius if one key leaks).
+- Optional: `webhookUrl` on **provision** overrides the default list for that business only (single URL).
 
 Deliveries are **queued and retried** on non-2xx or network errors (worker interval: `INTERNAL_PARTNER_WEBHOOK_WORKER_MS`, default 20000 ms).
 
 ### Signature
 
 - Header: `X-Easypay-Signature: sha256=<hex>`
-- `<hex>` = `HMAC_SHA256(INTERNAL_PARTNER_WEBHOOK_SECRET, rawBody)` where `rawBody` is the **exact** UTF-8 JSON string of the request body (same string Easypay stored for the job).
+- `<hex>` = `HMAC_SHA256(<signing secret for that webhook URL>, rawBody)` where `rawBody` is the **exact** UTF-8 JSON string of the request body (same string Easypay stored for the job). The signing secret is the env entry paired with that URL, or `INTERNAL_PARTNER_WEBHOOK_SECRET` when using a single shared key or a per-business URL not in the paired list.
 
 ### Events (`event` field in JSON)
 
@@ -335,7 +336,7 @@ Search Easypay API logs for the prefix **`[internal-partner]`**:
 
 | Log message | Meaning |
 |-------------|---------|
-| `Webhook not queued: set INTERNAL_PARTNER_WEBHOOK_URL…` | Success path but webhook URL or signing secret missing on Easypay. |
+| `Webhook not queued: set INTERNAL_PARTNER_WEBHOOK_URL…` | Success path but default webhook URLs / signing config is missing or invalid (e.g. URL count ≠ secret count when using multiple `INTERNAL_PARTNER_WEBHOOK_SECRETS`). |
 | `Failed to queue payment.completed webhook:` | Rare enqueue error after a successful payment. |
 | `Failed to queue cancel webhook:` | Enqueue error when cancelling or replacing a checkout. |
 | `Failed to queue payment.failed webhook:` | Enqueue error on APS failure handling. |
@@ -349,7 +350,7 @@ APS checkout also logs under **`[APS Wallet]`** (e.g. `order_checkout_authorize_
 
 ## Checklist for 7-aside
 
-1. Store `EASYPAY_API_BASE_URL`, `INTERNAL_PARTNER_API_SECRET`, and the same `INTERNAL_PARTNER_WEBHOOK_SECRET` used to verify inbound webhooks.  
+1. Store `EASYPAY_API_BASE_URL`, `INTERNAL_PARTNER_API_SECRET`, and the HMAC secret(s) that match Easypay (`INTERNAL_PARTNER_WEBHOOK_SECRET` and/or per-URL `INTERNAL_PARTNER_WEBHOOK_SECRETS`) for verifying inbound webhooks.  
 2. On organiser signup: **provision** → persist `businessId`.  
 3. On payer checkout: **create order** → **list wallets** → **start wallet** or APS **authorize** / **complete**.  
 4. Host an HTTPS webhook; verify **HMAC**; respond **2xx**; dedupe by `paymentId` + `event`.  
