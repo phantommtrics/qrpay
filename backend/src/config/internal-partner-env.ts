@@ -1,6 +1,7 @@
 /**
  * Server-to-server integration for an internal partner app (e.g. field booking).
  * Set INTERNAL_PARTNER_API_SECRET to enable POST /api/internal-partner/v1/* routes.
+ * Comma-separated values = multiple accepted secrets (e.g. one key per partner app); any match authorizes.
  *
  * Outbound payment webhooks: comma-separated INTERNAL_PARTNER_WEBHOOK_URL values.
  * Signing: INTERNAL_PARTNER_WEBHOOK_SECRET applies to every URL, or set INTERNAL_PARTNER_WEBHOOK_SECRETS
@@ -8,9 +9,14 @@
  * Per-business webhookUrl overrides still use INTERNAL_PARTNER_WEBHOOK_SECRET unless the URL matches
  * a configured env pair (then that pair's secret is used).
  */
+export function internalPartnerApiSecrets(): readonly string[] | null {
+  const list = splitCommaList(process.env.INTERNAL_PARTNER_API_SECRET);
+  return list.length > 0 ? list : null;
+}
+
+/** First configured API secret, or null (prefer internalPartnerApiSecrets for auth). */
 export function internalPartnerApiSecret(): string | null {
-  const s = process.env.INTERNAL_PARTNER_API_SECRET?.trim();
-  return s ? s : null;
+  return internalPartnerApiSecrets()?.[0] ?? null;
 }
 
 let warnedInvalidWebhookSecrets = false;

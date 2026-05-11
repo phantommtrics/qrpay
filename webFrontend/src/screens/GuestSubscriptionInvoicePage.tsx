@@ -518,7 +518,7 @@ export function GuestSubscriptionInvoicePage() {
                           <span className="min-w-0 flex-1">
                             <span className="block font-semibold text-slate-900">{w.name}</span>
                             <span className="mt-1 block text-xs font-medium text-teal-800">
-                              Platform checkout (env credentials)
+                              Platform Subscription Checkout
                             </span>
                             <span className="mt-1 block font-mono text-xs text-slate-500">{w.code}</span>
                           </span>

@@ -1,8 +1,11 @@
 import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 
-import { internalPartnerApiSecret } from "../config/internal-partner-env.js";
+import { internalPartnerApiSecrets } from "../config/internal-partner-env.js";
 import { HttpError } from "../lib/http-error.js";
+
+/** When proxies strip `Authorization`, partners may send the same secret in this header (no `Bearer` prefix). */
+const ALT_AUTH_HEADER = "x-easypay-internal-partner-secret";
 
 function timingSafeEqualString(a: string, b: string): boolean {
   try {
@@ -17,23 +20,61 @@ function timingSafeEqualString(a: string, b: string): boolean {
   }
 }
 
+function headerString(req: Request, name: string): string {
+  const v = req.headers[name];
+  if (typeof v === "string") {
+    return v;
+  }
+  if (Array.isArray(v) && v.length > 0) {
+    return v[0] ?? "";
+  }
+  return "";
+}
+
 /**
- * Authenticates the internal partner backend via `Authorization: Bearer <INTERNAL_PARTNER_API_SECRET>`.
+ * Accepts `Authorization: Bearer <secret>`, a raw `Authorization: <secret>` (not Basic/Digest),
+ * or `X-Easypay-Internal-Partner-Secret: <secret>` when Authorization is missing or empty.
  */
-export function requireInternalPartnerApiSecret(
-  req: Request,
-  _res: Response,
-  next: NextFunction,
-) {
+function extractInternalPartnerToken(req: Request): string {
+  const auth = headerString(req, "authorization").trim();
+  if (auth) {
+    const bearer = /^Bearer\s+(.*)$/is.exec(auth);
+    if (bearer?.[1]) {
+      return bearer[1].trim();
+    }
+    const lower = auth.toLowerCase();
+    if (lower.startsWith("basic ") || lower.startsWith("digest ")) {
+      return "";
+    }
+    return auth;
+  }
+  return headerString(req, ALT_AUTH_HEADER).trim();
+}
+
+function tokenMatchesAnySecret(token: string, secrets: readonly string[]): boolean {
+  if (!token) {
+    return false;
+  }
+  return secrets.some((expected) => timingSafeEqualString(expected, token));
+}
+
+/**
+ * Authenticates the internal partner backend. Configure one or more secrets in INTERNAL_PARTNER_API_SECRET
+ * (comma-separated). Send `Authorization: Bearer <secret>`, or the same secret without the Bearer prefix,
+ * or header `X-Easypay-Internal-Partner-Secret: <secret>`.
+ */
+export function requireInternalPartnerApiSecret(req: Request, _res: Response, next: NextFunction) {
   try {
-    const expected = internalPartnerApiSecret();
-    if (!expected) {
+    const secrets = internalPartnerApiSecrets();
+    if (!secrets?.length) {
       throw new HttpError(503, "Internal partner API is not configured (INTERNAL_PARTNER_API_SECRET).");
     }
-    const raw = (req.headers.authorization || "").trim();
-    const token = raw.toLowerCase().startsWith("bearer ") ? raw.slice(7).trim() : "";
-    if (!token || !timingSafeEqualString(expected, token)) {
-      throw new HttpError(401, "Invalid or missing partner authorization.");
+    const token = extractInternalPartnerToken(req);
+    if (!tokenMatchesAnySecret(token, secrets)) {
+      throw new HttpError(
+        401,
+        "Invalid or missing partner authorization. Use the INTERNAL_PARTNER_API_SECRET value (not the webhook HMAC secret): Authorization: Bearer <secret>, or header X-Easypay-Internal-Partner-Secret: <secret>.",
+      );
     }
     next();
   } catch (e) {

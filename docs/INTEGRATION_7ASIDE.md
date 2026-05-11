@@ -29,14 +29,33 @@ Example: `https://api.easypay.example.com/api/internal-partner/v1/provision`
 
 ## Authentication
 
-Every request:
+Every request must include the **API** secret from Easypay’s environment (`INTERNAL_PARTNER_API_SECRET`). This is **not** the same value as `INTERNAL_PARTNER_WEBHOOK_SECRET` (used only to verify **inbound** payment webhooks from Easypay to your app).
+
+Preferred:
 
 ```http
 Authorization: Bearer <INTERNAL_PARTNER_API_SECRET>
 Content-Type: application/json
 ```
 
-If `INTERNAL_PARTNER_API_SECRET` is not set on Easypay, partner routes respond with **503** and a message that the internal partner API is not configured.
+Also accepted (for clients that omit the `Bearer` prefix):
+
+```http
+Authorization: <INTERNAL_PARTNER_API_SECRET>
+```
+
+If a reverse proxy or API gateway **strips** the `Authorization` header on outbound requests, send the same secret in:
+
+```http
+X-Easypay-Internal-Partner-Secret: <INTERNAL_PARTNER_API_SECRET>
+```
+
+Easypay may configure **comma-separated** values in `INTERNAL_PARTNER_API_SECRET`; any one of those secrets is accepted (useful when multiple partner backends share one Easypay deployment).
+
+| HTTP status | Meaning |
+|-------------|---------|
+| **503** | Easypay has no `INTERNAL_PARTNER_API_SECRET` configured. |
+| **401** | Missing/ wrong secret, wrong header, or the webhook signing secret was used instead of the API secret. Confirm the exact string Easypay has in `INTERNAL_PARTNER_API_SECRET` (no stray quotes or spaces in `.env`). |
 
 ---
 
