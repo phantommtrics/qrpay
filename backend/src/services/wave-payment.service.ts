@@ -50,6 +50,43 @@ export function rethrowWaveAxiosError(error: unknown, context: string): never {
   throw error;
 }
 
+export type WaveBusinessType = "fintech" | "other";
+
+export interface WaveAggregatedMerchantRequest {
+  name: string;
+  business_description: string;
+  business_type: WaveBusinessType;
+  business_registration_identifier?: string | null;
+  business_sector?: string | null;
+  website_url?: string | null;
+  manager_name?: string | null;
+}
+
+export interface WaveAggregatedMerchant {
+  id: string;
+  name: string;
+  business_registration_id?: string | null;
+  business_sector?: string | null;
+  business_type: WaveBusinessType;
+  website_url?: string | null;
+  payout_fee_structure_name?: string;
+  checkout_fee_structure_name?: string;
+  business_description: string;
+  manager_name?: string | null;
+  is_locked: boolean;
+  when_created: string;
+}
+
+export interface WavePageInfo {
+  has_next_page: boolean;
+  end_cursor?: string | null;
+}
+
+export interface WavePaginatedAggregatedMerchants {
+  page_info: WavePageInfo;
+  items: WaveAggregatedMerchant[];
+}
+
 export interface WaveCheckoutSessionRequest {
   amount: string;
   currency: string;
@@ -57,6 +94,7 @@ export interface WaveCheckoutSessionRequest {
   error_url: string;
   client_reference?: string | null;
   restrict_payer_mobile?: string;
+  aggregated_merchant_id?: string;
 }
 
 export interface WaveCheckoutSession {
@@ -119,6 +157,72 @@ export class WavePaymentService {
       return res.data;
     } catch (e) {
       rethrowWaveAxiosError(e, "Wave get checkout session");
+    }
+  }
+
+  async createAggregatedMerchant(
+    payload: WaveAggregatedMerchantRequest,
+  ): Promise<WaveAggregatedMerchant> {
+    try {
+      const res = await this.api.post<WaveAggregatedMerchant>(
+        "/v1/aggregated_merchants",
+        payload,
+      );
+      return res.data;
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave create aggregated merchant");
+    }
+  }
+
+  async updateAggregatedMerchant(
+    id: string,
+    payload: WaveAggregatedMerchantRequest,
+  ): Promise<WaveAggregatedMerchant> {
+    try {
+      const res = await this.api.put<WaveAggregatedMerchant>(
+        `/v1/aggregated_merchants/${encodeURIComponent(id)}`,
+        payload,
+      );
+      return res.data;
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave update aggregated merchant");
+    }
+  }
+
+  async getAggregatedMerchant(id: string): Promise<WaveAggregatedMerchant> {
+    try {
+      const res = await this.api.get<WaveAggregatedMerchant>(
+        `/v1/aggregated_merchants/${encodeURIComponent(id)}`,
+      );
+      return res.data;
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave get aggregated merchant");
+    }
+  }
+
+  async deleteAggregatedMerchant(id: string): Promise<void> {
+    try {
+      await this.api.delete(`/v1/aggregated_merchants/${encodeURIComponent(id)}`);
+    } catch (e) {
+      if (axios.isAxiosError(e) && e.response?.status === 404) {
+        return;
+      }
+      rethrowWaveAxiosError(e, "Wave delete aggregated merchant");
+    }
+  }
+
+  async listAggregatedMerchants(params?: {
+    first?: number;
+    after?: string;
+  }): Promise<WavePaginatedAggregatedMerchants> {
+    try {
+      const res = await this.api.get<WavePaginatedAggregatedMerchants>(
+        "/v1/aggregated_merchants",
+        { params },
+      );
+      return res.data;
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave list aggregated merchants");
     }
   }
 }

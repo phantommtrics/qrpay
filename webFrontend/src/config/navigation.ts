@@ -92,6 +92,7 @@ export const APP_PATHS = {
   platformActivityLog: '/platform/activity-log',
   platformSystemConfiguration: '/platform/system-configuration',
   platformBusinesses: '/platform/businesses',
+  platformWaveBusinesses: '/platform/wave-businesses',
   platformBusinessDetail: '/platform/businesses/:businessId',
   platformBillings: '/platform/billings',
   /** Corporate industry: tenant list and custom bill templates (platform operator). */
@@ -278,6 +279,12 @@ export const PLATFORM_BUSINESSES_SUBNAV: PlatformBusinessesSubNavItem[] = [
     name: 'business',
     path: APP_PATHS.platformBusinesses,
     title: 'Businesses',
+    permission: 'platform.businesses.manage',
+  },
+  {
+    name: 'wave-businesses',
+    path: APP_PATHS.platformWaveBusinesses,
+    title: 'Wave Businesses',
     permission: 'platform.businesses.manage',
   },
   {
@@ -587,6 +594,10 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes('/platform/businesses/') && pathname !== APP_PATHS.platformBusinesses) {
     return 'Business detail'
+  }
+
+  if (pathname.includes(APP_PATHS.platformWaveBusinesses)) {
+    return 'Wave Businesses'
   }
 
   if (pathname.includes(APP_PATHS.platformBusinesses)) {

@@ -9,7 +9,7 @@ import {
   createPendingInvoicePaymentLedger,
   createPendingWalletFeeLedgerForSubscriptionCheckout,
 } from "./billing-ledger.service.js";
-import { WavePaymentService } from "./wave-payment.service.js";
+import { waveServiceFromEnv } from "./wave-client-env.js";
 import { YonnaForexPaymentService } from "./yonna-forex-payment.service.js";
 import { resolveAppPublicBaseForBrowserReturns } from "../config/app-public-url.js";
 import {
@@ -21,21 +21,12 @@ import {
 } from "./payment-gateway.service.js";
 import type { OrderCheckoutWalletRow } from "./order-wallet-checkout.service.js";
 import { isApsWalletPlatformMerchantConfigured } from "../config/aps-wallet-env.js";
-import { waveApiBaseUrl, yonnaForexApiBaseUrl } from "../config/payment-provider-env.js";
+import { yonnaForexApiBaseUrl } from "../config/payment-provider-env.js";
 
 export type SubscriptionInvoiceCheckoutRow = SubscriptionInvoice & {
   plan: Plan;
   subscription: Subscription;
 };
-
-function waveServiceFromEnv(): WavePaymentService {
-  const baseUrl = waveApiBaseUrl();
-  const bearer = process.env.WAVE_CHECKOUT_BEARER;
-  if (!bearer) {
-    throw new HttpError(503, "Online checkout is not configured (WAVE_CHECKOUT_BEARER).");
-  }
-  return new WavePaymentService({ baseUrl, bearerToken: bearer });
-}
 
 function yonnaServiceFromEnv(): YonnaForexPaymentService {
   const baseUrl = yonnaForexApiBaseUrl();

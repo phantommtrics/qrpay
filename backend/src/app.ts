@@ -16,6 +16,7 @@ import {
   Prisma,
   SubscriptionStatus,
   UserRole,
+  WaveAggregatedMerchantProvisionTrigger,
 } from "@prisma/client";
 import multer from "multer";
 import { z } from "zod";
@@ -88,6 +89,11 @@ import {
   listBusinessGatewayCredentialStatus,
   upsertBusinessGatewayCredential,
 } from "./services/business-gateway-credential.service.js";
+import {
+  listPlatformWaveAggregatedMerchants,
+  listWaveAggregatedMerchantProvisionLogs,
+  provisionWaveAggregatedMerchantForBusiness,
+} from "./services/wave-aggregated-merchant.service.js";
 import {
   clearBusinessApsWalletCustomerAuth,
   clearPlatformApsWalletCustomerAuth,
@@ -1092,6 +1098,8 @@ const internalPartnerCreateOrderBodySchema = z.object({
   partnerExternalBookingId: z.string().min(1),
   amountGmd: z.number().positive(),
   currency: z.string().min(1).max(8).optional(),
+  /** Optional label for the booking/order type (e.g. "Pitch rental", "Tournament fee"). */
+  category: z.string().min(1).max(120).optional(),
 });
 
 const guestQuotationRespondBodySchema = z.object({
@@ -1273,6 +1281,68 @@ app.get(
           _count: business._count,
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/businesses/:businessId/wave-aggregated-merchant/provision",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "edit"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const force = Boolean(req.body?.force);
+      const result = await provisionWaveAggregatedMerchantForBusiness({
+        businessId: businessId as string,
+        trigger: WaveAggregatedMerchantProvisionTrigger.PLATFORM_MANUAL,
+        force,
+      });
+      res.json({ data: result });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/wave-aggregated-merchants",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "view"),
+  async (req, res, next) => {
+    try {
+      const firstRaw = req.query.first;
+      const afterRaw = req.query.after;
+      const first =
+        typeof firstRaw === "string" && firstRaw.trim()
+          ? Number.parseInt(firstRaw, 10)
+          : undefined;
+      const after = typeof afterRaw === "string" ? afterRaw : undefined;
+      const data = await listPlatformWaveAggregatedMerchants({
+        first: Number.isFinite(first) ? first : undefined,
+        after,
+      });
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/businesses/:businessId/wave-aggregated-merchant/provision-logs",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "view"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const logs = await listWaveAggregatedMerchantProvisionLogs(businessId as string);
+      res.json({ data: { logs } });
     } catch (error) {
       next(error);
     }
@@ -5473,6 +5543,7 @@ function formatSaleOrder(order: {
   payments?: Array<Parameters<typeof formatSalePaymentRow>[0]>;
   receipt?: { id: string; publicCode: string; receiptNumber: number } | null;
   partnerExternalBookingId?: string | null;
+  partnerOrderCategory?: string | null;
 }) {
   const tableLabel =
     order.tableLabelSnapshot?.trim() ||
@@ -5488,6 +5559,7 @@ function formatSaleOrder(order: {
     total: Number(order.total),
     currency: order.currency,
     partnerExternalBookingId: order.partnerExternalBookingId ?? null,
+    category: order.partnerOrderCategory ?? null,
     createdAt: order.createdAt.toISOString(),
     diningTableId: order.diningTableId ?? null,
     tableLabel,
@@ -6021,10 +6093,11 @@ app.get(
   async (req, res, next) => {
     try {
       const { businessId } = req.params;
-      const credentialStatus = await listBusinessGatewayCredentialStatus(businessId as string);
+      const statusPack = await listBusinessGatewayCredentialStatus(businessId as string);
       res.json({
         data: {
-          credentialStatus,
+          credentialStatus: statusPack.credentialStatus,
+          platformWaveConfigured: statusPack.platformWaveConfigured,
           webhookEndpoints: getPaymentWebhookEndpoints(),
         },
       });
@@ -6573,6 +6646,7 @@ app.post(
         partnerExternalBookingId: body.partnerExternalBookingId,
         amountGmd: body.amountGmd,
         currency: body.currency,
+        category: body.category,
       });
       response.status(created ? 201 : 200).json({
         data: { order: formatSaleOrder(order) },

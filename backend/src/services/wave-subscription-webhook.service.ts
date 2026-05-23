@@ -3,9 +3,8 @@ import crypto from "node:crypto";
 import { InvoiceStatus } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
-import { WavePaymentService } from "./wave-payment.service.js";
+import { waveServiceFromEnv } from "./wave-client-env.js";
 import { completeSubscriptionInvoicePayment } from "./subscription.service.js";
-import { waveApiBaseUrl } from "../config/payment-provider-env.js";
 import { CHECKOUT_ADAPTER_WAVE_GAMBIA } from "./payment-gateway.service.js";
 import { cancelPendingInvoicePaymentLedgers } from "./billing-ledger.service.js";
 
@@ -99,18 +98,14 @@ export async function processWaveSubscriptionWebhook(rawBody: string, signatureH
 
   if ((!paymentStatus && !checkoutStatus) && waveSessionId && mapped === "PENDING") {
     try {
-      const baseUrl = waveApiBaseUrl();
-      const bearer = process.env.WAVE_CHECKOUT_BEARER;
-      if (bearer) {
-        const waveApi = new WavePaymentService({ baseUrl, bearerToken: bearer });
-        const session = await waveApi.getCheckoutSession(waveSessionId);
-        paymentStatus = session?.payment_status || paymentStatus;
-        checkoutStatus = session?.checkout_status || checkoutStatus;
-        mapped =
-          statusMap[paymentStatus as string] ||
-          statusMap[checkoutStatus as string] ||
-          "PENDING";
-      }
+      const waveApi = waveServiceFromEnv();
+      const session = await waveApi.getCheckoutSession(waveSessionId);
+      paymentStatus = session?.payment_status || paymentStatus;
+      checkoutStatus = session?.checkout_status || checkoutStatus;
+      mapped =
+        statusMap[paymentStatus as string] ||
+        statusMap[checkoutStatus as string] ||
+        "PENDING";
     } catch {
       // keep mapped
     }

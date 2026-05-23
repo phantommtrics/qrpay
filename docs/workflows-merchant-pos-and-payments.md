@@ -11,7 +11,18 @@
 
 - **`listOrderCheckoutWallets`** — Lists gateways the business has **configured** (Merchant API + enabled payment method).
 - **`startWalletPayment`** / **`startGatewayWalletCheckout`** — Creates a **`Payment`** row with `publicToken` and provider session (Wave session URL, Yonna flow, or simulator URL).
-- **Secrets** come from **`getDecryptedGatewaySecrets(businessId, gatewayCode)`** — **not** platform subscription keys.
+- **Wave** — Uses the platform aggregator token (`WAVE_CHECKOUT_BEARER` on the API server) plus each business’s **Wave aggregated merchant id** (provisioned via Merchant API; stored encrypted in `BusinessGatewayCredential`). No per-business Wave API bearer.
+- **Yonna / APS** — Secrets still come from **`getDecryptedGatewaySecrets(businessId, gatewayCode)`** per business.
+
+### Auto-provision on business creation
+
+When `WAVE_CHECKOUT_BEARER` is set and the Wave gateway is enabled, new businesses get a Wave aggregated merchant and encrypted credential row automatically during owner signup, internal-partner provisioning, and `POST /api/businesses`. Each attempt is stored in `WaveAggregatedMerchantProvisionLog`.
+
+Platform operators provision or re-sync existing tenants from **`/#/platform/businesses/:id`** (Wave sales checkout panel). Merchants do not enter Wave API keys, webhook secrets, or bearer tokens — only Yonna/APS use Merchant API credential forms.
+
+### Migrating existing Wave credentials
+
+Businesses that previously saved a per-business Wave bearer must **re-save Wave** under Merchant API (profile fields), or rely on auto-provision for businesses created after this change. Old ciphertext without `aggregatedMerchantId` is treated as not configured until re-provisioned.
 
 ## Public pay page (`/pay/:publicToken`)
 

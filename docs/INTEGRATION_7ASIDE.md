@@ -96,6 +96,8 @@ Gateway `code` values match Easypay’s enabled payment gateways for that busine
 
 **Response `data`:** `businessId`, `userId`, `subscriptionId`, `slug`, `idempotentReplay`.
 
+After a successful provision (new or idempotent replay), Easypay **best-effort** creates a Wave **aggregated merchant** under the platform parent account (`WAVE_CHECKOUT_BEARER`) and stores the id for sales checkout. Partner checkout does not use per-tenant Wave API keys. If Wave is not configured or the call fails, provision still succeeds; check platform **Wave Businesses** or the business’s provision logs.
+
 ```typescript
 const EASYPAY_API_BASE_URL = process.env.EASYPAY_API_BASE_URL!.replace(/\/$/, "");
 const INTERNAL_PARTNER_API_SECRET = process.env.INTERNAL_PARTNER_API_SECRET!;
@@ -140,12 +142,24 @@ Merchant wallet credentials (APS / Wave / Yonna) are entered by the **Easypay pl
 - **201** — new order  
 - **200** — same `partnerExternalBookingId` still pending (same order returned)
 
-**Body:** `partnerExternalBookingId` (string), `amountGmd` (positive number), optional `currency` (default `GMD`).
+**Body:**
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `partnerExternalBookingId` | yes | Your booking / checkout id (idempotency key while unpaid). |
+| `amountGmd` | yes | Positive number. |
+| `currency` | no | Defaults to `GMD`. |
+| `category` | no | Optional label for the order type (e.g. `"Pitch rental"`, `"Tournament fee"`). Max 120 characters. Stored on the Easypay order and echoed in API responses and payment webhooks. Omitted on idempotent **200** replay of an existing pending order (category is only set when the order is first created). |
 
 ```typescript
 async function createEasypayOrder(
   businessId: string,
-  input: { partnerExternalBookingId: string; amountGmd: number; currency?: string },
+  input: {
+    partnerExternalBookingId: string;
+    amountGmd: number;
+    currency?: string;
+    category?: string;
+  },
 ) {
   const res = await fetch(
     `${EASYPAY_API_BASE_URL}/api/internal-partner/v1/businesses/${encodeURIComponent(businessId)}/orders`,
@@ -167,9 +181,15 @@ async function createEasypayOrder(
     total: number;
     currency: string;
     partnerExternalBookingId: string | null;
+    /** Present when you passed `category` at create time; otherwise `null`. */
+    category: string | null;
   };
 }
 ```
+
+### API update — optional `category` (partner apps)
+
+When creating an order at checkout time, you may include an optional **`category`** string in the JSON body of `POST …/businesses/{businessId}/orders`. Use it to tag what the payment is for in your own taxonomy (booking type, product line, etc.). Easypay persists it on the order, returns it as `category` on the order object, and includes `category` on outbound webhooks (`payment.completed`, `payment.cancelled`, `payment.failed`) when set. No change is required if you do not need segmentation — existing integrations without `category` continue to work.
 
 ---
 
@@ -181,13 +201,13 @@ Response `data` includes:
 
 | Field | Purpose |
 |-------|---------|
-| `wallets` | Gateways **ready for checkout** (same rules as Easypay POS): Wave needs a stored bearer; Yonna needs client id + secret; APS needs username + password **and** server env `APS_WALLET_BASE_URL`. |
-| `gatewayStatus` | One row per **enabled** platform gateway that has a checkout adapter — includes `hasCredential`, `checkoutConfigured`, and `fieldStatus` **booleans only** (no secrets). Use this when `wallets` is empty to see *why* (e.g. credential row present but bearer missing, or APS API base not configured). |
+| `wallets` | Gateways **ready for checkout** (same rules as Easypay POS): Wave needs a provisioned **aggregated merchant** and platform `WAVE_CHECKOUT_BEARER`; Yonna needs client id + secret; APS needs username + password **and** server env `APS_WALLET_BASE_URL`. |
+| `gatewayStatus` | One row per **enabled** platform gateway that has a checkout adapter — includes `hasCredential`, `checkoutConfigured`, and `fieldStatus` **booleans only** (no secrets). Use this when `wallets` is empty to see *why* (e.g. Wave aggregated merchant missing, or APS API base not configured). |
 | `readinessHint` | Short human-readable summary when `wallets` is empty, or `null` when at least one wallet is available. |
 
 **Common reasons `wallets` is empty while “credentials exist” on Easypay**
 
-- **Incomplete stored secrets** — e.g. Wave saved without `bearerToken`, or Yonna missing `clientId` / `secretKey`. Check `gatewayStatus[].fieldStatus`.
+- **Incomplete stored secrets** — e.g. Wave saved without a provisioned aggregated merchant (`fieldStatus.aggregatedMerchant`), platform `WAVE_CHECKOUT_BEARER` missing (`fieldStatus.platformWaveBearer`), or Yonna missing `clientId` / `secretKey`. Businesses with legacy per-business Wave bearer tokens must re-save Wave in Merchant API. Check `gatewayStatus[].fieldStatus`.
 - **APS** — merchant username/password can be saved, but listing requires **`APS_WALLET_BASE_URL`** (and related APS env) on the Easypay API server.
 - **Decryption** — if `APP_SECRET_ENCRYPTION_KEY` changed after secrets were saved, decrypt fails and `checkoutConfigured` stays false until credentials are re-saved.
 - **Wrong tenant** — credentials are on a different `businessId` than the one 7-aside uses (`hasCredential` false for all rows).
@@ -321,7 +341,7 @@ Deliveries are **queued and retried** on non-2xx or network errors (worker inter
 | `payment.cancelled` | Pending wallet payment(s) cancelled (e.g. order cancelled, checkout replaced, APS authorize replaced). Includes `reason`. |
 | `payment.failed` | APS path marked payment `FAILED` (authorize / confirm / process). Includes `reason` and optional `detail`. |
 
-Payloads include identifiers such as `businessId`, `partnerProvisioningExternalUserId`, `partnerExternalBookingId`, `orderId`, `orderPublicCode`, `paymentId`, `paymentStatus`, `amount` (where applicable), `provider`, `gatewayCode`, `providerRef`, `occurredAt`.
+Payloads include identifiers such as `businessId`, `partnerProvisioningExternalUserId`, `partnerExternalBookingId`, `category` (string or `null`, from create-order body), `orderId`, `orderPublicCode`, `paymentId`, `paymentStatus`, `amount` (where applicable), `provider`, `gatewayCode`, `providerRef`, `occurredAt`.
 
 **7-aside should:** verify HMAC, return **2xx** quickly, and handle duplicates idempotently (`paymentId` + `event`).
 

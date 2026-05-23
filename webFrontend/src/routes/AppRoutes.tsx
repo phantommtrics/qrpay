@@ -247,6 +247,11 @@ const PlatformBusinessesPage = lazy(() =>
     default: module.PlatformBusinessesPage,
   })),
 )
+const PlatformWaveBusinessesPage = lazy(() =>
+  import('../screens/platform/PlatformWaveBusinessesPage').then((module) => ({
+    default: module.PlatformWaveBusinessesPage,
+  })),
+)
 const PlatformBusinessDetailPage = lazy(() =>
   import('../screens/platform/PlatformBusinessDetailPage').then((module) => ({
     default: module.PlatformBusinessDetailPage,
@@ -479,6 +484,12 @@ export function AppRoutes() {
     {
       path: APP_PATHS.platformBusinesses,
       element: <PlatformBusinessesPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.businesses.manage' as const,
+    },
+    {
+      path: APP_PATHS.platformWaveBusinesses,
+      element: <PlatformWaveBusinessesPage />,
       roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.businesses.manage' as const,
     },

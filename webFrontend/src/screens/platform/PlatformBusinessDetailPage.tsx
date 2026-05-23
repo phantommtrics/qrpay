@@ -1,8 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ArrowLeft, Building2, Mail, Package, Plug, User } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 
 import { MerchantApiIntegrationPanel } from '../../components/integrations/MerchantApiIntegrationPanel'
+import { WaveCheckoutProvisionPanel } from '../../components/integrations/WaveCheckoutProvisionPanel'
+import {
+  fetchBusinessGatewayCredentialStatus,
+  type BusinessGatewayCredentialStatusRow,
+} from '../../services/subscriptionApi'
 import { TablePagination } from '../../components/ui/TablePagination'
 import { PageCard } from '../../components/ui/PageCard'
 import { PageTransition } from '../../components/ui/PageTransition'
@@ -41,6 +46,26 @@ export function PlatformBusinessDetailPage() {
   const [subscriptionsPage, setSubscriptionsPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [waveCredPack, setWaveCredPack] = useState<{
+    platformWaveConfigured: boolean
+    waveRow: BusinessGatewayCredentialStatusRow | null
+  } | null>(null)
+
+  const loadWaveCredPack = useCallback(async () => {
+    if (!businessId) {
+      return
+    }
+    const credPack = await fetchBusinessGatewayCredentialStatus(businessId).catch(() => null)
+    if (credPack) {
+      const waveRow = credPack.credentialStatus.find((r) => r.code === 'wave_gambia') ?? null
+      setWaveCredPack({
+        platformWaveConfigured: Boolean(credPack.platformWaveConfigured),
+        waveRow,
+      })
+    } else {
+      setWaveCredPack(null)
+    }
+  }, [businessId])
 
   useEffect(() => {
     if (!businessId) return
@@ -61,14 +86,27 @@ export function PlatformBusinessDetailPage() {
       setLoading(true)
       setError(null)
       try {
-        const data = await fetchPlatformBusinessDetail(businessId, {
-          membershipsPage,
-          membershipsPageSize: PAGE_SIZE,
-          subscriptionsPage,
-          subscriptionsPageSize: PAGE_SIZE,
-        })
+        const [data, credPack] = await Promise.all([
+          fetchPlatformBusinessDetail(businessId, {
+            membershipsPage,
+            membershipsPageSize: PAGE_SIZE,
+            subscriptionsPage,
+            subscriptionsPageSize: PAGE_SIZE,
+          }),
+          fetchBusinessGatewayCredentialStatus(businessId).catch(() => null),
+        ])
         if (!cancelled) {
           setDetail(data)
+          if (credPack) {
+            const waveRow =
+              credPack.credentialStatus.find((r) => r.code === 'wave_gambia') ?? null
+            setWaveCredPack({
+              platformWaveConfigured: Boolean(credPack.platformWaveConfigured),
+              waveRow,
+            })
+          } else {
+            setWaveCredPack(null)
+          }
         }
       } catch (e) {
         if (!cancelled) {
@@ -264,13 +302,20 @@ export function PlatformBusinessDetailPage() {
                   <div>
                     <h2 className="text-lg font-semibold text-slate-900">Merchant API</h2>
                     <p className="mt-1 text-sm text-slate-500">
-                      Wallet credentials (Wave, Yonna, APS) and integration status for this business. Use this when
-                      helping a tenant that needs hands-on setup.
+                      Yonna and APS credentials for this business. Wave sales checkout uses the platform aggregator
+                      and is provisioned below (not per-business API keys).
                     </p>
                   </div>
                 </div>
               </div>
               <div className="p-6 pt-4">
+                <WaveCheckoutProvisionPanel
+                  businessId={businessId}
+                  allowMutations={canEditMerchantApi}
+                  platformWaveConfigured={waveCredPack?.platformWaveConfigured ?? false}
+                  aggregatedMerchantReady={Boolean(waveCredPack?.waveRow?.checkoutConfigured)}
+                  onProvisioned={() => void loadWaveCredPack()}
+                />
                 <MerchantApiIntegrationPanel
                   businessId={businessId}
                   allowMutations={canEditMerchantApi}

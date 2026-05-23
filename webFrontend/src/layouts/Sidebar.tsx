@@ -78,6 +78,7 @@ export function Sidebar({
     const p = window.location.hash.replace(/^#/, '') || window.location.pathname
     return (
       p.startsWith('/platform/businesses') ||
+      p.startsWith('/platform/wave-businesses') ||
       p.startsWith('/platform/billings') ||
       p.startsWith('/platform/subscriptions') ||
       p.startsWith('/platform/invoices') ||
@@ -247,6 +248,7 @@ export function Sidebar({
     const p = location.pathname
     if (
       p.startsWith('/platform/businesses') ||
+      p.startsWith('/platform/wave-businesses') ||
       p.startsWith('/platform/billings') ||
       p.startsWith('/platform/subscriptions') ||
       p.startsWith('/platform/invoices') ||
@@ -276,7 +278,13 @@ export function Sidebar({
   function isPlatformBusinessesSubActive(path: string) {
     const p = location.pathname
     if (path === APP_PATHS.platformBusinesses) {
-      return p.startsWith('/platform/businesses')
+      return (
+        p === APP_PATHS.platformBusinesses ||
+        (p.startsWith('/platform/businesses/') && p !== APP_PATHS.platformWaveBusinesses)
+      )
+    }
+    if (path === APP_PATHS.platformWaveBusinesses) {
+      return p === APP_PATHS.platformWaveBusinesses
     }
     if (path === APP_PATHS.platformBillings) {
       return p.startsWith('/platform/billings')

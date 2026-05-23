@@ -6,6 +6,9 @@ import { HttpError } from "../lib/http-error.js";
 import { generateTemporaryPassword, hashPassword } from "../utils/password.js";
 import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
 import { ensureInternalPartnerCheckoutProduct } from "./sale.service.js";
+import { WaveAggregatedMerchantProvisionTrigger } from "@prisma/client";
+
+import { provisionDefaultWaveGatewayCredentialForBusiness } from "./business-gateway-credential.service.js";
 import { createInternalPartnerForeverBasicSubscriptionForBusinessTx } from "./subscription.service.js";
 
 function normalizeSlug(value: string) {
@@ -83,6 +86,11 @@ export async function provisionInternalPartnerBusiness(
     if (!userId || !subscriptionId) {
       throw new HttpError(500, "Partner business record is incomplete.");
     }
+    // Ensure Wave aggregated merchant exists (no-op if already provisioned; backfill for older tenants).
+    await provisionDefaultWaveGatewayCredentialForBusiness(
+      existingBiz.id,
+      WaveAggregatedMerchantProvisionTrigger.INTERNAL_PARTNER_PROVISION,
+    );
     return {
       businessId: existingBiz.id,
       userId,
@@ -150,6 +158,10 @@ export async function provisionInternalPartnerBusiness(
   });
 
   await ensureInternalPartnerCheckoutProduct(created.business.id);
+  await provisionDefaultWaveGatewayCredentialForBusiness(
+    created.business.id,
+    WaveAggregatedMerchantProvisionTrigger.INTERNAL_PARTNER_PROVISION,
+  );
 
   return {
     businessId: created.business.id,

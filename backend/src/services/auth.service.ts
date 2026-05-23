@@ -36,6 +36,7 @@ import { getMergedPlatformPermissionsForUser } from "./platform-security.service
 import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
 import { isCorporateIndustry } from "../utils/corporate-industry.js";
 import { sendCorporateBusinessCreatedOperatorEmail } from "./corporate-signup-notify.service.js";
+import { provisionDefaultWaveGatewayCredentialForBusiness } from "./business-gateway-credential.service.js";
 import { isPetrolStationIndustry } from "./product.service.js";
 
 type RegisterBusinessOwnerInput = {
@@ -409,6 +410,8 @@ export async function registerBusinessOwner(input: RegisterBusinessOwnerInput) {
       ownerEmail: result.user.email,
     }).catch((err) => console.error("[corporate-signup-notify]", err));
   }
+
+  await provisionDefaultWaveGatewayCredentialForBusiness(result.business.id);
 
   const access = await listAccessibleBusinesses(result.user.id);
 

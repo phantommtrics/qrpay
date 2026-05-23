@@ -2555,7 +2555,8 @@ export async function changeBusinessSubscriptionPlan(
 }
 
 export type GatewayCredentialFieldStatus = {
-  apiBearer?: boolean
+  aggregatedMerchant?: boolean
+  platformWaveBearer?: boolean
   webhookSecret?: boolean
   /** Wave/Yonna/APS: wallet fee rate (0–1) saved for POS/order accounting. */
   customerWalletFeeRate?: boolean
@@ -2575,7 +2576,7 @@ export type BusinessGatewayCredentialStatusRow = {
   name: string
   checkoutAdapter: string | null
   hasCredential: boolean
-  /** True when minimum secrets exist to run checkout (bearer for Wave; client + secret for Yonna). */
+  /** True when minimum secrets exist to run checkout (aggregated merchant for Wave; client + secret for Yonna). */
   checkoutConfigured: boolean
   /** Which secret slots are populated; never includes secret values. */
   fieldStatus: GatewayCredentialFieldStatus | null
@@ -2589,6 +2590,8 @@ export type PaymentWebhookEndpoints = {
 
 export type BusinessGatewayCredentialStatusResponse = {
   credentialStatus: BusinessGatewayCredentialStatusRow[]
+  /** Platform `WAVE_CHECKOUT_BEARER` configured (aggregator parent account). */
+  platformWaveConfigured: boolean
   webhookEndpoints: PaymentWebhookEndpoints | null
 }
 
@@ -2609,6 +2612,90 @@ export async function upsertBusinessGatewayCredentialRequest(
     headers: { 'x-business-id': businessId },
     body: JSON.stringify(body),
   })
+}
+
+export type WaveAggregatedMerchantProvisionLogRow = {
+  id: string
+  businessId: string
+  trigger: string
+  operation: string | null
+  status: string
+  requestedName: string | null
+  requestPayload: unknown
+  aggregatedMerchantId: string | null
+  errorMessage: string | null
+  createdAt: string
+}
+
+export async function provisionWaveAggregatedMerchant(
+  businessId: string,
+  options?: { force?: boolean },
+) {
+  const response = await apiRequest<{
+    data: {
+      status: 'succeeded' | 'skipped' | 'failed'
+      aggregatedMerchantId?: string
+      message?: string
+    }
+  }>(`/platform/businesses/${businessId}/wave-aggregated-merchant/provision`, {
+    method: 'POST',
+    body: JSON.stringify({ force: Boolean(options?.force) }),
+  })
+  return response.data
+}
+
+export type PlatformWaveAggregatedMerchantRow = {
+  id: string
+  name: string
+  business_sector: string | null
+  business_type: string
+  business_registration_identifier: string | null
+  website_url: string | null
+  payout_fee_structure_name?: string
+  checkout_fee_structure_name?: string
+  business_description: string
+  manager_name: string | null
+  is_locked: boolean
+  when_created: string
+  business: {
+    id: string
+    name: string
+    slug: string
+    ownerEmail: string
+  } | null
+  lastProvision: {
+    status: string
+    trigger: string
+    createdAt: string
+  } | null
+}
+
+export async function fetchPlatformWaveAggregatedMerchants(params?: {
+  first?: number
+  after?: string
+}) {
+  const sp = new URLSearchParams()
+  if (params?.first != null) {
+    sp.set('first', String(params.first))
+  }
+  if (params?.after?.trim()) {
+    sp.set('after', params.after.trim())
+  }
+  const q = sp.toString()
+  const response = await apiRequest<{
+    data: {
+      pageInfo: { hasNextPage: boolean; endCursor: string | null }
+      items: PlatformWaveAggregatedMerchantRow[]
+    }
+  }>(`/platform/wave-aggregated-merchants${q ? `?${q}` : ''}`)
+  return response.data
+}
+
+export async function fetchWaveAggregatedMerchantProvisionLogs(businessId: string) {
+  const response = await apiRequest<{
+    data: { logs: WaveAggregatedMerchantProvisionLogRow[] }
+  }>(`/platform/businesses/${businessId}/wave-aggregated-merchant/provision-logs`)
+  return response.data
 }
 
 export async function deleteBusinessGatewayCredentialRequest(

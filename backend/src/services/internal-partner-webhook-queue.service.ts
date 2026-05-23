@@ -69,6 +69,7 @@ export async function queueInternalPartnerPaymentCompleted(
       id: true,
       publicCode: true,
       partnerExternalBookingId: true,
+      partnerOrderCategory: true,
       businessId: true,
       business: {
         select: {
@@ -108,6 +109,7 @@ export async function queueInternalPartnerPaymentCompleted(
     businessId: order.businessId,
     partnerProvisioningExternalUserId: order.business.partnerProvisioningExternalUserId,
     partnerExternalBookingId: order.partnerExternalBookingId,
+    category: order.partnerOrderCategory,
     orderId: order.id,
     orderPublicCode: order.publicCode,
     paymentId: payment.id,
@@ -147,6 +149,7 @@ export async function queueInternalPartnerPaymentCancelledForPaymentIds(
             id: true,
             publicCode: true,
             partnerExternalBookingId: true,
+            partnerOrderCategory: true,
             business: {
               select: {
                 partnerProvisioningExternalUserId: true,
@@ -176,6 +179,7 @@ export async function queueInternalPartnerPaymentCancelledForPaymentIds(
       businessId: payment.businessId,
       partnerProvisioningExternalUserId: payment.order.business.partnerProvisioningExternalUserId,
       partnerExternalBookingId: payment.order.partnerExternalBookingId,
+      category: payment.order.partnerOrderCategory,
       orderId: payment.order.id,
       orderPublicCode: payment.order.publicCode,
       paymentId: payment.id,
@@ -208,6 +212,7 @@ export async function queueInternalPartnerPaymentFailed(
           id: true,
           publicCode: true,
           partnerExternalBookingId: true,
+          partnerOrderCategory: true,
           business: {
             select: {
               partnerProvisioningExternalUserId: true,
@@ -238,6 +243,7 @@ export async function queueInternalPartnerPaymentFailed(
     businessId: payment.businessId,
     partnerProvisioningExternalUserId: payment.order.business.partnerProvisioningExternalUserId,
     partnerExternalBookingId: payment.order.partnerExternalBookingId,
+    category: payment.order.partnerOrderCategory,
     orderId: payment.order.id,
     orderPublicCode: payment.order.publicCode,
     paymentId: payment.id,

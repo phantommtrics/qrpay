@@ -24,6 +24,7 @@ Platform owners do **not** see POS, Products, or Orders in the sidebar; route gu
 | Path | Purpose |
 |------|---------|
 | `/platform/businesses` | Business list |
+| `/platform/wave-businesses` | Wave aggregated merchants (`GET /v1/aggregated_merchants` via parent bearer), linked to Easypay businesses |
 | `/platform/businesses/:businessId` | Business detail, paginated memberships and subscription history |
 | `/platform/subscriptions` | Subscription list with filters |
 | `/platform/invoices` | Invoice list with filters |

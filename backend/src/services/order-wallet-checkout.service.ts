@@ -14,8 +14,8 @@ import {
   PaymentStatus,
 } from "../lib/prisma-sales-enums.js";
 import { resolveAppPublicBaseForBrowserReturns } from "../config/app-public-url.js";
-import { waveApiBaseUrl, yonnaForexApiBaseUrl } from "../config/payment-provider-env.js";
-import { WavePaymentService } from "./wave-payment.service.js";
+import { yonnaForexApiBaseUrl } from "../config/payment-provider-env.js";
+import { waveServiceFromEnv } from "./wave-client-env.js";
 import { YonnaForexPaymentService } from "./yonna-forex-payment.service.js";
 import {
   CHECKOUT_ADAPTER_APS_WALLET,
@@ -139,8 +139,12 @@ export type OrderCheckoutWalletRow = {
   hasStoredPayerPhone: boolean;
 };
 
+type GatewayCredentialStatusPack = Awaited<
+  ReturnType<typeof listBusinessGatewayCredentialStatus>
+>;
+
 function mapGatewayStatusToWalletRows(
-  rows: Awaited<ReturnType<typeof listBusinessGatewayCredentialStatus>>,
+  rows: GatewayCredentialStatusPack["credentialStatus"],
 ): OrderCheckoutWalletRow[] {
   return rows
     .filter((r) => r.checkoutConfigured)
@@ -157,8 +161,8 @@ function mapGatewayStatusToWalletRows(
 }
 
 export async function listOrderCheckoutWallets(businessId: string): Promise<OrderCheckoutWalletRow[]> {
-  const rows = await listBusinessGatewayCredentialStatus(businessId);
-  return mapGatewayStatusToWalletRows(rows);
+  const pack = await listBusinessGatewayCredentialStatus(businessId);
+  return mapGatewayStatusToWalletRows(pack.credentialStatus);
 }
 
 /**
@@ -166,12 +170,14 @@ export async function listOrderCheckoutWallets(businessId: string): Promise<Orde
  */
 export async function listOrderCheckoutWalletsWithGatewayStatus(businessId: string): Promise<{
   wallets: OrderCheckoutWalletRow[];
-  gatewayStatus: Awaited<ReturnType<typeof listBusinessGatewayCredentialStatus>>;
+  gatewayStatus: GatewayCredentialStatusPack["credentialStatus"];
+  platformWaveConfigured: boolean;
 }> {
-  const gatewayStatus = await listBusinessGatewayCredentialStatus(businessId);
+  const pack = await listBusinessGatewayCredentialStatus(businessId);
   return {
-    wallets: mapGatewayStatusToWalletRows(gatewayStatus),
-    gatewayStatus,
+    wallets: mapGatewayStatusToWalletRows(pack.credentialStatus),
+    gatewayStatus: pack.credentialStatus,
+    platformWaveConfigured: pack.platformWaveConfigured,
   };
 }
 
@@ -179,7 +185,7 @@ export async function listOrderCheckoutWalletsWithGatewayStatus(businessId: stri
  * Non-secret hint when `wallets` is empty — explains common misconfigurations (incomplete secrets, APS env, disabled gateways).
  */
 export function partnerCheckoutWalletsReadinessHint(
-  gatewayStatus: Awaited<ReturnType<typeof listBusinessGatewayCredentialStatus>>,
+  gatewayStatus: GatewayCredentialStatusPack["credentialStatus"],
   walletCount: number,
 ): string | null {
   if (walletCount > 0) {
@@ -188,7 +194,7 @@ export function partnerCheckoutWalletsReadinessHint(
   const partial = gatewayStatus.filter((r) => r.hasCredential && !r.checkoutConfigured);
   if (partial.length > 0) {
     return (
-      "Credentials exist but checkout is not ready yet. Inspect gatewayStatus[].fieldStatus — e.g. Wave needs apiBearer; " +
+      "Credentials exist but checkout is not ready yet. Inspect gatewayStatus[].fieldStatus — e.g. Wave needs aggregated merchant and platform WAVE_CHECKOUT_BEARER; " +
       "Yonna needs clientId+secretKey; APS needs username+password and APS_WALLET_BASE_URL on the Easypay server. " +
       "If secrets were saved under a different Easypay environment, decryption may fail after APP_SECRET_ENCRYPTION_KEY changes."
     );
@@ -300,18 +306,15 @@ export async function startGatewayWalletCheckout(input: {
       input.businessId,
       codeNorm,
     );
-    if (!secrets?.bearerToken?.trim()) {
-      throw new HttpError(503, "Wallet credentials could not be loaded for this business.");
+    if (!secrets?.aggregatedMerchantId?.trim()) {
+      throw new HttpError(503, "Wave checkout is not provisioned for this business.");
     }
 
     const publicToken = genPublicToken();
     const successUrl = spaHashRoute(appBase, `/pay/${encodeURIComponent(publicToken)}`);
     const errorUrl = spaHashRoute(appBase, `/pay/${encodeURIComponent(publicToken)}?error=1`);
 
-    const wave = new WavePaymentService({
-      baseUrl: waveApiBaseUrl(),
-      bearerToken: secrets.bearerToken.trim(),
-    });
+    const wave = waveServiceFromEnv();
 
     const amountStr = String(Math.round(Number(order.total)));
     const session = await wave.createCheckoutSession({
@@ -320,6 +323,7 @@ export async function startGatewayWalletCheckout(input: {
       success_url: successUrl,
       error_url: errorUrl,
       client_reference: order.id,
+      aggregated_merchant_id: secrets.aggregatedMerchantId.trim(),
     });
 
     const recordedByUserId = input.recordedByUserId?.trim() || undefined;
@@ -535,18 +539,15 @@ export async function startGatewayWalletCheckoutForInvoice(input: {
       input.businessId,
       codeNorm,
     );
-    if (!secrets?.bearerToken?.trim()) {
-      throw new HttpError(503, "Wallet credentials could not be loaded for this business.");
+    if (!secrets?.aggregatedMerchantId?.trim()) {
+      throw new HttpError(503, "Wave checkout is not provisioned for this business.");
     }
 
     const publicToken = genPublicToken();
     const successUrl = spaHashRoute(appBase, `/pay/${encodeURIComponent(publicToken)}`);
     const errorUrl = spaHashRoute(appBase, `/pay/${encodeURIComponent(publicToken)}?error=1`);
 
-    const wave = new WavePaymentService({
-      baseUrl: waveApiBaseUrl(),
-      bearerToken: secrets.bearerToken.trim(),
-    });
+    const wave = waveServiceFromEnv();
 
     const amountStr = String(Math.round(Number(total)));
     const session = await wave.createCheckoutSession({
@@ -555,6 +556,7 @@ export async function startGatewayWalletCheckoutForInvoice(input: {
       success_url: successUrl,
       error_url: errorUrl,
       client_reference: invoice.id,
+      aggregated_merchant_id: secrets.aggregatedMerchantId.trim(),
     });
 
     const payment = await upsertSalesInvoiceWalletPayment(invoice.id, input.businessId, invoice.business.name, {

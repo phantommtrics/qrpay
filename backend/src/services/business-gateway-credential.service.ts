@@ -9,19 +9,19 @@ import {
   CHECKOUT_ADAPTER_APS_WALLET,
   CHECKOUT_ADAPTER_WAVE_GAMBIA,
   CHECKOUT_ADAPTER_YONNA_WALLET,
+  GATEWAY_CODE_WAVE_GAMBIA,
   getPaymentGatewayByCode,
   listEnabledPaymentGateways,
 } from "./payment-gateway.service.js";
+import { isPlatformWaveCheckoutConfigured } from "./wave-client-env.js";
+import {
+  deleteWaveAggregatedMerchantIfPresent,
+  provisionWaveAggregatedMerchantForBusiness,
+} from "./wave-aggregated-merchant.service.js";
+import { WaveAggregatedMerchantProvisionTrigger } from "@prisma/client";
 
 /** Partial save: omit a field to keep the previous encrypted value (when updating). */
 const walletFeeRateFieldSchema = z.union([z.number().min(0).max(1), z.null()]).optional();
-
-const waveSecretsInputSchema = z.object({
-  bearerToken: z.string().optional(),
-  webhookSecret: z.string().optional(),
-  /** Fraction 0–1 (e.g. 0.01 = 1%) estimated wallet fee on customer QR payments. Omit to keep; null clears. */
-  customerWalletFeeRate: walletFeeRateFieldSchema,
-});
 
 const yonnaSecretsInputSchema = z.object({
   secretKey: z.string().optional(),
@@ -38,9 +38,8 @@ const apsSecretsInputSchema = z.object({
 });
 
 export type WaveGatewaySecrets = {
-  bearerToken: string;
-  /** Same role as env `WAVE_WEBHOOK_SECRET` for merchant webhooks. */
-  webhookSecret?: string;
+  /** Wave aggregated merchant id (from Aggregated Merchants API). */
+  aggregatedMerchantId: string;
   /** Estimated provider fee on gross customer wallet takings (orders/POS), fraction 0–1. */
   customerWalletFeeRate?: number;
 };
@@ -76,63 +75,6 @@ function loadExistingSecrets(
 
 function nonEmptyString(v: unknown): boolean {
   return typeof v === "string" && v.trim().length > 0;
-}
-
-function mergeWaveSecrets(
-  existing: WaveGatewaySecrets | null,
-  input: z.infer<typeof waveSecretsInputSchema>,
-): WaveGatewaySecrets {
-  const bearerToken =
-    input.bearerToken !== undefined && input.bearerToken.trim().length > 0
-      ? input.bearerToken.trim()
-      : existing?.bearerToken;
-  let webhookSecret: string | undefined;
-  if (input.webhookSecret === undefined) {
-    webhookSecret = existing?.webhookSecret;
-  } else {
-    const t = input.webhookSecret.trim();
-    webhookSecret = t.length > 0 ? t : undefined;
-  }
-  if (!bearerToken) {
-    throw new HttpError(
-      400,
-      "Bearer token is required (maps to checkout API key; env name WAVE_CHECKOUT_BEARER).",
-    );
-  }
-  let customerWalletFeeRate: number | undefined;
-  if (input.customerWalletFeeRate === undefined) {
-    customerWalletFeeRate = existing?.customerWalletFeeRate;
-  } else if (input.customerWalletFeeRate === null) {
-    customerWalletFeeRate = undefined;
-  } else {
-    customerWalletFeeRate = input.customerWalletFeeRate;
-  }
-  return { bearerToken, webhookSecret, customerWalletFeeRate };
-}
-
-/** Full replace: only values from the request are stored (no merge with existing). Omitted optional fields are cleared. */
-function replaceWaveSecrets(input: z.infer<typeof waveSecretsInputSchema>): WaveGatewaySecrets {
-  const bearerToken = input.bearerToken?.trim();
-  if (!bearerToken) {
-    throw new HttpError(
-      400,
-      "Bearer token is required (maps to checkout API key; env name WAVE_CHECKOUT_BEARER).",
-    );
-  }
-  let webhookSecret: string | undefined;
-  if (input.webhookSecret !== undefined) {
-    const t = input.webhookSecret.trim();
-    webhookSecret = t.length > 0 ? t : undefined;
-  } else {
-    webhookSecret = undefined;
-  }
-  let customerWalletFeeRate: number | undefined;
-  if (input.customerWalletFeeRate === undefined || input.customerWalletFeeRate === null) {
-    customerWalletFeeRate = undefined;
-  } else {
-    customerWalletFeeRate = input.customerWalletFeeRate;
-  }
-  return { bearerToken, webhookSecret, customerWalletFeeRate };
 }
 
 function replaceYonnaSecrets(input: z.infer<typeof yonnaSecretsInputSchema>): YonnaGatewaySecrets {
@@ -254,13 +196,19 @@ function parseWalletFeeRate(raw: unknown): number | undefined {
   return n;
 }
 
-function parseExistingWave(raw: Record<string, unknown> | null): WaveGatewaySecrets | null {
-  if (!raw || typeof raw.bearerToken !== "string") {
+export function parseExistingWave(raw: Record<string, unknown> | null): WaveGatewaySecrets | null {
+  if (!raw) {
+    return null;
+  }
+  const aggregatedMerchantId =
+    typeof raw.aggregatedMerchantId === "string"
+      ? raw.aggregatedMerchantId.trim()
+      : "";
+  if (!aggregatedMerchantId) {
     return null;
   }
   return {
-    bearerToken: raw.bearerToken,
-    webhookSecret: typeof raw.webhookSecret === "string" ? raw.webhookSecret : undefined,
+    aggregatedMerchantId,
     customerWalletFeeRate: parseWalletFeeRate(raw.customerWalletFeeRate),
   };
 }
@@ -289,8 +237,10 @@ function parseExistingAps(raw: Record<string, unknown> | null): ApsGatewaySecret
 }
 
 export type GatewayCredentialFieldStatus = {
-  /** Wave: checkout bearer on file. */
-  apiBearer?: boolean;
+  /** Wave: aggregated merchant provisioned and platform bearer configured. */
+  aggregatedMerchant?: boolean;
+  /** Wave: platform `WAVE_CHECKOUT_BEARER` is set on the server. */
+  platformWaveBearer?: boolean;
   webhookSecret?: boolean;
   /** Wave/Yonna/APS: estimated customer wallet fee rate (0–1) configured for accounting. */
   customerWalletFeeRate?: boolean;
@@ -314,13 +264,17 @@ function fieldStatusFromDecrypted(
     return null;
   }
   if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
-    const apiBearer = nonEmptyString(raw.bearerToken);
-    const webhookSecret = nonEmptyString(raw.webhookSecret);
+    const platformWaveBearer = isPlatformWaveCheckoutConfigured();
+    const aggregatedMerchant = nonEmptyString(raw.aggregatedMerchantId);
     const rate = parseWalletFeeRate(raw.customerWalletFeeRate);
     const customerWalletFeeRate = rate !== undefined && rate > 0;
     return {
-      fieldStatus: { apiBearer, webhookSecret, customerWalletFeeRate },
-      checkoutConfigured: apiBearer,
+      fieldStatus: {
+        aggregatedMerchant,
+        platformWaveBearer,
+        customerWalletFeeRate,
+      },
+      checkoutConfigured: Boolean(platformWaveBearer && aggregatedMerchant),
     };
   }
   if (adapter === CHECKOUT_ADAPTER_YONNA_WALLET) {
@@ -367,7 +321,7 @@ export async function listBusinessGatewayCredentialStatus(businessId: string) {
   });
   const credByGateway = new Map(credRows.map((r) => [r.gatewayId, r]));
 
-  return gateways.map((g) => {
+  const credentialStatus = gateways.map((g) => {
     const row = credByGateway.get(g.id);
     const adapter = g.checkoutAdapter?.trim() || "";
 
@@ -384,6 +338,12 @@ export async function listBusinessGatewayCredentialStatus(businessId: string) {
         fieldStatus = {};
         checkoutConfigured = false;
       }
+    } else if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
+      fieldStatus = {
+        aggregatedMerchant: false,
+        platformWaveBearer: isPlatformWaveCheckoutConfigured(),
+      };
+      checkoutConfigured = false;
     }
 
     return {
@@ -397,6 +357,11 @@ export async function listBusinessGatewayCredentialStatus(businessId: string) {
       updatedAt: row?.updatedAt.toISOString() ?? null,
     };
   });
+
+  return {
+    credentialStatus,
+    platformWaveConfigured: isPlatformWaveCheckoutConfigured(),
+  };
 }
 
 export async function upsertBusinessGatewayCredential(input: {
@@ -431,10 +396,10 @@ export async function upsertBusinessGatewayCredential(input: {
   const replace = Boolean(input.replaceSecrets);
 
   if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
-    const parsed = waveSecretsInputSchema.parse(input.secrets);
-    payload = replace
-      ? replaceWaveSecrets(parsed)
-      : mergeWaveSecrets(parseExistingWave(existingPayload), parsed);
+    throw new HttpError(
+      400,
+      "Wave sales checkout is provisioned automatically under the platform aggregator. Use POST /api/platform/businesses/:businessId/wave-aggregated-merchant/provision instead.",
+    );
   } else if (adapter === CHECKOUT_ADAPTER_YONNA_WALLET) {
     const parsed = yonnaSecretsInputSchema.parse(input.secrets);
     payload = replace
@@ -479,12 +444,35 @@ export async function upsertBusinessGatewayCredential(input: {
   });
 }
 
+/**
+ * Creates a Wave aggregated merchant after organization creation (best-effort; signup not blocked).
+ */
+export async function provisionDefaultWaveGatewayCredentialForBusiness(
+  businessId: string,
+  trigger: WaveAggregatedMerchantProvisionTrigger = WaveAggregatedMerchantProvisionTrigger.ORGANIZATION_CREATED,
+): Promise<void> {
+  try {
+    await provisionWaveAggregatedMerchantForBusiness({ businessId, trigger });
+  } catch (e) {
+    console.error(
+      `[wave] Auto-provision aggregated merchant failed for business ${businessId}:`,
+      e,
+    );
+  }
+}
+
 export async function deleteBusinessGatewayCredential(businessId: string, gatewayCode: string) {
   const code = gatewayCode.trim().toLowerCase();
   const gateway = await getPaymentGatewayByCode(code);
   if (!gateway) {
     throw new HttpError(404, "Unknown payment gateway.");
   }
+
+  const adapter = gateway.checkoutAdapter?.trim() || "";
+  if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
+    await deleteWaveAggregatedMerchantIfPresent(businessId, code);
+  }
+
   await prisma.businessGatewayCredential.deleteMany({
     where: { businessId, gatewayId: gateway.id },
   });

@@ -26,6 +26,9 @@ import {
   listBusinessIdsForSubscriptionRenewalSweep,
 } from "./subscription-renewal-invoice.service.js";
 import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
+import { WaveAggregatedMerchantProvisionTrigger } from "@prisma/client";
+
+import { provisionDefaultWaveGatewayCredentialForBusiness } from "./business-gateway-credential.service.js";
 import { newGuestToken } from "../lib/guest-token.js";
 import { resolveSubscriptionInvoiceAmount } from "./corporate-billing.service.js";
 import { isCorporateIndustry } from "../utils/corporate-industry.js";
@@ -174,6 +177,10 @@ export async function createBusiness(input: CreateBusinessInput) {
     },
   });
   await ensureDefaultChartOfAccountsForBusiness(prisma, business.id);
+  await provisionDefaultWaveGatewayCredentialForBusiness(
+    business.id,
+    WaveAggregatedMerchantProvisionTrigger.API_CREATE_BUSINESS,
+  );
   return business;
 }
 

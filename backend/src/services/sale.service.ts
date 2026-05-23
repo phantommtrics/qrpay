@@ -242,6 +242,21 @@ function parsePublicCodeSequence(code: string | null | undefined): number {
 }
 
 const INTERNAL_PARTNER_CHECKOUT_BARCODE = "__EASYPAY_INTERNAL_PARTNER_CHECKOUT__";
+const INTERNAL_PARTNER_ORDER_CATEGORY_MAX_LEN = 120;
+
+function normalizeInternalPartnerOrderCategory(raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (trimmed.length > INTERNAL_PARTNER_ORDER_CATEGORY_MAX_LEN) {
+    throw new HttpError(
+      400,
+      `category must be at most ${INTERNAL_PARTNER_ORDER_CATEGORY_MAX_LEN} characters.`,
+    );
+  }
+  return trimmed;
+}
 
 /**
  * Ensures a hidden catalogue SKU exists for internal partner wallet checkouts (large stock pool).
@@ -280,6 +295,8 @@ export async function createInternalPartnerCheckoutOrder(input: {
   partnerExternalBookingId: string;
   amountGmd: number;
   currency?: string;
+  /** Optional label for partner reporting (stored on the order). */
+  category?: string;
 }) {
   await assertInternalPartnerProvisionedBusiness(input.businessId);
 
@@ -298,6 +315,7 @@ export async function createInternalPartnerCheckoutOrder(input: {
 
   const amountDec = new Prisma.Decimal(amt.toFixed(2));
   const currency = (input.currency || "GMD").trim().toUpperCase() || "GMD";
+  const category = normalizeInternalPartnerOrderCategory(input.category);
 
   const paid = await prisma.order.findFirst({
     where: {
@@ -357,11 +375,12 @@ export async function createInternalPartnerCheckoutOrder(input: {
           total: amountDec,
           currency,
           partnerExternalBookingId: bookingId,
+          partnerOrderCategory: category ?? null,
           lines: {
             create: [
               {
                 product: { connect: { id: product.id } },
-                productName: product.name,
+                productName: category ? `${product.name} — ${category}` : product.name,
                 quantity: new Prisma.Decimal(1),
                 unitPrice: amountDec,
                 lineTotal: amountDec,

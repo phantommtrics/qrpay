@@ -24,6 +24,9 @@ import { checkoutWalletBrandImageSrc } from '../../utils/checkoutWalletBrandImag
 
 type IntegrableGateway = BusinessPaymentGatewayRow & { checkoutAdapter: string }
 
+/** Re-enable to show Wave/Yonna webhook URL copy UI on this panel. */
+const SHOW_PROVIDER_WEBHOOK_URLS = false
+
 function isIntegrable(g: BusinessPaymentGatewayRow): g is IntegrableGateway {
   return Boolean(g.checkoutAdapter?.trim())
 }
@@ -82,11 +85,6 @@ export function MerchantApiIntegrationPanel({
     right: number
   } | null>(null)
 
-  const [waveBearer, setWaveBearer] = useState('')
-  const [waveWebhook, setWaveWebhook] = useState('')
-  /** Percent 0–100 for UI; stored as fraction in credentials. */
-  const [waveWalletFeePercent, setWaveWalletFeePercent] = useState('')
-
   const [yonnaClientId, setYonnaClientId] = useState('')
   const [yonnaSecretKey, setYonnaSecretKey] = useState('')
   const [yonnaWebhook, setYonnaWebhook] = useState('')
@@ -109,7 +107,7 @@ export function MerchantApiIntegrationPanel({
         fetchBusinessGatewayCredentialStatus(businessId),
         fetchBusinessApsWalletCustomerAuths(businessId),
       ])
-      const list = gw.filter(isIntegrable)
+      const list = gw.filter(isIntegrable).filter((g) => g.checkoutAdapter?.trim() !== 'wave_gambia')
       setGateways(list)
       setStatusRows(credPack.credentialStatus)
       setWebhookEndpoints(credPack.webhookEndpoints)
@@ -173,9 +171,6 @@ export function MerchantApiIntegrationPanel({
   const modalStatus = modalGateway ? statusByCode.get(modalGateway.code) : undefined
 
   function resetFormFields() {
-    setWaveBearer('')
-    setWaveWebhook('')
-    setWaveWalletFeePercent('')
     setYonnaClientId('')
     setYonnaSecretKey('')
     setYonnaWebhook('')
@@ -218,40 +213,7 @@ export function MerchantApiIntegrationPanel({
     setError(null)
     const replaceSecrets = credentialModalMode === 'edit'
     try {
-      if (modalAdapter === 'wave_gambia') {
-        const secrets: {
-          bearerToken?: string
-          webhookSecret?: string
-          customerWalletFeeRate?: number | null
-        } = {}
-        if (replaceSecrets) {
-          secrets.bearerToken = waveBearer.trim()
-          secrets.webhookSecret = waveWebhook.trim()
-        } else {
-          if (waveBearer.trim()) {
-            secrets.bearerToken = waveBearer.trim()
-          }
-          if (waveWebhook.trim()) {
-            secrets.webhookSecret = waveWebhook.trim()
-          }
-        }
-        const wfp = waveWalletFeePercent.trim()
-        if (wfp !== '') {
-          const p = Number.parseFloat(wfp.replace(',', '.'))
-          if (!Number.isFinite(p) || p < 0 || p > 100) {
-            setError('Wallet fee must be between 0 and 100 (%).')
-            return
-          }
-          secrets.customerWalletFeeRate = p / 100
-        } else if (replaceSecrets) {
-          secrets.customerWalletFeeRate = null
-        }
-        await upsertBusinessGatewayCredentialRequest(businessId, {
-          gatewayCode: modalGateway.code,
-          secrets,
-          replaceSecrets,
-        })
-      } else if (modalAdapter === 'yonna_wallet') {
+      if (modalAdapter === 'yonna_wallet') {
         const secrets: {
           clientId?: string
           secretKey?: string
@@ -408,14 +370,6 @@ export function MerchantApiIntegrationPanel({
 
   const isEditCredentialModal = credentialModalMode === 'edit'
 
-  const canSaveWave =
-    modalAdapter === 'wave_gambia' &&
-    (isEditCredentialModal
-      ? waveBearer.trim().length > 0
-      : waveBearer.trim().length > 0 ||
-        (Boolean(modalStatus?.hasCredential) && waveWebhook.trim().length > 0) ||
-        (Boolean(modalStatus?.hasCredential) && waveWalletFeePercent.trim() !== ''))
-
   const canSaveYonna =
     modalAdapter === 'yonna_wallet' &&
     (isEditCredentialModal
@@ -466,50 +420,52 @@ export function MerchantApiIntegrationPanel({
         <h1 className="text-xl font-semibold tracking-tight text-slate-900">Merchant integrations</h1>
       ) : null}
 
-        {webhookEndpoints ? (
-          <div className={`${topSpacer} rounded-xl border border-teal-200/80 bg-teal-50/40 p-4`}>
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-teal-900">
-              Provider webhook URLs
-            </h2>
-            <ul className="mt-3 space-y-2">
-              <li className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
-                <span className="shrink-0 text-xs font-medium text-teal-950">Wave</span>
-                <code className="min-w-0 flex-1 break-all rounded-md bg-white/90 px-2 py-1.5 text-[11px] text-slate-800 ring-1 ring-teal-100">
-                  {webhookEndpoints.wave}
-                </code>
-                <button
-                  type="button"
-                  onClick={() => void copyWebhookUrl('wave', webhookEndpoints.wave)}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-teal-300 bg-white px-2 py-1 text-xs font-medium text-teal-900 hover:bg-teal-50"
-                >
-                  {copiedKey === 'wave' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  {copiedKey === 'wave' ? 'Copied' : 'Copy'}
-                </button>
-              </li>
-              <li className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
-                <span className="shrink-0 text-xs font-medium text-teal-950">Yonna Forex</span>
-                <code className="min-w-0 flex-1 break-all rounded-md bg-white/90 px-2 py-1.5 text-[11px] text-slate-800 ring-1 ring-teal-100">
-                  {webhookEndpoints.yonnaForex}
-                </code>
-                <button
-                  type="button"
-                  onClick={() => void copyWebhookUrl('yonna', webhookEndpoints.yonnaForex)}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-teal-300 bg-white px-2 py-1 text-xs font-medium text-teal-900 hover:bg-teal-50"
-                >
-                  {copiedKey === 'yonna' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  {copiedKey === 'yonna' ? 'Copied' : 'Copy'}
-                </button>
-              </li>
-            </ul>
-          </div>
-        ) : (
-          <div className={`${topSpacer} rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-xs text-amber-950`}>
-            <span className="font-medium">Webhook URLs unavailable.</span> Set{' '}
-            <code className="rounded bg-white/80 px-1">APP_PUBLIC_BASE_URL</code> on the API server (public HTTPS origin
-            where <code className="rounded bg-white/80 px-1">/api/webhooks/wave</code> and{' '}
-            <code className="rounded bg-white/80 px-1">/api/webhooks/yonna-forex</code> are reachable).
-          </div>
-        )}
+        {SHOW_PROVIDER_WEBHOOK_URLS ? (
+          webhookEndpoints ? (
+            <div className={`${topSpacer} rounded-xl border border-teal-200/80 bg-teal-50/40 p-4`}>
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-teal-900">
+                Provider webhook URLs
+              </h2>
+              <ul className="mt-3 space-y-2">
+                <li className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                  <span className="shrink-0 text-xs font-medium text-teal-950">Wave</span>
+                  <code className="min-w-0 flex-1 break-all rounded-md bg-white/90 px-2 py-1.5 text-[11px] text-slate-800 ring-1 ring-teal-100">
+                    {webhookEndpoints.wave}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => void copyWebhookUrl('wave', webhookEndpoints.wave)}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-teal-300 bg-white px-2 py-1 text-xs font-medium text-teal-900 hover:bg-teal-50"
+                  >
+                    {copiedKey === 'wave' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copiedKey === 'wave' ? 'Copied' : 'Copy'}
+                  </button>
+                </li>
+                <li className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                  <span className="shrink-0 text-xs font-medium text-teal-950">Yonna Forex</span>
+                  <code className="min-w-0 flex-1 break-all rounded-md bg-white/90 px-2 py-1.5 text-[11px] text-slate-800 ring-1 ring-teal-100">
+                    {webhookEndpoints.yonnaForex}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => void copyWebhookUrl('yonna', webhookEndpoints.yonnaForex)}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-teal-300 bg-white px-2 py-1 text-xs font-medium text-teal-900 hover:bg-teal-50"
+                  >
+                    {copiedKey === 'yonna' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copiedKey === 'yonna' ? 'Copied' : 'Copy'}
+                  </button>
+                </li>
+              </ul>
+            </div>
+          ) : (
+            <div className={`${topSpacer} rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-xs text-amber-950`}>
+              <span className="font-medium">Webhook URLs unavailable.</span> Set{' '}
+              <code className="rounded bg-white/80 px-1">APP_PUBLIC_BASE_URL</code> on the API server (public HTTPS
+              origin where <code className="rounded bg-white/80 px-1">/api/webhooks/wave</code> and{' '}
+              <code className="rounded bg-white/80 px-1">/api/webhooks/yonna-forex</code> are reachable).
+            </div>
+          )
+        ) : null}
 
         {error ? (
           <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -523,24 +479,27 @@ export function MerchantApiIntegrationPanel({
         ) : null}
 
         {loading ? (
-          <div className="mt-10 flex items-center gap-2 text-sm text-slate-500">
+          <div
+            className={`${SHOW_PROVIDER_WEBHOOK_URLS ? 'mt-10' : embedded ? 'mt-0' : 'mt-6'} flex items-center gap-2 text-sm text-slate-500`}
+          >
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading…
           </div>
         ) : gateways.length === 0 ? (
-          <p className="mt-10 text-sm text-slate-600">
+          <p
+            className={`${SHOW_PROVIDER_WEBHOOK_URLS ? 'mt-10' : embedded ? 'mt-0' : 'mt-6'} text-sm text-slate-600`}
+          >
             No checkout providers are enabled. Ask your platform admin to enable gateways under payment gateways.
           </p>
         ) : (
           <>
-            <section className="mt-8">
+            <section className={SHOW_PROVIDER_WEBHOOK_URLS ? 'mt-8' : embedded ? 'mt-0' : 'mt-6'}>
               <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Payment gateways</h2>
               <p className="mt-1 text-xs text-slate-500">
                 {allowMutations ? (
                   <>
-                    Use <span className="font-medium text-slate-600">+</span> to add keys. When keys exist, use{' '}
-                    <span className="font-medium text-slate-600">⋮ → Edit</span> to replace them (saved secrets are
-                    overwritten).
+                    Configure Yonna and APS credentials here. Wave sales checkout is provisioned automatically under
+                    the platform aggregator when the organization is created.
                   </>
                 ) : (
                   <>Credentials are read-only. Your role can view status but not change keys.</>
@@ -657,11 +616,13 @@ export function MerchantApiIntegrationPanel({
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-4 py-3">Provider</th>
                       <th className="px-4 py-3">Checkout</th>
-                      <th className="px-4 py-3">Bearer</th>
+                      <th className="px-4 py-3">Agg. merchant</th>
+                      <th className="px-4 py-3">Platform Wave</th>
                       <th className="px-4 py-3">Client ID</th>
                       <th className="px-4 py-3">Secret</th>
                       <th className="px-4 py-3">Webhook</th>
                       <th className="px-4 py-3">Wallet fee</th>
+                      {/* Wave: no manual keys; see platform business detail for provision logs */}
                       <th className="px-4 py-3">Updated</th>
                     </tr>
                   </thead>
@@ -679,7 +640,18 @@ export function MerchantApiIntegrationPanel({
                             <YesNo value={row.checkoutConfigured} />
                           </td>
                           <td className="px-4 py-3">
-                            {isWave ? <YesNo value={Boolean(fs?.apiBearer)} /> : <EmDash />}
+                            {isWave ? (
+                              <YesNo value={Boolean(fs?.aggregatedMerchant)} />
+                            ) : (
+                              <EmDash />
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {isWave ? (
+                              <YesNo value={Boolean(fs?.platformWaveBearer)} />
+                            ) : (
+                              <EmDash />
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             {isYonna ? (
@@ -700,7 +672,7 @@ export function MerchantApiIntegrationPanel({
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            {isWave || isYonna ? (
+                            {isYonna ? (
                               <YesNo value={Boolean(fs?.webhookSecret)} />
                             ) : (
                               <EmDash />
@@ -854,60 +826,6 @@ export function MerchantApiIntegrationPanel({
                   <h2 className="pr-10 text-lg font-semibold text-slate-900">{modalGateway.name}</h2>
 
                   <div className="mt-5 space-y-4">
-                    {modalAdapter === 'wave_gambia' ? (
-                      <>
-                        <p className="text-xs text-slate-500">
-                          {isEditCredentialModal
-                            ? 'Webhook secret: leave empty to clear the saved webhook secret.'
-                            : 'Bearer token is required on first save.'}
-                        </p>
-                        <div>
-                          <label className="text-sm font-medium text-slate-800">Checkout bearer</label>
-                          <input
-                            type="password"
-                            autoComplete="off"
-                            className={inputClass}
-                            value={waveBearer}
-                            onChange={(e) => setWaveBearer(e.target.value)}
-                            placeholder={
-                              isEditCredentialModal
-                                ? 'New bearer (required)'
-                                : 'Required'
-                            }
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium text-slate-800">Webhook secret</label>
-                          <input
-                            type="password"
-                            autoComplete="off"
-                            className={inputClass}
-                            value={waveWebhook}
-                            onChange={(e) => setWaveWebhook(e.target.value)}
-                            placeholder={isEditCredentialModal ? 'Empty removes webhook secret' : 'Optional'}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium text-slate-800">
-                            Est. wallet fee on sales (% of payment)
-                          </label>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            autoComplete="off"
-                            className={inputClass}
-                            value={waveWalletFeePercent}
-                            onChange={(e) => setWaveWalletFeePercent(e.target.value)}
-                            placeholder={isEditCredentialModal ? 'Empty removes saved fee' : 'e.g. 1 for 1%'}
-                          />
-                          <p className="mt-1 text-xs text-slate-500">
-                            Used for your books only (Dr QR wallet fees · Cr digital clearing). Per provider; leave
-                            empty if none. Replace mode: empty clears the saved rate.
-                          </p>
-                        </div>
-                      </>
-                    ) : null}
-
                     {modalAdapter === 'aps_wallet' ? (
                       <>
                         <p className="text-xs text-slate-500">
@@ -1029,9 +947,7 @@ export function MerchantApiIntegrationPanel({
                     ) : null}
                   </div>
 
-                  {modalAdapter === 'wave_gambia' ||
-                  modalAdapter === 'yonna_wallet' ||
-                  modalAdapter === 'aps_wallet' ? (
+                  {modalAdapter === 'yonna_wallet' || modalAdapter === 'aps_wallet' ? (
                     <div className="mt-6 flex flex-col-reverse gap-2 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
                       {modalStatus?.hasCredential ? (
                         <button
@@ -1047,11 +963,7 @@ export function MerchantApiIntegrationPanel({
                         type="button"
                         disabled={
                           saving ||
-                          (modalAdapter === 'wave_gambia'
-                            ? !canSaveWave
-                            : modalAdapter === 'yonna_wallet'
-                              ? !canSaveYonna
-                              : !canSaveAps)
+                          (modalAdapter === 'yonna_wallet' ? !canSaveYonna : !canSaveAps)
                         }
                         onClick={() => void handleSave()}
                         className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
