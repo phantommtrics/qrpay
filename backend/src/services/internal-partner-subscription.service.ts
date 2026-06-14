@@ -73,7 +73,7 @@ export async function startInternalPartnerBusinessSubscription(input: {
   planCode?: PlanCode;
   billingInterval?: BillingInterval;
 }) {
-  const planCode = input.planCode ?? PlanCode.BUSINESS_PRO;
+  const planCode = input.planCode ?? PlanCode.CORPORATE;
   await startSubscription({
     businessId: input.businessId,
     planCode,

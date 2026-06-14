@@ -2,6 +2,37 @@
 
 Server-to-server integration between **analytics-bi** and **DirectPay** for tenant provisioning and platform subscription billing.
 
+## analytics-bi setup (owner)
+
+Each analytics-bi deployment allows **one organization**. The owner creates it under **Admin → Organizations**, then:
+
+1. **Provision DirectPay** — creates a DirectPay business using the billing owner email/name
+2. **Start Corporate plan** — starts platform subscription (trial + invoice)
+3. **Pay in DirectPay** — use the **Pay in DirectPay** button (guest invoice link) or log into DirectPay as the billing owner
+
+### How the owner pays
+
+Subscription payment happens **in DirectPay**, not in analytics-bi:
+
+| Method | Steps |
+|--------|--------|
+| **Guest pay link** | After starting subscription, click **Sync** then **Pay in DirectPay** on the Organization page (or use the link on the subscription blocked screen for operators) |
+| **DirectPay web app** | Log in to DirectPay with the **billing owner email** from org setup (DirectPay sends a temporary password on first provision; change password on first login). Open **Billing → Subscription invoices** and pay |
+| **Invoice email** | DirectPay emails the subscription invoice PDF/link to the billing owner email |
+
+Use the **same email** for analytics-bi billing owner and DirectPay login if the BI owner is also paying.
+
+### Daily subscription reminders (short billing cycles)
+
+When the current DirectPay billing period is **shorter than 30 days** (e.g. trial), analytics-bi emails the **billing owner once per day**:
+
+| Mode | Schedule |
+|------|----------|
+| **Production** | Every day at **00:00** in `SUBSCRIPTION_REMINDER_TIMEZONE` (default `UTC`) |
+| **Test** | `SUBSCRIPTION_REMINDER_TEST_MODE=true` — first email **2 minutes** after the API starts, then every `SUBSCRIPTION_REMINDER_TEST_DELAY_MS` (default `120000`) |
+
+Requires `RESEND_API_KEY` / `RESEND_FROM` (or `MAIL_FALLBACK_CONSOLE=true` to log to the server console).
+
 ## Environment (analytics-bi backend)
 
 ```env
@@ -30,12 +61,12 @@ Body includes `partnerApp: "analytics-bi"`:
 
 Unlike 7a-side (`partnerApp: "default"`), analytics-bi businesses have **`platformBillingWaived: false`** and **no automatic subscription**.
 
-## Subscription (Business Pro default)
+## Subscription (Corporate plan default)
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/api/internal-partner/v1/businesses/:businessId/subscription` | Read status, period end, pending invoice |
-| `POST` | `/api/internal-partner/v1/businesses/:businessId/subscription` | Start subscription (defaults to `BUSINESS_PRO`) |
+| `POST` | `/api/internal-partner/v1/businesses/:businessId/subscription` | Start subscription (defaults to `CORPORATE`) |
 
 ## Access rules in analytics-bi
 
