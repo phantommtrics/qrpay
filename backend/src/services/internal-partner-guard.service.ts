@@ -16,3 +16,14 @@ export async function assertInternalPartnerProvisionedBusiness(businessId: strin
     throw new HttpError(403, "This business is not enabled for the internal partner API.");
   }
 }
+
+/** Partner-provisioned business (includes analytics-bi with platform billing). */
+export async function assertInternalPartnerBusiness(businessId: string): Promise<void> {
+  const row = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { partnerProvisioningExternalUserId: true },
+  });
+  if (!row?.partnerProvisioningExternalUserId?.trim()) {
+    throw new HttpError(403, "This business is not enabled for the internal partner API.");
+  }
+}

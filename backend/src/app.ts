@@ -215,7 +215,14 @@ import {
   verifySimulatorWebhookSecret,
 } from "./services/sale.service.js";
 import { provisionInternalPartnerBusiness } from "./services/internal-partner-provision.service.js";
-import { assertInternalPartnerProvisionedBusiness } from "./services/internal-partner-guard.service.js";
+import {
+  assertInternalPartnerBusiness,
+  assertInternalPartnerProvisionedBusiness,
+} from "./services/internal-partner-guard.service.js";
+import {
+  getInternalPartnerBusinessSubscription,
+  startInternalPartnerBusinessSubscription,
+} from "./services/internal-partner-subscription.service.js";
 import {
   getAccountStatementsReports,
   getBalanceSheetReport,
@@ -1092,6 +1099,12 @@ const internalPartnerProvisionBodySchema = z.object({
   slug: z.string().optional(),
   industry: z.string().optional(),
   webhookUrl: z.string().url().optional().nullable(),
+  partnerApp: z.enum(["default", "analytics-bi"]).optional(),
+});
+
+const internalPartnerStartSubscriptionBodySchema = z.object({
+  planCode: z.nativeEnum(PlanCode).optional(),
+  billingInterval: z.nativeEnum(BillingInterval).optional(),
 });
 
 const internalPartnerCreateOrderBodySchema = z.object({
@@ -6627,6 +6640,41 @@ app.post(
       const body = internalPartnerProvisionBodySchema.parse(request.body ?? {});
       const data = await provisionInternalPartnerBusiness(body);
       response.status(data.idempotentReplay ? 200 : 201).json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/internal-partner/v1/businesses/:businessId/subscription",
+  requireInternalPartnerApiSecret,
+  async (request, response, next) => {
+    try {
+      const businessId = request.params.businessId as string;
+      await assertInternalPartnerBusiness(businessId);
+      const data = await getInternalPartnerBusinessSubscription(businessId);
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/internal-partner/v1/businesses/:businessId/subscription",
+  requireInternalPartnerApiSecret,
+  async (request, response, next) => {
+    try {
+      const businessId = request.params.businessId as string;
+      await assertInternalPartnerBusiness(businessId);
+      const body = internalPartnerStartSubscriptionBodySchema.parse(request.body ?? {});
+      const data = await startInternalPartnerBusinessSubscription({
+        businessId,
+        planCode: body.planCode,
+        billingInterval: body.billingInterval,
+      });
+      response.status(201).json({ data });
     } catch (error) {
       next(error);
     }

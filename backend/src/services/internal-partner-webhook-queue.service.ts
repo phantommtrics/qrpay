@@ -257,6 +257,59 @@ export async function queueInternalPartnerPaymentFailed(
   }
 }
 
+export async function queueInternalPartnerSubscriptionUpdated(
+  businessId: string,
+): Promise<void> {
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: {
+      id: true,
+      partnerProvisioningExternalUserId: true,
+      internalPartnerWebhookUrl: true,
+      subscriptions: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: {
+          plan: { select: { code: true } },
+          invoices: {
+            where: { status: "PENDING" },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { guestToken: true },
+          },
+        },
+      },
+    },
+  });
+  if (!business?.partnerProvisioningExternalUserId?.trim()) {
+    return;
+  }
+
+  const urls = partnerWebhookUrlsForBusiness(business.internalPartnerWebhookUrl);
+  if (urls.length === 0) {
+    return;
+  }
+
+  const sub = business.subscriptions[0];
+  const pendingGuestToken = sub?.invoices[0]?.guestToken ?? null;
+
+  const body = {
+    event: "subscription.updated" as const,
+    businessId: business.id,
+    partnerProvisioningExternalUserId: business.partnerProvisioningExternalUserId,
+    status: sub?.status ?? null,
+    planCode: sub?.plan.code ?? null,
+    currentPeriodEnd: sub?.currentPeriodEnd?.toISOString() ?? null,
+    pendingInvoiceGuestToken: pendingGuestToken,
+    occurredAt: new Date().toISOString(),
+  };
+
+  const bodyText = JSON.stringify(body);
+  for (const url of urls) {
+    await enqueuePartnerOutboundWebhookJob(url, bodyText);
+  }
+}
+
 async function sendPartnerOutboundWebhookOnce(
   webhookUrl: string,
   bodyText: string,

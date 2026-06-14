@@ -38,6 +38,8 @@ async function allocateUniqueBusinessSlug(
   return `${root}-${randomBytes(8).toString("hex")}`;
 }
 
+export type InternalPartnerApp = "default" | "analytics-bi";
+
 export type ProvisionInternalPartnerBusinessInput = {
   externalUserId: string;
   ownerEmail: string;
@@ -47,12 +49,14 @@ export type ProvisionInternalPartnerBusinessInput = {
   industry?: string;
   /** Optional per-business webhook URL (otherwise comma-separated INTERNAL_PARTNER_WEBHOOK_URL defaults). */
   webhookUrl?: string | null;
+  /** `default` = comped partner (7a-side). `analytics-bi` = platform billing, no auto subscription. */
+  partnerApp?: InternalPartnerApp;
 };
 
 export type ProvisionInternalPartnerBusinessResult = {
   businessId: string;
   userId: string;
-  subscriptionId: string;
+  subscriptionId: string | null;
   slug: string;
   idempotentReplay: boolean;
 };
@@ -71,6 +75,10 @@ export async function provisionInternalPartnerBusiness(
     throw new HttpError(400, "ownerEmail, ownerName, and businessName are required.");
   }
 
+  const partnerApp: InternalPartnerApp =
+    input.partnerApp === "analytics-bi" ? "analytics-bi" : "default";
+  const isAnalyticsBi = partnerApp === "analytics-bi";
+
   const existingBiz = await prisma.business.findFirst({
     where: { partnerProvisioningExternalUserId: externalUserId },
     select: {
@@ -82,11 +90,13 @@ export async function provisionInternalPartnerBusiness(
   });
   if (existingBiz) {
     const userId = existingBiz.memberships[0]?.userId;
-    const subscriptionId = existingBiz.subscriptions[0]?.id;
-    if (!userId || !subscriptionId) {
+    const subscriptionId = existingBiz.subscriptions[0]?.id ?? null;
+    if (!userId) {
       throw new HttpError(500, "Partner business record is incomplete.");
     }
-    // Ensure Wave aggregated merchant exists (no-op if already provisioned; backfill for older tenants).
+    if (!isAnalyticsBi && !subscriptionId) {
+      throw new HttpError(500, "Partner business record is incomplete.");
+    }
     await provisionDefaultWaveGatewayCredentialForBusiness(
       existingBiz.id,
       WaveAggregatedMerchantProvisionTrigger.INTERNAL_PARTNER_PROVISION,
@@ -133,7 +143,7 @@ export async function provisionInternalPartnerBusiness(
         industry: input.industry?.trim() || null,
         ownerName,
         ownerEmail,
-        platformBillingWaived: true,
+        platformBillingWaived: !isAnalyticsBi,
         partnerProvisioningExternalUserId: externalUserId,
         internalPartnerWebhookUrl: input.webhookUrl?.trim() || null,
       },
@@ -149,15 +159,20 @@ export async function provisionInternalPartnerBusiness(
       },
     });
 
-    const subscription = await createInternalPartnerForeverBasicSubscriptionForBusinessTx(tx, {
-      businessId: business.id,
-      planCode: PlanCode.BASIC,
-    });
+    let subscription: { id: string } | null = null;
+    if (!isAnalyticsBi) {
+      subscription = await createInternalPartnerForeverBasicSubscriptionForBusinessTx(tx, {
+        businessId: business.id,
+        planCode: PlanCode.BASIC,
+      });
+    }
 
     return { user, business, subscription };
   });
 
-  await ensureInternalPartnerCheckoutProduct(created.business.id);
+  if (!isAnalyticsBi) {
+    await ensureInternalPartnerCheckoutProduct(created.business.id);
+  }
   await provisionDefaultWaveGatewayCredentialForBusiness(
     created.business.id,
     WaveAggregatedMerchantProvisionTrigger.INTERNAL_PARTNER_PROVISION,
@@ -166,7 +181,7 @@ export async function provisionInternalPartnerBusiness(
   return {
     businessId: created.business.id,
     userId: created.user.id,
-    subscriptionId: created.subscription.id,
+    subscriptionId: created.subscription?.id ?? null,
     slug: created.business.slug,
     idempotentReplay: false,
   };

@@ -32,6 +32,7 @@ import { provisionDefaultWaveGatewayCredentialForBusiness } from "./business-gat
 import { newGuestToken } from "../lib/guest-token.js";
 import { resolveSubscriptionInvoiceAmount } from "./corporate-billing.service.js";
 import { isCorporateIndustry } from "../utils/corporate-industry.js";
+import { queueInternalPartnerSubscriptionUpdated } from "./internal-partner-webhook-queue.service.js";
 
 /**
  * True when the user owns at least one business whose latest subscription is expired or past due.
@@ -196,7 +197,7 @@ async function expireTrialIfNeeded(subscription: SubscriptionWithPlanAndInvoices
     return subscription;
   }
 
-  return prisma.subscription.update({
+  const updated = await prisma.subscription.update({
     where: { id: subscription.id },
     data: {
       status: SubscriptionStatus.EXPIRED,
@@ -211,6 +212,12 @@ async function expireTrialIfNeeded(subscription: SubscriptionWithPlanAndInvoices
       },
     },
   });
+
+  void queueInternalPartnerSubscriptionUpdated(updated.businessId).catch((err) => {
+    console.error("[internal-partner] Failed to queue subscription.updated webhook:", err);
+  });
+
+  return updated;
 }
 
 export async function getBusinessSubscription(businessId: string) {
@@ -826,7 +833,7 @@ async function settlePendingSubscriptionWalletFeeLedger(
 export async function completeSubscriptionInvoicePayment(
   input: CompleteSubscriptionInvoicePaymentInput,
 ) {
-  return prisma.$transaction(async (tx) => {
+  const paidInvoice = await prisma.$transaction(async (tx) => {
     const invoice = await tx.subscriptionInvoice.findUnique({
       where: { id: input.invoiceId },
       include: {
@@ -1002,6 +1009,12 @@ export async function completeSubscriptionInvoicePayment(
 
     return paidInvoice;
   });
+
+  void queueInternalPartnerSubscriptionUpdated(paidInvoice.businessId).catch((err) => {
+    console.error("[internal-partner] Failed to queue subscription.updated webhook:", err);
+  });
+
+  return paidInvoice;
 }
 
 /** Dev / simulator: marks paid and writes a ledger row (idempotent per invoice). */
