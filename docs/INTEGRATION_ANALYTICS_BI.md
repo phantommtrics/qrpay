@@ -17,8 +17,8 @@ Subscription payment happens **in DirectPay**, not in analytics-bi:
 | Method | Steps |
 |--------|--------|
 | **Guest pay link** | After starting subscription, click **Sync** then **Pay in DirectPay** on the Organization page (or use the link on the subscription blocked screen for operators) |
-| **DirectPay web app** | Log in to DirectPay with the **billing owner email** from org setup (DirectPay sends a temporary password on first provision; change password on first login). Open **Billing → Subscription invoices** and pay |
-| **Invoice email** | DirectPay emails the subscription invoice PDF/link to the billing owner email |
+| **DirectPay web app** | Log in to DirectPay with the **billing owner email** from org setup (DirectPay emails a temporary password when the Corporate plan is started; change password on first login). Open **Billing → Subscription invoices** and pay |
+| **Invoice email** | DirectPay emails the subscription invoice PDF/link to the billing owner email when the Corporate plan is started |
 
 Use the **same email** for analytics-bi billing owner and DirectPay login if the BI owner is also paying.
 
@@ -60,6 +60,14 @@ Body includes `partnerApp: "analytics-bi"`:
 | `partnerApp` | No | `"analytics-bi"` — platform billing, no comped subscription |
 
 Unlike 7a-side (`partnerApp: "default"`), analytics-bi businesses have **`platformBillingWaived: false`** and **no automatic subscription**.
+
+When the owner starts the **Corporate** plan, DirectPay sends the same emails as a self-serve Corporate signup:
+
+- **Owner welcome email** — temporary password and guest pay link (when the first invoice has a balance)
+- **Subscription invoice email** — PDF + pay link
+- **Operator notify** — if `CORPORATE_SIGNUP_NOTIFY_EMAIL` is configured in DirectPay
+
+Requires DirectPay `RESEND_API_KEY` / `RESEND_FROM_EMAIL`.
 
 ## Subscription (Corporate plan default)
 

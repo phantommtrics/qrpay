@@ -1,5 +1,8 @@
 import { InvoiceStatus, PlanCode, type BillingInterval } from "@prisma/client";
 
+import { prisma } from "../lib/prisma.js";
+import { HttpError } from "../lib/http-error.js";
+import { queueAnalyticsBiPartnerCorporateSubscriptionEmails } from "./internal-partner-analytics-bi-email.service.js";
 import { formatMoney, getBusinessSubscription, startSubscription } from "./subscription.service.js";
 
 export type PartnerSubscriptionResponse = {
@@ -74,11 +77,27 @@ export async function startInternalPartnerBusinessSubscription(input: {
   billingInterval?: BillingInterval;
 }) {
   const planCode = input.planCode ?? PlanCode.CORPORATE;
-  await startSubscription({
+
+  const business = await prisma.business.findUnique({
+    where: { id: input.businessId },
+    select: { platformBillingWaived: true },
+  });
+  if (!business) {
+    throw new HttpError(404, "Business not found.");
+  }
+
+  const { invoice } = await startSubscription({
     businessId: input.businessId,
     planCode,
     billingInterval: input.billingInterval,
   });
+
+  if (!business.platformBillingWaived && planCode === PlanCode.CORPORATE) {
+    queueAnalyticsBiPartnerCorporateSubscriptionEmails({
+      businessId: input.businessId,
+      invoiceId: invoice.id,
+    });
+  }
 
   return getInternalPartnerBusinessSubscription(input.businessId);
 }
