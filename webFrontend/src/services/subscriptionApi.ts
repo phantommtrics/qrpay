@@ -3153,6 +3153,97 @@ export async function createPlatformSupplier(body: {
   return res.data
 }
 
+export async function patchPlatformSupplier(
+  supplierId: string,
+  body: { name?: string; email?: string | null; phone?: string | null },
+): Promise<PlatformSupplierRow> {
+  const res = await apiRequest<{ data: PlatformSupplierRow }>(
+    `/platform/suppliers/${encodeURIComponent(supplierId)}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  )
+  return res.data
+}
+
+export type PlatformBillBulkPostGatewayRow = {
+  gatewayId: string
+  code: string
+  name: string
+  checkoutAdapter: string
+  hasStoredPayerPhone: boolean
+}
+
+export type PlatformBillBulkPostPreviewItem = {
+  billId: string
+  publicCode: string | null
+  supplierName: string | null
+  supplierPhone: string | null
+  supplierPhoneNormalized: string | null
+  amount: number | null
+  currency: string | null
+  narrations: string[]
+  warnings: string[]
+  eligible: boolean
+}
+
+export type PlatformBillBulkPostPreview = {
+  items: PlatformBillBulkPostPreviewItem[]
+  gateways: PlatformBillBulkPostGatewayRow[]
+}
+
+export type PlatformBillBulkPostResult = {
+  billId: string
+  success: boolean
+  publicCode?: string | null
+  supplierName?: string | null
+  amount?: number | null
+  currency?: string | null
+  supplierPhone?: string | null
+  error?: string
+  errorPhase?: 'validation' | 'aps_send' | 'ledger'
+  transactionId?: string
+}
+
+export type PlatformBillBulkPostSummary = {
+  succeeded: number
+  failed: number
+  results: PlatformBillBulkPostResult[]
+}
+
+export async function fetchPlatformBillBulkPostGateways(): Promise<PlatformBillBulkPostGatewayRow[]> {
+  const res = await apiRequest<{ data: PlatformBillBulkPostGatewayRow[] }>(
+    '/platform/bills/bulk-post/gateways',
+  )
+  return res.data
+}
+
+export async function previewPlatformBillBulkPost(
+  billIds: string[],
+): Promise<PlatformBillBulkPostPreview> {
+  const res = await apiRequest<{ data: PlatformBillBulkPostPreview }>(
+    '/platform/bills/bulk-post/preview',
+    { method: 'POST', body: JSON.stringify({ billIds }) },
+  )
+  return res.data
+}
+
+export async function executePlatformBillBulkPost(body: {
+  billIds: string[]
+  gatewayCode: string
+  settlementChartAccountId: string
+  postedAt: string
+}): Promise<PlatformBillBulkPostSummary> {
+  const res = await apiRequest<{ data: { results: PlatformBillBulkPostResult[] } }>(
+    '/platform/bills/bulk-post',
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+  const results = res.data.results
+  return {
+    results,
+    succeeded: results.filter((r) => r.success).length,
+    failed: results.filter((r) => !r.success).length,
+  }
+}
+
 export type PlatformBillRow = {
   id: string
   supplierId: string
@@ -3166,9 +3257,11 @@ export type PlatformBillRow = {
   platformJournalEntryId: string | null
   approvedAt: string | null
   paidAt: string | null
+  paymentGatewayCode: string | null
+  paymentProviderRef: string | null
   createdAt: string
   updatedAt: string
-  supplier: { id: string; name: string; email: string | null }
+  supplier: { id: string; name: string; email: string | null; phone: string | null }
   journalEntry: { id: string; postedAt: string } | null
   lines: Array<{
     id: string

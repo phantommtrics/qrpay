@@ -87,6 +87,7 @@ export const APP_PATHS = {
   /** Dynamic: `/platform/accounting/merchant-journal-entries/:journalEntryId` */
   platformAccountingMerchantJournalEntryDetail: '/platform/accounting/merchant-journal-entries/:journalEntryId',
   platformBills: '/platform/bills',
+  platformContacts: '/platform/contacts',
   platformBillNew: '/platform/bills/new',
   platformBillDetail: '/platform/bills/:billId',
   platformActivityLog: '/platform/activity-log',
@@ -258,6 +259,12 @@ export const PLATFORM_FINANCE_SUBNAV: PlatformBusinessesSubNavItem[] = [
     path: APP_PATHS.platformAccountingOperatorMerchantJournals,
     title: 'Platform operator journal',
     anyOfPermissions: ['platform.accounting.view', 'platform.accounting.journals.access'] as const,
+  },
+  {
+    name: 'finance-platform-contacts',
+    path: APP_PATHS.platformContacts,
+    title: 'Supplier contacts',
+    permission: 'platform.contacts.view',
   },
   {
     name: 'finance-platform-bills',
@@ -547,6 +554,9 @@ export function getPageTitle(pathname: string) {
   }
   if (pathname.includes('/platform/accounting/merchant-journal-entries')) {
     return 'Transaction journal'
+  }
+  if (pathname.includes(APP_PATHS.platformContacts)) {
+    return 'Supplier contacts'
   }
   if (pathname.includes('/platform/bills/') && pathname !== APP_PATHS.platformBills) {
     return 'Supplier bill'

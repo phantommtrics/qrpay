@@ -37,6 +37,8 @@ function platformBillToPaperDocument(row: PlatformBillRow): BillRow {
     journalEntryId: row.platformJournalEntryId,
     approvedAt: row.approvedAt,
     paidAt: row.paidAt,
+    paymentGatewayCode: row.paymentGatewayCode ?? null,
+    paymentProviderRef: row.paymentProviderRef ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     contact: {
@@ -173,6 +175,12 @@ export function PlatformBillDetailPage() {
                   <>
                     {' '}
                     · <span className="text-qb-heading">{row.supplier.email}</span>
+                  </>
+                ) : null}
+                {row.supplier.phone ? (
+                  <>
+                    {' '}
+                    · <span className="text-qb-heading">{row.supplier.phone}</span>
                   </>
                 ) : null}
               </p>

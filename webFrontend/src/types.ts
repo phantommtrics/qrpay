@@ -51,6 +51,8 @@ export type PermissionKey =
   | 'platform.accounting.journals.reverse'
   | 'platform.bills.view'
   | 'platform.bills.manage'
+  | 'platform.contacts.view'
+  | 'platform.contacts.manage'
   | 'platform.activity.log'
   | 'platform.system.view'
   | 'platform.security.roles.view'

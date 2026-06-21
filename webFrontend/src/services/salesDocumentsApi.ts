@@ -18,7 +18,7 @@ export type SalesDocumentLine = {
   chartOfAccount?: SalesDocumentChartAccount
 }
 
-export type SalesQuotationContact = { id: string; name: string; email: string | null }
+export type SalesQuotationContact = { id: string; name: string; email: string | null; phone?: string | null }
 
 export type SalesQuotationRow = {
   id: string
@@ -74,6 +74,8 @@ export type BillRow = {
   journalEntryId: string | null
   approvedAt: string | null
   paidAt: string | null
+  paymentGatewayCode: string | null
+  paymentProviderRef: string | null
   createdAt: string
   updatedAt: string
   contact: SalesQuotationContact
@@ -369,6 +371,91 @@ export async function voidBill(businessId: string, billId: string): Promise<Bill
     { method: 'POST', businessId },
   )
   return res.data
+}
+
+export type BillBulkPostGatewayRow = {
+  gatewayId: string
+  code: string
+  name: string
+  checkoutAdapter: string
+  hasStoredPayerPhone: boolean
+}
+
+export type BillBulkPostPreviewItem = {
+  billId: string
+  publicCode: string | null
+  contactName: string | null
+  contactPhone: string | null
+  contactPhoneNormalized: string | null
+  amount: number | null
+  currency: string | null
+  narrations: string[]
+  warnings: string[]
+  eligible: boolean
+}
+
+export type BillBulkPostPreview = {
+  items: BillBulkPostPreviewItem[]
+  gateways: BillBulkPostGatewayRow[]
+}
+
+export type BillBulkPostResult = {
+  billId: string
+  success: boolean
+  publicCode?: string | null
+  contactName?: string | null
+  amount?: number | null
+  currency?: string | null
+  contactPhone?: string | null
+  error?: string
+  errorPhase?: 'validation' | 'aps_send' | 'ledger'
+  transactionId?: string
+}
+
+export type BillBulkPostSummary = {
+  succeeded: number
+  failed: number
+  results: BillBulkPostResult[]
+}
+
+export async function fetchBillBulkPostGateways(businessId: string): Promise<BillBulkPostGatewayRow[]> {
+  const res = await apiRequest<{ data: BillBulkPostGatewayRow[] }>(
+    `/businesses/${businessId}/bills/bulk-post/gateways`,
+    { method: 'GET', businessId },
+  )
+  return res.data
+}
+
+export async function previewBillBulkPost(
+  businessId: string,
+  billIds: string[],
+): Promise<BillBulkPostPreview> {
+  const res = await apiRequest<{ data: BillBulkPostPreview }>(
+    `/businesses/${businessId}/bills/bulk-post/preview`,
+    { method: 'POST', businessId, body: JSON.stringify({ billIds }) },
+  )
+  return res.data
+}
+
+export async function executeBillBulkPost(
+  businessId: string,
+  body: {
+    billIds: string[]
+    gatewayCode: string
+    settlementChartAccountId: string
+    postedAt: string
+  },
+): Promise<BillBulkPostSummary> {
+  const res = await apiRequest<{ data: { results: BillBulkPostResult[] } }>(
+    `/businesses/${businessId}/bills/bulk-post`,
+    { method: 'POST', businessId, body: JSON.stringify(body) },
+  )
+  const results = res.data.results
+  return {
+    results,
+    succeeded: results.filter((r) => r.success).length,
+    failed: results.filter((r) => !r.success).length,
+  }
 }
 
 export async function downloadBillPdf(businessId: string, billId: string): Promise<void> {

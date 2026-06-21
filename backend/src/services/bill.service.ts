@@ -37,7 +37,7 @@ function linesToJournalInput(
 }
 
 const billInclude = {
-  contact: { select: { id: true, name: true, email: true } },
+  contact: { select: { id: true, name: true, email: true, phone: true } },
   journalEntry: { select: { id: true, postedAt: true } },
   lines: {
     orderBy: { sortOrder: "asc" as const },
@@ -107,7 +107,7 @@ export async function createBill(
         },
       },
       include: {
-        contact: { select: { id: true, name: true, email: true } },
+        contact: { select: { id: true, name: true, email: true, phone: true } },
         lines: {
           orderBy: { sortOrder: "asc" },
           include: { chartOfAccount: { select: { id: true, code: true, name: true } } },
@@ -182,7 +182,7 @@ export async function updateBillDraft(
           : {}),
       },
       include: {
-        contact: { select: { id: true, name: true, email: true } },
+        contact: { select: { id: true, name: true, email: true, phone: true } },
         lines: {
           orderBy: { sortOrder: "asc" },
           include: { chartOfAccount: { select: { id: true, code: true, name: true } } },
@@ -222,7 +222,7 @@ export async function approveBill(businessId: string, billId: string) {
       approvedAt: new Date(),
     },
     include: {
-      contact: { select: { id: true, name: true, email: true } },
+      contact: { select: { id: true, name: true, email: true, phone: true } },
       lines: {
         orderBy: { sortOrder: "asc" },
         include: { chartOfAccount: { select: { id: true, code: true, name: true } } },
@@ -238,7 +238,12 @@ export async function approveBill(businessId: string, billId: string) {
 export async function markBillPaid(
   businessId: string,
   billId: string,
-  input: { settlementChartAccountId: string; postedAt: Date },
+  input: {
+    settlementChartAccountId: string;
+    postedAt: Date;
+    paymentGatewayCode?: string | null;
+    paymentProviderRef?: string | null;
+  },
 ) {
   const bill = await prisma.bill.findFirst({
     where: { id: billId, businessId },
@@ -290,13 +295,15 @@ export async function markBillPaid(
         paidAt: new Date(),
         journalEntryId: entry.id,
         settlementChartAccountId: input.settlementChartAccountId,
+        paymentGatewayCode: input.paymentGatewayCode?.trim() || null,
+        paymentProviderRef: input.paymentProviderRef?.trim() || null,
       },
     });
 
     return tx.bill.findFirstOrThrow({
       where: { id: bill.id },
       include: {
-        contact: { select: { id: true, name: true, email: true } },
+        contact: { select: { id: true, name: true, email: true, phone: true } },
         journalEntry: { select: { id: true, postedAt: true } },
         lines: {
           orderBy: { sortOrder: "asc" },
@@ -322,7 +329,7 @@ export async function voidBill(businessId: string, billId: string) {
     where: { id: billId },
     data: { status: BillStatus.VOID },
     include: {
-      contact: { select: { id: true, name: true, email: true } },
+      contact: { select: { id: true, name: true, email: true, phone: true } },
       lines: {
         orderBy: { sortOrder: "asc" },
         include: { chartOfAccount: { select: { id: true, code: true, name: true } } },

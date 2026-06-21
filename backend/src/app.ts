@@ -300,6 +300,11 @@ import {
   voidBill,
 } from "./services/bill.service.js";
 import {
+  executeMerchantBillBulkPost,
+  listMerchantBillBulkPostGateways,
+  previewMerchantBillBulkPost,
+} from "./services/bill-bulk-pay.service.js";
+import {
   approveSalesInvoice,
   createSalesInvoice,
   getSalesInvoiceById,
@@ -334,8 +339,14 @@ import {
   listPlatformSuppliers,
   markPlatformBillPaid,
   updatePlatformBillDraft,
+  updatePlatformSupplier,
   voidPlatformBill,
 } from "./services/platform-bill.service.js";
+import {
+  executePlatformBillBulkPost,
+  listPlatformBillBulkPostGateways,
+  previewPlatformBillBulkPost,
+} from "./services/platform-bill-bulk-pay.service.js";
 import { renderBillPdfDownload } from "./services/bill-document-pdf.service.js";
 import { renderPlatformBillPdfDownload } from "./services/platform-bill-document-pdf.service.js";
 import { guestSubscriptionInvoiceUrl } from "./lib/public-guest-urls.js";
@@ -3596,6 +3607,30 @@ app.post(
   },
 );
 
+app.patch(
+  "/api/platform/suppliers/:supplierId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsEditGates),
+  async (req, res, next) => {
+    try {
+      const body = platformSupplierPatchBodySchema.parse(req.body);
+      const row = await updatePlatformSupplier(req.params.supplierId as string, body);
+      res.json({
+        data: {
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          phone: row.phone,
+          createdAt: row.createdAt.toISOString(),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 app.get(
   "/api/platform/bills",
   authenticateToken,
@@ -3698,6 +3733,76 @@ app.post(
     try {
       const row = await approvePlatformBill(req.params.billId as string);
       res.json({ data: formatPlatformBillApi(row) });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/bills/bulk-post/gateways",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsViewGates),
+  async (_req, res, next) => {
+    try {
+      const gateways = await listPlatformBillBulkPostGateways();
+      res.json({ data: gateways });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/bills/bulk-post/preview",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsEditGates),
+  async (req, res, next) => {
+    try {
+      const body = platformBillBulkPostBodySchema.parse(req.body);
+      const preview = await previewPlatformBillBulkPost({ billIds: body.billIds });
+      res.json({ data: preview });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/bills/bulk-post",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformPurchaseBillsEditGates),
+  async (req, res, next) => {
+    try {
+      const body = platformBillBulkPostExecuteBodySchema.parse(req.body);
+      const { results } = await executePlatformBillBulkPost({
+        billIds: body.billIds,
+        gatewayCode: body.gatewayCode,
+        settlementChartAccountId: body.settlementChartAccountId,
+        postedAt: parsePostedAt(body.postedAt),
+      });
+      if (req.user?.id) {
+        for (const r of results) {
+          if (!r.success) continue;
+          await appendActivityLog(prisma, {
+            businessId: null,
+            actorUserId: req.user.id,
+            actorKind: ActivityActorKind.USER,
+            eventType: ACTIVITY_EVENT.PLATFORM_BILL_PAID,
+            resourceType: "platform_bill",
+            resourceId: r.billId,
+            metadata: {
+              gatewayCode: body.gatewayCode,
+              transactionId: r.transactionId ?? null,
+              bulkPost: true,
+            },
+          });
+        }
+      }
+      res.json({ data: { results } });
     } catch (e) {
       next(e);
     }
@@ -8119,6 +8224,25 @@ const platformSupplierCreateBodySchema = z.object({
   phone: z.string().trim().max(64).optional().nullable(),
 });
 
+const platformSupplierPatchBodySchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  email: z.string().trim().email().optional().nullable(),
+  phone: z.string().trim().max(64).optional().nullable(),
+});
+
+const platformBillBulkPostBodySchema = z.object({
+  billIds: z.array(z.string().trim().min(1)).min(1),
+});
+
+const platformBillBulkPostExecuteBodySchema = platformBillBulkPostBodySchema.extend({
+  gatewayCode: z.string().trim().min(1).max(64),
+  settlementChartAccountId: z.string().min(1),
+  postedAt: z.string().min(1),
+});
+
+const billBulkPostBodySchema = platformBillBulkPostBodySchema;
+const billBulkPostExecuteBodySchema = platformBillBulkPostExecuteBodySchema;
+
 const platformJournalReverseBodySchema = z.object({
   postedAt: z.string().trim().min(1),
   memo: z.string().trim().max(4000).optional().nullable(),
@@ -8976,6 +9100,80 @@ app.post(
         lines: mapSalesLineInputs(body.lines),
       });
       response.status(201).json({ data: formatBillApi(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/bills/bulk-post/gateways",
+  authenticateToken,
+  requireEntitlement("sales.bill"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const gateways = await listMerchantBillBulkPostGateways(businessId as string);
+      response.json({ data: gateways });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/bills/bulk-post/preview",
+  authenticateToken,
+  requireEntitlement("sales.bill"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const body = billBulkPostBodySchema.parse(request.body);
+      const preview = await previewMerchantBillBulkPost({
+        businessId: businessId as string,
+        billIds: body.billIds,
+      });
+      response.json({ data: preview });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/bills/bulk-post",
+  authenticateToken,
+  requireEntitlement("sales.bill"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const body = billBulkPostExecuteBodySchema.parse(request.body);
+      const { results } = await executeMerchantBillBulkPost({
+        businessId: businessId as string,
+        billIds: body.billIds,
+        gatewayCode: body.gatewayCode,
+        settlementChartAccountId: body.settlementChartAccountId,
+        postedAt: parsePostedAt(body.postedAt),
+      });
+      response.json({ data: { results } });
     } catch (error) {
       next(error);
     }

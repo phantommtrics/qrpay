@@ -3,6 +3,7 @@ import { ArrowLeft, ExternalLink, Loader2, Pencil, Plus, Trash2 } from 'lucide-r
 import { Link } from 'react-router-dom'
 
 import { ContactSearchCombobox } from '../components/ui/ContactSearchCombobox'
+import { MerchantBillBulkPostModal } from '../components/sales/MerchantBillBulkPostModal'
 import { LineNarrationTextarea, QB_LINE_NARRATION_SHELL } from '../components/ui/LineNarrationTextarea'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
@@ -15,10 +16,13 @@ import { ApiError } from '../services/subscriptionApi'
 import {
   approveBill,
   createBill,
+  fetchBillBulkPostGateways,
   fetchBills,
   markBillPaid,
   patchBill,
   voidBill,
+  type BillBulkPostGatewayRow,
+  type BillBulkPostSummary,
   type BillRow,
 } from '../services/salesDocumentsApi'
 import { formatMoney } from '../utils/formatMoney'
@@ -152,6 +156,10 @@ export function BillsPage() {
 
   const [editingBillId, setEditingBillId] = useState<string | null>(null)
 
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkModalOpen, setBulkModalOpen] = useState(false)
+  const [bulkGateways, setBulkGateways] = useState<BillBulkPostGatewayRow[]>([])
+
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null)
@@ -189,11 +197,77 @@ export function BillsPage() {
   const loadList = useCallback(() => {
     if (!businessId) return
     setLoadingList(true)
-    void fetchBills(businessId)
-      .then(setRows)
-      .catch(() => setRows([]))
+    void Promise.all([
+      fetchBills(businessId),
+      fetchBillBulkPostGateways(businessId).catch(() => [] as BillBulkPostGatewayRow[]),
+    ])
+      .then(([bills, gateways]) => {
+        setRows(bills)
+        setBulkGateways(gateways)
+      })
+      .catch(() => {
+        setRows([])
+        setBulkGateways([])
+      })
       .finally(() => setLoadingList(false))
   }, [businessId])
+
+  const approvedRows = useMemo(
+    () => rows.filter((r) => r.status.toUpperCase() === 'APPROVED' && !r.journalEntryId),
+    [rows],
+  )
+  const selectedApprovedCount = useMemo(
+    () => approvedRows.filter((r) => selectedIds.has(r.id)).length,
+    [approvedRows, selectedIds],
+  )
+
+  const toggleBillSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectAllApproved = () => setSelectedIds(new Set(approvedRows.map((r) => r.id)))
+  const clearSelection = () => setSelectedIds(new Set())
+
+  const handleBulkComplete = useCallback(
+    (summary: BillBulkPostSummary) => {
+      loadList()
+      clearSelection()
+
+      if (summary.failed === 0) {
+        setToast({
+          message: `${summary.succeeded} bill${summary.succeeded === 1 ? '' : 's'} posted successfully.`,
+          variant: 'success',
+        })
+        return
+      }
+
+      const apsFailures = summary.results.filter((r) => !r.success && r.errorPhase === 'aps_send')
+      const firstApsError = apsFailures[0]?.error
+
+      if (summary.succeeded === 0) {
+        setToast({
+          message: firstApsError
+            ? `Send money failed: ${firstApsError}`
+            : summary.results.find((r) => !r.success)?.error ?? 'Bulk post failed for all selected bills.',
+          variant: 'error',
+        })
+        return
+      }
+
+      setToast({
+        message: `${summary.succeeded} posted, ${summary.failed} failed.${
+          firstApsError ? ` APS error: ${firstApsError}` : ''
+        }`,
+        variant: 'error',
+      })
+    },
+    [loadList],
+  )
 
   useEffect(() => {
     loadAccounts()
@@ -482,6 +556,43 @@ export function BillsPage() {
             variant="default"
             className="space-y-4 rounded-md border-qb-border p-5 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
           >
+            {approvedRows.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={selectAllApproved}
+                  className="rounded-sm border border-qb-border px-3 py-1.5 text-xs font-medium"
+                >
+                  Select all approved
+                </button>
+                {selectedIds.size > 0 ? (
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    className="rounded-sm border border-qb-border px-3 py-1.5 text-xs font-medium"
+                  >
+                    Clear ({selectedIds.size})
+                  </button>
+                ) : null}
+                {selectedApprovedCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setBulkModalOpen(true)}
+                    className="rounded-sm bg-qb-primary px-3 py-1.5 text-xs font-semibold text-white"
+                  >
+                    Bulk post ({selectedApprovedCount})
+                  </button>
+                ) : null}
+                <span className="text-xs text-qb-muted">
+                  APS bulk pay needs mobile on{' '}
+                  <Link to={APP_PATHS.contacts} className="text-qb-primary hover:underline">
+                    contacts
+                  </Link>
+                  .
+                </span>
+              </div>
+            ) : null}
+
             {loadingList ? (
               <div className="flex items-center gap-2 text-qb-muted">
                 <Loader2 className="h-5 w-5 animate-spin" />
@@ -494,6 +605,7 @@ export function BillsPage() {
                 <table className="w-full min-w-[880px] border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-qb-border bg-qb-surface text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                      <th className="w-8 px-2 py-2.5" />
                       <th className="px-3 py-2.5">Code</th>
                       <th className="px-3 py-2.5">Contact</th>
                       <th className="px-3 py-2.5">Status</th>
@@ -514,11 +626,24 @@ export function BillsPage() {
                       const hasEmail = Boolean(inv.contact.email?.trim())
                       return (
                         <tr key={inv.id} className="align-top hover:bg-qb-surface/40">
+                          <td className="px-2 py-2">
+                            {canPay ? (
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.has(inv.id)}
+                                onChange={() => toggleBillSelection(inv.id)}
+                                aria-label={`Select ${inv.publicCode}`}
+                              />
+                            ) : null}
+                          </td>
                           <td className="px-3 py-2 font-medium text-qb-heading">{inv.publicCode}</td>
                           <td className="px-3 py-2 text-qb-heading">
                             <div>{inv.contact.name}</div>
                             {!hasEmail ? (
                               <p className="mt-0.5 text-xs text-amber-800">No email on file</p>
+                            ) : null}
+                            {inv.contact.phone ? (
+                              <p className="mt-0.5 text-xs text-qb-muted">{inv.contact.phone}</p>
                             ) : null}
                           </td>
                           <td className="px-3 py-2">
@@ -879,6 +1004,17 @@ export function BillsPage() {
           </PageCard>
         )}
       </div>
+
+      {businessId && bulkModalOpen ? (
+        <MerchantBillBulkPostModal
+          open={bulkModalOpen}
+          businessId={businessId}
+          billIds={[...selectedIds].filter((id) => approvedRows.some((r) => r.id === id))}
+          gateways={bulkGateways}
+          onClose={() => setBulkModalOpen(false)}
+          onComplete={handleBulkComplete}
+        />
+      ) : null}
     </PageTransition>
   )
 }

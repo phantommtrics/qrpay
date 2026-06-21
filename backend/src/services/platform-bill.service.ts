@@ -14,7 +14,7 @@ function assertLines(lines: SalesLineInput[]) {
 }
 
 const billInclude = {
-  supplier: { select: { id: true, name: true, email: true } },
+  supplier: { select: { id: true, name: true, email: true, phone: true } },
   journalEntry: { select: { id: true, postedAt: true } },
   lines: {
     orderBy: { sortOrder: "asc" as const },
@@ -38,6 +38,28 @@ export async function createPlatformSupplier(input: { name: string; email?: stri
       name,
       email: input.email?.trim() || null,
       phone: input.phone?.trim() || null,
+    },
+  });
+}
+
+export async function updatePlatformSupplier(
+  supplierId: string,
+  input: { name?: string; email?: string | null; phone?: string | null },
+) {
+  const existing = await prisma.platformSupplier.findFirst({ where: { id: supplierId } });
+  if (!existing) {
+    throw new HttpError(404, "Supplier not found.");
+  }
+  const name = input.name !== undefined ? input.name.trim() : undefined;
+  if (name !== undefined && !name) {
+    throw new HttpError(400, "Supplier name is required.");
+  }
+  return prisma.platformSupplier.update({
+    where: { id: supplierId },
+    data: {
+      ...(name !== undefined ? { name } : {}),
+      ...(input.email !== undefined ? { email: input.email?.trim() || null } : {}),
+      ...(input.phone !== undefined ? { phone: input.phone?.trim() || null } : {}),
     },
   });
 }
@@ -99,7 +121,7 @@ export async function createPlatformBill(input: {
         },
       },
       include: {
-        supplier: { select: { id: true, name: true, email: true } },
+        supplier: { select: { id: true, name: true, email: true, phone: true } },
         lines: {
           orderBy: { sortOrder: "asc" },
           include: { chartOfAccount: { select: { id: true, code: true, name: true } } },
@@ -173,7 +195,7 @@ export async function updatePlatformBillDraft(
           : {}),
       },
       include: {
-        supplier: { select: { id: true, name: true, email: true } },
+        supplier: { select: { id: true, name: true, email: true, phone: true } },
         lines: {
           orderBy: { sortOrder: "asc" },
           include: { chartOfAccount: { select: { id: true, code: true, name: true } } },
@@ -212,7 +234,7 @@ export async function approvePlatformBill(billId: string) {
       approvedAt: new Date(),
     },
     include: {
-      supplier: { select: { id: true, name: true, email: true } },
+      supplier: { select: { id: true, name: true, email: true, phone: true } },
       lines: {
         orderBy: { sortOrder: "asc" },
         include: { chartOfAccount: { select: { id: true, code: true, name: true } } },
@@ -225,7 +247,12 @@ export async function approvePlatformBill(billId: string) {
 
 export async function markPlatformBillPaid(
   billId: string,
-  input: { settlementChartAccountId: string; postedAt: Date },
+  input: {
+    settlementChartAccountId: string;
+    postedAt: Date;
+    paymentGatewayCode?: string | null;
+    paymentProviderRef?: string | null;
+  },
 ) {
   const bill = await prisma.platformBill.findFirst({
     where: { id: billId },
@@ -271,13 +298,15 @@ export async function markPlatformBillPaid(
         paidAt: new Date(),
         platformJournalEntryId: entry.id,
         settlementChartAccountId: input.settlementChartAccountId,
+        paymentGatewayCode: input.paymentGatewayCode?.trim() || null,
+        paymentProviderRef: input.paymentProviderRef?.trim() || null,
       },
     });
 
     return tx.platformBill.findFirstOrThrow({
       where: { id: bill.id },
       include: {
-        supplier: { select: { id: true, name: true, email: true } },
+        supplier: { select: { id: true, name: true, email: true, phone: true } },
         journalEntry: { select: { id: true, postedAt: true } },
         lines: {
           orderBy: { sortOrder: "asc" },
@@ -303,7 +332,7 @@ export async function voidPlatformBill(billId: string) {
     where: { id: billId },
     data: { status: BillStatus.VOID },
     include: {
-      supplier: { select: { id: true, name: true, email: true } },
+      supplier: { select: { id: true, name: true, email: true, phone: true } },
       lines: {
         orderBy: { sortOrder: "asc" },
         include: { chartOfAccount: { select: { id: true, code: true, name: true } } },

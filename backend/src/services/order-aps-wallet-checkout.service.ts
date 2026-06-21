@@ -51,7 +51,7 @@ import {
 const APS_STATE_TTL_MS = 15 * 60 * 1000;
 const LOG_PREFIX = "[APS Wallet]";
 
-async function resolveApsWalletMerchantContextForBusiness(
+export async function resolveApsWalletMerchantContextForBusiness(
   businessId: string,
   gatewayCode: string,
 ): Promise<ApsWalletMerchantContext> {

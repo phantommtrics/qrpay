@@ -410,6 +410,11 @@ const PlatformMerchantJournalEntryDetailPage = lazy(() =>
 const PlatformBillsPage = lazy(() =>
   import('../screens/PlatformBillsPage').then((module) => ({ default: module.PlatformBillsPage })),
 )
+const PlatformContactsPage = lazy(() =>
+  import('../screens/platform/PlatformContactsPage').then((module) => ({
+    default: module.PlatformContactsPage,
+  })),
+)
 const PlatformBillNewPage = lazy(() =>
   import('../screens/PlatformBillNewPage').then((module) => ({ default: module.PlatformBillNewPage })),
 )
@@ -627,6 +632,12 @@ export function AppRoutes() {
       element: <PlatformMerchantJournalEntryDetailPage />,
       roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.accounting.transaction_journal' as const,
+    },
+    {
+      path: APP_PATHS.platformContacts,
+      element: <PlatformContactsPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.contacts.view' as const,
     },
     {
       path: APP_PATHS.platformBills,

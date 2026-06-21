@@ -961,6 +961,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 m?.['platform.purchase_bills']?.edit,
             )
           }
+          if (permission === 'platform.contacts.view') {
+            return Boolean(m?.['platform.accounting']?.view || m?.['platform.purchase_bills']?.view)
+          }
+          if (permission === 'platform.contacts.manage') {
+            return Boolean(
+              m?.['platform.accounting']?.create ||
+                m?.['platform.purchase_bills']?.create ||
+                m?.['platform.purchase_bills']?.edit,
+            )
+          }
           if (permission === 'platform.activity.log') {
             return Boolean(
               m?.['platform.accounting']?.view ||
@@ -1051,6 +1061,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               return Boolean(m?.['platform.accounting']?.view || m?.['platform.purchase_bills']?.view)
             }
             if (permission === 'platform.bills.manage') {
+              return Boolean(
+                m?.['platform.accounting']?.create ||
+                  m?.['platform.purchase_bills']?.create ||
+                  m?.['platform.purchase_bills']?.edit,
+              )
+            }
+            if (permission === 'platform.contacts.view') {
+              return Boolean(m?.['platform.accounting']?.view || m?.['platform.purchase_bills']?.view)
+            }
+            if (permission === 'platform.contacts.manage') {
               return Boolean(
                 m?.['platform.accounting']?.create ||
                   m?.['platform.purchase_bills']?.create ||

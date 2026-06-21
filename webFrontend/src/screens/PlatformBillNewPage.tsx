@@ -96,11 +96,24 @@ export function PlatformBillNewPage() {
   const [submitting, setSubmitting] = useState(false)
   const [newSupplierName, setNewSupplierName] = useState('')
   const [newSupplierEmail, setNewSupplierEmail] = useState('')
+  const [newSupplierPhone, setNewSupplierPhone] = useState('')
   const [creatingSupplier, setCreatingSupplier] = useState(false)
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null)
 
   const dismissToast = useCallback(() => setToast(null), [])
   const lineSelectOptions = useMemo(() => accountOptions(accounts), [accounts])
+  const supplierSelectOptions = useMemo(
+    (): SearchableSelectOption[] =>
+      suppliers
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((s) => ({
+          value: s.id,
+          label: s.name,
+          hint: [s.email, s.phone].filter(Boolean).join(' · ') || undefined,
+        })),
+    [suppliers],
+  )
   const billTotal = useMemo(() => lines.reduce((sum, line) => sum + lineTotal(line), 0), [lines])
 
   useEffect(() => {
@@ -156,11 +169,15 @@ export function PlatformBillNewPage() {
       const supplier = await createPlatformSupplier({
         name: newSupplierName.trim(),
         email: newSupplierEmail.trim(),
+        phone: newSupplierPhone.trim() || null,
       })
-      setSuppliers([supplier])
+      setSuppliers((prev) =>
+        [...prev, supplier].sort((a, b) => a.name.localeCompare(b.name)),
+      )
       setSupplierId(supplier.id)
       setNewSupplierName('')
       setNewSupplierEmail('')
+      setNewSupplierPhone('')
       setToast({ message: 'Supplier added.', variant: 'success' })
     } catch (e) {
       reportError(e instanceof ApiError ? e.message : 'Could not create supplier.')
@@ -288,11 +305,21 @@ export function PlatformBillNewPage() {
           >
             {suppliers.length === 0 ? (
               <div className="rounded-md border border-amber-200 bg-amber-50/90 p-4 text-sm shadow-[0_1px_2px_rgba(57,58,61,0.06)]">
-                <p className="font-semibold text-amber-950">No suppliers yet</p>
+                <p className="font-semibold text-amber-950">No supplier contacts yet</p>
                 <p className="mt-1 text-amber-900">
-                  Add a supplier first. Email is required before bills can be approved.
+                  Add a supplier contact before creating a bill. Email is required before bills can be
+                  approved.
                 </p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Link
+                    to={APP_PATHS.platformContacts}
+                    className="rounded-sm bg-qb-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                  >
+                    Open supplier contacts
+                  </Link>
+                </div>
+                <p className="mt-4 text-xs text-amber-900">Or add one quickly here:</p>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
                   <input
                     placeholder="Supplier name"
                     value={newSupplierName}
@@ -304,6 +331,12 @@ export function PlatformBillNewPage() {
                     type="email"
                     value={newSupplierEmail}
                     onChange={(e) => setNewSupplierEmail(e.target.value)}
+                    className={fieldClass}
+                  />
+                  <input
+                    placeholder="Mobile (APS pay)"
+                    value={newSupplierPhone}
+                    onChange={(e) => setNewSupplierPhone(e.target.value)}
                     className={fieldClass}
                   />
                   <button
@@ -319,21 +352,24 @@ export function PlatformBillNewPage() {
             ) : (
               <form noValidate onSubmit={(e) => void submit(e)} className="space-y-6">
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <label className="block space-y-1.5">
+                  <label className="block space-y-1.5 sm:col-span-2">
                     <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
-                      Supplier
+                      Supplier contact
                     </span>
-                    <select
+                    <SearchableSelect
                       value={supplierId}
-                      onChange={(e) => setSupplierId(e.target.value)}
-                      className={fieldClass}
+                      onChange={setSupplierId}
+                      options={supplierSelectOptions}
+                      placeholder="Select supplier…"
+                      className={QB_SELECT_TABLE}
+                      dropdownClassName={QB_DROPDOWN}
+                    />
+                    <Link
+                      to={APP_PATHS.platformContacts}
+                      className="text-xs font-medium text-qb-primary hover:underline"
                     >
-                      {suppliers.map((supplier) => (
-                        <option key={supplier.id} value={supplier.id}>
-                          {supplier.name}
-                        </option>
-                      ))}
-                    </select>
+                      Manage contacts
+                    </Link>
                   </label>
                   <label className="block space-y-1.5">
                     <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">

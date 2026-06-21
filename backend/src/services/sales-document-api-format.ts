@@ -142,9 +142,11 @@ export function formatBillApi(bill: {
   journalEntryId: string | null;
   approvedAt: Date | null;
   paidAt: Date | null;
+  paymentGatewayCode?: string | null;
+  paymentProviderRef?: string | null;
   createdAt: Date;
   updatedAt: Date;
-  contact: { id: string; name: string; email: string | null };
+  contact: { id: string; name: string; email: string | null; phone?: string | null };
   journalEntry?: { id: string; postedAt: Date } | null;
   lines: Array<{
     id: string;
@@ -172,6 +174,8 @@ export function formatBillApi(bill: {
     journalEntryId: bill.journalEntryId,
     approvedAt: bill.approvedAt?.toISOString() ?? null,
     paidAt: bill.paidAt?.toISOString() ?? null,
+    paymentGatewayCode: bill.paymentGatewayCode ?? null,
+    paymentProviderRef: bill.paymentProviderRef ?? null,
     createdAt: bill.createdAt.toISOString(),
     updatedAt: bill.updatedAt.toISOString(),
     contact: bill.contact,
@@ -195,9 +199,11 @@ export function formatPlatformBillApi(bill: {
   platformJournalEntryId: string | null;
   approvedAt: Date | null;
   paidAt: Date | null;
+  paymentGatewayCode?: string | null;
+  paymentProviderRef?: string | null;
   createdAt: Date;
   updatedAt: Date;
-  supplier: { id: string; name: string; email: string | null };
+  supplier: { id: string; name: string; email: string | null; phone?: string | null };
   journalEntry?: { id: string; postedAt: Date } | null;
   lines: Array<{
     id: string;
@@ -224,6 +230,8 @@ export function formatPlatformBillApi(bill: {
     platformJournalEntryId: bill.platformJournalEntryId,
     approvedAt: bill.approvedAt?.toISOString() ?? null,
     paidAt: bill.paidAt?.toISOString() ?? null,
+    paymentGatewayCode: bill.paymentGatewayCode ?? null,
+    paymentProviderRef: bill.paymentProviderRef ?? null,
     createdAt: bill.createdAt.toISOString(),
     updatedAt: bill.updatedAt.toISOString(),
     supplier: bill.supplier,

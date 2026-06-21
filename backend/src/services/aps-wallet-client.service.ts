@@ -20,6 +20,8 @@ export const APS_WALLET_PATHS = {
   authorizeCustomer: "/api/v1/payment-gateway/wallet/authorize-customer",
   confirmCustomer: "/api/v1/payment-gateway/wallet/confirm-customer",
   processPayment: "/api/v1/payment-gateway/wallet/process-payment",
+  sendPayment: "/api/v1/payment-gateway/wallet/send-payment",
+  transactionDetail: "/api/v1/payment-gateway/wallet/transaction",
   unlinkCustomer: "/api/v1/payment-gateway/wallet/unlink-customer",
 } as const;
 
@@ -548,7 +550,7 @@ export async function apsWalletProcessPayment(
   });
   const raw = await postJson(
     APS_WALLET_PATHS.processPayment,
-    /** Body: { amount, authorized_token } — amounts sent as strings per APS examples. */
+    /** Body: { amount, authorized_token } — amounts sent as strings per APS amount format. */
     {
       amount: amount.trim(),
       authorized_token: authorizedToken,
@@ -569,6 +571,63 @@ export async function apsWalletProcessPayment(
     reference: reference ?? "(none parsed)",
   });
   return { raw, reference };
+}
+
+export async function apsWalletSendPayment(
+  mobile: string,
+  amount: string,
+  merchantCtx: ApsWalletMerchantContext = { scope: "platform_env" },
+): Promise<{ raw: unknown; reference?: string }> {
+  const normalized = normalizeApsCustomerMobile(mobile);
+  const bearer = await apsWalletMerchantBearerForContext(merchantCtx);
+  logAps("send_payment_start", {
+    path: APS_WALLET_PATHS.sendPayment,
+    customerMobile: maskPhoneTail(normalized),
+    amount: amount.trim(),
+  });
+  const raw = await postJson(
+    APS_WALLET_PATHS.sendPayment,
+    {
+      mobile: normalized,
+      amount: amount.trim(),
+    },
+    bearer,
+    merchantCtx,
+  );
+  assertSuccessPayload(raw, "Send payment");
+  const reference = pickStringDeep(raw, [
+    "transaction_id",
+    "transactionId",
+    "reference",
+    "id",
+    "payment_id",
+    "paymentId",
+  ]);
+  logAps("send_payment_ok", {
+    reference: reference ?? "(none parsed)",
+  });
+  return { raw, reference };
+}
+
+export async function apsWalletGetTransaction(
+  transactionId: string,
+  merchantCtx: ApsWalletMerchantContext = { scope: "platform_env" },
+): Promise<{ raw: unknown }> {
+  const id = transactionId.trim();
+  const bearer = await apsWalletMerchantBearerForContext(merchantCtx);
+  logAps("transaction_detail_start", {
+    path: APS_WALLET_PATHS.transactionDetail,
+    transactionIdTail: maskSecret(id, 4, 4),
+  });
+  const raw = await postJson(
+    APS_WALLET_PATHS.transactionDetail,
+    { transaction_id: id },
+    bearer,
+    merchantCtx,
+  );
+  assertSuccessPayload(raw, "Transaction detail");
+  logAps("transaction_detail_ok");
+  return { raw };
 }
 
 export async function apsWalletUnlinkCustomer(
