@@ -30,6 +30,18 @@ export async function createBusinessContact(
   return res.data
 }
 
+export async function patchBusinessContact(
+  businessId: string,
+  contactId: string,
+  body: { name?: string; email?: string | null; phone?: string | null },
+): Promise<BusinessContactRow> {
+  const res = await apiRequest<{ data: BusinessContactRow }>(
+    `/businesses/${businessId}/contacts/${encodeURIComponent(contactId)}`,
+    { method: 'PATCH', businessId, body: JSON.stringify(body) },
+  )
+  return res.data
+}
+
 export type ManualJournalLinePayload = {
   chartOfAccountId: string
   narration: string

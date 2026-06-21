@@ -10,9 +10,13 @@ import { useAuth } from '../features/auth/AuthContext'
 import {
   createBusinessContact,
   fetchBusinessContacts,
+  patchBusinessContact,
   type BusinessContactRow,
 } from '../services/journalApi'
 import { ApiError } from '../services/subscriptionApi'
+
+const fieldInput =
+  'w-full rounded-sm border border-qb-border bg-white px-3 py-2 text-sm text-qb-heading placeholder:text-qb-muted/60 focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35'
 
 export function ContactsPage() {
   const { currentOrganization } = useAuth()
@@ -23,6 +27,9 @@ export function ContactsPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState({ name: '', email: '', phone: '' })
+  const [savingEditId, setSavingEditId] = useState<string | null>(null)
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -77,6 +84,47 @@ export function ContactsPage() {
     }
   }
 
+  const startEdit = (row: BusinessContactRow) => {
+    setEditingId(row.id)
+    setEditDraft({
+      name: row.name,
+      email: row.email ?? '',
+      phone: row.phone ?? '',
+    })
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditDraft({ name: '', email: '', phone: '' })
+  }
+
+  const saveEdit = async (contactId: string) => {
+    if (!businessId) return
+    const n = editDraft.name.trim()
+    if (!n) {
+      setError('Name is required.')
+      return
+    }
+    setSavingEditId(contactId)
+    setError(null)
+    try {
+      await patchBusinessContact(businessId, contactId, {
+        name: n,
+        email: editDraft.email.trim() || null,
+        phone: editDraft.phone.trim() || null,
+      })
+      setToast({ message: 'Contact updated.', variant: 'success' })
+      cancelEdit()
+      load()
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : 'Could not update contact.'
+      setError(msg)
+      setToast({ message: msg, variant: 'error' })
+    } finally {
+      setSavingEditId(null)
+    }
+  }
+
   if (!businessId) {
     return (
       <PageTransition>
@@ -86,9 +134,6 @@ export function ContactsPage() {
       </PageTransition>
     )
   }
-
-  const fieldInput =
-    'w-full rounded-sm border border-qb-border bg-white px-3 py-2 text-sm text-qb-heading placeholder:text-qb-muted/60 focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35'
 
   return (
     <PageTransition>
@@ -177,7 +222,10 @@ export function ContactsPage() {
         >
           <div className="border-b border-qb-border px-5 py-4">
             <h2 className="text-lg font-semibold text-qb-heading">Your contacts</h2>
-            <p className="mt-1 text-sm text-qb-muted">Recently created contacts appear in search across the app.</p>
+            <p className="mt-1 text-sm text-qb-muted">
+              {rows.length} contact{rows.length === 1 ? '' : 's'} — selectable in journals and sales
+              documents.
+            </p>
           </div>
           {loading ? (
             <div className="flex items-center gap-2 px-5 py-10 text-qb-muted">
@@ -188,22 +236,86 @@ export function ContactsPage() {
             <p className="px-5 py-10 text-sm text-qb-muted">No contacts yet. Add one above.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[480px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[640px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-qb-border bg-qb-surface text-xs font-semibold uppercase tracking-wide text-qb-muted">
                     <th className="px-5 py-3">Name</th>
                     <th className="px-5 py-3">Email</th>
                     <th className="px-5 py-3">Phone</th>
+                    <th className="px-5 py-3" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-qb-border">
-                  {rows.map((c) => (
-                    <tr key={c.id} className="hover:bg-qb-surface/40">
-                      <td className="px-5 py-3 font-medium text-qb-heading">{c.name}</td>
-                      <td className="px-5 py-3 text-qb-muted">{c.email ?? '—'}</td>
-                      <td className="px-5 py-3 text-qb-muted">{c.phone ?? '—'}</td>
-                    </tr>
-                  ))}
+                  {rows.map((c) => {
+                    const editing = editingId === c.id
+                    return (
+                      <tr key={c.id} className="hover:bg-qb-surface/40">
+                        <td className="px-5 py-3">
+                          {editing ? (
+                            <input
+                              value={editDraft.name}
+                              onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
+                              className={fieldInput}
+                            />
+                          ) : (
+                            <span className="font-medium text-qb-heading">{c.name}</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3">
+                          {editing ? (
+                            <input
+                              type="email"
+                              value={editDraft.email}
+                              onChange={(e) => setEditDraft((d) => ({ ...d, email: e.target.value }))}
+                              className={fieldInput}
+                            />
+                          ) : (
+                            <span className="text-qb-muted">{c.email ?? '—'}</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3">
+                          {editing ? (
+                            <input
+                              value={editDraft.phone}
+                              onChange={(e) => setEditDraft((d) => ({ ...d, phone: e.target.value }))}
+                              className={fieldInput}
+                            />
+                          ) : (
+                            <span className="text-qb-muted">{c.phone ?? '—'}</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          {editing ? (
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={cancelEdit}
+                                className="rounded-sm border border-qb-border px-2 py-1 text-xs"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={savingEditId === c.id}
+                                onClick={() => void saveEdit(c.id)}
+                                className="rounded-sm bg-qb-primary px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                              >
+                                {savingEditId === c.id ? 'Saving…' : 'Save'}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => startEdit(c)}
+                              className="rounded-sm border border-qb-border px-2 py-1 text-xs font-medium"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

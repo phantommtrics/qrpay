@@ -58,3 +58,41 @@ export async function getBusinessContactOrThrow(businessId: string, contactId: s
   }
   return row;
 }
+
+export async function updateBusinessContact(
+  businessId: string,
+  contactId: string,
+  input: { name?: string; email?: string | null; phone?: string | null; notes?: string | null },
+) {
+  await getBusinessContactOrThrow(businessId, contactId);
+
+  const name = input.name !== undefined ? input.name.trim() : undefined;
+  if (name !== undefined && !name) {
+    throw new HttpError(400, "Contact name is required.");
+  }
+  if (name !== undefined && name.length > 200) {
+    throw new HttpError(400, "Contact name is too long.");
+  }
+  const email =
+    input.email !== undefined ? input.email?.trim() || null : undefined;
+  const phone =
+    input.phone !== undefined ? input.phone?.trim() || null : undefined;
+  const notes =
+    input.notes !== undefined ? input.notes?.trim() || null : undefined;
+  if (email && email.length > 320) {
+    throw new HttpError(400, "Email is too long.");
+  }
+  if (phone && phone.length > 64) {
+    throw new HttpError(400, "Phone is too long.");
+  }
+
+  return prisma.businessContact.update({
+    where: { id: contactId },
+    data: {
+      ...(name !== undefined ? { name } : {}),
+      ...(email !== undefined ? { email } : {}),
+      ...(phone !== undefined ? { phone } : {}),
+      ...(notes !== undefined ? { notes } : {}),
+    },
+  });
+}

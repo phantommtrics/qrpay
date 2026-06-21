@@ -251,6 +251,7 @@ import { getAccountingSummaryForBusiness } from "./services/accounting-summary.s
 import {
   createBusinessContact,
   listBusinessContacts,
+  updateBusinessContact,
 } from "./services/business-contact.service.js";
 import { createChartOfAccountForBusiness } from "./services/chart-of-accounts.service.js";
 import {
@@ -8337,6 +8338,51 @@ app.post(
 
       const row = await createBusinessContact(businessId as string, body);
       response.status(201).json({
+        data: {
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          phone: row.phone,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.patch(
+  "/api/businesses/:businessId/contacts/:contactId",
+  authenticateToken,
+  requireEntitlement("contacts.manage"),
+  async (request, response, next) => {
+    try {
+      const { businessId, contactId } = request.params;
+      const body = z
+        .object({
+          name: z.string().trim().min(1).max(200).optional(),
+          email: z.string().trim().max(320).optional().nullable(),
+          phone: z.string().trim().max(64).optional().nullable(),
+        })
+        .parse(request.body);
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const row = await updateBusinessContact(
+        businessId as string,
+        contactId as string,
+        body,
+      );
+      response.json({
         data: {
           id: row.id,
           name: row.name,
