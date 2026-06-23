@@ -1111,7 +1111,7 @@ const internalPartnerProvisionBodySchema = z.object({
   slug: z.string().optional(),
   industry: z.string().optional(),
   webhookUrl: z.string().url().optional().nullable(),
-  partnerApp: z.enum(["default", "analytics-bi"]).optional(),
+  partnerApp: z.enum(["default", "analytics-bi", "vpay"]).optional(),
 });
 
 const internalPartnerStartSubscriptionBodySchema = z.object({

@@ -38,7 +38,7 @@ async function allocateUniqueBusinessSlug(
   return `${root}-${randomBytes(8).toString("hex")}`;
 }
 
-export type InternalPartnerApp = "default" | "analytics-bi";
+export type InternalPartnerApp = "default" | "analytics-bi" | "vpay";
 
 export type ProvisionInternalPartnerBusinessInput = {
   externalUserId: string;
@@ -49,7 +49,7 @@ export type ProvisionInternalPartnerBusinessInput = {
   industry?: string;
   /** Optional per-business webhook URL (otherwise comma-separated INTERNAL_PARTNER_WEBHOOK_URL defaults). */
   webhookUrl?: string | null;
-  /** `default` = comped partner (7a-side). `analytics-bi` = platform billing, no auto subscription. */
+  /** `default` = comped BASIC (7a-side). `vpay` = comped CORPORATE (vPay). `analytics-bi` = platform billing, no auto subscription. */
   partnerApp?: InternalPartnerApp;
 };
 
@@ -76,8 +76,13 @@ export async function provisionInternalPartnerBusiness(
   }
 
   const partnerApp: InternalPartnerApp =
-    input.partnerApp === "analytics-bi" ? "analytics-bi" : "default";
+    input.partnerApp === "analytics-bi"
+      ? "analytics-bi"
+      : input.partnerApp === "vpay"
+        ? "vpay"
+        : "default";
   const isAnalyticsBi = partnerApp === "analytics-bi";
+  const compedPlanCode = partnerApp === "vpay" ? PlanCode.CORPORATE : PlanCode.BASIC;
 
   const existingBiz = await prisma.business.findFirst({
     where: { partnerProvisioningExternalUserId: externalUserId },
@@ -163,7 +168,7 @@ export async function provisionInternalPartnerBusiness(
     if (!isAnalyticsBi) {
       subscription = await createInternalPartnerForeverBasicSubscriptionForBusinessTx(tx, {
         businessId: business.id,
-        planCode: PlanCode.BASIC,
+        planCode: compedPlanCode,
       });
     }
 
