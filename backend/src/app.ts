@@ -221,6 +221,7 @@ import {
 } from "./services/internal-partner-guard.service.js";
 import {
   getInternalPartnerBusinessSubscription,
+  issueInternalPartnerSubscriptionPayableInvoice,
   startInternalPartnerBusinessSubscription,
 } from "./services/internal-partner-subscription.service.js";
 import {
@@ -6781,6 +6782,21 @@ app.post(
         billingInterval: body.billingInterval,
       });
       response.status(201).json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/internal-partner/v1/businesses/:businessId/subscription/invoices",
+  requireInternalPartnerApiSecret,
+  async (request, response, next) => {
+    try {
+      const businessId = request.params.businessId as string;
+      await assertInternalPartnerBusiness(businessId);
+      const data = await issueInternalPartnerSubscriptionPayableInvoice(businessId);
+      response.json({ data });
     } catch (error) {
       next(error);
     }

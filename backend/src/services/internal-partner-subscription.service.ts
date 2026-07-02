@@ -2,7 +2,9 @@ import { InvoiceStatus, PlanCode, type BillingInterval } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
+import { guestSubscriptionInvoiceUrl } from "../lib/public-guest-urls.js";
 import { queueAnalyticsBiPartnerCorporateSubscriptionEmails } from "./internal-partner-analytics-bi-email.service.js";
+import { queueInternalPartnerSubscriptionUpdated } from "./internal-partner-webhook-queue.service.js";
 import { formatMoney, getBusinessSubscription, startSubscription } from "./subscription.service.js";
 
 export type PartnerSubscriptionResponse = {
@@ -30,6 +32,11 @@ export type PartnerSubscriptionResponse = {
     dueDate: string;
     guestToken: string | null;
   } | null;
+};
+
+export type PartnerSubscriptionPayableInvoiceResponse = PartnerSubscriptionResponse & {
+  payUrl: string;
+  invoiceCreated: boolean;
 };
 
 export async function getInternalPartnerBusinessSubscription(
@@ -100,4 +107,37 @@ export async function startInternalPartnerBusinessSubscription(input: {
   }
 
   return getInternalPartnerBusinessSubscription(input.businessId);
+}
+
+export async function issueInternalPartnerSubscriptionPayableInvoice(
+  businessId: string,
+): Promise<PartnerSubscriptionPayableInvoiceResponse> {
+  const hadPendingBefore = await prisma.subscriptionInvoice.findFirst({
+    where: { businessId, status: InvoiceStatus.PENDING },
+    select: { id: true },
+  });
+
+  await getBusinessSubscription(businessId);
+
+  const data = await getInternalPartnerBusinessSubscription(businessId);
+  const guestToken = data.pendingInvoice?.guestToken?.trim();
+  if (!guestToken) {
+    throw new HttpError(
+      409,
+      "No payable subscription invoice is available. Start a subscription or wait until the billing period requires payment.",
+    );
+  }
+
+  const invoiceCreated = !hadPendingBefore && data.pendingInvoice !== null;
+  if (invoiceCreated) {
+    void queueInternalPartnerSubscriptionUpdated(businessId).catch((err) => {
+      console.error("[internal-partner-subscription] subscription.updated webhook failed:", err);
+    });
+  }
+
+  return {
+    ...data,
+    payUrl: guestSubscriptionInvoiceUrl(guestToken),
+    invoiceCreated,
+  };
 }

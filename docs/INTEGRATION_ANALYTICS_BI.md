@@ -16,7 +16,7 @@ Subscription payment happens **in DirectPay**, not in analytics-bi:
 
 | Method | Steps |
 |--------|--------|
-| **Guest pay link** | After starting subscription, click **Sync** then **Pay in DirectPay** on the Organization page (or use the link on the subscription blocked screen for operators) |
+| **Guest pay link** | After starting subscription, click **Pay in DirectPay** on the Organization page (issues/returns a payable invoice and opens DirectPay in the browser) or use **Renew in DirectPay** on the subscription blocked screen |
 | **DirectPay web app** | Log in to DirectPay with the **billing owner email** from org setup (DirectPay emails a temporary password when the Corporate plan is started; change password on first login). Open **Billing → Subscription invoices** and pay |
 | **Invoice email** | DirectPay emails the subscription invoice PDF/link to the billing owner email when the Corporate plan is started |
 
@@ -75,6 +75,9 @@ Requires DirectPay `RESEND_API_KEY` / `RESEND_FROM_EMAIL`.
 |--------|------|---------|
 | `GET` | `/api/internal-partner/v1/businesses/:businessId/subscription` | Read status, period end, pending invoice |
 | `POST` | `/api/internal-partner/v1/businesses/:businessId/subscription` | Start subscription (defaults to `CORPORATE`) |
+| `POST` | `/api/internal-partner/v1/businesses/:businessId/subscription/invoices` | Ensure a payable pending invoice exists; returns `pendingInvoice`, `payUrl` (hash route `/#/guest/subscription-invoice/:guestToken`), and `invoiceCreated` |
+
+`POST .../subscription/invoices` is idempotent: if a pending invoice already exists, the same row and guest token are returned (`invoiceCreated: false`). Use this when the partner needs a fresh pay link on demand (e.g. **Pay in DirectPay** in analytics-bi).
 
 ## Access rules in analytics-bi
 
