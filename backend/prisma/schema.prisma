@@ -117,6 +117,10 @@ enum StaffCreationNotificationType {
    * Business notified that a refund was approved; includes expected refund date (PDF attached).
    */
   SUBSCRIPTION_INVOICE_REFUND_APPROVED
+  /**
+   * Business owner reminded that the current subscription period ends in about one week.
+   */
+  SUBSCRIPTION_ENDING_REMINDER
 }
 
 enum StaffCreationNotificationStatus {
@@ -1263,6 +1267,8 @@ model Subscription {
   currentPeriodStart   DateTime
   /// Null when `contractPerpetual` (signed contract); no automatic renewal period.
   currentPeriodEnd     DateTime?
+  /// `currentPeriodEnd` value we already emailed an ending reminder for (one email per period).
+  periodEndReminderSentFor DateTime?
   /** Set when billing is CONTRACT_INFINITE and the contract invoice is satisfied. */
   contractPerpetual    Boolean               @default(false)
   cancelAtPeriodEnd    Boolean               @default(false)

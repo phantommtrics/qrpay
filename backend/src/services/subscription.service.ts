@@ -21,6 +21,7 @@ import {
   dueInDays,
 } from "../utils/billing.js";
 import { queueSubscriptionInvoiceOwnerEmail } from "./subscription-invoice-email.service.js";
+import { ensureSubscriptionEndingReminderForSubscription } from "./subscription-ending-reminder.service.js";
 import {
   ensureSubscriptionRenewalInvoiceForSubscription,
   listBusinessIdsForSubscriptionRenewalSweep,
@@ -84,7 +85,7 @@ type StartSubscriptionInput = {
   billingInterval?: BillingInterval;
 };
 
-export const SUBSCRIPTION_TRIAL_DAYS = 7;
+export const SUBSCRIPTION_TRIAL_DAYS = 14;
 
 type SubscriptionWithPlanAndInvoices = Prisma.SubscriptionGetPayload<{
   include: {
@@ -264,6 +265,16 @@ export async function getBusinessSubscription(businessId: string) {
         currentSubscription = reloaded;
       }
     }
+    const forReminder = await prisma.subscription.findUnique({
+      where: { id: currentSubscription.id },
+      include: {
+        plan: true,
+        business: { select: { platformBillingWaived: true } },
+      },
+    });
+    if (forReminder) {
+      await ensureSubscriptionEndingReminderForSubscription(forReminder);
+    }
   }
 
   return {
@@ -282,6 +293,7 @@ export async function runSubscriptionRenewalMaintenanceForBusiness(businessId: s
     orderBy: { createdAt: "desc" },
     include: {
       plan: true,
+      business: { select: { platformBillingWaived: true } },
       invoices: {
         orderBy: { createdAt: "desc" },
         take: 12,
@@ -293,6 +305,16 @@ export async function runSubscriptionRenewalMaintenanceForBusiness(businessId: s
   }
   const afterTrial = await expireTrialIfNeeded(sub);
   await ensureSubscriptionRenewalInvoiceForSubscription(afterTrial);
+  const forReminder = await prisma.subscription.findUnique({
+    where: { id: afterTrial.id },
+    include: {
+      plan: true,
+      business: { select: { platformBillingWaived: true } },
+    },
+  });
+  if (forReminder) {
+    await ensureSubscriptionEndingReminderForSubscription(forReminder);
+  }
 }
 
 export async function runSubscriptionRenewalInvoiceSweepOnce(): Promise<{ scanned: number }> {

@@ -10,7 +10,7 @@ Full system documentation (architecture, backend and frontend components, workfl
 
 - One login account can own or access multiple businesses.
 - Each business keeps its own subscription, invoices, and trial status.
-- New business subscriptions start in a 7-day trial window.
+- New business subscriptions start in a 14-day trial window.
 - The first invoice is created immediately and must be paid before the trial window expires.
 
 ## Multi-business ownership
@@ -69,10 +69,11 @@ The frontend keeps one signed-in user and one active business context.
 ## Trial and billing behavior
 
 - A new subscription starts as `TRIALING`.
-- Trial deadline: 7 days from subscription start.
+- Trial deadline: 14 days from subscription start.
 - Invoice due date matches the trial end date.
 - Paying the invoice moves the subscription to `ACTIVE`.
 - Unpaid trial subscriptions expire once the due date passes.
+- Seven days before the current period ends (trial or paid), the business owner receives an email reminder to renew.
 
 ## Important backend endpoints
 

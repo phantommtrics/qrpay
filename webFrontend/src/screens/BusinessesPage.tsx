@@ -371,7 +371,7 @@ export function BusinessesPage() {
                 New business onboarding
               </div>
               <p className="mt-2">
-                The selected plan starts immediately with a 7-day trial before the first payment is
+                The selected plan starts immediately with a 14-day trial before the first payment is
                 due.
               </p>
             </div>

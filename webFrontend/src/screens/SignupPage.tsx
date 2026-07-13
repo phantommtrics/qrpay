@@ -91,7 +91,7 @@ export function SignupPage() {
 
     setMessage(
       result.message ??
-        'Account created. Check your email for a temporary password. Your 7-day payment trial has started.',
+        'Account created. Check your email for a temporary password. Your 14-day payment trial has started.',
     )
     navigate(APP_PATHS.dashboard)
   }
@@ -107,7 +107,7 @@ export function SignupPage() {
             <div>
               <p className="text-xl font-bold">Create your DirectPay organization</p>
               <p className="text-sm text-slate-400">
-                Choose a plan, create an account, and start a 7-day payment trial.
+                Choose a plan, create an account, and start a 14-day payment trial.
               </p>
             </div>
           </div>

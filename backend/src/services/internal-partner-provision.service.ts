@@ -115,14 +115,27 @@ export async function provisionInternalPartnerBusiness(
     };
   }
 
+  // Reuse an existing owner account for the same email so a partner user can hold
+  // multiple businesses concurrently, exactly like self-serve merchants (memberships
+  // are unique per business, not per user — see BusinessMembership @@unique).
   const emailOwner = await prisma.user.findUnique({
     where: { email: ownerEmail },
-    select: { id: true },
+    select: { id: true, role: true, isActive: true },
   });
-  if (emailOwner) {
+  if (emailOwner && !emailOwner.isActive) {
     throw new HttpError(
       409,
-      "This email is already registered in Easypay. Use a different owner email for partner provisioning.",
+      "This email belongs to a deactivated Easypay account and cannot be provisioned.",
+    );
+  }
+  if (
+    emailOwner &&
+    emailOwner.role !== UserRole.MERCHANT &&
+    emailOwner.role !== UserRole.ADMIN
+  ) {
+    throw new HttpError(
+      409,
+      "This email is registered to a non-merchant Easypay account and cannot own a partner business.",
     );
   }
 
@@ -131,15 +144,17 @@ export async function provisionInternalPartnerBusiness(
   const created = await prisma.$transaction(async (tx) => {
     const slug = await allocateUniqueBusinessSlug(tx, normalizeSlug(input.slug || businessName));
 
-    const user = await tx.user.create({
-      data: {
-        name: ownerName,
-        email: ownerEmail,
-        passwordHash: hashPassword(password),
-        role: UserRole.MERCHANT,
-        mustChangePassword: true,
-      },
-    });
+    const user = emailOwner
+      ? await tx.user.findUniqueOrThrow({ where: { id: emailOwner.id } })
+      : await tx.user.create({
+          data: {
+            name: ownerName,
+            email: ownerEmail,
+            passwordHash: hashPassword(password),
+            role: UserRole.MERCHANT,
+            mustChangePassword: true,
+          },
+        });
 
     const business = await tx.business.create({
       data: {

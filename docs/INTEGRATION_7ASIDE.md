@@ -87,7 +87,7 @@ Gateway `code` values match Easypay’s enabled payment gateways for that busine
 | Field | Required | Description |
 |-------|------------|-------------|
 | `externalUserId` | Yes | Stable id from 7-aside (e.g. organiser user id). |
-| `ownerEmail` | Yes | Must not already exist as an Easypay user. |
+| `ownerEmail` | Yes | Reused if it already belongs to a merchant owner, so one person can hold multiple partner businesses (like self-serve merchants). Rejected only for deactivated or non-merchant accounts. |
 | `ownerName` | Yes | Display name for the owner user. |
 | `businessName` | Yes | Tenant display name. |
 | `slug` | No | URL slug hint; Easypay may suffix if taken. |
