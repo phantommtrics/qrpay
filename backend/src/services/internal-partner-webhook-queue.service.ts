@@ -11,6 +11,7 @@ import {
   internalPartnerWebhookTargetsFromEnv,
 } from "../config/internal-partner-env.js";
 import { prisma } from "../lib/prisma.js";
+import { formatPartnerBillingAssignment } from "./corporate-billing.service.js";
 
 const BACKOFF_MS = [
   30_000, 120_000, 300_000, 900_000, 3_600_000, 7_200_000, 14_400_000, 28_800_000,
@@ -264,8 +265,12 @@ export async function queueInternalPartnerSubscriptionUpdated(
     where: { id: businessId },
     select: {
       id: true,
+      industry: true,
       partnerProvisioningExternalUserId: true,
       internalPartnerWebhookUrl: true,
+      corporateBillingPlanId: true,
+      corporateBillingInterval: true,
+      corporateBillingPlan: true,
       subscriptions: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -301,6 +306,7 @@ export async function queueInternalPartnerSubscriptionUpdated(
     planCode: sub?.plan.code ?? null,
     currentPeriodEnd: sub?.currentPeriodEnd?.toISOString() ?? null,
     pendingInvoiceGuestToken: pendingGuestToken,
+    billing: formatPartnerBillingAssignment(business, sub?.billingInterval ?? null),
     occurredAt: new Date().toISOString(),
   };
 

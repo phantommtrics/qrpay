@@ -102,6 +102,86 @@ export async function resolveSubscriptionInvoiceAmount(
   };
 }
 
+export type PartnerBillingAssignment =
+  | {
+      assigned: false;
+      message: "No billing is assigned";
+    }
+  | {
+      assigned: true;
+      templateId: string;
+      templateName: string;
+      billingInterval: BillingInterval;
+      currency: string;
+      /** Price for the assigned billing interval (subscription revenue amount). */
+      amount: string;
+      prices: {
+        monthly: string;
+        quarterly: string;
+        halfYearly: string;
+        yearly: string;
+        twoYears: string;
+        contract: string;
+      };
+    };
+
+type PartnerBillingSource = {
+  industry: string | null;
+  corporateBillingPlanId: string | null;
+  corporateBillingInterval: BillingInterval | null;
+  corporateBillingPlan: {
+    id: string;
+    name: string;
+    monthlyPrice: Prisma.Decimal;
+    quarterlyPrice: Prisma.Decimal;
+    halfYearlyPrice: Prisma.Decimal;
+    yearlyPrice: Prisma.Decimal;
+    twoYearPrice: Prisma.Decimal;
+    contractPrice: Prisma.Decimal;
+    currency: string;
+  } | null;
+};
+
+function formatDecimalMoney(value: Prisma.Decimal) {
+  return Number(value).toFixed(2);
+}
+
+/**
+ * Partner-facing snapshot of the corporate billing template assigned to a business.
+ * Unassigned tenants get an explicit message so partners can distinguish $0 invoices from real pricing.
+ */
+export function formatPartnerBillingAssignment(
+  business: PartnerBillingSource,
+  fallbackInterval?: BillingInterval | null,
+): PartnerBillingAssignment {
+  const cp = business.corporateBillingPlan;
+  const interval = business.corporateBillingInterval ?? fallbackInterval ?? null;
+
+  if (!isCorporateIndustry(business.industry) || !business.corporateBillingPlanId || !cp || !interval) {
+    return {
+      assigned: false,
+      message: "No billing is assigned",
+    };
+  }
+
+  return {
+    assigned: true,
+    templateId: cp.id,
+    templateName: cp.name,
+    billingInterval: interval,
+    currency: cp.currency,
+    amount: formatDecimalMoney(corporateTemplateAmountForInterval(cp, interval)),
+    prices: {
+      monthly: formatDecimalMoney(cp.monthlyPrice),
+      quarterly: formatDecimalMoney(cp.quarterlyPrice),
+      halfYearly: formatDecimalMoney(cp.halfYearlyPrice),
+      yearly: formatDecimalMoney(cp.yearlyPrice),
+      twoYears: formatDecimalMoney(cp.twoYearPrice),
+      contract: formatDecimalMoney(cp.contractPrice),
+    },
+  };
+}
+
 export async function listCorporateBillingPlansForPlatform() {
   return prisma.corporateBillingPlan.findMany({
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],

@@ -3,13 +3,21 @@ import { InvoiceStatus, PlanCode, type BillingInterval } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
 import { guestSubscriptionInvoiceUrl } from "../lib/public-guest-urls.js";
+import {
+  formatPartnerBillingAssignment,
+  type PartnerBillingAssignment,
+} from "./corporate-billing.service.js";
 import { queueAnalyticsBiPartnerCorporateSubscriptionEmails } from "./internal-partner-analytics-bi-email.service.js";
 import { queueInternalPartnerSubscriptionUpdated } from "./internal-partner-webhook-queue.service.js";
 import { formatMoney, getBusinessSubscription, startSubscription } from "./subscription.service.js";
 
+export type { PartnerBillingAssignment };
+
 export type PartnerSubscriptionResponse = {
   businessId: string;
   partnerProvisioningExternalUserId: string | null;
+  /** Corporate billing template assigned to this business, or an explicit unassigned message. */
+  billing: PartnerBillingAssignment;
   subscription: {
     id: string;
     status: string;
@@ -49,6 +57,7 @@ export async function getInternalPartnerBusinessSubscription(
   return {
     businessId: result.business.id,
     partnerProvisioningExternalUserId: result.business.partnerProvisioningExternalUserId,
+    billing: formatPartnerBillingAssignment(result.business, sub?.billingInterval ?? null),
     subscription: sub
       ? {
           id: sub.id,

@@ -73,11 +73,22 @@ Requires DirectPay `RESEND_API_KEY` / `RESEND_FROM_EMAIL`.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/api/internal-partner/v1/businesses/:businessId/subscription` | Read status, period end, pending invoice |
+| `GET` | `/api/internal-partner/v1/businesses/:businessId/subscription` | Read status, period end, pending invoice, and billing assignment |
 | `POST` | `/api/internal-partner/v1/businesses/:businessId/subscription` | Start subscription (defaults to `CORPORATE`) |
 | `POST` | `/api/internal-partner/v1/businesses/:businessId/subscription/invoices` | Ensure a payable pending invoice exists; returns `pendingInvoice`, `payUrl` (hash route `/#/guest/subscription-invoice/:guestToken`), and `invoiceCreated` |
 
 `POST .../subscription/invoices` is idempotent: if a pending invoice already exists, the same row and guest token are returned (`invoiceCreated: false`). Use this when the partner needs a fresh pay link on demand (e.g. **Pay in DirectPay** in analytics-bi).
+
+### `billing` field (subscription revenue)
+
+Every subscription response includes `billing` so the partner can tell what price is assigned after guest pay succeeds (pending invoices clear once paid):
+
+| Shape | Meaning |
+|-------|---------|
+| `{ "assigned": false, "message": "No billing is assigned" }` | Corporate tenant has no billing template yet (invoice amount stays `0.00` until operators assign one) |
+| `{ "assigned": true, "templateId", "templateName", "billingInterval", "currency", "amount", "prices" }` | Template is assigned; `amount` is the price for the active interval |
+
+Use `billing.amount` / `billing.currency` as the subscription revenue for the current cadence.
 
 ## Access rules in analytics-bi
 
@@ -95,7 +106,7 @@ POST /api/webhooks/directpay
 X-Easypay-Signature: sha256=<hex>
 ```
 
-Payload includes `partnerProvisioningExternalUserId` (= organization id), `status`, `currentPeriodEnd`, `pendingInvoiceGuestToken`.
+Payload includes `partnerProvisioningExternalUserId` (= organization id), `status`, `currentPeriodEnd`, `pendingInvoiceGuestToken`, and `billing` (same shape as the subscription API — assigned template + amount, or `"No billing is assigned"`).
 
 ## Payment
 
