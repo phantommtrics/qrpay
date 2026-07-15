@@ -10,7 +10,7 @@ import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
 import { newGuestToken } from "../lib/guest-token.js";
 import { cancelPendingInvoicePaymentLedgers } from "./billing-ledger.service.js";
-import { billingPeriodEndFromStart, createInvoiceReference, dueInDays } from "../utils/billing.js";
+import { billingPeriodEndFromStart, createInvoiceReference, dueInDays, nextBillingPeriodStart } from "../utils/billing.js";
 import { queueSubscriptionInvoiceOwnerEmail } from "./subscription-invoice-email.service.js";
 import { getPlanEntitlementsDetail } from "./system-catalog.service.js";
 import { isCorporateIndustry } from "../utils/corporate-industry.js";
@@ -298,6 +298,8 @@ export async function listCorporateBusinesses() {
               SubscriptionStatus.TRIALING,
               SubscriptionStatus.ACTIVE,
               SubscriptionStatus.PAST_DUE,
+              SubscriptionStatus.EXPIRED,
+              SubscriptionStatus.CANCELLED,
             ],
           },
         },
@@ -354,6 +356,9 @@ export async function assignCorporateBusinessSettings(input: {
               SubscriptionStatus.TRIALING,
               SubscriptionStatus.ACTIVE,
               SubscriptionStatus.PAST_DUE,
+              /** Allow assign after trial/period ended before billing was configured. */
+              SubscriptionStatus.EXPIRED,
+              SubscriptionStatus.CANCELLED,
             ],
           },
         },
@@ -391,7 +396,10 @@ export async function assignCorporateBusinessSettings(input: {
 
   const sub = business.subscriptions[0];
   if (!sub) {
-    throw new HttpError(400, "No active subscription for this business.");
+    throw new HttpError(
+      400,
+      "No subscription found for this business. Start a Corporate plan before assigning billing.",
+    );
   }
 
   const result = await prisma.$transaction(async (tx) => {
@@ -444,7 +452,14 @@ export async function assignCorporateBusinessSettings(input: {
       input.billingInterval,
     );
 
-    const periodEnd = billingPeriodEndFromStart(refreshed.currentPeriodStart, input.billingInterval);
+    const needsReactivationPeriod =
+      refreshed.status === SubscriptionStatus.EXPIRED ||
+      refreshed.status === SubscriptionStatus.CANCELLED;
+    const now = new Date();
+    const periodStart = needsReactivationPeriod
+      ? nextBillingPeriodStart(refreshed.currentPeriodEnd, now)
+      : refreshed.currentPeriodStart;
+    const periodEnd = billingPeriodEndFromStart(periodStart, input.billingInterval);
 
     const invoice = await tx.subscriptionInvoice.create({
       data: {
@@ -454,9 +469,9 @@ export async function assignCorporateBusinessSettings(input: {
         amount,
         currency: invoiceCurrency,
         status: InvoiceStatus.PENDING,
-        billingPeriodStart: refreshed.currentPeriodStart,
+        billingPeriodStart: periodStart,
         billingPeriodEnd: periodEnd,
-        dueDate: dueInDays(new Date(), 7),
+        dueDate: dueInDays(now, 7),
         externalReference: createInvoiceReference(),
         guestToken: newGuestToken(),
       },

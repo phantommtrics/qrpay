@@ -135,6 +135,18 @@ export function PlatformCorporateBusinessesPage() {
                     <td className="px-4 py-3">
                       <p className="font-semibold text-slate-900">{b.name}</p>
                       <p className="text-xs text-slate-500">{b.slug}</p>
+                      {b.currentSubscription ? (
+                        <p
+                          className={`mt-1 text-xs ${
+                            b.currentSubscription.status === 'EXPIRED' ||
+                            b.currentSubscription.status === 'CANCELLED'
+                              ? 'text-amber-700'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {b.currentSubscription.status}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 text-slate-700">
                       <p>{b.ownerName}</p>

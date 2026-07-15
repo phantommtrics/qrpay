@@ -42,3 +42,18 @@ export function billingPeriodEndFromStart(start: Date, interval: BillingInterval
       return addMonths(start, 1);
   }
 }
+
+/**
+ * Start of the next billed window for renewal / reactivation.
+ * - Previous period still running (end in the future) → continue from that end (contiguous renewal).
+ * - Lapsed (end in the past / missing) → start a fresh window from now (do not backfill the gap).
+ */
+export function nextBillingPeriodStart(
+  previousPeriodEnd: Date | null | undefined,
+  now: Date = new Date(),
+): Date {
+  if (previousPeriodEnd && previousPeriodEnd.getTime() > now.getTime()) {
+    return previousPeriodEnd;
+  }
+  return now;
+}

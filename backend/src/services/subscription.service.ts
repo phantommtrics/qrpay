@@ -19,6 +19,7 @@ import {
   billingPeriodEndFromStart,
   createInvoiceReference,
   dueInDays,
+  nextBillingPeriodStart,
 } from "../utils/billing.js";
 import { queueSubscriptionInvoiceOwnerEmail } from "./subscription-invoice-email.service.js";
 import { ensureSubscriptionEndingReminderForSubscription } from "./subscription-ending-reminder.service.js";
@@ -662,10 +663,7 @@ export async function renewSubscription(subscriptionId: string) {
     throw new HttpError(400, "Latest invoice must be paid before renewal.");
   }
 
-  const nextStart = subscription.currentPeriodEnd;
-  if (!nextStart) {
-    throw new HttpError(400, "Subscription has no period end to renew from.");
-  }
+  const nextStart = nextBillingPeriodStart(subscription.currentPeriodEnd);
   const interval = subscription.billingInterval ?? BillingInterval.MONTHLY;
   const nextEnd = billingPeriodEndFromStart(nextStart, interval);
 
@@ -698,7 +696,7 @@ export async function renewSubscription(subscriptionId: string) {
         status: InvoiceStatus.PENDING,
         billingPeriodStart: nextStart,
         billingPeriodEnd: nextEnd,
-        dueDate: dueInDays(nextStart, 7),
+        dueDate: dueInDays(new Date(), 7),
         externalReference: createInvoiceReference(),
         guestToken: newGuestToken(),
       },
@@ -727,15 +725,29 @@ async function applySubscriptionActivationAfterInvoicePayment(
   if (
     subscription.status === SubscriptionStatus.TRIALING ||
     subscription.status === SubscriptionStatus.EXPIRED ||
+    subscription.status === SubscriptionStatus.CANCELLED ||
     subscription.status === SubscriptionStatus.PAST_DUE
   ) {
     const perpetual = subscription.billingInterval === BillingInterval.CONTRACT_INFINITE;
+    const now = new Date();
+    const isReactivation =
+      subscription.status === SubscriptionStatus.EXPIRED ||
+      subscription.status === SubscriptionStatus.CANCELLED ||
+      subscription.status === SubscriptionStatus.PAST_DUE;
+    /** Long-lapsed pay must activate a fresh window from now, not restore a past billed range. */
+    const useFreshWindow =
+      isReactivation && paidInvoice.billingPeriodStart.getTime() < now.getTime();
+    const periodStart = useFreshWindow ? now : paidInvoice.billingPeriodStart;
+    const periodEnd = useFreshWindow
+      ? billingPeriodEndFromStart(periodStart, subscription.billingInterval)
+      : paidInvoice.billingPeriodEnd;
+
     await tx.subscription.update({
       where: { id: subscription.id },
       data: {
         status: SubscriptionStatus.ACTIVE,
-        currentPeriodStart: paidInvoice.billingPeriodStart,
-        currentPeriodEnd: perpetual ? null : paidInvoice.billingPeriodEnd,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: perpetual ? null : periodEnd,
         contractPerpetual: perpetual,
         endedAt: null,
       },

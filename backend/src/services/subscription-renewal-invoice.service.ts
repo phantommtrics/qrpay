@@ -7,7 +7,13 @@ import {
 
 import { prisma } from "../lib/prisma.js";
 import { newGuestToken } from "../lib/guest-token.js";
-import { billingPeriodEndFromStart, createInvoiceReference, dueInDays } from "../utils/billing.js";
+import {
+  billingPeriodEndFromStart,
+  createInvoiceReference,
+  dueInDays,
+  nextBillingPeriodStart,
+} from "../utils/billing.js";
+import { cancelPendingInvoicePaymentLedgers } from "./billing-ledger.service.js";
 import { resolveSubscriptionInvoiceAmount } from "./corporate-billing.service.js";
 import { queueSubscriptionInvoiceOwnerEmail } from "./subscription-invoice-email.service.js";
 
@@ -21,12 +27,6 @@ function inRenewalOrOverdueWindow(periodEnd: Date, now: Date): boolean {
   return now.getTime() >= windowStart;
 }
 
-function subscriptionHasPendingInvoice(
-  invoices: Array<{ status: InvoiceStatus }>,
-): boolean {
-  return invoices.some((i) => i.status === InvoiceStatus.PENDING);
-}
-
 type SubscriptionRenewalRow = Prisma.SubscriptionGetPayload<{
   include: {
     plan: true;
@@ -38,6 +38,40 @@ function isContractLike(sub: SubscriptionRenewalRow): boolean {
   return (
     Boolean(sub.contractPerpetual) || sub.billingInterval === BillingInterval.CONTRACT_INFINITE
   );
+}
+
+/**
+ * Void pending invoices whose billed window already ended in the past so reactivation
+ * can issue a fresh current-period invoice instead of collecting for a lapsed window.
+ */
+async function voidLapsedPendingInvoicesTx(
+  tx: Prisma.TransactionClient,
+  subscriptionId: string,
+  now: Date,
+): Promise<boolean> {
+  const pending = await tx.subscriptionInvoice.findMany({
+    where: { subscriptionId, status: InvoiceStatus.PENDING },
+    select: { id: true, billingPeriodStart: true, billingPeriodEnd: true },
+  });
+  let voided = false;
+  for (const row of pending) {
+    const windowFullyPast = row.billingPeriodEnd.getTime() < now.getTime();
+    const startInPast = row.billingPeriodStart.getTime() < now.getTime();
+    if (!windowFullyPast && !startInPast) {
+      continue;
+    }
+    await cancelPendingInvoicePaymentLedgers(tx, row.id);
+    await tx.subscriptionInvoice.update({
+      where: { id: row.id },
+      data: {
+        status: InvoiceStatus.VOID,
+        checkoutSessionId: null,
+        checkoutProvider: null,
+      },
+    });
+    voided = true;
+  }
+  return voided;
 }
 
 /**
@@ -94,7 +128,7 @@ async function createUpcomingPeriodRenewalInvoiceTx(
 
 /**
  * When trial / paid period / post-expiry needs a payable invoice, create it (once) and email the owner.
- * Idempotent: skips if a pending invoice already exists on the subscription.
+ * Idempotent: skips if a current (non-lapsed) pending invoice already exists on the subscription.
  */
 export async function ensureSubscriptionRenewalInvoiceForSubscription(
   subscription: SubscriptionRenewalRow,
@@ -104,12 +138,6 @@ export async function ensureSubscriptionRenewalInvoiceForSubscription(
   }
 
   const now = new Date();
-  const invoices = subscription.invoices ?? [];
-
-  if (subscriptionHasPendingInvoice(invoices)) {
-    return false;
-  }
-
   const interval = subscription.billingInterval ?? BillingInterval.MONTHLY;
 
   if (
@@ -127,8 +155,9 @@ export async function ensureSubscriptionRenewalInvoiceForSubscription(
     subscription.currentPeriodEnd &&
     inRenewalOrOverdueWindow(subscription.currentPeriodEnd, now)
   ) {
-    const periodStart = subscription.currentPeriodEnd;
+    const periodStart = nextBillingPeriodStart(subscription.currentPeriodEnd, now);
     const created = await prisma.$transaction(async (tx) => {
+      await voidLapsedPendingInvoicesTx(tx, subscription.id, now);
       const still = await tx.subscription.findUnique({
         where: { id: subscription.id },
         include: {
@@ -157,8 +186,12 @@ export async function ensureSubscriptionRenewalInvoiceForSubscription(
     subscription.status === SubscriptionStatus.EXPIRED ||
     subscription.status === SubscriptionStatus.CANCELLED
   ) {
-    const periodStart = subscription.currentPeriodEnd ?? subscription.endedAt ?? now;
+    const periodStart = nextBillingPeriodStart(
+      subscription.currentPeriodEnd ?? subscription.endedAt,
+      now,
+    );
     const created = await prisma.$transaction(async (tx) => {
+      await voidLapsedPendingInvoicesTx(tx, subscription.id, now);
       const still = await tx.subscription.findUnique({
         where: { id: subscription.id },
         include: {
@@ -172,7 +205,7 @@ export async function ensureSubscriptionRenewalInvoiceForSubscription(
         subscriptionId: still.id,
         businessId: still.businessId,
         planId: still.planId,
-        billingInterval: still.billingInterval ?? BillingInterval.MONTHLY,
+        billingInterval: still.billingInterval ?? interval,
         periodStart,
       });
     });
@@ -215,6 +248,16 @@ export async function listBusinessIdsForSubscriptionRenewalSweep(limit: number):
           status: { in: [SubscriptionStatus.EXPIRED, SubscriptionStatus.CANCELLED] },
           NOT: {
             invoices: { some: { status: InvoiceStatus.PENDING } },
+          },
+        },
+        // Also pick expired/cancelled that still hold a lapsed pending invoice so it can be refreshed.
+        {
+          status: { in: [SubscriptionStatus.EXPIRED, SubscriptionStatus.CANCELLED] },
+          invoices: {
+            some: {
+              status: InvoiceStatus.PENDING,
+              billingPeriodStart: { lt: now },
+            },
           },
         },
       ],
