@@ -59,17 +59,19 @@ export function buildSubscriptionEndingReminderEmailContent(input: {
   daysLeft: number;
   subscriptionStatus: SubscriptionStatus;
   payOnlineUrl?: string | null;
+  milestone?: "early" | "final";
 }): SubscriptionEndingReminderEmailContent {
   const period = periodLabel(input.subscriptionStatus);
   const endLabel = fmtEnd(input.periodEnd);
-  const subject = `${PLATFORM_NAME} — your ${input.planName} ${period} ends on ${endLabel}`;
   const daysPhrase =
-    input.daysLeft <= 1
-      ? "tomorrow"
-      : input.daysLeft === 7
-        ? "in one week"
-        : `in ${input.daysLeft} days`;
-
+    input.milestone === "early" || input.daysLeft >= 28
+      ? "in about one month"
+      : input.daysLeft <= 1
+        ? "tomorrow"
+        : input.daysLeft === 7
+          ? "in one week"
+          : `in ${input.daysLeft} days`;
+  const subject = `${PLATFORM_NAME} — your ${input.planName} ${period} ends on ${endLabel}`;
   const portalBlock =
     input.payOnlineUrl && input.payOnlineUrl.trim()
       ? `<p style="margin:16px 0;">
@@ -119,13 +121,19 @@ export function buildSubscriptionEndingReminderEmailContent(input: {
   return { subject, htmlBody, textBody };
 }
 
-export function queueSubscriptionEndingReminderEmail(subscriptionId: string): void {
-  void dispatchSubscriptionEndingReminderEmail(subscriptionId).catch((err) => {
+export function queueSubscriptionEndingReminderEmail(
+  subscriptionId: string,
+  milestone: "early" | "final" = "final",
+): void {
+  void dispatchSubscriptionEndingReminderEmail(subscriptionId, milestone).catch((err) => {
     console.error("[subscription-ending-reminder-email]", subscriptionId, err);
   });
 }
 
-async function dispatchSubscriptionEndingReminderEmail(subscriptionId: string): Promise<void> {
+async function dispatchSubscriptionEndingReminderEmail(
+  subscriptionId: string,
+  milestone: "early" | "final",
+): Promise<void> {
   const row = await prisma.subscription.findUnique({
     where: { id: subscriptionId },
     include: {
@@ -174,6 +182,7 @@ async function dispatchSubscriptionEndingReminderEmail(subscriptionId: string): 
     daysLeft,
     subscriptionStatus: row.status,
     payOnlineUrl,
+    milestone,
   });
 
   const log = await prisma.staffCreationNotificationLog.create({

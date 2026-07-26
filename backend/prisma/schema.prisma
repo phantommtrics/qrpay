@@ -1267,7 +1267,9 @@ model Subscription {
   currentPeriodStart   DateTime
   /// Null when `contractPerpetual` (signed contract); no automatic renewal period.
   currentPeriodEnd     DateTime?
-  /// `currentPeriodEnd` value we already emailed an ending reminder for (one email per period).
+  /// `currentPeriodEnd` we already emailed a ~30-day-before ending reminder for.
+  periodEndEarlyReminderSentFor DateTime?
+  /// `currentPeriodEnd` we already emailed a ~7-day-before ending reminder for.
   periodEndReminderSentFor DateTime?
   /** Set when billing is CONTRACT_INFINITE and the contract invoice is satisfied. */
   contractPerpetual    Boolean               @default(false)

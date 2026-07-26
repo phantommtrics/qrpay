@@ -17,14 +17,16 @@ import { cancelPendingInvoicePaymentLedgers } from "./billing-ledger.service.js"
 import { resolveSubscriptionInvoiceAmount } from "./corporate-billing.service.js";
 import { queueSubscriptionInvoiceOwnerEmail } from "./subscription-invoice-email.service.js";
 
-/** Match frontend `expiring_soon` (7 days) — invoice + owner email when inside this window. */
+/** First renewal invoice + owner email when inside this window (before period end). */
+export const SUBSCRIPTION_RENEWAL_EARLY_REMINDER_DAYS = 30;
+/** Final ending reminder aligns with frontend `expiring_soon`. */
 export const SUBSCRIPTION_RENEWAL_REMINDER_DAYS = 7;
 
 const MS_PER_DAY = 86_400_000;
 
-function inRenewalOrOverdueWindow(periodEnd: Date, now: Date): boolean {
-  const windowStart = periodEnd.getTime() - SUBSCRIPTION_RENEWAL_REMINDER_DAYS * MS_PER_DAY;
-  return now.getTime() >= windowStart;
+function inPreExpiryRenewalWindow(periodEnd: Date, now: Date): boolean {
+  const windowStart = periodEnd.getTime() - SUBSCRIPTION_RENEWAL_EARLY_REMINDER_DAYS * MS_PER_DAY;
+  return now.getTime() >= windowStart && now.getTime() < periodEnd.getTime();
 }
 
 type SubscriptionRenewalRow = Prisma.SubscriptionGetPayload<{
@@ -126,12 +128,18 @@ async function createUpcomingPeriodRenewalInvoiceTx(
   return { id: invoice.id };
 }
 
+type EnsureRenewalInvoiceOptions = {
+  /** When true, expired/cancelled subs get a payable invoice without emailing (billing page visit). */
+  allowPostExpiryReactivation?: boolean;
+};
+
 /**
- * When trial / paid period / post-expiry needs a payable invoice, create it (once) and email the owner.
+ * When trial / paid period needs a payable invoice before expiry, create it (once) and email the owner.
  * Idempotent: skips if a current (non-lapsed) pending invoice already exists on the subscription.
  */
 export async function ensureSubscriptionRenewalInvoiceForSubscription(
   subscription: SubscriptionRenewalRow,
+  options: EnsureRenewalInvoiceOptions = {},
 ): Promise<boolean> {
   if (isContractLike(subscription)) {
     return false;
@@ -143,7 +151,7 @@ export async function ensureSubscriptionRenewalInvoiceForSubscription(
   if (
     subscription.status === SubscriptionStatus.TRIALING &&
     subscription.currentPeriodEnd &&
-    inRenewalOrOverdueWindow(subscription.currentPeriodEnd, now)
+    inPreExpiryRenewalWindow(subscription.currentPeriodEnd, now)
   ) {
     // First invoice is created at signup; do not duplicate. Owner is emailed on signup.
     return false;
@@ -153,7 +161,7 @@ export async function ensureSubscriptionRenewalInvoiceForSubscription(
     (subscription.status === SubscriptionStatus.ACTIVE ||
       subscription.status === SubscriptionStatus.PAST_DUE) &&
     subscription.currentPeriodEnd &&
-    inRenewalOrOverdueWindow(subscription.currentPeriodEnd, now)
+    inPreExpiryRenewalWindow(subscription.currentPeriodEnd, now)
   ) {
     const periodStart = nextBillingPeriodStart(subscription.currentPeriodEnd, now);
     const created = await prisma.$transaction(async (tx) => {
@@ -183,8 +191,9 @@ export async function ensureSubscriptionRenewalInvoiceForSubscription(
   }
 
   if (
-    subscription.status === SubscriptionStatus.EXPIRED ||
-    subscription.status === SubscriptionStatus.CANCELLED
+    options.allowPostExpiryReactivation &&
+    (subscription.status === SubscriptionStatus.EXPIRED ||
+      subscription.status === SubscriptionStatus.CANCELLED)
   ) {
     const periodStart = nextBillingPeriodStart(
       subscription.currentPeriodEnd ?? subscription.endedAt,
@@ -209,24 +218,21 @@ export async function ensureSubscriptionRenewalInvoiceForSubscription(
         periodStart,
       });
     });
-    if (created?.id) {
-      queueSubscriptionInvoiceOwnerEmail(created.id);
-      return true;
-    }
-    return false;
+    return Boolean(created?.id);
   }
 
   return false;
 }
 
-/** Used by the background sweep: businesses that may need a renewal invoice or trial follow-up. */
+/** Used by the background sweep: businesses that may need a pre-expiry renewal invoice or reminder. */
 export async function listBusinessIdsForSubscriptionRenewalSweep(limit: number): Promise<string[]> {
   const cap = Math.min(Math.max(limit, 1), 500);
   const now = new Date();
-  const horizon = new Date(now.getTime() + SUBSCRIPTION_RENEWAL_REMINDER_DAYS * MS_PER_DAY);
+  const horizon = new Date(now.getTime() + SUBSCRIPTION_RENEWAL_EARLY_REMINDER_DAYS * MS_PER_DAY);
 
   const candidates = await prisma.subscription.findMany({
     where: {
+      currentPeriodEnd: { gt: now },
       OR: [
         {
           status: SubscriptionStatus.TRIALING,
@@ -243,22 +249,6 @@ export async function listBusinessIdsForSubscriptionRenewalSweep(limit: number):
             { NOT: { contractPerpetual: true } },
             { NOT: { billingInterval: BillingInterval.CONTRACT_INFINITE } },
           ],
-        },
-        {
-          status: { in: [SubscriptionStatus.EXPIRED, SubscriptionStatus.CANCELLED] },
-          NOT: {
-            invoices: { some: { status: InvoiceStatus.PENDING } },
-          },
-        },
-        // Also pick expired/cancelled that still hold a lapsed pending invoice so it can be refreshed.
-        {
-          status: { in: [SubscriptionStatus.EXPIRED, SubscriptionStatus.CANCELLED] },
-          invoices: {
-            some: {
-              status: InvoiceStatus.PENDING,
-              billingPeriodStart: { lt: now },
-            },
-          },
         },
       ],
     },

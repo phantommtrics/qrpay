@@ -250,7 +250,12 @@ export async function getBusinessSubscription(businessId: string) {
     : null;
 
   if (currentSubscription) {
-    const issued = await ensureSubscriptionRenewalInvoiceForSubscription(currentSubscription);
+    const postExpiry =
+      currentSubscription.status === SubscriptionStatus.EXPIRED ||
+      currentSubscription.status === SubscriptionStatus.CANCELLED;
+    const issued = await ensureSubscriptionRenewalInvoiceForSubscription(currentSubscription, {
+      allowPostExpiryReactivation: postExpiry,
+    });
     if (issued) {
       const reloaded = await prisma.subscription.findUnique({
         where: { id: currentSubscription.id },
@@ -285,7 +290,7 @@ export async function getBusinessSubscription(businessId: string) {
 }
 
 /**
- * Expire trial if needed, then ensure a renewal / reactivation invoice exists when in the reminder window.
+ * Expire trial if needed, then ensure a pre-expiry renewal invoice and reminders when due.
  * Used by the background sweep so owners get emailed even if they never open Billing.
  */
 export async function runSubscriptionRenewalMaintenanceForBusiness(businessId: string): Promise<void> {
