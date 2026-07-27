@@ -512,6 +512,8 @@ export async function changeSubscriptionPlan(input: {
             SubscriptionStatus.TRIALING,
             SubscriptionStatus.ACTIVE,
             SubscriptionStatus.PAST_DUE,
+            SubscriptionStatus.EXPIRED,
+            SubscriptionStatus.CANCELLED,
           ],
         },
       },
@@ -600,9 +602,19 @@ export async function changeSubscriptionPlan(input: {
       },
     });
 
-    const periodEndForInvoice =
-      refreshed.currentPeriodEnd ??
-      billingPeriodEndFromStart(refreshed.currentPeriodStart, effectiveInterval);
+    const now = new Date();
+    const needsReactivationPeriod =
+      refreshed.status === SubscriptionStatus.EXPIRED ||
+      refreshed.status === SubscriptionStatus.CANCELLED ||
+      !refreshed.currentPeriodEnd ||
+      refreshed.currentPeriodEnd.getTime() <= now.getTime();
+    const periodStart = needsReactivationPeriod
+      ? nextBillingPeriodStart(refreshed.currentPeriodEnd, now)
+      : refreshed.currentPeriodStart;
+    const periodEndForInvoice = needsReactivationPeriod
+      ? billingPeriodEndFromStart(periodStart, effectiveInterval)
+      : refreshed.currentPeriodEnd ??
+        billingPeriodEndFromStart(refreshed.currentPeriodStart, effectiveInterval);
 
     const issuedInvoice = await tx.subscriptionInvoice.create({
       data: {
@@ -612,7 +624,7 @@ export async function changeSubscriptionPlan(input: {
         amount,
         currency: invoiceCurrency,
         status: InvoiceStatus.PENDING,
-        billingPeriodStart: refreshed.currentPeriodStart,
+        billingPeriodStart: periodStart,
         billingPeriodEnd: periodEndForInvoice,
         dueDate: dueInDays(new Date(), 7),
         externalReference: createInvoiceReference(),
@@ -762,21 +774,47 @@ async function applySubscriptionActivationAfterInvoicePayment(
 
   if (
     subscription.status === SubscriptionStatus.ACTIVE &&
-    subscription.billingInterval !== BillingInterval.CONTRACT_INFINITE &&
-    subscription.currentPeriodEnd
+    subscription.billingInterval !== BillingInterval.CONTRACT_INFINITE
   ) {
-    const cep = subscription.currentPeriodEnd.getTime();
-    const bps = paidInvoice.billingPeriodStart.getTime();
-    /** Next-period renewal invoices start at the current period end; plan-change invoices start at period start. */
-    if (Math.abs(cep - bps) <= 3_600_000) {
+    const now = new Date();
+    const isLapsed =
+      !subscription.currentPeriodEnd ||
+      subscription.currentPeriodEnd.getTime() <= now.getTime();
+
+    if (isLapsed) {
+      /** Lapsed ACTIVE (UI "expired") must start a fresh window, not keep the old period end. */
+      const useFreshWindow = paidInvoice.billingPeriodStart.getTime() < now.getTime();
+      const periodStart = useFreshWindow ? now : paidInvoice.billingPeriodStart;
+      const periodEnd = useFreshWindow
+        ? billingPeriodEndFromStart(periodStart, subscription.billingInterval)
+        : paidInvoice.billingPeriodEnd;
+
       await tx.subscription.update({
         where: { id: subscription.id },
         data: {
-          currentPeriodStart: paidInvoice.billingPeriodStart,
-          currentPeriodEnd: paidInvoice.billingPeriodEnd,
+          status: SubscriptionStatus.ACTIVE,
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
           endedAt: null,
         },
       });
+      return;
+    }
+
+    if (subscription.currentPeriodEnd) {
+      const cep = subscription.currentPeriodEnd.getTime();
+      const bps = paidInvoice.billingPeriodStart.getTime();
+      /** Next-period renewal invoices start at the current period end; plan-change invoices start at period start. */
+      if (Math.abs(cep - bps) <= 3_600_000) {
+        await tx.subscription.update({
+          where: { id: subscription.id },
+          data: {
+            currentPeriodStart: paidInvoice.billingPeriodStart,
+            currentPeriodEnd: paidInvoice.billingPeriodEnd,
+            endedAt: null,
+          },
+        });
+      }
     }
   }
 }

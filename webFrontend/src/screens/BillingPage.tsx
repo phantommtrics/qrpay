@@ -834,7 +834,9 @@ export function BillingPage() {
           {isOwner &&
           (subscription.status === 'TRIALING' ||
             subscription.status === 'ACTIVE' ||
-            subscription.status === 'PAST_DUE') &&
+            subscription.status === 'PAST_DUE' ||
+            subscription.status === 'EXPIRED' ||
+            subscription.status === 'CANCELLED') &&
           isCorporateProgram ? (
             <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
               <div className="flex items-center gap-2 text-slate-800">
@@ -893,7 +895,9 @@ export function BillingPage() {
           {isOwner &&
           (subscription.status === 'TRIALING' ||
             subscription.status === 'ACTIVE' ||
-            subscription.status === 'PAST_DUE') &&
+            subscription.status === 'PAST_DUE' ||
+            subscription.status === 'EXPIRED' ||
+            subscription.status === 'CANCELLED') &&
           !isCorporateProgram ? (
             <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
               <div className="flex items-center gap-2 text-slate-800">
