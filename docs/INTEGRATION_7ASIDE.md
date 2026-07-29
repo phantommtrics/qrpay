@@ -96,7 +96,7 @@ Gateway `code` values match Easypay’s enabled payment gateways for that busine
 
 **Response `data`:** `businessId`, `userId`, `subscriptionId`, `slug`, `idempotentReplay`.
 
-After a successful provision (new or idempotent replay), Easypay **best-effort** creates a Wave **aggregated merchant** under the platform parent account (`WAVE_CHECKOUT_BEARER`) and stores the id for sales checkout. Partner checkout does not use per-tenant Wave API keys. If Wave is not configured or the call fails, provision still succeeds; check platform **Wave Businesses** or the business’s provision logs.
+Wave sales checkout is **not** created during partner provision. The **Easypay platform owner** must create the Wave aggregated merchant for each `businessId` from **Platform → Businesses → [business] → Wave sales checkout** (or **Wave Businesses**) before Wave wallet checkout is available.
 
 ```typescript
 const EASYPAY_API_BASE_URL = process.env.EASYPAY_API_BASE_URL!.replace(/\/$/, "");
@@ -131,7 +131,7 @@ async function provisionEasypayTenant(input: {
 }
 ```
 
-Merchant wallet credentials (APS / Wave / Yonna) are entered by the **Easypay platform owner** for that `businessId`; there is no deep link into the merchant self-serve UI for this flow.
+Merchant wallet credentials (APS / Wave / Yonna) are entered by the **Easypay platform owner** for that `businessId`; there is no deep link into the merchant self-serve UI for this flow. For **Wave**, the platform owner creates the aggregated merchant manually after provision.
 
 ---
 

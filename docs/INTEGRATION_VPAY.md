@@ -43,7 +43,7 @@ Events: `payment.completed`, `payment.failed`, `payment.cancelled` — `partnerE
 
 ## Gateway credentials
 
-Platform owner configures APS / Wave for each provisioned `businessId` (same ops model as 7a-side).
+Platform owner configures APS / Wave / Yonna for each provisioned `businessId` (same ops model as 7a-side). Wave aggregated merchants are created manually by the platform owner — not during the provision API call.
 
 ## Related docs
 

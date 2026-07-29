@@ -16,7 +16,7 @@
 
 ### Auto-provision on business creation
 
-When `WAVE_CHECKOUT_BEARER` is set and the Wave gateway is enabled, new businesses get a Wave aggregated merchant and encrypted credential row automatically during owner signup, internal-partner provisioning, and `POST /api/businesses`. Each attempt is stored in `WaveAggregatedMerchantProvisionLog`.
+When `WAVE_CHECKOUT_BEARER` is set and the Wave gateway is enabled, new businesses get a Wave aggregated merchant and encrypted credential row automatically during owner signup and `POST /api/businesses`. **Internal-partner provision does not auto-create Wave merchants** — the platform owner must initiate that from the business detail or Wave Businesses screen. Each attempt is stored in `WaveAggregatedMerchantProvisionLog`.
 
 Platform operators provision or re-sync existing tenants from **`/#/platform/businesses/:id`** (Wave sales checkout panel). Merchants do not enter Wave API keys, webhook secrets, or bearer tokens — only Yonna/APS use Merchant API credential forms.
 
