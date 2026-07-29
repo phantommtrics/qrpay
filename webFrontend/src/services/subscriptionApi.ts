@@ -2691,6 +2691,20 @@ export async function fetchPlatformWaveAggregatedMerchants(params?: {
   return response.data
 }
 
+export async function updatePlatformWaveAggregatedMerchant(
+  merchantId: string,
+  name: string,
+): Promise<PlatformWaveAggregatedMerchantRow> {
+  const response = await apiRequest<{ data: PlatformWaveAggregatedMerchantRow }>(
+    `/platform/wave-aggregated-merchants/${encodeURIComponent(merchantId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    },
+  )
+  return response.data
+}
+
 export async function fetchWaveAggregatedMerchantProvisionLogs(businessId: string) {
   const response = await apiRequest<{
     data: { logs: WaveAggregatedMerchantProvisionLogRow[] }

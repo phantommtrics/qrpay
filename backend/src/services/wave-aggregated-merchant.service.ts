@@ -2,7 +2,7 @@ import {
   Prisma,
   WaveAggregatedMerchantProvisionOperation,
   WaveAggregatedMerchantProvisionStatus,
-  type WaveAggregatedMerchantProvisionTrigger,
+  WaveAggregatedMerchantProvisionTrigger,
 } from "@prisma/client";
 
 import { HttpError } from "../lib/http-error.js";
@@ -15,8 +15,8 @@ import { decryptJsonPayload, encryptJsonPayload } from "../utils/field-encryptio
 import { GATEWAY_CODE_WAVE_GAMBIA, getPaymentGatewayByCode } from "./payment-gateway.service.js";
 import { waveServiceFromEnv, isPlatformWaveCheckoutConfigured } from "./wave-client-env.js";
 import type {
+  WaveAggregatedMerchant,
   WaveAggregatedMerchantRequest,
-  WaveBusinessType,
 } from "./wave-payment.service.js";
 
 function trimOrNull(v: string | undefined): string | null {
@@ -24,12 +24,24 @@ function trimOrNull(v: string | undefined): string | null {
   return t && t.length > 0 ? t : null;
 }
 
-export function defaultAggregatedMerchantName(business: {
-  name: string;
-  slug: string;
-}): string {
-  const base = `${business.name} · ${business.slug}`;
+export function defaultAggregatedMerchantName(business: { name: string }): string {
+  const base = business.name.trim();
   return base.length <= 255 ? base : base.slice(0, 255);
+}
+
+function waveMerchantToUpdateRequest(
+  merchant: WaveAggregatedMerchant,
+  overrides: Partial<WaveAggregatedMerchantRequest> = {},
+): WaveAggregatedMerchantRequest {
+  return {
+    name: overrides.name ?? merchant.name,
+    business_description: merchant.business_description,
+    business_type: merchant.business_type,
+    business_registration_identifier: merchant.business_registration_id ?? null,
+    business_sector: merchant.business_sector ?? null,
+    website_url: merchant.website_url ?? null,
+    manager_name: merchant.manager_name ?? null,
+  };
 }
 
 function buildDefaultWaveAggregatedMerchantRequest(business: {
@@ -399,6 +411,142 @@ export async function listPlatformWaveAggregatedMerchants(input: {
     },
     items,
   };
+}
+
+async function findBusinessForAggregatedMerchantId(
+  merchantId: string,
+): Promise<{ id: string; name: string; slug: string; ownerEmail: string } | null> {
+  const gateway = await getPaymentGatewayByCode(GATEWAY_CODE_WAVE_GAMBIA);
+  if (!gateway) {
+    return null;
+  }
+  const credRows = await prisma.businessGatewayCredential.findMany({
+    where: { gatewayId: gateway.id },
+    include: {
+      business: {
+        select: { id: true, name: true, slug: true, ownerEmail: true },
+      },
+    },
+  });
+  const target = merchantId.trim();
+  for (const row of credRows) {
+    try {
+      const raw = decryptJsonPayload<Record<string, unknown>>(row.iv, row.ciphertext);
+      const secrets = parseExistingWave(raw);
+      if (secrets?.aggregatedMerchantId?.trim() === target) {
+        return row.business;
+      }
+    } catch {
+      // skip undecryptable rows
+    }
+  }
+  return null;
+}
+
+function mapWaveAggregatedMerchantToRow(
+  merchant: WaveAggregatedMerchant,
+  enrich: {
+    business: PlatformWaveAggregatedMerchantRow["business"];
+    lastProvision: PlatformWaveAggregatedMerchantRow["lastProvision"];
+  },
+): PlatformWaveAggregatedMerchantRow {
+  return {
+    id: merchant.id,
+    name: merchant.name,
+    business_sector: merchant.business_sector ?? null,
+    business_type: merchant.business_type,
+    business_registration_identifier: merchant.business_registration_id ?? null,
+    website_url: merchant.website_url ?? null,
+    payout_fee_structure_name: merchant.payout_fee_structure_name,
+    checkout_fee_structure_name: merchant.checkout_fee_structure_name,
+    business_description: merchant.business_description,
+    manager_name: merchant.manager_name ?? null,
+    is_locked: merchant.is_locked,
+    when_created: merchant.when_created,
+    business: enrich.business,
+    lastProvision: enrich.lastProvision,
+  };
+}
+
+async function enrichPlatformWaveAggregatedMerchantRow(
+  merchant: WaveAggregatedMerchant,
+): Promise<PlatformWaveAggregatedMerchantRow> {
+  const [business, lastLog] = await Promise.all([
+    findBusinessForAggregatedMerchantId(merchant.id),
+    prisma.waveAggregatedMerchantProvisionLog.findFirst({
+      where: { aggregatedMerchantId: merchant.id },
+      orderBy: { createdAt: "desc" },
+      select: { status: true, trigger: true, createdAt: true },
+    }),
+  ]);
+
+  return mapWaveAggregatedMerchantToRow(merchant, {
+    business,
+    lastProvision: lastLog
+      ? {
+          status: lastLog.status,
+          trigger: lastLog.trigger,
+          createdAt: lastLog.createdAt.toISOString(),
+        }
+      : null,
+  });
+}
+
+/** Updates checkout display name for a Wave aggregated merchant (platform admin). */
+export async function updatePlatformWaveAggregatedMerchant(input: {
+  merchantId: string;
+  name: string;
+}): Promise<PlatformWaveAggregatedMerchantRow> {
+  if (!isPlatformWaveCheckoutConfigured()) {
+    throw new HttpError(
+      503,
+      "Wave parent checkout is not configured on the server (WAVE_CHECKOUT_BEARER).",
+    );
+  }
+
+  const merchantId = input.merchantId.trim();
+  if (!merchantId) {
+    throw new HttpError(400, "Aggregated merchant id is required.");
+  }
+
+  const name = input.name.trim();
+  if (!name) {
+    throw new HttpError(400, "Business name is required.");
+  }
+  if (name.length > 255) {
+    throw new HttpError(400, "Business name must be 255 characters or fewer.");
+  }
+
+  const wave = waveServiceFromEnv();
+  const existing = await wave.getAggregatedMerchant(merchantId);
+  if (existing.is_locked) {
+    throw new HttpError(409, "This aggregated merchant is locked and cannot be edited.");
+  }
+
+  const updated =
+    existing.name.trim() === name
+      ? existing
+      : await wave.updateAggregatedMerchant(
+          merchantId,
+          waveMerchantToUpdateRequest(existing, { name }),
+        );
+
+  if (existing.name.trim() !== name) {
+    const linkedBusiness = await findBusinessForAggregatedMerchantId(merchantId);
+    if (linkedBusiness) {
+      await writeProvisionLog({
+        businessId: linkedBusiness.id,
+        trigger: WaveAggregatedMerchantProvisionTrigger.PLATFORM_MANUAL,
+        operation: WaveAggregatedMerchantProvisionOperation.UPDATE,
+        status: WaveAggregatedMerchantProvisionStatus.SUCCEEDED,
+        requestedName: name,
+        requestPayload: waveMerchantToUpdateRequest(existing, { name }),
+        aggregatedMerchantId: merchantId,
+      });
+    }
+  }
+
+  return enrichPlatformWaveAggregatedMerchantRow(updated);
 }
 
 /** Best-effort delete of Wave aggregated merchant when removing local credentials. */

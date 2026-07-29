@@ -93,6 +93,7 @@ import {
   listPlatformWaveAggregatedMerchants,
   listWaveAggregatedMerchantProvisionLogs,
   provisionWaveAggregatedMerchantForBusiness,
+  updatePlatformWaveAggregatedMerchant,
 } from "./services/wave-aggregated-merchant.service.js";
 import {
   clearBusinessApsWalletCustomerAuth,
@@ -1351,6 +1352,26 @@ app.get(
       const data = await listPlatformWaveAggregatedMerchants({
         first: Number.isFinite(first) ? first : undefined,
         after,
+      });
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.patch(
+  "/api/platform/wave-aggregated-merchants/:merchantId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "edit"),
+  async (req, res, next) => {
+    try {
+      const { merchantId } = req.params;
+      const name = typeof req.body?.name === "string" ? req.body.name : "";
+      const data = await updatePlatformWaveAggregatedMerchant({
+        merchantId: merchantId as string,
+        name,
       });
       res.json({ data });
     } catch (error) {
