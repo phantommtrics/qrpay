@@ -33,8 +33,16 @@ import { isPetrolStationIndustry } from "./product.service.js";
 
 const SIMULATOR_WEBHOOK_PROVIDER = "simulator";
 const APS_WALLET_WEBHOOK_LOG_PROVIDER = "aps_wallet";
+export const WAVE_GAMBIA_WEBHOOK_LOG_PROVIDER = "wave_gambia";
 
-function webhookLogProviderForWalletComplete(options?: { settlementSource?: string }): string {
+function webhookLogProviderForWalletComplete(options?: {
+  settlementSource?: string;
+  webhookLogProvider?: string;
+}): string {
+  const override = options?.webhookLogProvider?.trim();
+  if (override) {
+    return override;
+  }
   if (options?.settlementSource === "aps_wallet") {
     return APS_WALLET_WEBHOOK_LOG_PROVIDER;
   }
@@ -1118,6 +1126,8 @@ export type CompleteWalletPaymentByPublicTokenOptions = {
   /** POS staff completing simulator wallet checkout */
   settledByStaffUserId?: string | null;
   settlementSource?: "staff_simulate" | "public_pay_simulate" | "webhook" | "aps_wallet";
+  /** Idempotency bucket for webhookEventLog (defaults by settlementSource). */
+  webhookLogProvider?: string;
 };
 
 async function completeSalesInvoiceWalletPaymentCore(
