@@ -120,7 +120,7 @@ export function PublicPayPage() {
             <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500" aria-hidden />
             <h1 className="text-xl font-semibold text-slate-900">Thank you</h1>
             <p className="text-sm leading-relaxed text-slate-600">
-              Your payment has been received by {info.businessName}. We appreciate your business.
+              Your payment has been received by {info.businessName}. We appreciate your payment.
             </p>
           </div>
         ) : failed ? (
