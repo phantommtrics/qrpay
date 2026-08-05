@@ -20,8 +20,31 @@ export function invalidatePartnerWebhookTargetCache(): void {
   cacheLoadedAt = 0;
 }
 
+/** Normalize webhook URLs so stored values and per-business overrides match reliably. */
+export function canonicalPartnerWebhookUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.pathname.length > 1 && parsed.pathname.endsWith("/")) {
+      parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+    }
+    return parsed.toString();
+  } catch {
+    return trimmed;
+  }
+}
+
+function webhookUrlsMatch(a: string, b: string): boolean {
+  const ca = canonicalPartnerWebhookUrl(a);
+  const cb = canonicalPartnerWebhookUrl(b);
+  return ca === cb || a.trim() === b.trim();
+}
+
 function normalizeWebhookUrl(raw: string): string {
-  const url = raw.trim();
+  const url = canonicalPartnerWebhookUrl(raw);
   if (!url) {
     throw new HttpError(400, "Webhook URL is required.");
   }
@@ -49,23 +72,50 @@ function decryptSigningSecret(iv: string, ciphertext: string): string | null {
   }
 }
 
-async function loadPartnerWebhookTargetsFromDb(): Promise<InternalPartnerWebhookTarget[]> {
+async function findEnabledPartnerWebhookEndpointByUrl(webhookUrl: string) {
   const rows = await prisma.partnerWebhookEndpoint.findMany({
     where: { isEnabled: true },
+    select: { id: true, webhookUrl: true, iv: true, ciphertext: true },
+  });
+  for (const row of rows) {
+    if (webhookUrlsMatch(row.webhookUrl, webhookUrl)) {
+      return row;
+    }
+  }
+  return null;
+}
+
+async function loadPartnerWebhookTargetsFromDb(): Promise<{
+  targets: InternalPartnerWebhookTarget[];
+  totalRows: number;
+  enabledRows: number;
+  skippedDecrypt: number;
+}> {
+  const rows = await prisma.partnerWebhookEndpoint.findMany({
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
   const targets: InternalPartnerWebhookTarget[] = [];
+  let skippedDecrypt = 0;
   for (const row of rows) {
+    if (!row.isEnabled) {
+      continue;
+    }
     const secret = decryptSigningSecret(row.iv, row.ciphertext);
     if (!secret) {
+      skippedDecrypt += 1;
       console.warn(
-        `[internal-partner] Skipping partner webhook endpoint ${row.id}: could not decrypt signing secret.`,
+        `[internal-partner] Skipping partner webhook endpoint ${row.id} (${row.webhookUrl}): could not decrypt signing secret (check APP_SECRET_ENCRYPTION_KEY and re-save the secret in Partnership config).`,
       );
       continue;
     }
     targets.push({ url: row.webhookUrl, secret });
   }
-  return targets;
+  return {
+    targets,
+    totalRows: rows.length,
+    enabledRows: rows.filter((r) => r.isEnabled).length,
+    skippedDecrypt,
+  };
 }
 
 /**
@@ -75,12 +125,28 @@ export async function loadPartnerWebhookTargets(): Promise<InternalPartnerWebhoo
   if (cachedTargets && Date.now() - cacheLoadedAt < CACHE_TTL_MS) {
     return cachedTargets;
   }
-  const fromDb = await loadPartnerWebhookTargetsFromDb();
-  if (fromDb.length > 0) {
-    cachedTargets = fromDb;
+
+  const db = await loadPartnerWebhookTargetsFromDb();
+  const fromEnv = internalPartnerWebhookTargetsFromEnv() ?? [];
+
+  if (db.targets.length > 0) {
+    cachedTargets = db.targets;
+  } else if (fromEnv.length > 0) {
+    if (db.totalRows > 0) {
+      console.warn(
+        `[internal-partner] ${db.totalRows} partnership webhook endpoint(s) in DB (${db.enabledRows} enabled, ${db.skippedDecrypt} undecryptable) — using ${fromEnv.length} env fallback target(s).`,
+      );
+    }
+    cachedTargets = fromEnv;
   } else {
-    cachedTargets = internalPartnerWebhookTargetsFromEnv() ?? [];
+    if (db.totalRows > 0) {
+      console.warn(
+        `[internal-partner] ${db.totalRows} partnership webhook endpoint(s) in DB (${db.enabledRows} enabled, ${db.skippedDecrypt} undecryptable) but none are deliverable.`,
+      );
+    }
+    cachedTargets = [];
   }
+
   cacheLoadedAt = Date.now();
   return cachedTargets;
 }
@@ -92,25 +158,47 @@ export async function partnerWebhookSigningSecretForUrl(webhookUrl: string): Pro
     return null;
   }
 
-  const row = await prisma.partnerWebhookEndpoint.findUnique({
-    where: { webhookUrl: trimmed },
-    select: { iv: true, ciphertext: true, isEnabled: true },
-  });
-  if (row?.isEnabled) {
+  const row = await findEnabledPartnerWebhookEndpointByUrl(trimmed);
+  if (row) {
     const secret = decryptSigningSecret(row.iv, row.ciphertext);
     if (secret) {
       return secret;
     }
   }
 
-  const targets = await loadPartnerWebhookTargets();
-  for (const t of targets) {
-    if (t.url === trimmed) {
+  const envTargets = internalPartnerWebhookTargetsFromEnv() ?? [];
+  for (const t of envTargets) {
+    if (webhookUrlsMatch(t.url, trimmed)) {
       return t.secret;
     }
   }
 
   return internalPartnerWebhookSigningSecretFromEnv();
+}
+
+/**
+ * Resolves outbound webhook URLs for a partner business.
+ * Per-business webhookUrl sends only to that URL when a signing secret exists; otherwise falls back to global endpoints.
+ */
+export async function resolvePartnerWebhookUrlsForBusiness(
+  internalPartnerWebhookUrl: string | null | undefined,
+): Promise<string[]> {
+  const globalTargets = await loadPartnerWebhookTargets();
+  const globalUrls = globalTargets.map((t) => t.url);
+
+  const perBiz = internalPartnerWebhookUrl?.trim();
+  if (perBiz) {
+    const secret = await partnerWebhookSigningSecretForUrl(perBiz);
+    if (secret) {
+      const row = await findEnabledPartnerWebhookEndpointByUrl(perBiz);
+      return [row?.webhookUrl ?? canonicalPartnerWebhookUrl(perBiz)];
+    }
+    console.warn(
+      `[internal-partner] Per-business webhookUrl has no signing secret (${perBiz}); falling back to ${globalUrls.length} global partnership endpoint(s). Add this URL in Platform → Security → Partnership config with its signing secret.`,
+    );
+  }
+
+  return globalUrls;
 }
 
 export type PartnerWebhookEndpointRow = {
@@ -120,6 +208,7 @@ export type PartnerWebhookEndpointRow = {
   isEnabled: boolean;
   sortOrder: number;
   hasSigningSecret: boolean;
+  deliverable: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -135,13 +224,15 @@ function formatRow(row: {
   createdAt: Date;
   updatedAt: Date;
 }): PartnerWebhookEndpointRow {
+  const hasSigningSecret = Boolean(decryptSigningSecret(row.iv, row.ciphertext));
   return {
     id: row.id,
     label: row.label,
     webhookUrl: row.webhookUrl,
     isEnabled: row.isEnabled,
     sortOrder: row.sortOrder,
-    hasSigningSecret: Boolean(decryptSigningSecret(row.iv, row.ciphertext)),
+    hasSigningSecret,
+    deliverable: row.isEnabled && hasSigningSecret,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

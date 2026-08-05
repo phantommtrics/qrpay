@@ -11,6 +11,7 @@ import { formatPartnerBillingAssignment } from "./corporate-billing.service.js";
 import {
   loadPartnerWebhookTargets,
   partnerWebhookSigningSecretForUrl,
+  resolvePartnerWebhookUrlsForBusiness,
 } from "./partner-webhook-endpoint.service.js";
 
 const BACKOFF_MS = [
@@ -18,20 +19,6 @@ const BACKOFF_MS = [
 ];
 
 let workerStarted = false;
-
-async function partnerWebhookUrlsForBusiness(
-  internalPartnerWebhookUrl: string | null | undefined,
-): Promise<string[]> {
-  const perBiz = internalPartnerWebhookUrl?.trim();
-  if (perBiz) {
-    if (!(await partnerWebhookSigningSecretForUrl(perBiz))) {
-      return [];
-    }
-    return [perBiz];
-  }
-  const targets = await loadPartnerWebhookTargets();
-  return targets.map((t) => t.url);
-}
 
 export async function enqueuePartnerOutboundWebhookJob(
   webhookUrl: string,
@@ -99,10 +86,11 @@ export async function queueInternalPartnerPaymentCompleted(
     return;
   }
 
-  const urls = await partnerWebhookUrlsForBusiness(order.business.internalPartnerWebhookUrl);
+  const urls = await resolvePartnerWebhookUrlsForBusiness(order.business.internalPartnerWebhookUrl);
   if (urls.length === 0) {
+    const globalCount = (await loadPartnerWebhookTargets()).length;
     console.warn(
-      "[internal-partner] Webhook not queued: add partner webhook endpoints under Platform → Security → Partnership config, or set INTERNAL_PARTNER_WEBHOOK_URL and INTERNAL_PARTNER_WEBHOOK_SECRET in env (comma-separated URLs; optional INTERNAL_PARTNER_WEBHOOK_SECRETS for per-URL keys). Per-business webhookUrl requires a matching signing secret.",
+      `[internal-partner] Webhook not queued: no deliverable partnership webhook endpoints (global=${globalCount}). Add endpoints under Platform → Security → Partnership config, or restore INTERNAL_PARTNER_WEBHOOK_URL / INTERNAL_PARTNER_WEBHOOK_SECRET in env. Per-business webhookUrl=${order.business.internalPartnerWebhookUrl ?? "none"}.`,
     );
     return;
   }
@@ -171,7 +159,7 @@ export async function queueInternalPartnerPaymentCancelledForPaymentIds(
       continue;
     }
 
-    const urls = await partnerWebhookUrlsForBusiness(payment.order.business.internalPartnerWebhookUrl);
+    const urls = await resolvePartnerWebhookUrlsForBusiness(payment.order.business.internalPartnerWebhookUrl);
     if (urls.length === 0) {
       continue;
     }
@@ -234,7 +222,7 @@ export async function queueInternalPartnerPaymentFailed(
     return;
   }
 
-  const urls = await partnerWebhookUrlsForBusiness(payment.order.business.internalPartnerWebhookUrl);
+  const urls = await resolvePartnerWebhookUrlsForBusiness(payment.order.business.internalPartnerWebhookUrl);
   if (urls.length === 0) {
     return;
   }
@@ -292,7 +280,7 @@ export async function queueInternalPartnerSubscriptionUpdated(
     return;
   }
 
-  const urls = await partnerWebhookUrlsForBusiness(business.internalPartnerWebhookUrl);
+  const urls = await resolvePartnerWebhookUrlsForBusiness(business.internalPartnerWebhookUrl);
   if (urls.length === 0) {
     return;
   }

@@ -250,6 +250,7 @@ export function PlatformSecurityPartnershipConfigPage() {
                   <th className="px-3 py-2">Enabled</th>
                   <th className="px-3 py-2">Order</th>
                   <th className="px-3 py-2">Secret</th>
+                  <th className="px-3 py-2">Deliverable</th>
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
@@ -280,6 +281,13 @@ export function PlatformSecurityPartnershipConfigPage() {
                     <td className="px-3 py-3 text-slate-600">{row.sortOrder}</td>
                     <td className="px-3 py-3 text-xs text-slate-600">
                       {row.hasSigningSecret ? 'Configured' : 'Missing'}
+                    </td>
+                    <td className="px-3 py-3 text-xs">
+                      {row.deliverable ? (
+                        <span className="font-medium text-emerald-700">Yes</span>
+                      ) : (
+                        <span className="font-medium text-amber-800">No</span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <div className="flex justify-end gap-1">

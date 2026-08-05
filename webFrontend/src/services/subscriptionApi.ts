@@ -2312,6 +2312,7 @@ export type PartnerWebhookEndpointRow = {
   isEnabled: boolean
   sortOrder: number
   hasSigningSecret: boolean
+  deliverable: boolean
   createdAt: string
   updatedAt: string
 }
