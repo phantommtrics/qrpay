@@ -6,12 +6,12 @@ import {
   PaymentStatus,
 } from "@prisma/client";
 
-import {
-  internalPartnerWebhookSigningSecretForOutboundUrl,
-  internalPartnerWebhookTargetsFromEnv,
-} from "../config/internal-partner-env.js";
 import { prisma } from "../lib/prisma.js";
 import { formatPartnerBillingAssignment } from "./corporate-billing.service.js";
+import {
+  loadPartnerWebhookTargets,
+  partnerWebhookSigningSecretForUrl,
+} from "./partner-webhook-endpoint.service.js";
 
 const BACKOFF_MS = [
   30_000, 120_000, 300_000, 900_000, 3_600_000, 7_200_000, 14_400_000, 28_800_000,
@@ -19,16 +19,18 @@ const BACKOFF_MS = [
 
 let workerStarted = false;
 
-function partnerWebhookUrlsForBusiness(internalPartnerWebhookUrl: string | null | undefined): string[] {
+async function partnerWebhookUrlsForBusiness(
+  internalPartnerWebhookUrl: string | null | undefined,
+): Promise<string[]> {
   const perBiz = internalPartnerWebhookUrl?.trim();
   if (perBiz) {
-    if (!internalPartnerWebhookSigningSecretForOutboundUrl(perBiz)) {
+    if (!(await partnerWebhookSigningSecretForUrl(perBiz))) {
       return [];
     }
     return [perBiz];
   }
-  const targets = internalPartnerWebhookTargetsFromEnv();
-  return targets ? targets.map((t) => t.url) : [];
+  const targets = await loadPartnerWebhookTargets();
+  return targets.map((t) => t.url);
 }
 
 export async function enqueuePartnerOutboundWebhookJob(
@@ -97,10 +99,10 @@ export async function queueInternalPartnerPaymentCompleted(
     return;
   }
 
-  const urls = partnerWebhookUrlsForBusiness(order.business.internalPartnerWebhookUrl);
+  const urls = await partnerWebhookUrlsForBusiness(order.business.internalPartnerWebhookUrl);
   if (urls.length === 0) {
     console.warn(
-      "[internal-partner] Webhook not queued: set INTERNAL_PARTNER_WEBHOOK_URL and INTERNAL_PARTNER_WEBHOOK_SECRET (comma-separated URLs; optional INTERNAL_PARTNER_WEBHOOK_SECRETS for per-URL keys), or per-business webhookUrl with a matching or fallback signing secret.",
+      "[internal-partner] Webhook not queued: add partner webhook endpoints under Platform → Security → Partnership config, or set INTERNAL_PARTNER_WEBHOOK_URL and INTERNAL_PARTNER_WEBHOOK_SECRET in env (comma-separated URLs; optional INTERNAL_PARTNER_WEBHOOK_SECRETS for per-URL keys). Per-business webhookUrl requires a matching signing secret.",
     );
     return;
   }
@@ -169,7 +171,7 @@ export async function queueInternalPartnerPaymentCancelledForPaymentIds(
       continue;
     }
 
-    const urls = partnerWebhookUrlsForBusiness(payment.order.business.internalPartnerWebhookUrl);
+    const urls = await partnerWebhookUrlsForBusiness(payment.order.business.internalPartnerWebhookUrl);
     if (urls.length === 0) {
       continue;
     }
@@ -232,7 +234,7 @@ export async function queueInternalPartnerPaymentFailed(
     return;
   }
 
-  const urls = partnerWebhookUrlsForBusiness(payment.order.business.internalPartnerWebhookUrl);
+  const urls = await partnerWebhookUrlsForBusiness(payment.order.business.internalPartnerWebhookUrl);
   if (urls.length === 0) {
     return;
   }
@@ -290,7 +292,7 @@ export async function queueInternalPartnerSubscriptionUpdated(
     return;
   }
 
-  const urls = partnerWebhookUrlsForBusiness(business.internalPartnerWebhookUrl);
+  const urls = await partnerWebhookUrlsForBusiness(business.internalPartnerWebhookUrl);
   if (urls.length === 0) {
     return;
   }
@@ -320,12 +322,13 @@ async function sendPartnerOutboundWebhookOnce(
   webhookUrl: string,
   bodyText: string,
 ): Promise<{ ok: boolean; httpStatus: number | null; error: string | null }> {
-  const secret = internalPartnerWebhookSigningSecretForOutboundUrl(webhookUrl);
+  const secret = await partnerWebhookSigningSecretForUrl(webhookUrl);
   if (!secret) {
     return {
       ok: false,
       httpStatus: null,
-      error: "No signing secret for this webhook URL (INTERNAL_PARTNER_WEBHOOK_SECRET or matching INTERNAL_PARTNER_WEBHOOK_URL / INTERNAL_PARTNER_WEBHOOK_SECRETS pair)",
+      error:
+        "No signing secret for this webhook URL (configure under Platform → Security → Partnership config, or env INTERNAL_PARTNER_WEBHOOK_SECRET / matching URL pair)",
     };
   }
   const signature = crypto.createHmac("sha256", secret).update(bodyText).digest("hex");

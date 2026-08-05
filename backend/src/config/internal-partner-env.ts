@@ -3,7 +3,8 @@
  * Set INTERNAL_PARTNER_API_SECRET to enable POST /api/internal-partner/v1/* routes.
  * Comma-separated values = multiple accepted secrets (e.g. one key per partner app); any match authorizes.
  *
- * Outbound payment webhooks: comma-separated INTERNAL_PARTNER_WEBHOOK_URL values.
+ * Outbound payment webhooks: configure under Platform → Security → Partnership config (preferred),
+ * or comma-separated INTERNAL_PARTNER_WEBHOOK_URL values in env (legacy fallback when no DB rows exist).
  * Signing: INTERNAL_PARTNER_WEBHOOK_SECRET applies to every URL, or set INTERNAL_PARTNER_WEBHOOK_SECRETS
  * with one value (same HMAC key for all URLs) or N values paired to N URLs (isolated keys per partner).
  * Per-business webhookUrl overrides still use INTERNAL_PARTNER_WEBHOOK_SECRET unless the URL matches

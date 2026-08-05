@@ -174,6 +174,12 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     description: 'Open Move users; grant Edit on this module to run bulk moves between groups',
     category: 'Administration',
   },
+  {
+    key: 'platform.security.partnership_config.view',
+    label: 'Security — Partnership config',
+    description: 'Manage internal partner outbound webhook URLs and signing secrets',
+    category: 'Administration',
+  },
 
   // Business permissions
   {

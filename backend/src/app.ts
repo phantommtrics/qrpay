@@ -386,6 +386,12 @@ import {
   updateRoleTemplate,
 } from "./services/platform-security.service.js";
 import {
+  createPartnerWebhookEndpoint,
+  deletePartnerWebhookEndpoint,
+  listPartnerWebhookEndpoints,
+  updatePartnerWebhookEndpoint,
+} from "./services/partner-webhook-endpoint.service.js";
+import {
   getPaymentWebhookEndpoints,
   resolveUploadsPublicOrigin,
 } from "./config/app-public-url.js";
@@ -1028,6 +1034,22 @@ const platformStaffUserBodySchema = z.object({
 const platformStaffUserPatchSchema = z.object({
   platformFunctionGroupId: z.string().min(1).optional(),
   isActive: z.boolean().optional(),
+});
+
+const partnerWebhookEndpointBodySchema = z.object({
+  label: z.string().max(120).optional().nullable(),
+  webhookUrl: z.string().min(1),
+  signingSecret: z.string().min(8),
+  isEnabled: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+const partnerWebhookEndpointPatchSchema = z.object({
+  label: z.string().max(120).optional().nullable(),
+  webhookUrl: z.string().min(1).optional(),
+  signingSecret: z.string().min(8).optional(),
+  isEnabled: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
 });
 
 const platformBulkMoveStaffSchema = z.object({
@@ -4247,6 +4269,68 @@ app.patch(
           platformFunctionGroup: user.platformFunctionGroup,
         },
       });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/security/partnership-config/webhooks",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.SECURITY_PARTNERSHIP_CONFIG, "view"),
+  async (_req, res, next) => {
+    try {
+      const data = await listPartnerWebhookEndpoints();
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/security/partnership-config/webhooks",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.SECURITY_PARTNERSHIP_CONFIG, "create"),
+  async (req, res, next) => {
+    try {
+      const body = partnerWebhookEndpointBodySchema.parse(req.body);
+      const data = await createPartnerWebhookEndpoint(body);
+      res.status(201).json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.patch(
+  "/api/platform/security/partnership-config/webhooks/:endpointId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.SECURITY_PARTNERSHIP_CONFIG, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = partnerWebhookEndpointPatchSchema.parse(req.body);
+      const data = await updatePartnerWebhookEndpoint(req.params.endpointId as string, body);
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.delete(
+  "/api/platform/security/partnership-config/webhooks/:endpointId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.SECURITY_PARTNERSHIP_CONFIG, "delete"),
+  async (req, res, next) => {
+    try {
+      await deletePartnerWebhookEndpoint(req.params.endpointId as string);
+      res.status(204).send();
     } catch (e) {
       next(e);
     }

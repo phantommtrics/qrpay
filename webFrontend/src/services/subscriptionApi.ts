@@ -2305,6 +2305,61 @@ export async function updatePlatformStaffUserRequest(
   return response.data
 }
 
+export type PartnerWebhookEndpointRow = {
+  id: string
+  label: string | null
+  webhookUrl: string
+  isEnabled: boolean
+  sortOrder: number
+  hasSigningSecret: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export async function fetchPartnerWebhookEndpoints() {
+  const response = await apiRequest<{ data: PartnerWebhookEndpointRow[] }>(
+    '/platform/security/partnership-config/webhooks',
+  )
+  return response.data
+}
+
+export async function createPartnerWebhookEndpoint(body: {
+  label?: string | null
+  webhookUrl: string
+  signingSecret: string
+  isEnabled?: boolean
+  sortOrder?: number
+}) {
+  const response = await apiRequest<{ data: PartnerWebhookEndpointRow }>(
+    '/platform/security/partnership-config/webhooks',
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+  return response.data
+}
+
+export async function updatePartnerWebhookEndpoint(
+  endpointId: string,
+  body: {
+    label?: string | null
+    webhookUrl?: string
+    signingSecret?: string
+    isEnabled?: boolean
+    sortOrder?: number
+  },
+) {
+  const response = await apiRequest<{ data: PartnerWebhookEndpointRow }>(
+    `/platform/security/partnership-config/webhooks/${encodeURIComponent(endpointId)}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  )
+  return response.data
+}
+
+export async function deletePartnerWebhookEndpoint(endpointId: string) {
+  await apiRequest(`/platform/security/partnership-config/webhooks/${encodeURIComponent(endpointId)}`, {
+    method: 'DELETE',
+  })
+}
+
 export type PlatformPaymentGatewayRow = {
   id: string
   code: string

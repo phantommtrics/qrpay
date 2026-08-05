@@ -407,6 +407,25 @@ model PartnerOutboundWebhookJob {
   @@index([status, nextAttemptAt])
 }
 
+/**
+ * Platform-admin configured outbound webhook destinations for internal partner integrations.
+ * Replaces comma-separated INTERNAL_PARTNER_WEBHOOK_URL / *_SECRET env vars when rows exist.
+ */
+model PartnerWebhookEndpoint {
+  id         String   @id @default(cuid())
+  label      String?
+  webhookUrl String   @unique @db.Text
+  iv         String
+  ciphertext String   @db.Text
+  keyVersion Int      @default(1)
+  isEnabled  Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([isEnabled, sortOrder])
+}
+
 /// Distinguishes APS authorized_token rows: business merchant (POS/orders) vs platform env (subscription invoices).
 enum ApsWalletCustomerAuthMerchantScope {
   BUSINESS_MERCHANT

@@ -319,11 +319,12 @@ async function cancelEasypayOrder(businessId: string, orderId: string) {
 
 ## Inbound webhooks (Easypay → 7-aside)
 
-Configure on Easypay:
+Configure on Easypay (preferred: **Platform → Security → Partnership config** in the DirectPay admin UI — add each partner webhook URL with its own signing secret):
 
-- `INTERNAL_PARTNER_WEBHOOK_URL` — one or more default POST URLs (**comma-separated**). Each URL gets its own queued delivery with the same JSON body.
-- `INTERNAL_PARTNER_WEBHOOK_SECRET` — default HMAC key: used for every default URL when `INTERNAL_PARTNER_WEBHOOK_SECRETS` is unset, and as fallback for **provision** `webhookUrl` values that are not listed in the env URL list.
-- `INTERNAL_PARTNER_WEBHOOK_SECRETS` (optional) — comma-separated signing keys: **one** value reuses the same key for all default URLs; **N** values must match **N** URLs (same order) so each partner verifies with its own secret (smaller blast radius if one key leaks).
+- **Partnership config (UI)** — add multiple webhook endpoints with encrypted signing secrets (replaces env-based URL lists when any endpoint exists).
+- `INTERNAL_PARTNER_WEBHOOK_URL` — legacy fallback: comma-separated POST URLs when no UI endpoints are configured.
+- `INTERNAL_PARTNER_WEBHOOK_SECRET` — legacy fallback HMAC key when using env URLs without per-URL secrets.
+- `INTERNAL_PARTNER_WEBHOOK_SECRETS` (optional, legacy) — comma-separated signing keys paired to env URLs.
 - Optional: `webhookUrl` on **provision** overrides the default list for that business only (single URL).
 
 Deliveries are **queued and retried** on non-2xx or network errors (worker interval: `INTERNAL_PARTNER_WEBHOOK_WORKER_MS`, default 20000 ms).

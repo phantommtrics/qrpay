@@ -59,6 +59,7 @@ export type PermissionKey =
   | 'platform.security.function_groups.view'
   | 'platform.security.users.view'
   | 'platform.security.move_users.view'
+  | 'platform.security.partnership_config.view'
   | 'business.manage'
   | 'staff.manage'
   | 'status.change.view'

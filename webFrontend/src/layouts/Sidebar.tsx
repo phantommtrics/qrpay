@@ -786,6 +786,7 @@ export function Sidebar({
             'platform.security.function_groups.view',
             'platform.security.users.view',
             'platform.security.move_users.view',
+            'platform.security.partnership_config.view',
           ]) ? (
             <>
               <div className="mt-4 mb-1">

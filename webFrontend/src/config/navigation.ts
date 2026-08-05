@@ -110,6 +110,7 @@ export const APP_PATHS = {
   platformSecurityFunctionGroups: '/platform/security/function-groups',
   platformSecuritySystemUsers: '/platform/security/system-users',
   platformSecurityMoveUsers: '/platform/security/move-users',
+  platformSecurityPartnershipConfig: '/platform/security/partnership-config',
   /** Guest-facing menu: business slug + table public token from dining tables. */
   restaurantGuestMenu: '/b/:businessSlug/:tableToken',
   /** @deprecated Redirects to restaurantTables. */
@@ -176,6 +177,12 @@ export const PLATFORM_SECURITY_SUBNAV = [
     path: APP_PATHS.platformSecurityMoveUsers,
     title: 'Move users',
     permission: 'platform.security.move_users.view' as const,
+  },
+  {
+    name: 'partnership-config',
+    path: APP_PATHS.platformSecurityPartnershipConfig,
+    title: 'Partnership config',
+    permission: 'platform.security.partnership_config.view' as const,
   },
 ] as const
 
@@ -489,6 +496,10 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.platformSecuritySystemUsers)) {
     return 'System users'
+  }
+
+  if (pathname.includes(APP_PATHS.platformSecurityPartnershipConfig)) {
+    return 'Partnership config'
   }
 
   if (pathname.includes('/platform/invoices/') && pathname !== APP_PATHS.platformInvoices) {

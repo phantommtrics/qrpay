@@ -352,6 +352,11 @@ const PlatformSecurityMoveUsersPage = lazy(() =>
     default: module.PlatformSecurityMoveUsersPage,
   })),
 )
+const PlatformSecurityPartnershipConfigPage = lazy(() =>
+  import('../screens/platform/PlatformSecurityPartnershipConfigPage').then((module) => ({
+    default: module.PlatformSecurityPartnershipConfigPage,
+  })),
+)
 const PlatformPaymentGatewaysPage = lazy(() =>
   import('../screens/platform/PlatformPaymentGatewaysPage').then((module) => ({
     default: module.PlatformPaymentGatewaysPage,
@@ -963,6 +968,12 @@ export function AppRoutes() {
         'platform.security.move_users.view',
         'platform.security.users.view',
       ] satisfies PermissionKey[],
+    },
+    {
+      path: APP_PATHS.platformSecurityPartnershipConfig,
+      element: <PlatformSecurityPartnershipConfigPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.security.partnership_config.view' as const,
     },
     {
       path: APP_PATHS.configuration,

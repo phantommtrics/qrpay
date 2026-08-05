@@ -43,7 +43,7 @@ Events: `payment.completed`, `payment.failed`, `payment.cancelled` — `partnerE
 
 ## Gateway credentials
 
-Platform owner configures APS / Wave / Yonna for each provisioned `businessId` (same ops model as 7a-side). Wave aggregated merchants are created manually by the platform owner — not during the provision API call.
+Configure partner outbound webhooks under **Platform → Security → Partnership config** (preferred). Legacy env vars `INTERNAL_PARTNER_WEBHOOK_*` still work when no UI endpoints exist. Platform owner configures APS / Yonna per `businessId` when those wallets are needed.
 
 ## Related docs
 

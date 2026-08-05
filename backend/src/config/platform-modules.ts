@@ -34,6 +34,8 @@ export const PLATFORM_MODULE_SLUGS = {
   SECURITY_SYSTEM_USERS: "platform.security_system_users",
   /** Bulk reassignment of platform admins between function groups. */
   SECURITY_MOVE_USERS: "platform.security_move_users",
+  /** Internal partner outbound webhook URLs and signing secrets. */
+  SECURITY_PARTNERSHIP_CONFIG: "platform.security_partnership_config",
   /** Enable payment gateways (e.g. Wave) for business checkout flows. */
   PAYMENT_GATEWAYS: "platform.payment_gateways",
   /** Platform supplier bills (accounts payable). */
@@ -124,6 +126,11 @@ export const PLATFORM_MODULES_SEED: { slug: string; label: string; sortOrder: nu
     slug: PLATFORM_MODULE_SLUGS.SECURITY_MOVE_USERS,
     label: "Security — Move users",
     sortOrder: 115,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.SECURITY_PARTNERSHIP_CONFIG,
+    label: "Security — Partnership config",
+    sortOrder: 116,
   },
   {
     slug: PLATFORM_MODULE_SLUGS.PAYMENT_GATEWAYS,
