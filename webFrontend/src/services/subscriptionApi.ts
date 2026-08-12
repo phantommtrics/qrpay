@@ -3269,7 +3269,7 @@ export type PlatformBillBulkPostResult = {
   currency?: string | null
   supplierPhone?: string | null
   error?: string
-  errorPhase?: 'validation' | 'aps_send' | 'ledger'
+  errorPhase?: 'validation' | 'aps_send' | 'wave_send' | 'ledger'
   transactionId?: string
 }
 
@@ -3288,10 +3288,17 @@ export async function fetchPlatformBillBulkPostGateways(): Promise<PlatformBillB
 
 export async function previewPlatformBillBulkPost(
   billIds: string[],
+  gatewayCode?: string,
 ): Promise<PlatformBillBulkPostPreview> {
   const res = await apiRequest<{ data: PlatformBillBulkPostPreview }>(
     '/platform/bills/bulk-post/preview',
-    { method: 'POST', body: JSON.stringify({ billIds }) },
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        billIds,
+        ...(gatewayCode ? { gatewayCode } : {}),
+      }),
+    },
   )
   return res.data
 }
@@ -3401,6 +3408,181 @@ export async function voidPlatformBillApi(billId: string): Promise<PlatformBillR
   const res = await apiRequest<{ data: PlatformBillRow }>(
     `/platform/bills/${encodeURIComponent(billId)}/void`,
     { method: 'POST', body: '{}' },
+  )
+  return res.data
+}
+
+// --- Wave operations (platform) ---
+
+export type WaveOpsBalance = {
+  amount: string
+  currency: string
+  retrievedAt: string
+}
+
+export type WaveOpsTransaction = {
+  timestamp: string
+  transaction_id: string
+  amount: string
+  fee: string
+  currency: string
+  counterparty_name?: string
+  counterparty_mobile?: string
+  is_reversal?: boolean
+}
+
+export type WaveOpsTransactionsResponse = {
+  page_info: {
+    start_cursor?: string | null
+    end_cursor?: string | null
+    has_next_page: boolean
+  }
+  date: string
+  items: WaveOpsTransaction[]
+}
+
+export type WaveOpsPayoutRow = {
+  id: string
+  wavePayoutId: string | null
+  batchId: string | null
+  status: string
+  currency: string
+  receiveAmount: string
+  fee: string | null
+  mobile: string
+  name: string
+  clientReference: string | null
+  idempotencyKey: string
+  platformSupplierId: string | null
+  platformBillId: string | null
+  errorCode: string | null
+  errorMessage: string | null
+  waveTimestamp: string | null
+  reversedAt: string | null
+  createdAt: string
+  updatedAt: string
+  canReverse: boolean
+  reverseDeadline: string
+  supplier: { id: string; name: string; phone: string | null } | null
+  bill: { id: string; publicCode: string } | null
+  batch: { id: string; waveBatchId: string | null; status: string } | null
+}
+
+export type WaveOpsPayoutBatchRow = {
+  id: string
+  waveBatchId: string | null
+  status: string
+  idempotencyKey: string
+  createdAt: string
+  updatedAt: string
+  payoutCount: number
+  payouts: WaveOpsPayoutRow[]
+}
+
+export async function fetchWaveOpsBalance(): Promise<WaveOpsBalance> {
+  const res = await apiRequest<{ data: WaveOpsBalance }>('/platform/wave-operations/balance')
+  return res.data
+}
+
+export async function fetchWaveOpsTransactions(params: {
+  date: string
+  after?: string
+}): Promise<WaveOpsTransactionsResponse> {
+  const q = new URLSearchParams({ date: params.date })
+  if (params.after) q.set('after', params.after)
+  const res = await apiRequest<{ data: WaveOpsTransactionsResponse }>(
+    `/platform/wave-operations/transactions?${q.toString()}`,
+  )
+  return res.data
+}
+
+export async function refundWaveOpsTransaction(transactionId: string): Promise<{ ok: boolean }> {
+  const res = await apiRequest<{ data: { ok: boolean } }>(
+    `/platform/wave-operations/transactions/${encodeURIComponent(transactionId)}/refund`,
+    { method: 'POST', body: '{}' },
+  )
+  return res.data
+}
+
+export async function fetchWaveOpsPayouts(params?: {
+  status?: string
+  supplierId?: string
+  limit?: number
+}): Promise<WaveOpsPayoutRow[]> {
+  const q = new URLSearchParams()
+  if (params?.status) q.set('status', params.status)
+  if (params?.supplierId) q.set('supplierId', params.supplierId)
+  if (params?.limit) q.set('limit', String(params.limit))
+  const qs = q.toString()
+  const res = await apiRequest<{ data: WaveOpsPayoutRow[] }>(
+    `/platform/wave-operations/payouts${qs ? `?${qs}` : ''}`,
+  )
+  return res.data
+}
+
+export async function searchWaveOpsPayouts(clientReference: string): Promise<WaveOpsPayoutRow[]> {
+  const q = new URLSearchParams({ client_reference: clientReference })
+  const res = await apiRequest<{ data: WaveOpsPayoutRow[] }>(
+    `/platform/wave-operations/payouts/search?${q.toString()}`,
+  )
+  return res.data
+}
+
+export async function createWaveOpsPayout(body: {
+  supplierId: string
+  receiveAmount: string | number
+  clientReference?: string | null
+}): Promise<WaveOpsPayoutRow> {
+  const res = await apiRequest<{ data: WaveOpsPayoutRow }>('/platform/wave-operations/payouts', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  return res.data
+}
+
+export async function createWaveOpsPayoutBulk(body: {
+  items: Array<{
+    supplierId: string
+    receiveAmount: string | number
+    clientReference?: string | null
+  }>
+}): Promise<WaveOpsPayoutBatchRow> {
+  const res = await apiRequest<{ data: WaveOpsPayoutBatchRow }>(
+    '/platform/wave-operations/payouts/bulk',
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+  return res.data
+}
+
+export async function fetchWaveOpsPayout(
+  payoutId: string,
+  refresh = false,
+): Promise<WaveOpsPayoutRow> {
+  const q = refresh ? '?refresh=1' : ''
+  const res = await apiRequest<{ data: WaveOpsPayoutRow }>(
+    `/platform/wave-operations/payouts/${encodeURIComponent(payoutId)}${q}`,
+  )
+  return res.data
+}
+
+export async function reverseWaveOpsPayout(payoutId: string): Promise<WaveOpsPayoutRow> {
+  const res = await apiRequest<{ data: WaveOpsPayoutRow }>(
+    `/platform/wave-operations/payouts/${encodeURIComponent(payoutId)}/reverse`,
+    { method: 'POST', body: '{}' },
+  )
+  return res.data
+}
+
+export async function fetchWaveOpsPayoutBatches(limit = 50): Promise<WaveOpsPayoutBatchRow[]> {
+  const res = await apiRequest<{ data: WaveOpsPayoutBatchRow[] }>(
+    `/platform/wave-operations/payout-batches?limit=${limit}`,
+  )
+  return res.data
+}
+
+export async function fetchWaveOpsPayoutBatch(batchId: string): Promise<WaveOpsPayoutBatchRow> {
+  const res = await apiRequest<{ data: WaveOpsPayoutBatchRow }>(
+    `/platform/wave-operations/payout-batches/${encodeURIComponent(batchId)}`,
   )
   return res.data
 }

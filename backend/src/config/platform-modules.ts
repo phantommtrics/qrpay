@@ -42,6 +42,8 @@ export const PLATFORM_MODULE_SLUGS = {
   PURCHASE_BILLS: "platform.purchase_bills",
   /** Operator audit trail (tenant-independent events). */
   ACTIVITY_LOG: "platform.activity_log",
+  /** Wave business wallet: balance, transactions, payouts. */
+  WAVE_OPERATIONS: "platform.wave_operations",
 } as const;
 
 export type PlatformModuleSlug = (typeof PLATFORM_MODULE_SLUGS)[keyof typeof PLATFORM_MODULE_SLUGS];
@@ -146,5 +148,10 @@ export const PLATFORM_MODULES_SEED: { slug: string; label: string; sortOrder: nu
     slug: PLATFORM_MODULE_SLUGS.ACTIVITY_LOG,
     label: "Platform activity log",
     sortOrder: 81,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS,
+    label: "Wave operations",
+    sortOrder: 57,
   },
 ];

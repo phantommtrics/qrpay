@@ -951,6 +951,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 m?.['platform.accounting.journals_reversal']?.create,
             )
           }
+          if (permission === 'platform.wave_operations.view') {
+            return Boolean(
+              m?.['platform.wave_operations']?.view ||
+                m?.['platform.wave_operations']?.edit ||
+                m?.['platform.wave_operations']?.create,
+            )
+          }
+          if (permission === 'platform.wave_operations.manage') {
+            return Boolean(
+              m?.['platform.wave_operations']?.edit || m?.['platform.wave_operations']?.create,
+            )
+          }
           if (permission === 'platform.bills.view') {
             return Boolean(m?.['platform.accounting']?.view || m?.['platform.purchase_bills']?.view)
           }
@@ -1055,6 +1067,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               return Boolean(
                 m?.['platform.accounting']?.create ||
                   m?.['platform.accounting.journals_reversal']?.create,
+              )
+            }
+            if (permission === 'platform.wave_operations.view') {
+              return Boolean(
+                m?.['platform.wave_operations']?.view ||
+                  m?.['platform.wave_operations']?.edit ||
+                  m?.['platform.wave_operations']?.create,
+              )
+            }
+            if (permission === 'platform.wave_operations.manage') {
+              return Boolean(
+                m?.['platform.wave_operations']?.edit || m?.['platform.wave_operations']?.create,
               )
             }
             if (permission === 'platform.bills.view') {

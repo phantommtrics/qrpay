@@ -36,6 +36,8 @@ export type PermissionKey =
   | 'platform.billing_review.edit'
   | 'platform.billing.manage'
   | 'platform.payment_gateways.manage'
+  | 'platform.wave_operations.view'
+  | 'platform.wave_operations.manage'
   | 'platform.accounting.view'
   | 'platform.accounting.create'
   | 'platform.accounting.export'

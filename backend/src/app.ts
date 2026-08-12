@@ -350,6 +350,19 @@ import {
   listPlatformBillBulkPostGateways,
   previewPlatformBillBulkPost,
 } from "./services/platform-bill-bulk-pay.service.js";
+import {
+  createWaveOpsPayout,
+  createWaveOpsPayoutBulk,
+  getWaveOpsBalance,
+  getWaveOpsPayout,
+  getWaveOpsPayoutBatch,
+  listWaveOpsPayoutBatches,
+  listWaveOpsPayouts,
+  listWaveOpsTransactions,
+  refundWaveOpsTransaction,
+  reverseWaveOpsPayout,
+  searchWaveOpsPayoutsByClientReference,
+} from "./services/wave-ops.service.js";
 import { renderBillPdfDownload } from "./services/bill-document-pdf.service.js";
 import { renderPlatformBillPdfDownload } from "./services/platform-bill-document-pdf.service.js";
 import { guestSubscriptionInvoiceUrl } from "./lib/public-guest-urls.js";
@@ -3806,8 +3819,11 @@ app.post(
   requirePlatformAccessAny(platformPurchaseBillsEditGates),
   async (req, res, next) => {
     try {
-      const body = platformBillBulkPostBodySchema.parse(req.body);
-      const preview = await previewPlatformBillBulkPost({ billIds: body.billIds });
+      const body = platformBillBulkPostPreviewBodySchema.parse(req.body);
+      const preview = await previewPlatformBillBulkPost({
+        billIds: body.billIds,
+        gatewayCode: body.gatewayCode,
+      });
       res.json({ data: preview });
     } catch (e) {
       next(e);
@@ -3893,6 +3909,190 @@ app.post(
     try {
       const row = await voidPlatformBill(req.params.billId as string);
       res.json({ data: formatPlatformBillApi(row) });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/wave-operations/balance",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "view"),
+  async (_req, res, next) => {
+    try {
+      const data = await getWaveOpsBalance();
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/wave-operations/transactions",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "view"),
+  async (req, res, next) => {
+    try {
+      const date = String(req.query.date ?? "").trim();
+      const after = String(req.query.after ?? "").trim() || undefined;
+      const data = await listWaveOpsTransactions({ date, after });
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/wave-operations/transactions/:transactionId/refund",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "edit"),
+  async (req, res, next) => {
+    try {
+      const data = await refundWaveOpsTransaction(req.params.transactionId as string);
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/wave-operations/payouts",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "view"),
+  async (req, res, next) => {
+    try {
+      const status = String(req.query.status ?? "").trim() || undefined;
+      const supplierId = String(req.query.supplierId ?? "").trim() || undefined;
+      const limit = Number(req.query.limit);
+      const data = await listWaveOpsPayouts({
+        status,
+        supplierId,
+        limit: Number.isFinite(limit) ? limit : undefined,
+      });
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/wave-operations/payouts/search",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "view"),
+  async (req, res, next) => {
+    try {
+      const clientReference = String(req.query.client_reference ?? "").trim();
+      const data = await searchWaveOpsPayoutsByClientReference(clientReference);
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/wave-operations/payouts",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = waveOpsPayoutCreateBodySchema.parse(req.body);
+      const data = await createWaveOpsPayout({
+        supplierId: body.supplierId,
+        receiveAmount: body.receiveAmount,
+        clientReference: body.clientReference,
+        platformBillId: body.platformBillId,
+      });
+      res.status(201).json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/wave-operations/payouts/bulk",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = waveOpsPayoutBulkBodySchema.parse(req.body);
+      const data = await createWaveOpsPayoutBulk({ items: body.items });
+      res.status(201).json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/wave-operations/payouts/:payoutId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "view"),
+  async (req, res, next) => {
+    try {
+      const refresh = String(req.query.refresh ?? "") === "1";
+      const data = await getWaveOpsPayout(req.params.payoutId as string, { refresh });
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/wave-operations/payouts/:payoutId/reverse",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "edit"),
+  async (req, res, next) => {
+    try {
+      const data = await reverseWaveOpsPayout(req.params.payoutId as string);
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/wave-operations/payout-batches",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "view"),
+  async (req, res, next) => {
+    try {
+      const limit = Number(req.query.limit);
+      const data = await listWaveOpsPayoutBatches(Number.isFinite(limit) ? limit : undefined);
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/wave-operations/payout-batches/:batchId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "view"),
+  async (req, res, next) => {
+    try {
+      const data = await getWaveOpsPayoutBatch(req.params.batchId as string);
+      res.json({ data });
     } catch (e) {
       next(e);
     }
@@ -8356,6 +8556,10 @@ const platformBillBulkPostBodySchema = z.object({
   billIds: z.array(z.string().trim().min(1)).min(1),
 });
 
+const platformBillBulkPostPreviewBodySchema = platformBillBulkPostBodySchema.extend({
+  gatewayCode: z.string().trim().min(1).max(64).optional(),
+});
+
 const platformBillBulkPostExecuteBodySchema = platformBillBulkPostBodySchema.extend({
   gatewayCode: z.string().trim().min(1).max(64),
   settlementChartAccountId: z.string().min(1),
@@ -8364,6 +8568,19 @@ const platformBillBulkPostExecuteBodySchema = platformBillBulkPostBodySchema.ext
 
 const billBulkPostBodySchema = platformBillBulkPostBodySchema;
 const billBulkPostExecuteBodySchema = platformBillBulkPostExecuteBodySchema;
+
+const waveOpsPayoutItemSchema = z.object({
+  supplierId: z.string().trim().min(1),
+  receiveAmount: z.union([z.string().trim().min(1), z.number().positive()]),
+  clientReference: z.string().trim().max(500).optional().nullable(),
+  platformBillId: z.string().trim().min(1).optional().nullable(),
+});
+
+const waveOpsPayoutCreateBodySchema = waveOpsPayoutItemSchema;
+
+const waveOpsPayoutBulkBodySchema = z.object({
+  items: z.array(waveOpsPayoutItemSchema).min(1).max(100),
+});
 
 const platformJournalReverseBodySchema = z.object({
   postedAt: z.string().trim().min(1),

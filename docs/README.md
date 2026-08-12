@@ -19,6 +19,8 @@ This folder contains **architecture**, **component**, and **workflow** documenta
 | [Operations & environment](./operations-and-env.md) | Env vars, migrations, webhooks, deployment notes |
 | [Platform administration](./platform-admin.md) | Platform owner UI, APIs, date filters (existing doc) |
 | [7-aside internal partner integration](./INTEGRATION_7ASIDE.md) | Server-to-server API, webhooks, HMAC verification, log prefixes for booking app integration |
+| [analytics-bi (biReports) integration](./INTEGRATION_ANALYTICS_BI.md) | Partner provision + Corporate subscription billing for biReports |
+| [DirectPay biReports SQL pack](./DIRECTPAY_BIREPORTS_SQL_PACK.md) | Paste-ready Report Builder SQL (SaaS, commerce, merchant health) |
 
 ## Quick mental model
 

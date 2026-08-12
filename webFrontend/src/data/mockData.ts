@@ -79,6 +79,18 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     category: 'Administration',
   },
   {
+    key: 'platform.wave_operations.view',
+    label: 'Wave operations (view)',
+    description: 'View Wave wallet balance, transactions, and payout history',
+    category: 'Administration',
+  },
+  {
+    key: 'platform.wave_operations.manage',
+    label: 'Wave operations (manage)',
+    description: 'Send Wave payouts, reverse payouts, and refund transactions',
+    category: 'Administration',
+  },
+  {
     key: 'platform.businesses.merchant_api.view',
     label: 'Businesses — Merchant API (view)',
     description: 'View wallet integration status and webhooks for any business (platform business detail)',

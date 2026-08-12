@@ -125,6 +125,68 @@ export interface WaveConfig {
   bearerToken: string;
 }
 
+export interface WaveBalance {
+  amount: string;
+  currency: string;
+}
+
+export interface WaveTransaction {
+  timestamp: string;
+  transaction_id: string;
+  amount: string;
+  fee: string;
+  currency: string;
+  counterparty_name?: string;
+  counterparty_mobile?: string;
+  is_reversal?: boolean;
+}
+
+export interface WaveTransactionsResponse {
+  page_info: {
+    start_cursor?: string | null;
+    end_cursor?: string | null;
+    has_next_page: boolean;
+  };
+  date: string;
+  items: WaveTransaction[];
+}
+
+export interface WavePayoutRequest {
+  currency: string;
+  receive_amount: string;
+  name: string;
+  mobile: string;
+  client_reference?: string;
+  aggregated_merchant_id?: string;
+}
+
+export type WavePayoutStatus = "processing" | "succeeded" | "failed";
+
+export interface WavePayoutError {
+  error_code: string;
+  error_message: string;
+}
+
+export interface WavePayout {
+  id: string;
+  currency: string;
+  receive_amount: string;
+  fee?: string;
+  mobile: string;
+  name: string;
+  status: WavePayoutStatus;
+  timestamp?: string;
+  client_reference?: string;
+  aggregated_merchant_id?: string;
+  payout_error?: WavePayoutError;
+}
+
+export interface WavePayoutBatch {
+  id: string;
+  status: "processing" | "complete";
+  payouts: WavePayout[];
+}
+
 export class WavePaymentService {
   private api: AxiosInstance;
   private baseUrl: string;
@@ -140,6 +202,10 @@ export class WavePaymentService {
       },
       timeout: 30000,
     });
+  }
+
+  private withIdempotency(idempotencyKey: string) {
+    return { headers: { "idempotency-key": idempotencyKey } };
   }
 
   async createCheckoutSession(payload: WaveCheckoutSessionRequest): Promise<WaveCheckoutSession> {
@@ -223,6 +289,121 @@ export class WavePaymentService {
       return res.data;
     } catch (e) {
       rethrowWaveAxiosError(e, "Wave list aggregated merchants");
+    }
+  }
+
+  async getBalance(): Promise<WaveBalance> {
+    try {
+      const res = await this.api.get<WaveBalance>("/v1/balance");
+      return res.data;
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave get balance");
+    }
+  }
+
+  async listTransactions(params: {
+    date: string;
+    after?: string;
+  }): Promise<WaveTransactionsResponse> {
+    try {
+      const res = await this.api.get<WaveTransactionsResponse>("/v1/transactions", {
+        params: {
+          date: params.date,
+          ...(params.after ? { after: params.after } : {}),
+        },
+      });
+      return res.data;
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave list transactions");
+    }
+  }
+
+  async refundTransaction(transactionId: string, idempotencyKey: string): Promise<void> {
+    try {
+      await this.api.post(
+        `/v1/transactions/${encodeURIComponent(transactionId)}/refund`,
+        {},
+        this.withIdempotency(idempotencyKey),
+      );
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave refund transaction");
+    }
+  }
+
+  async createPayout(payload: WavePayoutRequest, idempotencyKey: string): Promise<WavePayout> {
+    try {
+      const res = await this.api.post<WavePayout>(
+        "/v1/payout",
+        payload,
+        this.withIdempotency(idempotencyKey),
+      );
+      return res.data;
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave create payout");
+    }
+  }
+
+  async getPayout(payoutId: string): Promise<WavePayout> {
+    try {
+      const res = await this.api.get<WavePayout>(`/v1/payout/${encodeURIComponent(payoutId)}`);
+      return res.data;
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave get payout");
+    }
+  }
+
+  async searchPayouts(params: { client_reference: string }): Promise<WavePayout[]> {
+    try {
+      const res = await this.api.get<WavePayout[] | { result?: WavePayout[]; items?: WavePayout[] }>(
+        "/v1/payouts/search",
+        { params: { client_reference: params.client_reference } },
+      );
+      const data = res.data;
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.result)) return data.result;
+      if (data && Array.isArray(data.items)) return data.items;
+      return [];
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave search payouts");
+    }
+  }
+
+  async createPayoutBatch(
+    payouts: WavePayoutRequest[],
+    idempotencyKey: string,
+  ): Promise<WavePayoutBatch> {
+    try {
+      const res = await this.api.post<WavePayoutBatch>(
+        "/v1/payout-batch",
+        { payouts },
+        this.withIdempotency(idempotencyKey),
+      );
+      return res.data;
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave create payout batch");
+    }
+  }
+
+  async getPayoutBatch(batchId: string): Promise<WavePayoutBatch> {
+    try {
+      const res = await this.api.get<WavePayoutBatch>(
+        `/v1/payout-batch/${encodeURIComponent(batchId)}`,
+      );
+      return res.data;
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave get payout batch");
+    }
+  }
+
+  async reversePayout(payoutId: string, idempotencyKey: string): Promise<void> {
+    try {
+      await this.api.post(
+        `/v1/payout/${encodeURIComponent(payoutId)}/reverse`,
+        {},
+        this.withIdempotency(idempotencyKey),
+      );
+    } catch (e) {
+      rethrowWaveAxiosError(e, "Wave reverse payout");
     }
   }
 }

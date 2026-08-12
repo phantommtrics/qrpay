@@ -1,0 +1,263 @@
+POST /v1/payout
+GET /v1/payout/:id
+GET /v1/payouts/search
+POST /v1/payout-batch
+GET /v1/payouts-batch/:id
+POST /v1/payout/:id/reverse
+
+POST /v1/payout
+
+Send a single payout, i.e. transfer money from your business wallet to a specific recipient, identified by phone number. Executes synchronously, meaning that the Wave will attempt to execute the transaction immediately and return the result in the response of this request.
+
+curl -X POST \
+  --url https://api.wave.com/v1/payout \
+  -H 'Authorization: Bearer wave_sn_prod_YhUNb9d...i4bA6' \
+  -H 'Content-Type: application/json' \
+  -H 'idempotency-key: 65f735b4-b44b-429d-b0a8-550701e2393a' \
+  -d '{ "currency": "XOF",
+        "receive_amount": "500",
+        "name": "Fatou Ndiaye",
+        "mobile": "+221555110219"
+      }'
+
+
+Retrieve a payout
+GET /v1/payout/:id
+
+Retrieves a single payout by id (identifier starting with pt-).
+
+curl -X GET \
+  --url https://api.wave.com/v1/payout/pt-185sewgm8100t \
+  -H 'Authorization: Bearer wave_sn_prod_YhUNb9d...i4bA6'
+
+
+Search payouts
+GET /v1/payouts/search
+
+Retrieves a list of payouts based on the provided query parameters. Currently supports only search by client reference (client_reference).
+
+curl -X GET \
+  --url https://api.wave.com/v1/payouts/search?client_reference=FAH.4827.1734 \
+  -H 'Authorization : Bearer wave_sn_prod_YhUNb9d...i4bA6'
+
+
+Create a payout batch
+
+POST /v1/payout-batch/
+
+Submits a payout batch, with one or multiple payouts to be executed. The processing of these transactions is asynchronous, meaning that this endpoint will not immediately return the resulting payouts.
+
+Instead, you receive an ID that you can then use to retrieve the payout batch result, to see which transactions have completed successfully. We recommend that you poll this endpoint every couple of seconds, depending on the size of your batch.
+
+
+curl -X POST \
+  --url https://api.wave.com/v1/payout-batch \
+  -H "authorization: Bearer wave_sn_prod_YhUNb9d...i4bA6" \
+  -H 'content-type: application/json' \
+  -H 'idempotency-key: 65f735b4-b44b-429d-b0a8-550701e2393a' \
+  -d '{"payouts": [
+        { "currency": "XOF",
+            "receive_amount": "1000",
+            "name": "Fatou Ndiaye",
+            "mobile": "+221555110219"
+        },
+        { "currency": "XOF",
+            "receive_amount": "1200",
+            "name": "Moustapha Mbaye",
+            "mobile": "+221555110233",
+            "aggregated_merchant_id": "am-7lks22ap113t4",
+        },
+        { "currency": "XOF",
+            "receive_amount": "16000",
+            "name": "Mame Diop",
+            "mobile": "+221555144081"
+        }
+      ]}'
+
+
+curl -X GET \
+  --url https://api.wave.com/v1/payout-batch/pb-185skxq8g1006 \
+  -H 'Authorization: Bearer wave_sn_prod_YhUNb9d...i4bA6'
+shell
+php
+javascript
+java
+python
+Example response
+
+{
+  "id": "pb-185skxq8g1006",
+  "status": "complete",
+  "payouts": [
+    {
+      "id": "pt-185skxq9g100w",
+      "currency": "XOF",
+      "receive_amount": "1000",
+      "fee": "10",
+      "mobile": "+221555110219",
+      "name": "Fatou Ndiaye",
+      "status": "succeeded",
+      "timestamp": "2022-06-21T10:07:30Z"
+    },
+    {
+      "id": "pt-185skxqa0100y",
+      "currency": "XOF",
+      "receive_amount": "1200",
+      "fee": "10",
+      "mobile": "+221555110233",
+      "name": "Moustapha Mbaye",
+      "status": "processing",
+      "aggregated_merchant_id": "am-7lks22ap113t4",
+      "timestamp": "2022-06-21T10:07:30Z"
+    },
+    {
+      "id": "pt-185sw98jg1016",
+      "currency": "XOF",
+      "receive_amount": "16000",
+      "fee": "160",
+      "mobile": "+221555144081",
+      "name": "Mame Diop",
+      "status": "failed",
+      "payout_error": {
+        "error_code": "recipient-limit-exceeded",
+        "error_message": "The recipient has reached their monthly limit."
+      },
+      "timestamp": "2022-06-21T10:25:46Z"
+    }
+  ]
+}
+
+
+Reverse a payout
+ Idempotent
+POST /v1/payout/:id/reverse
+
+Reverses a previously executed payout, including fees. Currently there is an exact 3 days limit (to allow 1 day margin after the weekend) for reversing payouts, counting from the time they were created. The reference for this is the timestamp field on the Payout object.
+
+This endpoint's idempotency means that if you try to reverse an already reversed payout, then you will get a success return code, but no additional transaction will be created. You can therefore never reverse a payout twice by accident.
+
+curl -X POST \
+  --url https://api.wave.com/v1/payout/pt-185sewgm8100t/reverse \
+  -H 'Authorization: Bearer wave_sn_prod_YhUNb9d...i4bA6'
+
+Example response
+
+200 OK
+
+
+Balance & Reconciliation API
+The Balance API provides a programmatic means to retrieve the balance and list all the transactions processed by your Wave Business Wallet. With this API you will be able to easily do automated daily reconciliation, setup balance alerts, issue refunds and more.
+
+For real time notifications about the payments received by your account, you should not use this API, but Webhooks.
+
+ENDPOINTS:
+
+GET /v1/balance
+GET /v1/transactions
+POST /v1/transactions/:transaction_id/refund
+
+Retrieve balance
+GET /v1/balance
+
+Retrieves the current balance of the account associated with the API key used to make the request.
+
+curl \
+-H 'Authorization: Bearer wave_sn_prod_YhUNb9d...i4bA6' \
+https://api.wave.com/v1/balance
+
+
+
+Retrieve your transactions
+GET /v1/transactions
+
+Returns a list of transactions of your account for a given day. Uses pagination if the number of transactions exceeds 1000 entries. The transactions are ordered from older to newer.
+
+curl -X GET \
+  --url https://api.wave.com/v1/transactions?date=2022-10-25 \
+  -H 'Authorization: Bearer wave_sn_prod_YhUNb9d...i4bA6'
+
+Example response
+
+{
+  "page_info": {
+    "start_cursor": null,
+    "end_cursor": "TFRfdUZ1MGoyMzVKemtz",
+    "has_next_page": true
+  },
+  "date": "2022-11-07",
+  "items": [
+    {
+      "timestamp": "2022-11-07T14:41:15Z",
+      "transaction_id": "T_V3TFOUE7VU",
+      "amount": "99",
+      "fee": "1",
+      "currency": "XOF",
+      "counterparty_name": "Mame Diop",
+      "counterparty_mobile": "+221761110000"
+    },
+    {
+      "timestamp": "2022-11-07T14:42:06Z",
+      "transaction_id": "T_2YJNPWMCIY",
+      "amount": "99",
+      "fee": "1",
+      "currency": "XOF",
+      "counterparty_name": "Fatou Ndiaye",
+      "counterparty_mobile": "+221761110001"
+    },
+    {
+      "timestamp": "2022-11-07T14:42:41Z",
+      "transaction_id": "T_2YJNPWMCIY",
+      "amount": "-99",
+      "fee": "-1",
+      "currency": "XOF",
+      "is_reversal": true
+    },
+    {
+      "timestamp": "2022-11-07T14:42:54Z",
+      "transaction_id": "pt-1azcvz4081002",
+      "amount": "-101",
+      "fee": "1",
+      "currency": "XOF",
+      "counterparty_name": "Moustapha Mbaye",
+      "counterparty_mobile": "+221761110519"
+    },
+    {
+      "timestamp": "2022-11-07T14:43:00Z",
+      "transaction_id": "pt-1azcw0qkg1004",
+      "amount": "-121",
+      "fee": "1",
+      "currency": "XOF",
+      "counterparty_name": "Moustapha Mbaye",
+      "counterparty_mobile": "+221761110519"
+    },
+    {
+      "timestamp": "2022-11-07T14:43:14Z",
+      "transaction_id": "pt-1azcw0qkg1004",
+      "amount": "121",
+      "fee": "1",
+      "currency": "XOF",
+      "counterparty_name": "Moustapha Mbaye",
+      "counterparty_mobile": "+221761110519",
+      "is_reversal": true
+    }
+  ]
+}
+
+
+Request parameters
+URL parameters are passed in the form of https://api.wave.com/v1/transactions?date=value1&after=value2.
+
+Refund a transaction
+
+POST /v1/transactions/:transaction_id/refund
+
+With this endpoint you can reverse a payment received, including fees. You don't need to indicate a reason, you can simply refund your customers any time you deem necessary.
+
+curl -X POST \
+  -L https://api.wave.com/v1/transactions/T_VZSWJF5MMQ/refund \
+  -H 'Authorization: Bearer wave_sn_prod_YhUNb9d...i4bA6'
+
+Example response
+
+HTTP 200 OK
+

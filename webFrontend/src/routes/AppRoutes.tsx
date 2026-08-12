@@ -252,6 +252,36 @@ const PlatformWaveBusinessesPage = lazy(() =>
     default: module.PlatformWaveBusinessesPage,
   })),
 )
+const PlatformWaveOpsBalancePage = lazy(() =>
+  import('../screens/platform/PlatformWaveOpsBalancePage').then((module) => ({
+    default: module.PlatformWaveOpsBalancePage,
+  })),
+)
+const PlatformWaveOpsTransactionsPage = lazy(() =>
+  import('../screens/platform/PlatformWaveOpsTransactionsPage').then((module) => ({
+    default: module.PlatformWaveOpsTransactionsPage,
+  })),
+)
+const PlatformWaveOpsPayoutsPage = lazy(() =>
+  import('../screens/platform/PlatformWaveOpsPayoutsPage').then((module) => ({
+    default: module.PlatformWaveOpsPayoutsPage,
+  })),
+)
+const PlatformWaveOpsPayoutDetailPage = lazy(() =>
+  import('../screens/platform/PlatformWaveOpsPayoutDetailPage').then((module) => ({
+    default: module.PlatformWaveOpsPayoutDetailPage,
+  })),
+)
+const PlatformWaveOpsPayoutBatchesPage = lazy(() =>
+  import('../screens/platform/PlatformWaveOpsPayoutBatchesPage').then((module) => ({
+    default: module.PlatformWaveOpsPayoutBatchesPage,
+  })),
+)
+const PlatformWaveOpsPayoutBatchDetailPage = lazy(() =>
+  import('../screens/platform/PlatformWaveOpsPayoutBatchDetailPage').then((module) => ({
+    default: module.PlatformWaveOpsPayoutBatchDetailPage,
+  })),
+)
 const PlatformBusinessDetailPage = lazy(() =>
   import('../screens/platform/PlatformBusinessDetailPage').then((module) => ({
     default: module.PlatformBusinessDetailPage,
@@ -501,7 +531,49 @@ export function AppRoutes() {
       path: APP_PATHS.platformWaveBusinesses,
       element: <PlatformWaveBusinessesPage />,
       roles: PLATFORM_OPERATOR_ROLES,
-      permission: 'platform.businesses.manage' as const,
+      anyOfPermissions: [
+        'platform.wave_operations.view',
+        'platform.businesses.manage',
+      ] satisfies PermissionKey[],
+    },
+    {
+      path: APP_PATHS.platformWaveOpsBalance,
+      element: <PlatformWaveOpsBalancePage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.wave_operations.view' as const,
+    },
+    {
+      path: APP_PATHS.platformWaveOpsTransactions,
+      element: <PlatformWaveOpsTransactionsPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.wave_operations.view' as const,
+    },
+    {
+      path: APP_PATHS.platformWaveOpsPayouts,
+      element: <PlatformWaveOpsPayoutsPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      anyOfPermissions: [
+        'platform.wave_operations.view',
+        'platform.wave_operations.manage',
+      ] satisfies PermissionKey[],
+    },
+    {
+      path: APP_PATHS.platformWaveOpsPayoutDetail,
+      element: <PlatformWaveOpsPayoutDetailPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.wave_operations.view' as const,
+    },
+    {
+      path: APP_PATHS.platformWaveOpsPayoutBatches,
+      element: <PlatformWaveOpsPayoutBatchesPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.wave_operations.view' as const,
+    },
+    {
+      path: APP_PATHS.platformWaveOpsPayoutBatchDetail,
+      element: <PlatformWaveOpsPayoutBatchDetailPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.wave_operations.view' as const,
     },
     {
       path: APP_PATHS.platformBusinessDetail,

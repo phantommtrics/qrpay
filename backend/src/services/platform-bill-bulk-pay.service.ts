@@ -10,9 +10,15 @@ import {
 import { markPlatformBillPaid } from "./platform-bill.service.js";
 import {
   CHECKOUT_ADAPTER_APS_WALLET,
+  CHECKOUT_ADAPTER_WAVE_GAMBIA,
   getPaymentGatewayByCode,
 } from "./payment-gateway.service.js";
 import { listSubscriptionInvoiceCheckoutWallets } from "./subscription-invoice-checkout.service.js";
+import {
+  isPlatformWaveCheckoutConfigured,
+  waveServiceFromEnv,
+} from "./wave-client-env.js";
+import { normalizeWaveMobile, sendWavePayoutForBill } from "./wave-ops.service.js";
 
 function lineTotal(line: {
   quantity: Prisma.Decimal;
@@ -39,7 +45,10 @@ export async function listPlatformBillBulkPostGateways() {
   return listSubscriptionInvoiceCheckoutWallets();
 }
 
-export async function previewPlatformBillBulkPost(input: { billIds: string[] }) {
+export async function previewPlatformBillBulkPost(input: {
+  billIds: string[];
+  gatewayCode?: string;
+}) {
   const ids = [...new Set(input.billIds.map((id) => id.trim()).filter(Boolean))];
   if (!ids.length) {
     throw new HttpError(400, "Select at least one bill.");
@@ -53,6 +62,24 @@ export async function previewPlatformBillBulkPost(input: { billIds: string[] }) 
     },
   });
 
+  let waveCurrency: string | null = null;
+  let isWaveGateway = false;
+  const code = input.gatewayCode?.trim().toLowerCase();
+  if (code) {
+    const gateway = await getPaymentGatewayByCode(code);
+    if (gateway?.checkoutAdapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
+      isWaveGateway = true;
+      if (isPlatformWaveCheckoutConfigured()) {
+        try {
+          const balance = await waveServiceFromEnv().getBalance();
+          waveCurrency = balance.currency;
+        } catch {
+          waveCurrency = null;
+        }
+      }
+    }
+  }
+
   const byId = new Map(bills.map((b) => [b.id, b]));
   const items = ids.map((billId) => {
     const bill = byId.get(billId);
@@ -60,6 +87,7 @@ export async function previewPlatformBillBulkPost(input: { billIds: string[] }) 
       return {
         billId,
         publicCode: null as string | null,
+        supplierId: null as string | null,
         supplierName: null as string | null,
         supplierPhone: null as string | null,
         supplierPhoneNormalized: null as string | null,
@@ -83,9 +111,26 @@ export async function previewPlatformBillBulkPost(input: { billIds: string[] }) 
     }
 
     const phoneRaw = bill.supplier.phone?.trim() || null;
-    const phoneNormalized = phoneRaw ? normalizeApsCustomerMobile(phoneRaw) : null;
+    const phoneNormalizedAps = phoneRaw ? normalizeApsCustomerMobile(phoneRaw) : null;
+    const phoneNormalizedWave = phoneRaw ? normalizeWaveMobile(phoneRaw) : null;
+    const phoneNormalized = isWaveGateway ? phoneNormalizedWave : phoneNormalizedAps;
+
     if (!phoneNormalized) {
-      warnings.push("Supplier mobile number is required for APS wallet send.");
+      warnings.push(
+        isWaveGateway
+          ? "Supplier mobile number is required for Wave payout (international format, e.g. +220…)."
+          : "Supplier mobile number is required for APS wallet send.",
+      );
+    }
+
+    if (isWaveGateway && !isPlatformWaveCheckoutConfigured()) {
+      warnings.push("Wave is not configured (WAVE_CHECKOUT_BEARER).");
+    }
+
+    if (waveCurrency && bill.currency.toUpperCase() !== waveCurrency.toUpperCase()) {
+      warnings.push(
+        `Bill currency ${bill.currency} does not match Wave wallet currency ${waveCurrency}.`,
+      );
     }
 
     const narrations = bill.lines
@@ -95,6 +140,7 @@ export async function previewPlatformBillBulkPost(input: { billIds: string[] }) 
     return {
       billId: bill.id,
       publicCode: bill.publicCode,
+      supplierId: bill.supplier.id,
       supplierName: bill.supplier.name,
       supplierPhone: phoneRaw,
       supplierPhoneNormalized: phoneNormalized,
@@ -108,7 +154,7 @@ export async function previewPlatformBillBulkPost(input: { billIds: string[] }) 
 
   const gateways = await listPlatformBillBulkPostGateways();
 
-  return { items, gateways };
+  return { items, gateways, waveCurrency };
 }
 
 export type PlatformBillBulkPostResult = {
@@ -120,7 +166,7 @@ export type PlatformBillBulkPostResult = {
   currency?: string | null;
   supplierPhone?: string | null;
   error?: string;
-  errorPhase?: "validation" | "aps_send" | "ledger";
+  errorPhase?: "validation" | "aps_send" | "wave_send" | "ledger";
   transactionId?: string;
 };
 
@@ -150,8 +196,12 @@ export async function executePlatformBillBulkPost(input: {
 
   const adapter = gateway.checkoutAdapter?.trim() || "";
   const isAps = adapter === CHECKOUT_ADAPTER_APS_WALLET;
+  const isWave = adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA;
 
-  const preview = await previewPlatformBillBulkPost({ billIds: input.billIds });
+  const preview = await previewPlatformBillBulkPost({
+    billIds: input.billIds,
+    gatewayCode: code,
+  });
   const results: PlatformBillBulkPostResult[] = [];
 
   for (const item of preview.items) {
@@ -210,6 +260,40 @@ export async function executePlatformBillBulkPost(input: {
         });
         continue;
       }
+    } else if (isWave) {
+      const mobile = item.supplierPhoneNormalized;
+      if (!mobile || !item.supplierId || !item.currency) {
+        results.push({
+          ...resultBase,
+          success: false,
+          errorPhase: "validation",
+          error: "Supplier mobile number is required for Wave payout.",
+        });
+        continue;
+      }
+      try {
+        const send = await sendWavePayoutForBill({
+          supplierId: item.supplierId,
+          supplierName: item.supplierName || "Supplier",
+          mobile,
+          receiveAmount: item.amount.toFixed(2),
+          currency: item.currency,
+          platformBillId: item.billId,
+          clientReference: item.publicCode || undefined,
+        });
+        transactionId = send.wavePayoutId;
+      } catch (e) {
+        results.push({
+          ...resultBase,
+          success: false,
+          errorPhase: "wave_send",
+          error: errorMessage(
+            e,
+            "Wave could not send the payout. Check the mobile number, balance, and try again.",
+          ),
+        });
+        continue;
+      }
     }
 
     try {
@@ -232,7 +316,7 @@ export async function executePlatformBillBulkPost(input: {
         errorPhase: "ledger",
         error: errorMessage(
           e,
-          isAps
+          isAps || isWave
             ? "Money was sent but the bill could not be posted to the ledger. Contact support before retrying."
             : "Could not post the bill to the ledger.",
         ),

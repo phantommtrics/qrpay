@@ -879,14 +879,15 @@ model PlatformJournalLine {
  * Platform operator supplier / vendor (accounts payable contact).
  */
 model PlatformSupplier {
-  id        String         @id @default(cuid())
-  name      String
-  email     String?
-  phone     String?
-  notes     String?        @db.Text
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-  bills     PlatformBill[]
+  id             String          @id @default(cuid())
+  name           String
+  email          String?
+  phone          String?
+  notes          String?         @db.Text
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  bills          PlatformBill[]
+  waveOpsPayouts WaveOpsPayout[]
 }
 
 /**
@@ -918,8 +919,55 @@ model PlatformBill {
   settlementAccount        PlatformChartOfAccount? @relation("PlatformBillSettlement", fields: [settlementChartAccountId], references: [id], onDelete: SetNull)
   journalEntry             PlatformJournalEntry?   @relation("PlatformBillJournal", fields: [platformJournalEntryId], references: [id], onDelete: SetNull)
   lines                    PlatformBillLine[]
+  waveOpsPayouts           WaveOpsPayout[]
 
   @@index([supplierId, status])
+}
+
+/**
+ * Audit trail for platform Wave Operations payouts (wallet send to suppliers).
+ */
+model WaveOpsPayoutBatch {
+  id             String          @id @default(cuid())
+  waveBatchId    String?         @unique
+  status         String          @default("processing")
+  idempotencyKey String          @unique
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  payouts        WaveOpsPayout[]
+
+  @@index([createdAt])
+}
+
+model WaveOpsPayout {
+  id                 String              @id @default(cuid())
+  wavePayoutId       String?             @unique
+  batchId            String?
+  status             String              @default("processing")
+  currency           String
+  receiveAmount      String
+  fee                String?
+  mobile             String
+  name               String
+  clientReference    String?
+  idempotencyKey     String              @unique
+  platformSupplierId String?
+  platformBillId     String?
+  errorCode          String?
+  errorMessage       String?             @db.Text
+  waveTimestamp      DateTime?
+  reversedAt         DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  batch              WaveOpsPayoutBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  supplier           PlatformSupplier?   @relation(fields: [platformSupplierId], references: [id], onDelete: SetNull)
+  bill               PlatformBill?       @relation(fields: [platformBillId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([platformSupplierId])
+  @@index([clientReference])
+  @@index([batchId])
 }
 
 model PlatformBillLine {

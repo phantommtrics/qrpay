@@ -94,6 +94,12 @@ export const APP_PATHS = {
   platformSystemConfiguration: '/platform/system-configuration',
   platformBusinesses: '/platform/businesses',
   platformWaveBusinesses: '/platform/wave-businesses',
+  platformWaveOpsBalance: '/platform/wave-operations/balance',
+  platformWaveOpsTransactions: '/platform/wave-operations/transactions',
+  platformWaveOpsPayouts: '/platform/wave-operations/payouts',
+  platformWaveOpsPayoutBatches: '/platform/wave-operations/payout-batches',
+  platformWaveOpsPayoutBatchDetail: '/platform/wave-operations/payout-batches/:batchId',
+  platformWaveOpsPayoutDetail: '/platform/wave-operations/payouts/:payoutId',
   platformBusinessDetail: '/platform/businesses/:businessId',
   platformBillings: '/platform/billings',
   /** Corporate industry: tenant list and custom bill templates (platform operator). */
@@ -287,18 +293,52 @@ export const PLATFORM_FINANCE_SUBNAV: PlatformBusinessesSubNavItem[] = [
   },
 ]
 
+/** Platform operator: Wave operations (balance, transactions, payouts). */
+export const PLATFORM_WAVE_OPERATIONS_SUBNAV: PlatformBusinessesSubNavItem[] = [
+  {
+    name: 'wave-ops-balance',
+    path: APP_PATHS.platformWaveOpsBalance,
+    title: 'Balance',
+    permission: 'platform.wave_operations.view',
+  },
+  {
+    name: 'wave-ops-transactions',
+    path: APP_PATHS.platformWaveOpsTransactions,
+    title: 'Transactions',
+    permission: 'platform.wave_operations.view',
+  },
+  {
+    name: 'wave-ops-payouts',
+    path: APP_PATHS.platformWaveOpsPayouts,
+    title: 'Payouts',
+    anyOfPermissions: [
+      'platform.wave_operations.view',
+      'platform.wave_operations.manage',
+    ] as const,
+  },
+  {
+    name: 'wave-ops-batches',
+    path: APP_PATHS.platformWaveOpsPayoutBatches,
+    title: 'Payout batches',
+    permission: 'platform.wave_operations.view',
+  },
+  {
+    name: 'wave-businesses',
+    path: APP_PATHS.platformWaveBusinesses,
+    title: 'Wave Businesses',
+    anyOfPermissions: [
+      'platform.wave_operations.view',
+      'platform.businesses.manage',
+    ] as const,
+  },
+]
+
 /** Platform operator: Businesses section (after Dashboard). */
 export const PLATFORM_BUSINESSES_SUBNAV: PlatformBusinessesSubNavItem[] = [
   {
     name: 'business',
     path: APP_PATHS.platformBusinesses,
     title: 'Businesses',
-    permission: 'platform.businesses.manage',
-  },
-  {
-    name: 'wave-businesses',
-    path: APP_PATHS.platformWaveBusinesses,
-    title: 'Wave Businesses',
     permission: 'platform.businesses.manage',
   },
   {
@@ -615,6 +655,25 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes('/platform/businesses/') && pathname !== APP_PATHS.platformBusinesses) {
     return 'Business detail'
+  }
+
+  if (pathname.includes(APP_PATHS.platformWaveOpsBalance)) {
+    return 'Wave balance'
+  }
+  if (pathname.includes(APP_PATHS.platformWaveOpsTransactions)) {
+    return 'Wave transactions'
+  }
+  if (pathname.includes('/platform/wave-operations/payout-batches/')) {
+    return 'Payout batch'
+  }
+  if (pathname.includes(APP_PATHS.platformWaveOpsPayoutBatches)) {
+    return 'Payout batches'
+  }
+  if (pathname.includes('/platform/wave-operations/payouts/')) {
+    return 'Payout detail'
+  }
+  if (pathname.includes(APP_PATHS.platformWaveOpsPayouts)) {
+    return 'Wave payouts'
   }
 
   if (pathname.includes(APP_PATHS.platformWaveBusinesses)) {

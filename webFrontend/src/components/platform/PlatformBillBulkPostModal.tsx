@@ -31,6 +31,7 @@ type Props = {
 
 function errorPhaseLabel(phase: PlatformBillBulkPostResult['errorPhase']): string {
   if (phase === 'aps_send') return 'APS send money failed'
+  if (phase === 'wave_send') return 'Wave payout failed'
   if (phase === 'ledger') return 'Ledger post failed'
   if (phase === 'validation') return 'Could not process'
   return 'Failed'
@@ -59,6 +60,7 @@ export function PlatformBillBulkPostModal({
     [gateways, gatewayCode],
   )
   const isAps = selectedGateway?.checkoutAdapter === 'aps_wallet'
+  const isWave = selectedGateway?.checkoutAdapter === 'wave_gambia'
 
   const reset = useCallback(() => {
     setStep('gateway')
@@ -96,7 +98,7 @@ export function PlatformBillBulkPostModal({
     setLoading(true)
     setError(null)
     try {
-      const preview = await previewPlatformBillBulkPost(billIds)
+      const preview = await previewPlatformBillBulkPost(billIds, gatewayCode || undefined)
       setPreviewItems(preview.items)
       setStep('preview')
     } catch (e) {
@@ -106,10 +108,10 @@ export function PlatformBillBulkPostModal({
     }
   }
 
-  const apsBlocked = useMemo(() => {
-    if (!isAps) return false
+  const walletSendBlocked = useMemo(() => {
+    if (!isAps && !isWave) return false
     return previewItems.some((item) => !item.supplierPhoneNormalized)
-  }, [isAps, previewItems])
+  }, [isAps, isWave, previewItems])
 
   const resultCounts = useMemo(() => {
     const succeeded = results.filter((r) => r.success).length
@@ -252,13 +254,13 @@ export function PlatformBillBulkPostModal({
                 Review amounts and supplier contacts before sending. Gateway:{' '}
                 <span className="font-medium text-qb-heading">{selectedGateway?.name}</span>
               </p>
-              {isAps && apsBlocked ? (
+              {(isAps || isWave) && walletSendBlocked ? (
                 <p className="rounded-sm border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                   One or more suppliers are missing a mobile number. Add mobile numbers on the{' '}
                   <Link to={APP_PATHS.platformContacts} className="font-medium underline">
                     Supplier contacts
                   </Link>{' '}
-                  page before using APS Wallet.
+                  page before using {isWave ? 'Wave' : 'APS Wallet'}.
                 </p>
               ) : null}
               <div className="overflow-x-auto rounded-sm border border-qb-border">
@@ -469,7 +471,7 @@ export function PlatformBillBulkPostModal({
               </button>
               <button
                 type="button"
-                disabled={loading || apsBlocked || previewItems.every((i) => !i.eligible)}
+                disabled={loading || walletSendBlocked || previewItems.every((i) => !i.eligible)}
                 onClick={() => void handleExecute()}
                 className="inline-flex items-center gap-2 rounded-sm bg-qb-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >

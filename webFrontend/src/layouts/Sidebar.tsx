@@ -14,6 +14,7 @@ import {
   LogOut,
   Plus,
   Shield,
+  Waves,
 } from 'lucide-react'
 import { generatePath, NavLink, useLocation, useNavigate } from 'react-router-dom'
 
@@ -23,6 +24,7 @@ import {
   PLATFORM_BUSINESSES_SUBNAV,
   PLATFORM_CORPORATE_SUBNAV,
   PLATFORM_FINANCE_SUBNAV,
+  PLATFORM_WAVE_OPERATIONS_SUBNAV,
   platformBusinessesSubnavAllowed,
   PLATFORM_SECURITY_SUBNAV,
   RESTAURANT_NAV_ITEM,
@@ -48,6 +50,7 @@ const BUSINESS_SECTION_STORAGE_KEY = 'qrpay.sidebar.businesses.open.v1'
 const PLATFORM_BUSINESSES_SECTION_KEY = 'qrpay.sidebar.platform-businesses.open.v1'
 const PLATFORM_FINANCE_SECTION_KEY = 'qrpay.sidebar.platform-finance.open.v1'
 const PLATFORM_SECURITY_SECTION_KEY = 'qrpay.sidebar.platform-security.open.v1'
+const PLATFORM_WAVE_OPS_SECTION_KEY = 'qrpay.sidebar.platform-wave-ops.open.v1'
 const PLATFORM_CORPORATE_SECTION_KEY = 'qrpay.sidebar.platform-corporate.open.v1'
 
 export function Sidebar({
@@ -78,13 +81,25 @@ export function Sidebar({
     const p = window.location.hash.replace(/^#/, '') || window.location.pathname
     return (
       p.startsWith('/platform/businesses') ||
-      p.startsWith('/platform/wave-businesses') ||
       p.startsWith('/platform/billings') ||
       p.startsWith('/platform/subscriptions') ||
       p.startsWith('/platform/invoices') ||
       p.startsWith('/platform/billing-review') ||
       p.startsWith('/platform/billing-transactions') ||
       p.startsWith('/platform/payment-gateways')
+    )
+  })
+  const [isPlatformWaveOpsOpen, setIsPlatformWaveOpsOpen] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true
+    }
+    const stored = window.localStorage.getItem(PLATFORM_WAVE_OPS_SECTION_KEY)
+    if (stored !== null) {
+      return stored === 'true'
+    }
+    const p = window.location.hash.replace(/^#/, '') || window.location.pathname
+    return (
+      p.startsWith('/platform/wave-operations') || p.startsWith('/platform/wave-businesses')
     )
   })
   const [isPlatformFinanceOpen, setIsPlatformFinanceOpen] = useState(() => {
@@ -241,6 +256,13 @@ export function Sidebar({
     if (typeof window === 'undefined') {
       return
     }
+    window.localStorage.setItem(PLATFORM_WAVE_OPS_SECTION_KEY, String(isPlatformWaveOpsOpen))
+  }, [isPlatformWaveOpsOpen])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
     window.localStorage.setItem(PLATFORM_SECURITY_SECTION_KEY, String(isPlatformSecurityOpen))
   }, [isPlatformSecurityOpen])
 
@@ -248,7 +270,6 @@ export function Sidebar({
     const p = location.pathname
     if (
       p.startsWith('/platform/businesses') ||
-      p.startsWith('/platform/wave-businesses') ||
       p.startsWith('/platform/billings') ||
       p.startsWith('/platform/subscriptions') ||
       p.startsWith('/platform/invoices') ||
@@ -257,6 +278,9 @@ export function Sidebar({
       p.startsWith('/platform/payment-gateways')
     ) {
       setIsPlatformBusinessesOpen(true)
+    }
+    if (p.startsWith('/platform/wave-operations') || p.startsWith('/platform/wave-businesses')) {
+      setIsPlatformWaveOpsOpen(true)
     }
     if (p.startsWith('/platform/corporate')) {
       setIsPlatformCorporateOpen(true)
@@ -278,13 +302,7 @@ export function Sidebar({
   function isPlatformBusinessesSubActive(path: string) {
     const p = location.pathname
     if (path === APP_PATHS.platformBusinesses) {
-      return (
-        p === APP_PATHS.platformBusinesses ||
-        (p.startsWith('/platform/businesses/') && p !== APP_PATHS.platformWaveBusinesses)
-      )
-    }
-    if (path === APP_PATHS.platformWaveBusinesses) {
-      return p === APP_PATHS.platformWaveBusinesses
+      return p === APP_PATHS.platformBusinesses || p.startsWith('/platform/businesses/')
     }
     if (path === APP_PATHS.platformBillings) {
       return p.startsWith('/platform/billings')
@@ -303,6 +321,29 @@ export function Sidebar({
     }
     if (path === APP_PATHS.platformPaymentGateways) {
       return p.startsWith('/platform/payment-gateways')
+    }
+    return false
+  }
+
+  function isPlatformWaveOpsSubActive(path: string) {
+    const p = location.pathname
+    if (path === APP_PATHS.platformWaveOpsBalance) {
+      return p.startsWith(APP_PATHS.platformWaveOpsBalance)
+    }
+    if (path === APP_PATHS.platformWaveOpsTransactions) {
+      return p.startsWith(APP_PATHS.platformWaveOpsTransactions)
+    }
+    if (path === APP_PATHS.platformWaveOpsPayoutBatches) {
+      return p.startsWith('/platform/wave-operations/payout-batches')
+    }
+    if (path === APP_PATHS.platformWaveOpsPayouts) {
+      return (
+        p.startsWith('/platform/wave-operations/payouts') &&
+        !p.startsWith('/platform/wave-operations/payout-batches')
+      )
+    }
+    if (path === APP_PATHS.platformWaveBusinesses) {
+      return p === APP_PATHS.platformWaveBusinesses
     }
     return false
   }
@@ -571,6 +612,50 @@ export function Sidebar({
                         platformBusinessesSubnavAllowed(item, canAccess),
                       ).map((item) => {
                         const subActive = isPlatformFinanceSubActive(item.path)
+                        return (
+                          <NavLink
+                            key={item.path}
+                            to={item.path}
+                            onClick={() => setIsOpen(false)}
+                            className={`flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
+                              subActive
+                                ? 'bg-teal-500/10 text-teal-300'
+                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                            }`}
+                          >
+                            <span className="font-medium">{item.title}</span>
+                          </NavLink>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {PLATFORM_WAVE_OPERATIONS_SUBNAV.some((item) =>
+                platformBusinessesSubnavAllowed(item, canAccess),
+              ) ? (
+                <div className="mb-1 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsPlatformWaveOpsOpen((o) => !o)}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
+                  >
+                    <span className="flex items-center gap-2 truncate">
+                      <Waves className="h-4 w-4 shrink-0 text-teal-500/90" />
+                      Wave operations
+                    </span>
+                    <ChevronDown
+                      className={`h-4 w-4 shrink-0 transition-transform ${
+                        isPlatformWaveOpsOpen ? 'rotate-0' : '-rotate-90'
+                      }`}
+                    />
+                  </button>
+                  {isPlatformWaveOpsOpen ? (
+                    <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
+                      {PLATFORM_WAVE_OPERATIONS_SUBNAV.filter((item) =>
+                        platformBusinessesSubnavAllowed(item, canAccess),
+                      ).map((item) => {
+                        const subActive = isPlatformWaveOpsSubActive(item.path)
                         return (
                           <NavLink
                             key={item.path}
