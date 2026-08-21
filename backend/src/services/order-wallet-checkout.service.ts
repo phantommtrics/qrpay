@@ -317,7 +317,7 @@ export async function startGatewayWalletCheckout(input: {
     const wave = waveServiceFromEnv();
 
     const amountStr = String(Math.round(Number(order.total)));
-    const session = await wave.createCheckoutSession({
+    const session = await wave.createSalesCheckoutSession({
       amount: amountStr,
       currency: (order.currency || "GMD").toUpperCase(),
       success_url: successUrl,
@@ -550,7 +550,7 @@ export async function startGatewayWalletCheckoutForInvoice(input: {
     const wave = waveServiceFromEnv();
 
     const amountStr = String(Math.round(Number(total)));
-    const session = await wave.createCheckoutSession({
+    const session = await wave.createSalesCheckoutSession({
       amount: amountStr,
       currency: (invoice.currency || "GMD").toUpperCase(),
       success_url: successUrl,

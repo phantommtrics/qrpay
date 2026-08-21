@@ -9,8 +9,8 @@ export function isPlatformWaveCheckoutConfigured(): boolean {
 
 /**
  * Wave API client using `WAVE_CHECKOUT_BEARER` (one portal key for all checkouts).
- * Pass `aggregated_merchant_id` for merchant sales; omit it for platform subscription invoices
- * so funds settle on the main merchant account.
+ * Sales sessions must call `createSalesCheckoutSession` (aggregated merchant).
+ * Platform subscription invoices must call `createPlatformCheckoutSession` (no aggregated merchant).
  */
 export function waveServiceFromEnv(): WavePaymentService {
   const baseUrl = waveApiBaseUrl();

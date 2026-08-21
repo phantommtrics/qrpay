@@ -11,7 +11,6 @@ import {
 } from "./billing-ledger.service.js";
 import { isPlatformWaveCheckoutConfigured, waveServiceFromEnv } from "./wave-client-env.js";
 import { YonnaForexPaymentService } from "./yonna-forex-payment.service.js";
-import { resolveAppPublicBaseForBrowserReturns } from "../config/app-public-url.js";
 import {
   CHECKOUT_ADAPTER_APS_WALLET,
   CHECKOUT_ADAPTER_WAVE_GAMBIA,
@@ -22,6 +21,7 @@ import {
 import type { OrderCheckoutWalletRow } from "./order-wallet-checkout.service.js";
 import { isApsWalletPlatformMerchantConfigured } from "../config/aps-wallet-env.js";
 import { yonnaForexApiBaseUrl } from "../config/payment-provider-env.js";
+import { getPublicWebAppBaseUrl, spaHashRoute } from "../lib/public-guest-urls.js";
 
 export type SubscriptionInvoiceCheckoutRow = SubscriptionInvoice & {
   plan: Plan;
@@ -95,14 +95,18 @@ export async function runSubscriptionInvoiceGatewayCheckout(input: {
   const amount = Number(invoice.amount);
 
   if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
-    const appBase = resolveAppPublicBaseForBrowserReturns(input.req);
-    const successUrl = `${appBase}/billing/wave/success?invoiceId=${encodeURIComponent(invoice.id)}`;
-    const errorUrl = `${appBase}/billing/wave/cancel?invoiceId=${encodeURIComponent(invoice.id)}`;
+    const webBase = getPublicWebAppBaseUrl();
+    const successUrl = spaHashRoute(
+      webBase,
+      `/billing/wave/success?invoiceId=${encodeURIComponent(invoice.id)}`,
+    );
+    const errorUrl = spaHashRoute(
+      webBase,
+      `/billing/wave/cancel?invoiceId=${encodeURIComponent(invoice.id)}`,
+    );
 
-    // Same WAVE_CHECKOUT_BEARER as sales checkout. Omit aggregated_merchant_id so Wave
-    // settles on the main merchant account (portal merges all checkouts onto one key).
     const wave = waveServiceFromEnv();
-    const session = await wave.createCheckoutSession({
+    const session = await wave.createPlatformCheckoutSession({
       amount: String(Math.round(amount)),
       currency: (invoice.currency || "GMD").toUpperCase(),
       success_url: successUrl,

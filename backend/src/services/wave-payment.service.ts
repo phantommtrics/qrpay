@@ -11,7 +11,7 @@ function waveErrorMessageFromResponseData(data: unknown): string {
   }
   if (typeof data === "object") {
     const o = data as Record<string, unknown>;
-    for (const key of ["message", "error", "detail", "description"] as const) {
+    for (const key of ["message", "error", "detail", "description", "code"] as const) {
       const v = o[key];
       if (typeof v === "string" && v.trim()) {
         return v.trim().slice(0, 500);
@@ -87,14 +87,33 @@ export interface WavePaginatedAggregatedMerchants {
   items: WaveAggregatedMerchant[];
 }
 
-export interface WaveCheckoutSessionRequest {
+type WaveCheckoutSessionBaseRequest = {
   amount: string;
   currency: string;
   success_url: string;
   error_url: string;
   client_reference?: string | null;
   restrict_payer_mobile?: string;
-  aggregated_merchant_id?: string;
+};
+
+/** Merchant POS / sales-invoice checkout — aggregated merchant is required. */
+export type WaveSalesCheckoutSessionRequest = WaveCheckoutSessionBaseRequest & {
+  aggregated_merchant_id: string;
+};
+
+/** Platform subscription invoice checkout — must not include aggregated_merchant_id. */
+export type WavePlatformCheckoutSessionRequest = WaveCheckoutSessionBaseRequest;
+
+function compactWaveCheckoutFields(
+  fields: Record<string, string | null | undefined>,
+): Record<string, string> {
+  const body: Record<string, string> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (typeof value === "string" && value.trim()) {
+      body[key] = value.trim();
+    }
+  }
+  return body;
 }
 
 export interface WaveCheckoutSession {
@@ -208,13 +227,55 @@ export class WavePaymentService {
     return { headers: { "idempotency-key": idempotencyKey } };
   }
 
-  async createCheckoutSession(payload: WaveCheckoutSessionRequest): Promise<WaveCheckoutSession> {
+  private async postCheckoutSession(body: Record<string, string>): Promise<WaveCheckoutSession> {
     try {
-      const res = await this.api.post<WaveCheckoutSession>("/v1/checkout/sessions", payload);
+      const res = await this.api.post<WaveCheckoutSession>("/v1/checkout/sessions", body);
       return res.data;
     } catch (e) {
       rethrowWaveAxiosError(e, "Wave checkout session");
     }
+  }
+
+  /**
+   * Customer payments for orders / sales invoices. Always sends `aggregated_merchant_id`.
+   */
+  async createSalesCheckoutSession(
+    payload: WaveSalesCheckoutSessionRequest,
+  ): Promise<WaveCheckoutSession> {
+    const aggregatedMerchantId = payload.aggregated_merchant_id.trim();
+    if (!aggregatedMerchantId) {
+      throw new HttpError(503, "Wave checkout is not provisioned for this business.");
+    }
+    return this.postCheckoutSession(
+      compactWaveCheckoutFields({
+        amount: payload.amount,
+        currency: payload.currency,
+        success_url: payload.success_url,
+        error_url: payload.error_url,
+        client_reference: payload.client_reference,
+        restrict_payer_mobile: payload.restrict_payer_mobile,
+        aggregated_merchant_id: aggregatedMerchantId,
+      }),
+    );
+  }
+
+  /**
+   * Platform subscription invoices. Same Wave portal API key as sales, but the JSON body never
+   * includes `aggregated_merchant_id` so funds settle on the main merchant account.
+   */
+  async createPlatformCheckoutSession(
+    payload: WavePlatformCheckoutSessionRequest,
+  ): Promise<WaveCheckoutSession> {
+    const body = compactWaveCheckoutFields({
+      amount: payload.amount,
+      currency: payload.currency,
+      success_url: payload.success_url,
+      error_url: payload.error_url,
+      client_reference: payload.client_reference,
+      restrict_payer_mobile: payload.restrict_payer_mobile,
+    });
+    delete body.aggregated_merchant_id;
+    return this.postCheckoutSession(body);
   }
 
   async getCheckoutSession(sessionId: string): Promise<WaveCheckoutSession> {
