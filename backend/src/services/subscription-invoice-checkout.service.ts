@@ -9,7 +9,7 @@ import {
   createPendingInvoicePaymentLedger,
   createPendingWalletFeeLedgerForSubscriptionCheckout,
 } from "./billing-ledger.service.js";
-import { waveServiceFromEnv } from "./wave-client-env.js";
+import { isPlatformWaveCheckoutConfigured, waveServiceFromEnv } from "./wave-client-env.js";
 import { YonnaForexPaymentService } from "./yonna-forex-payment.service.js";
 import { resolveAppPublicBaseForBrowserReturns } from "../config/app-public-url.js";
 import {
@@ -99,6 +99,8 @@ export async function runSubscriptionInvoiceGatewayCheckout(input: {
     const successUrl = `${appBase}/billing/wave/success?invoiceId=${encodeURIComponent(invoice.id)}`;
     const errorUrl = `${appBase}/billing/wave/cancel?invoiceId=${encodeURIComponent(invoice.id)}`;
 
+    // Same WAVE_CHECKOUT_BEARER as sales checkout. Omit aggregated_merchant_id so Wave
+    // settles on the main merchant account (portal merges all checkouts onto one key).
     const wave = waveServiceFromEnv();
     const session = await wave.createCheckoutSession({
       amount: String(Math.round(amount)),
@@ -264,8 +266,8 @@ export async function createSubscriptionInvoiceCheckout(input: {
 
 /**
  * Gateways available for subscription invoice checkout when credentials come from platform env
- * (Wave bearer, Yonna keys, APS platform merchant) — same path as {@link runSubscriptionInvoiceGatewayCheckout}.
- * Not tied to per-business Merchant API credentials.
+ * (Wave `WAVE_CHECKOUT_BEARER`, Yonna keys, APS platform merchant) — same path as {@link runSubscriptionInvoiceGatewayCheckout}.
+ * Not tied to per-business Merchant API credentials or Wave aggregated merchants.
  */
 export async function listSubscriptionInvoiceCheckoutWallets(): Promise<OrderCheckoutWalletRow[]> {
   const gateways = await listEnabledPaymentGateways();
@@ -274,7 +276,7 @@ export async function listSubscriptionInvoiceCheckoutWallets(): Promise<OrderChe
   for (const g of gateways) {
     const adapter = g.checkoutAdapter?.trim() || "";
     if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
-      if ((process.env.WAVE_CHECKOUT_BEARER || "").trim()) {
+      if (isPlatformWaveCheckoutConfigured()) {
         rows.push({
           gatewayId: g.id,
           code: g.code,

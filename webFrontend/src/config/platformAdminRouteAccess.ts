@@ -43,6 +43,8 @@ export const PLATFORM_ADMIN_ROUTE_ACCESS: Partial<
   'platform.payment_gateways.manage': { module: 'platform.payment_gateways', action: 'view' },
   'platform.wave_operations.view': { module: 'platform.wave_operations', action: 'view' },
   'platform.wave_operations.manage': { module: 'platform.wave_operations', action: 'edit' },
+  'platform.digitalocean_billing.view': { module: 'platform.digitalocean_billing', action: 'view' },
+  'platform.digitalocean_billing.manage': { module: 'platform.digitalocean_billing', action: 'edit' },
   'platform.accounting.view': { module: 'platform.accounting', action: 'view' },
   'platform.accounting.create': { module: 'platform.accounting', action: 'create' },
 }

@@ -38,6 +38,8 @@ export type PermissionKey =
   | 'platform.payment_gateways.manage'
   | 'platform.wave_operations.view'
   | 'platform.wave_operations.manage'
+  | 'platform.digitalocean_billing.view'
+  | 'platform.digitalocean_billing.manage'
   | 'platform.accounting.view'
   | 'platform.accounting.create'
   | 'platform.accounting.export'

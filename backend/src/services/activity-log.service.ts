@@ -17,6 +17,7 @@ export const ACTIVITY_EVENT = {
   PLATFORM_JOURNAL_MANUAL_POSTED: "platform.journal.manual_posted",
   PLATFORM_JOURNAL_REVERSED: "platform.journal.reversed",
   PLATFORM_BILL_PAID: "platform.bill.paid",
+  DIGITALOCEAN_INVOICE_POSTED: "platform.digitalocean.invoice_posted",
 } as const;
 
 export async function appendActivityLog(

@@ -114,6 +114,7 @@ export function Sidebar({
     return (
       p.startsWith('/platform/accounting') ||
       p.startsWith('/platform/bills') ||
+      p.startsWith('/platform/digitalocean-billing') ||
       p.startsWith('/platform/activity-log')
     )
   })
@@ -285,7 +286,12 @@ export function Sidebar({
     if (p.startsWith('/platform/corporate')) {
       setIsPlatformCorporateOpen(true)
     }
-    if (p.startsWith('/platform/accounting')) {
+    if (
+      p.startsWith('/platform/accounting') ||
+      p.startsWith('/platform/bills') ||
+      p.startsWith('/platform/digitalocean-billing') ||
+      p.startsWith('/platform/contacts')
+    ) {
       setIsPlatformFinanceOpen(true)
     }
     if (p.startsWith('/platform/security')) {
@@ -396,6 +402,9 @@ export function Sidebar({
     }
     if (path === APP_PATHS.platformBills) {
       return p.startsWith('/platform/bills')
+    }
+    if (path === APP_PATHS.platformDigitalOceanBilling) {
+      return p.startsWith('/platform/digitalocean-billing')
     }
     if (path === APP_PATHS.platformActivityLog) {
       return p.startsWith('/platform/activity-log')

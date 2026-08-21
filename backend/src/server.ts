@@ -6,6 +6,8 @@ import { ensurePlatformModulesSeeded } from "./services/platform-module-sync.ser
 import { syncSystemCatalogAndPlanEntitlements } from "./services/system-catalog-sync.service.js";
 import { startPartnerOutboundWebhookWorker } from "./services/internal-partner-webhook-queue.service.js";
 import { runSubscriptionRenewalInvoiceSweepOnce } from "./services/subscription.service.js";
+import { isDigitalOceanBillingConfigured } from "./config/digitalocean-env.js";
+import { syncDigitalOceanInvoices } from "./services/digitalocean-billing.service.js";
 
 ensurePlatformModulesSeeded()
   .then(() => syncSystemCatalogAndPlanEntitlements())
@@ -28,6 +30,14 @@ ensurePlatformModulesSeeded()
           console.error("[subscription-renewal-sweep]", err),
         );
       }, sweepMs);
+
+      const doSyncRaw = Number(process.env.DIGITALOCEAN_INVOICE_SYNC_MS ?? "0") || 0;
+      if (isDigitalOceanBillingConfigured() && doSyncRaw >= 60_000) {
+        const runDoSync = () =>
+          syncDigitalOceanInvoices().catch((err) => console.error("[digitalocean-invoice-sync]", err));
+        void runDoSync();
+        setInterval(runDoSync, doSyncRaw);
+      }
     });
   })
   .catch((err) => {

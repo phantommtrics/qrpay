@@ -44,6 +44,8 @@ export const PLATFORM_MODULE_SLUGS = {
   ACTIVITY_LOG: "platform.activity_log",
   /** Wave business wallet: balance, transactions, payouts. */
   WAVE_OPERATIONS: "platform.wave_operations",
+  /** DigitalOcean invoices: sync, review, post hosting expenses to the platform journal. */
+  DIGITALOCEAN_BILLING: "platform.digitalocean_billing",
 } as const;
 
 export type PlatformModuleSlug = (typeof PLATFORM_MODULE_SLUGS)[keyof typeof PLATFORM_MODULE_SLUGS];
@@ -153,5 +155,10 @@ export const PLATFORM_MODULES_SEED: { slug: string; label: string; sortOrder: nu
     slug: PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS,
     label: "Wave operations",
     sortOrder: 57,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.DIGITALOCEAN_BILLING,
+    label: "Finance — DigitalOcean billing",
+    sortOrder: 82,
   },
 ];

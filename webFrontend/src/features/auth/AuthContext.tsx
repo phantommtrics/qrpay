@@ -963,6 +963,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               m?.['platform.wave_operations']?.edit || m?.['platform.wave_operations']?.create,
             )
           }
+          if (permission === 'platform.digitalocean_billing.view') {
+            return Boolean(
+              m?.['platform.digitalocean_billing']?.view ||
+                m?.['platform.digitalocean_billing']?.edit ||
+                m?.['platform.digitalocean_billing']?.create,
+            )
+          }
+          if (permission === 'platform.digitalocean_billing.manage') {
+            return Boolean(
+              m?.['platform.digitalocean_billing']?.edit ||
+                m?.['platform.digitalocean_billing']?.create,
+            )
+          }
           if (permission === 'platform.bills.view') {
             return Boolean(m?.['platform.accounting']?.view || m?.['platform.purchase_bills']?.view)
           }
@@ -1079,6 +1092,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (permission === 'platform.wave_operations.manage') {
               return Boolean(
                 m?.['platform.wave_operations']?.edit || m?.['platform.wave_operations']?.create,
+              )
+            }
+            if (permission === 'platform.digitalocean_billing.view') {
+              return Boolean(
+                m?.['platform.digitalocean_billing']?.view ||
+                  m?.['platform.digitalocean_billing']?.edit ||
+                  m?.['platform.digitalocean_billing']?.create,
+              )
+            }
+            if (permission === 'platform.digitalocean_billing.manage') {
+              return Boolean(
+                m?.['platform.digitalocean_billing']?.edit ||
+                  m?.['platform.digitalocean_billing']?.create,
               )
             }
             if (permission === 'platform.bills.view') {

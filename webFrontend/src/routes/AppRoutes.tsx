@@ -458,6 +458,16 @@ const PlatformBillDetailPage = lazy(() =>
     default: module.PlatformBillDetailPage,
   })),
 )
+const PlatformDigitalOceanBillingPage = lazy(() =>
+  import('../screens/platform/PlatformDigitalOceanBillingPage').then((module) => ({
+    default: module.PlatformDigitalOceanBillingPage,
+  })),
+)
+const PlatformDigitalOceanInvoiceDetailPage = lazy(() =>
+  import('../screens/platform/PlatformDigitalOceanInvoiceDetailPage').then((module) => ({
+    default: module.PlatformDigitalOceanInvoiceDetailPage,
+  })),
+)
 const PlatformActivityLogPage = lazy(() =>
   import('../screens/PlatformActivityLogPage').then((module) => ({
     default: module.PlatformActivityLogPage,
@@ -733,6 +743,24 @@ export function AppRoutes() {
       element: <PlatformBillDetailPage />,
       roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.bills.view' as const,
+    },
+    {
+      path: APP_PATHS.platformDigitalOceanBilling,
+      element: <PlatformDigitalOceanBillingPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      anyOfPermissions: [
+        'platform.digitalocean_billing.view',
+        'platform.digitalocean_billing.manage',
+      ] satisfies PermissionKey[],
+    },
+    {
+      path: APP_PATHS.platformDigitalOceanInvoiceDetail,
+      element: <PlatformDigitalOceanInvoiceDetailPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      anyOfPermissions: [
+        'platform.digitalocean_billing.view',
+        'platform.digitalocean_billing.manage',
+      ] satisfies PermissionKey[],
     },
     {
       path: APP_PATHS.platformActivityLog,

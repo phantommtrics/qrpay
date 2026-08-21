@@ -1,0 +1,38 @@
+Balance API
+
+curl -X GET \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DIGITALOCEAN_TOKEN" \
+  "https://api.digitalocean.com/v2/customers/my/balance"
+
+Billing history
+
+curl -X GET \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DIGITALOCEAN_TOKEN" \
+  "https://api.digitalocean.com/v2/customers/my/billing_history"
+
+My invoice
+
+curl -X GET \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DIGITALOCEAN_TOKEN" \
+  "https://api.digitalocean.com/v2/customers/my/invoices"
+
+
+Retrieve an Invoice by UUID
+/v2/customers/my/invoices/$INVOICE_UUID
+
+curl -X GET \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DIGITALOCEAN_TOKEN" \
+  "https://api.digitalocean.com/v2/customers/my/invoices/$INVOICE_UUID
+
+
+GET Retrieve an Invoice PDF by UUID
+/v2/customers/my/invoices/$INVOICE_UUID/pdf
+
+curl -X GET \
+  -H "Content-Type: application/pdf" \
+  -H "Authorization: Bearer $DIGITALOCEAN_TOKEN" \
+  "https://api.digitalocean.com/v2/customers/my/invoices/$INVOICE_UUID/pdf" --output invoice.pdf

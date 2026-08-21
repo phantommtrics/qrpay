@@ -301,7 +301,10 @@ export function PlatformPaymentGatewaysPage() {
                 this UI). For example, the Wave Gambia adapter expects{' '}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">WAVE_CHECKOUT_BEARER</code>,{' '}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">WAVE_WEBHOOK_SECRET</code>, and{' '}
-                <code className="rounded bg-white px-1 py-0.5 text-xs">APP_PUBLIC_BASE_URL</code>. The
+                <code className="rounded bg-white px-1 py-0.5 text-xs">APP_PUBLIC_BASE_URL</code>.
+                Merchant sales checkout sends the business aggregated merchant id; platform
+                subscription invoice checkout uses the same key with no aggregated merchant (main
+                merchant account). The
                 Yonna Wallet adapter expects{' '}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">YONNA_FOREX_API_URL</code>,{' '}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">YONNA_FOREX_SECRET_KEY</code>,{' '}

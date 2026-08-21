@@ -91,6 +91,18 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     category: 'Administration',
   },
   {
+    key: 'platform.digitalocean_billing.view',
+    label: 'DigitalOcean billing (view)',
+    description: 'View DigitalOcean balance, invoices, and billing history',
+    category: 'Administration',
+  },
+  {
+    key: 'platform.digitalocean_billing.manage',
+    label: 'DigitalOcean billing (post journal)',
+    description: 'Post DigitalOcean invoices to the platform journal as hosting expenses',
+    category: 'Administration',
+  },
+  {
     key: 'platform.businesses.merchant_api.view',
     label: 'Businesses — Merchant API (view)',
     description: 'View wallet integration status and webhooks for any business (platform business detail)',

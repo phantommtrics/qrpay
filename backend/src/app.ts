@@ -363,6 +363,15 @@ import {
   reverseWaveOpsPayout,
   searchWaveOpsPayoutsByClientReference,
 } from "./services/wave-ops.service.js";
+import {
+  getDigitalOceanBalance,
+  getDigitalOceanInvoiceDetail,
+  getDigitalOceanInvoicePdfBuffer,
+  listDigitalOceanBillingHistory,
+  listSyncedDigitalOceanInvoices,
+  postDigitalOceanInvoiceToJournal,
+  syncDigitalOceanInvoices,
+} from "./services/digitalocean-billing.service.js";
 import { renderBillPdfDownload } from "./services/bill-document-pdf.service.js";
 import { renderPlatformBillPdfDownload } from "./services/platform-bill-document-pdf.service.js";
 import { guestSubscriptionInvoiceUrl } from "./lib/public-guest-urls.js";
@@ -4093,6 +4102,176 @@ app.get(
     try {
       const data = await getWaveOpsPayoutBatch(req.params.batchId as string);
       res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+const digitalOceanPostJournalBodySchema = z.object({
+  fxRateGmdPerUsd: z.union([z.number().positive(), z.string().min(1)]),
+  settlementChartAccountId: z.string().min(1),
+  postedAt: z.string().min(1),
+  lines: z
+    .array(
+      z.object({
+        key: z.string().min(1),
+        chartOfAccountId: z.string().min(1),
+      }),
+    )
+    .optional(),
+});
+
+app.get(
+  "/api/platform/digitalocean-billing/balance",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.DIGITALOCEAN_BILLING, "view"),
+  async (_req, res, next) => {
+    try {
+      const data = await getDigitalOceanBalance();
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/digitalocean-billing/billing-history",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.DIGITALOCEAN_BILLING, "view"),
+  async (_req, res, next) => {
+    try {
+      const data = await listDigitalOceanBillingHistory();
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/digitalocean-billing/invoices",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.DIGITALOCEAN_BILLING, "view"),
+  async (_req, res, next) => {
+    try {
+      const data = await listSyncedDigitalOceanInvoices();
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/digitalocean-billing/invoices/sync",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.DIGITALOCEAN_BILLING, "view"),
+  async (_req, res, next) => {
+    try {
+      const data = await syncDigitalOceanInvoices();
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/digitalocean-billing/invoices/:invoiceUuid/pdf",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.DIGITALOCEAN_BILLING, "view"),
+  async (req, res, next) => {
+    try {
+      const { buffer, filename } = await getDigitalOceanInvoicePdfBuffer(
+        req.params.invoiceUuid as string,
+      );
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(buffer);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/digitalocean-billing/invoices/:invoiceUuid",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.DIGITALOCEAN_BILLING, "view"),
+  async (req, res, next) => {
+    try {
+      const data = await getDigitalOceanInvoiceDetail(req.params.invoiceUuid as string);
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/digitalocean-billing/invoices/:invoiceUuid/post-journal",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny([
+    { moduleSlug: PLATFORM_MODULE_SLUGS.DIGITALOCEAN_BILLING, action: "create" },
+    { moduleSlug: PLATFORM_MODULE_SLUGS.DIGITALOCEAN_BILLING, action: "edit" },
+  ]),
+  async (req, res, next) => {
+    try {
+      if (!req.user?.id) {
+        throw new HttpError(401, "Authentication required.");
+      }
+      const body = digitalOceanPostJournalBodySchema.parse(req.body);
+      const row = await postDigitalOceanInvoiceToJournal({
+        invoiceUuid: req.params.invoiceUuid as string,
+        fxRateGmdPerUsd: body.fxRateGmdPerUsd,
+        settlementChartAccountId: body.settlementChartAccountId,
+        postedAt: parsePostedAt(body.postedAt),
+        postedByUserId: req.user.id,
+        lineAccounts: body.lines,
+      });
+      await appendActivityLog(prisma, {
+        businessId: null,
+        actorUserId: req.user.id,
+        actorKind: ActivityActorKind.USER,
+        eventType: ACTIVITY_EVENT.DIGITALOCEAN_INVOICE_POSTED,
+        resourceType: "digitalocean_invoice",
+        resourceId: row.id,
+        metadata: {
+          invoiceUuid: row.invoiceUuid,
+          invoiceId: row.invoiceId,
+          billingPeriod: row.billingPeriod,
+          amountUsd: row.amountUsd,
+          amountGmd: row.amountGmd,
+          fxRateGmdPerUsd: row.fxRateGmdPerUsd,
+          platformBillId: row.platformBillId,
+          journalEntryId: row.platformJournalEntryId,
+        },
+      });
+      if (row.platformBillId) {
+        await appendActivityLog(prisma, {
+          businessId: null,
+          actorUserId: req.user.id,
+          actorKind: ActivityActorKind.USER,
+          eventType: ACTIVITY_EVENT.PLATFORM_BILL_PAID,
+          resourceType: "platform_bill",
+          resourceId: row.platformBillId,
+          metadata: {
+            publicCode: row.platformBill?.publicCode ?? null,
+            journalEntryId: row.platformJournalEntryId,
+            digitalOceanInvoiceUuid: row.invoiceUuid,
+          },
+        });
+      }
+      res.json({ data: row });
     } catch (e) {
       next(e);
     }

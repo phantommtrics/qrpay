@@ -90,6 +90,8 @@ export const APP_PATHS = {
   platformContacts: '/platform/contacts',
   platformBillNew: '/platform/bills/new',
   platformBillDetail: '/platform/bills/:billId',
+  platformDigitalOceanBilling: '/platform/digitalocean-billing',
+  platformDigitalOceanInvoiceDetail: '/platform/digitalocean-billing/invoices/:invoiceUuid',
   platformActivityLog: '/platform/activity-log',
   platformSystemConfiguration: '/platform/system-configuration',
   platformBusinesses: '/platform/businesses',
@@ -284,6 +286,15 @@ export const PLATFORM_FINANCE_SUBNAV: PlatformBusinessesSubNavItem[] = [
     path: APP_PATHS.platformBills,
     title: 'Supplier bills',
     permission: 'platform.bills.view',
+  },
+  {
+    name: 'finance-digitalocean-billing',
+    path: APP_PATHS.platformDigitalOceanBilling,
+    title: 'DigitalOcean billing',
+    anyOfPermissions: [
+      'platform.digitalocean_billing.view',
+      'platform.digitalocean_billing.manage',
+    ] as const,
   },
   {
     name: 'finance-platform-activity',
@@ -614,6 +625,12 @@ export function getPageTitle(pathname: string) {
   }
   if (pathname.includes(APP_PATHS.platformBills)) {
     return 'Supplier bills'
+  }
+  if (pathname.includes('/platform/digitalocean-billing/invoices/')) {
+    return 'DigitalOcean invoice'
+  }
+  if (pathname.includes(APP_PATHS.platformDigitalOceanBilling)) {
+    return 'DigitalOcean billing'
   }
   if (pathname.includes(APP_PATHS.platformActivityLog)) {
     return 'Activity log'

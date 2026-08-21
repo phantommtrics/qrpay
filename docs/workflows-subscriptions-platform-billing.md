@@ -11,7 +11,7 @@ This document describes **EasyPay (platform) charging merchants** for **plans**.
 ## Merchant-facing billing UI
 
 - Businesses open **Billing** / **Subscription invoices** in the web app to see invoices and pay the platform.
-- Checkout flows use **platform-configured** gateways and webhooks (`subscription-invoice-checkout.service.ts`, `wave-subscription-webhook.service.ts`, `yonna-subscription-webhook.service.ts`).
+- Checkout flows use **platform-configured** gateways and webhooks (`subscription-invoice-checkout.service.ts`, `wave-subscription-webhook.service.ts`, `yonna-subscription-webhook.service.ts`). Wave uses one portal key (`WAVE_CHECKOUT_BEARER`): subscription invoice checkout omits `aggregated_merchant_id` (main merchant account); merchant sales checkout includes the business aggregated merchant id.
 
 ## Platform owner
 
