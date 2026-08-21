@@ -9,8 +9,9 @@ export function isPlatformWaveCheckoutConfigured(): boolean {
 
 /**
  * Wave API client using `WAVE_CHECKOUT_BEARER` (one portal key for all checkouts).
- * Sales sessions must call `createSalesCheckoutSession` (aggregated merchant).
- * Platform subscription invoices must call `createPlatformCheckoutSession` (no aggregated merchant).
+ * Sales sessions use each tenant's aggregated merchant.
+ * Platform subscription invoices use the main merchant aggregated merchant
+ * ({@link resolveWavePlatformAggregatedMerchantId}) — Wave aggregator keys reject checkout without one.
  */
 export function waveServiceFromEnv(): WavePaymentService {
   const baseUrl = waveApiBaseUrl();
@@ -19,4 +20,72 @@ export function waveServiceFromEnv(): WavePaymentService {
     throw new HttpError(503, "Online checkout is not configured (WAVE_CHECKOUT_BEARER).");
   }
   return new WavePaymentService({ baseUrl, bearerToken: bearer });
+}
+
+function platformAggregatedMerchantDisplayName(): string {
+  const platform = (process.env.PLATFORM_NAME || "DirectPay").trim() || "DirectPay";
+  return `${platform} Platform`.slice(0, 255);
+}
+
+let cachedPlatformAggregatedMerchantId: string | null = null;
+
+async function findAggregatedMerchantIdByName(
+  wave: WavePaymentService,
+  name: string,
+): Promise<string | null> {
+  let after: string | undefined;
+  for (let page = 0; page < 30; page++) {
+    const result = await wave.listAggregatedMerchants({ first: 50, after });
+    const hit = result.items.find((item) => item.name.trim() === name);
+    if (hit?.id?.trim()) {
+      return hit.id.trim();
+    }
+    if (!result.page_info.has_next_page || !result.page_info.end_cursor) {
+      return null;
+    }
+    after = result.page_info.end_cursor;
+  }
+  return null;
+}
+
+/**
+ * Aggregated merchant id for the **main** EasyPay Wave merchant (platform subscription invoices).
+ *
+ * Wave aggregator API keys always require `aggregated_merchant_id`. This is not a tenant
+ * merchant: `WAVE_PLATFORM_AGGREGATED_MERCHANT_ID`, or find/create `"<PLATFORM_NAME> Platform"`.
+ */
+export async function resolveWavePlatformAggregatedMerchantId(): Promise<string> {
+  const fromEnv = (process.env.WAVE_PLATFORM_AGGREGATED_MERCHANT_ID || "").trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  if (cachedPlatformAggregatedMerchantId) {
+    return cachedPlatformAggregatedMerchantId;
+  }
+
+  const wave = waveServiceFromEnv();
+  const targetName = platformAggregatedMerchantDisplayName();
+  const existing = await findAggregatedMerchantIdByName(wave, targetName);
+  if (existing) {
+    cachedPlatformAggregatedMerchantId = existing;
+    return existing;
+  }
+
+  const created = await wave.createAggregatedMerchant({
+    name: targetName,
+    business_description: "Main merchant account for DirectPay platform subscription billing.",
+    business_type: "other",
+  });
+  const id = created.id?.trim();
+  if (!id) {
+    throw new HttpError(
+      502,
+      "Wave did not return an aggregated merchant id for the platform (main) merchant.",
+    );
+  }
+  cachedPlatformAggregatedMerchantId = id;
+  console.info(
+    `[wave] Using new platform aggregated merchant ${id} (${targetName}) for subscription checkout.`,
+  );
+  return id;
 }

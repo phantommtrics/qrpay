@@ -260,22 +260,30 @@ export class WavePaymentService {
   }
 
   /**
-   * Platform subscription invoices. Same Wave portal API key as sales, but the JSON body never
-   * includes `aggregated_merchant_id` so funds settle on the main merchant account.
+   * Platform subscription invoices. Same Wave portal key as sales. Wave aggregator keys require
+   * `aggregated_merchant_id`; callers must pass the **main merchant** id (never a tenant's).
    */
   async createPlatformCheckoutSession(
-    payload: WavePlatformCheckoutSessionRequest,
+    payload: WavePlatformCheckoutSessionRequest & { aggregated_merchant_id: string },
   ): Promise<WaveCheckoutSession> {
-    const body = compactWaveCheckoutFields({
-      amount: payload.amount,
-      currency: payload.currency,
-      success_url: payload.success_url,
-      error_url: payload.error_url,
-      client_reference: payload.client_reference,
-      restrict_payer_mobile: payload.restrict_payer_mobile,
-    });
-    delete body.aggregated_merchant_id;
-    return this.postCheckoutSession(body);
+    const platformMerchantId = payload.aggregated_merchant_id.trim();
+    if (!platformMerchantId) {
+      throw new HttpError(
+        503,
+        "Wave platform (main merchant) aggregated merchant id is not configured.",
+      );
+    }
+    return this.postCheckoutSession(
+      compactWaveCheckoutFields({
+        amount: payload.amount,
+        currency: payload.currency,
+        success_url: payload.success_url,
+        error_url: payload.error_url,
+        client_reference: payload.client_reference,
+        restrict_payer_mobile: payload.restrict_payer_mobile,
+        aggregated_merchant_id: platformMerchantId,
+      }),
+    );
   }
 
   async getCheckoutSession(sessionId: string): Promise<WaveCheckoutSession> {

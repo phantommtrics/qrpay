@@ -9,7 +9,11 @@ import {
   createPendingInvoicePaymentLedger,
   createPendingWalletFeeLedgerForSubscriptionCheckout,
 } from "./billing-ledger.service.js";
-import { isPlatformWaveCheckoutConfigured, waveServiceFromEnv } from "./wave-client-env.js";
+import {
+  isPlatformWaveCheckoutConfigured,
+  resolveWavePlatformAggregatedMerchantId,
+  waveServiceFromEnv,
+} from "./wave-client-env.js";
 import { YonnaForexPaymentService } from "./yonna-forex-payment.service.js";
 import {
   CHECKOUT_ADAPTER_APS_WALLET,
@@ -106,12 +110,14 @@ export async function runSubscriptionInvoiceGatewayCheckout(input: {
     );
 
     const wave = waveServiceFromEnv();
+    const platformAggregatedMerchantId = await resolveWavePlatformAggregatedMerchantId();
     const session = await wave.createPlatformCheckoutSession({
       amount: String(Math.round(amount)),
       currency: (invoice.currency || "GMD").toUpperCase(),
       success_url: successUrl,
       error_url: errorUrl,
       client_reference: invoice.id,
+      aggregated_merchant_id: platformAggregatedMerchantId,
       ...(input.restrictPayerMobile
         ? { restrict_payer_mobile: String(input.restrictPayerMobile) }
         : {}),

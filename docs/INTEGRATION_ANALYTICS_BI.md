@@ -112,4 +112,4 @@ Payload includes `partnerProvisioningExternalUserId` (= organization id), `statu
 
 Operators pay platform subscription invoices in DirectPay (Billing UI or guest link `/guest/subscription-invoice/:guestToken`). analytics-bi does not collect subscription payments directly.
 
-Wave on that guest/billing page uses the same Wave portal checkout key (`WAVE_CHECKOUT_BEARER`) as merchant sales, **without** an aggregated merchant id — funds settle on the main EasyPay merchant account. Aggregated merchants remain for customer sales checkout only.
+Wave on that guest/billing page uses the same Wave portal checkout key (`WAVE_CHECKOUT_BEARER`) as merchant sales. Wave aggregator keys require `aggregated_merchant_id` on every session; DirectPay sends the **main merchant** id (`WAVE_PLATFORM_AGGREGATED_MERCHANT_ID`, or a Wave identity named `<PLATFORM_NAME> Platform`), never the tenant’s aggregated merchant. Tenant aggregated merchants remain for customer sales checkout only.

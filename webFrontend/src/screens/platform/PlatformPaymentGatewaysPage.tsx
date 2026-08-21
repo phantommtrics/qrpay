@@ -303,8 +303,10 @@ export function PlatformPaymentGatewaysPage() {
                 <code className="rounded bg-white px-1 py-0.5 text-xs">WAVE_WEBHOOK_SECRET</code>, and{' '}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">APP_PUBLIC_BASE_URL</code>.
                 Merchant sales checkout sends the business aggregated merchant id; platform
-                subscription invoice checkout uses the same key with no aggregated merchant (main
-                merchant account). The
+                subscription invoice checkout uses the same key with the{' '}
+                <strong>main merchant</strong> aggregated merchant id (
+                <code className="rounded bg-white px-1 py-0.5 text-xs">WAVE_PLATFORM_AGGREGATED_MERCHANT_ID</code>
+                ), never the tenant&apos;s. The
                 Yonna Wallet adapter expects{' '}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">YONNA_FOREX_API_URL</code>,{' '}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">YONNA_FOREX_SECRET_KEY</code>,{' '}
