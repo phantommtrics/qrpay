@@ -98,6 +98,7 @@ export const APP_PATHS = {
   platformWaveBusinesses: '/platform/wave-businesses',
   platformWaveOpsBalance: '/platform/wave-operations/balance',
   platformWaveOpsTransactions: '/platform/wave-operations/transactions',
+  platformWaveOpsMerchantSummary: '/platform/wave-operations/merchant-summary',
   platformWaveOpsPayouts: '/platform/wave-operations/payouts',
   platformWaveOpsPayoutBatches: '/platform/wave-operations/payout-batches',
   platformWaveOpsPayoutBatchDetail: '/platform/wave-operations/payout-batches/:batchId',
@@ -316,6 +317,12 @@ export const PLATFORM_WAVE_OPERATIONS_SUBNAV: PlatformBusinessesSubNavItem[] = [
     name: 'wave-ops-transactions',
     path: APP_PATHS.platformWaveOpsTransactions,
     title: 'Transactions',
+    permission: 'platform.wave_operations.view',
+  },
+  {
+    name: 'wave-ops-merchant-summary',
+    path: APP_PATHS.platformWaveOpsMerchantSummary,
+    title: 'Merchant summary',
     permission: 'platform.wave_operations.view',
   },
   {
@@ -679,6 +686,9 @@ export function getPageTitle(pathname: string) {
   }
   if (pathname.includes(APP_PATHS.platformWaveOpsTransactions)) {
     return 'Wave transactions'
+  }
+  if (pathname.includes(APP_PATHS.platformWaveOpsMerchantSummary)) {
+    return 'Wave merchant summary'
   }
   if (pathname.includes('/platform/wave-operations/payout-batches/')) {
     return 'Payout batch'

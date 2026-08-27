@@ -363,6 +363,7 @@ import {
   reverseWaveOpsPayout,
   searchWaveOpsPayoutsByClientReference,
 } from "./services/wave-ops.service.js";
+import { getWaveMerchantTransactionSummary } from "./services/wave-merchant-tx-summary.js";
 import {
   getDigitalOceanBalance,
   getDigitalOceanInvoiceDetail,
@@ -3949,6 +3950,23 @@ app.get(
       const date = String(req.query.date ?? "").trim();
       const after = String(req.query.after ?? "").trim() || undefined;
       const data = await listWaveOpsTransactions({ date, after });
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/wave-operations/merchant-transaction-summary",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "view"),
+  async (req, res, next) => {
+    try {
+      const from = String(req.query.from ?? "").trim() || undefined;
+      const to = String(req.query.to ?? "").trim() || undefined;
+      const data = await getWaveMerchantTransactionSummary({ from, to });
       res.json({ data });
     } catch (e) {
       next(e);

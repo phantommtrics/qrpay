@@ -262,6 +262,11 @@ const PlatformWaveOpsTransactionsPage = lazy(() =>
     default: module.PlatformWaveOpsTransactionsPage,
   })),
 )
+const PlatformWaveOpsMerchantSummaryPage = lazy(() =>
+  import('../screens/platform/PlatformWaveOpsMerchantSummaryPage').then((module) => ({
+    default: module.PlatformWaveOpsMerchantSummaryPage,
+  })),
+)
 const PlatformWaveOpsPayoutsPage = lazy(() =>
   import('../screens/platform/PlatformWaveOpsPayoutsPage').then((module) => ({
     default: module.PlatformWaveOpsPayoutsPage,
@@ -555,6 +560,12 @@ export function AppRoutes() {
     {
       path: APP_PATHS.platformWaveOpsTransactions,
       element: <PlatformWaveOpsTransactionsPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.wave_operations.view' as const,
+    },
+    {
+      path: APP_PATHS.platformWaveOpsMerchantSummary,
+      element: <PlatformWaveOpsMerchantSummaryPage />,
       roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.wave_operations.view' as const,
     },

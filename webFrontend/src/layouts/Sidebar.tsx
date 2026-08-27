@@ -339,6 +339,9 @@ export function Sidebar({
     if (path === APP_PATHS.platformWaveOpsTransactions) {
       return p.startsWith(APP_PATHS.platformWaveOpsTransactions)
     }
+    if (path === APP_PATHS.platformWaveOpsMerchantSummary) {
+      return p.startsWith(APP_PATHS.platformWaveOpsMerchantSummary)
+    }
     if (path === APP_PATHS.platformWaveOpsPayoutBatches) {
       return p.startsWith('/platform/wave-operations/payout-batches')
     }

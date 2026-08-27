@@ -158,6 +158,8 @@ export interface WaveTransaction {
   counterparty_name?: string;
   counterparty_mobile?: string;
   is_reversal?: boolean;
+  aggregated_merchant_id?: string;
+  aggregated_merchant_name?: string;
 }
 
 export interface WaveTransactionsResponse {
@@ -385,6 +387,44 @@ export class WavePaymentService {
     } catch (e) {
       rethrowWaveAxiosError(e, "Wave list transactions");
     }
+  }
+
+  /** Pages Wave `GET /v1/transactions` until the day is exhausted (1000-item pages). */
+  async listAllTransactionsForDate(date: string): Promise<WaveTransaction[]> {
+    const items: WaveTransaction[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 50; page += 1) {
+      const res = await this.listTransactions({ date, after });
+      items.push(...(res.items ?? []));
+      if (!res.page_info?.has_next_page) {
+        break;
+      }
+      const cursor = res.page_info.end_cursor?.trim();
+      if (!cursor) {
+        break;
+      }
+      after = cursor;
+    }
+    return items;
+  }
+
+  /** Pages Wave `GET /v1/aggregated_merchants` until the list is exhausted. */
+  async listAllAggregatedMerchants(): Promise<WaveAggregatedMerchant[]> {
+    const items: WaveAggregatedMerchant[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 50; page += 1) {
+      const res = await this.listAggregatedMerchants({ first: 100, after });
+      items.push(...(res.items ?? []));
+      if (!res.page_info?.has_next_page) {
+        break;
+      }
+      const cursor = res.page_info.end_cursor?.trim();
+      if (!cursor) {
+        break;
+      }
+      after = cursor;
+    }
+    return items;
   }
 
   async refundTransaction(transactionId: string, idempotencyKey: string): Promise<void> {

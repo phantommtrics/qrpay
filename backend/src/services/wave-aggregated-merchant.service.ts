@@ -276,6 +276,48 @@ export async function listWaveAggregatedMerchantProvisionLogs(
   }));
 }
 
+export type WaveLinkedBusiness = {
+  id: string;
+  name: string;
+  slug: string;
+  ownerEmail: string;
+};
+
+/** Decrypts Wave gateway credentials and maps aggregated merchant id ↔ Easypay business. */
+export async function loadWaveMerchantBusinessLinks(): Promise<{
+  businessByMerchantId: Map<string, WaveLinkedBusiness>;
+  merchantIdByBusinessId: Map<string, string>;
+}> {
+  const businessByMerchantId = new Map<string, WaveLinkedBusiness>();
+  const merchantIdByBusinessId = new Map<string, string>();
+  const gateway = await getPaymentGatewayByCode(GATEWAY_CODE_WAVE_GAMBIA);
+  if (!gateway) {
+    return { businessByMerchantId, merchantIdByBusinessId };
+  }
+  const credRows = await prisma.businessGatewayCredential.findMany({
+    where: { gatewayId: gateway.id },
+    include: {
+      business: {
+        select: { id: true, name: true, slug: true, ownerEmail: true },
+      },
+    },
+  });
+  for (const row of credRows) {
+    try {
+      const raw = decryptJsonPayload<Record<string, unknown>>(row.iv, row.ciphertext);
+      const secrets = parseExistingWave(raw);
+      const mid = secrets?.aggregatedMerchantId?.trim();
+      if (mid) {
+        businessByMerchantId.set(mid, row.business);
+        merchantIdByBusinessId.set(row.business.id, mid);
+      }
+    } catch {
+      // skip undecryptable rows
+    }
+  }
+  return { businessByMerchantId, merchantIdByBusinessId };
+}
+
 export type PlatformWaveAggregatedMerchantRow = {
   id: string;
   name: string;
@@ -328,34 +370,7 @@ export async function listPlatformWaveAggregatedMerchants(input: {
     after: input.after?.trim() || undefined,
   });
 
-  const gateway = await getPaymentGatewayByCode(GATEWAY_CODE_WAVE_GAMBIA);
-  const businessByMerchantId = new Map<
-    string,
-    { id: string; name: string; slug: string; ownerEmail: string }
-  >();
-
-  if (gateway) {
-    const credRows = await prisma.businessGatewayCredential.findMany({
-      where: { gatewayId: gateway.id },
-      include: {
-        business: {
-          select: { id: true, name: true, slug: true, ownerEmail: true },
-        },
-      },
-    });
-    for (const row of credRows) {
-      try {
-        const raw = decryptJsonPayload<Record<string, unknown>>(row.iv, row.ciphertext);
-        const secrets = parseExistingWave(raw);
-        const mid = secrets?.aggregatedMerchantId?.trim();
-        if (mid) {
-          businessByMerchantId.set(mid, row.business);
-        }
-      } catch {
-        // skip undecryptable rows
-      }
-    }
-  }
+  const { businessByMerchantId } = await loadWaveMerchantBusinessLinks();
 
   const merchantIds = wavePage.items.map((m) => m.id).filter(Boolean);
   const provisionLogs =

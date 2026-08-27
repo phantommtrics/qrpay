@@ -1630,6 +1630,7 @@ model Payment {
   @@unique([businessId, publicCode])
   @@index([orderId])
   @@index([businessId, status])
+  @@index([provider, status, completedAt])
   @@index([publicToken])
   @@index([recordedByUserId])
 }

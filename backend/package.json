@@ -17,7 +17,8 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:seed:product-barcode": "tsx prisma/seed-product-barcode-entitlement.ts",
     "prisma:seed:default-chart-of-accounts": "tsx prisma/seed-default-chart-of-accounts.ts",
-    "check:migrations": "node scripts/check-prisma-migrations.mjs"
+    "check:migrations": "node scripts/check-prisma-migrations.mjs",
+    "test": "tsx --test src/services/wave-merchant-tx-summary.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.6.0",

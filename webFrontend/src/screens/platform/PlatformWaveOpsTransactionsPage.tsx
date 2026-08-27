@@ -134,6 +134,7 @@ export function PlatformWaveOpsTransactionsPage() {
               <tr>
                 <th className="px-4 py-3">Time</th>
                 <th className="px-4 py-3">Transaction</th>
+                <th className="px-4 py-3">Merchant</th>
                 <th className="px-4 py-3">Amount</th>
                 <th className="px-4 py-3">Fee</th>
                 <th className="px-4 py-3">Counterparty</th>
@@ -144,7 +145,7 @@ export function PlatformWaveOpsTransactionsPage() {
             <tbody className="divide-y divide-slate-100">
               {items.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                     No transactions for this day.
                   </td>
                 </tr>
@@ -155,6 +156,20 @@ export function PlatformWaveOpsTransactionsPage() {
                     {new Date(tx.timestamp).toLocaleString()}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-800">{tx.transaction_id}</td>
+                  <td className="px-4 py-3 text-slate-800">
+                    {tx.aggregated_merchant_name || tx.aggregated_merchant_id ? (
+                      <>
+                        <span>{tx.aggregated_merchant_name || '—'}</span>
+                        {tx.aggregated_merchant_id ? (
+                          <span className="block font-mono text-[10px] text-slate-500">
+                            {tx.aggregated_merchant_id}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-slate-800">
                     {tx.amount} {tx.currency}
                   </td>

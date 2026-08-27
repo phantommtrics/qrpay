@@ -3429,6 +3429,8 @@ export type WaveOpsTransaction = {
   counterparty_name?: string
   counterparty_mobile?: string
   is_reversal?: boolean
+  aggregated_merchant_id?: string
+  aggregated_merchant_name?: string
 }
 
 export type WaveOpsTransactionsResponse = {
@@ -3492,6 +3494,67 @@ export async function fetchWaveOpsTransactions(params: {
   if (params.after) q.set('after', params.after)
   const res = await apiRequest<{ data: WaveOpsTransactionsResponse }>(
     `/platform/wave-operations/transactions?${q.toString()}`,
+  )
+  return res.data
+}
+
+export type WaveMerchantSummaryMoney = {
+  count: number
+  totalAmount: string
+  totalFee?: string
+  currency: string
+}
+
+export type WaveMerchantSummaryDay = {
+  date: string
+  wave: WaveMerchantSummaryMoney
+  local: WaveMerchantSummaryMoney
+}
+
+export type WaveMerchantSummaryRow = {
+  id: string
+  name: string
+  business: {
+    id: string
+    name: string
+    slug: string
+    ownerEmail: string
+  } | null
+  days: WaveMerchantSummaryDay[]
+  waveTotals: WaveMerchantSummaryMoney
+  localTotals: WaveMerchantSummaryMoney
+}
+
+export type WaveMerchantTransactionSummary = {
+  from: string
+  to: string
+  merchants: WaveMerchantSummaryRow[]
+  unassignedWave: {
+    days: Array<{ date: string; wave: WaveMerchantSummaryMoney }>
+    totals: WaveMerchantSummaryMoney
+  }
+  unlinkedLocal: {
+    days: Array<{ date: string; local: WaveMerchantSummaryMoney }>
+    totals: WaveMerchantSummaryMoney
+    businesses: Array<{
+      id: string
+      name: string
+      slug: string
+      ownerEmail: string
+    }>
+  }
+}
+
+export async function fetchWaveMerchantTransactionSummary(params?: {
+  from?: string
+  to?: string
+}): Promise<WaveMerchantTransactionSummary> {
+  const q = new URLSearchParams()
+  if (params?.from) q.set('from', params.from)
+  if (params?.to) q.set('to', params.to)
+  const qs = q.toString()
+  const res = await apiRequest<{ data: WaveMerchantTransactionSummary }>(
+    `/platform/wave-operations/merchant-transaction-summary${qs ? `?${qs}` : ''}`,
   )
   return res.data
 }
