@@ -193,7 +193,7 @@ export function PlatformWaveBusinessesPage() {
                 <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-3">Checkout business name</th>
                   <th className="px-4 py-3">Merchant ID</th>
-                  <th className="px-4 py-3">Easypay business</th>
+                  <th className="px-4 py-3">DirectPay business</th>
                   <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Created (Wave)</th>
                   <th className="px-4 py-3">Last provision</th>

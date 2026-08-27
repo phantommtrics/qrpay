@@ -149,7 +149,7 @@ export function PlatformWaveOpsMerchantSummaryPage() {
               <tr>
                 <th className="w-8 px-3 py-3" />
                 <th className="px-4 py-3">Merchant</th>
-                <th className="px-4 py-3">Easypay business</th>
+                <th className="px-4 py-3">DirectPay business</th>
                 <th className="px-4 py-3">Wave</th>
                 <th className="px-4 py-3">Local</th>
               </tr>
