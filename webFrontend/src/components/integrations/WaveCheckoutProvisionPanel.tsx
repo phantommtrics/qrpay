@@ -36,6 +36,8 @@ export type WaveCheckoutProvisionPanelProps = {
   allowMutations: boolean
   platformWaveConfigured: boolean
   aggregatedMerchantReady: boolean
+  /** True when this business stored its own Wave API key (aggregator provision skipped). */
+  ownAccountActive?: boolean
   /** Called after a successful provision so parent can refresh credential status. */
   onProvisioned?: () => void
 }
@@ -45,6 +47,7 @@ export function WaveCheckoutProvisionPanel({
   allowMutations,
   platformWaveConfigured,
   aggregatedMerchantReady,
+  ownAccountActive = false,
   onProvisioned,
 }: WaveCheckoutProvisionPanelProps) {
   const [logs, setLogs] = useState<WaveAggregatedMerchantProvisionLogRow[]>([])
@@ -123,16 +126,27 @@ export function WaveCheckoutProvisionPanel({
               </li>
               <li>
                 Aggregated merchant:{' '}
-                {aggregatedMerchantReady ? (
+                {ownAccountActive ? (
+                  <span className="font-medium text-slate-700">Not applicable (own Wave account)</span>
+                ) : aggregatedMerchantReady ? (
                   <span className="font-medium text-emerald-700">Ready</span>
                 ) : (
                   <span className="font-medium text-amber-800">Not provisioned</span>
                 )}
               </li>
+              {ownAccountActive ? (
+                <li>
+                  Own Wave account:{' '}
+                  <span className="font-medium text-emerald-700">Active</span>
+                  <span className="ml-1 text-slate-500">
+                    — aggregator provision is skipped. Manage the API key under Merchant API.
+                  </span>
+                </li>
+              ) : null}
             </ul>
           </div>
         </div>
-        {allowMutations ? (
+        {allowMutations && !ownAccountActive ? (
           <div className="flex flex-wrap gap-2">
             <button
               type="button"

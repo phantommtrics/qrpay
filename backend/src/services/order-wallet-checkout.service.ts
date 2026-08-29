@@ -15,7 +15,7 @@ import {
 } from "../lib/prisma-sales-enums.js";
 import { resolveAppPublicBaseForBrowserReturns } from "../config/app-public-url.js";
 import { yonnaForexApiBaseUrl } from "../config/payment-provider-env.js";
-import { waveServiceFromEnv } from "./wave-client-env.js";
+import { waveServiceFromBearer, waveServiceFromEnv } from "./wave-client-env.js";
 import { YonnaForexPaymentService } from "./yonna-forex-payment.service.js";
 import {
   CHECKOUT_ADAPTER_APS_WALLET,
@@ -26,6 +26,7 @@ import {
 import {
   getDecryptedGatewaySecrets,
   listBusinessGatewayCredentialStatus,
+  waveOwnAccountBearer,
   type WaveGatewaySecrets,
   type YonnaGatewaySecrets,
 } from "./business-gateway-credential.service.js";
@@ -69,6 +70,18 @@ export async function nextPaymentPublicCode(
 
 function genPublicToken(): string {
   return randomBytes(16).toString("base64url");
+}
+
+function waveClientForSalesSecrets(secrets: WaveGatewaySecrets | null) {
+  const ownBearer = waveOwnAccountBearer(secrets);
+  if (ownBearer) {
+    return { wave: waveServiceFromBearer(ownBearer), aggregatedMerchantId: undefined as string | undefined };
+  }
+  const aggregatedMerchantId = secrets?.aggregatedMerchantId?.trim();
+  if (!aggregatedMerchantId) {
+    throw new HttpError(503, "Wave checkout is not provisioned for this business.");
+  }
+  return { wave: waveServiceFromEnv(), aggregatedMerchantId };
 }
 
 /**
@@ -194,7 +207,7 @@ export function partnerCheckoutWalletsReadinessHint(
   const partial = gatewayStatus.filter((r) => r.hasCredential && !r.checkoutConfigured);
   if (partial.length > 0) {
     return (
-      "Credentials exist but checkout is not ready yet. Inspect gatewayStatus[].fieldStatus — e.g. Wave needs aggregated merchant and platform WAVE_CHECKOUT_BEARER; " +
+      "Credentials exist but checkout is not ready yet. Inspect gatewayStatus[].fieldStatus — e.g. Wave needs a stored own-account API key (fieldStatus.ownAccountBearer) or aggregated merchant plus platform WAVE_CHECKOUT_BEARER; " +
       "Yonna needs clientId+secretKey; APS needs username+password and APS_WALLET_BASE_URL on the Easypay server. " +
       "If secrets were saved under a different Easypay environment, decryption may fail after APP_SECRET_ENCRYPTION_KEY changes."
     );
@@ -306,15 +319,11 @@ export async function startGatewayWalletCheckout(input: {
       input.businessId,
       codeNorm,
     );
-    if (!secrets?.aggregatedMerchantId?.trim()) {
-      throw new HttpError(503, "Wave checkout is not provisioned for this business.");
-    }
+    const { wave, aggregatedMerchantId } = waveClientForSalesSecrets(secrets);
 
     const publicToken = genPublicToken();
     const successUrl = spaHashRoute(appBase, `/pay/${encodeURIComponent(publicToken)}`);
     const errorUrl = spaHashRoute(appBase, `/pay/${encodeURIComponent(publicToken)}?error=1`);
-
-    const wave = waveServiceFromEnv();
 
     const amountStr = String(Math.round(Number(order.total)));
     const session = await wave.createSalesCheckoutSession({
@@ -323,7 +332,7 @@ export async function startGatewayWalletCheckout(input: {
       success_url: successUrl,
       error_url: errorUrl,
       client_reference: order.id,
-      aggregated_merchant_id: secrets.aggregatedMerchantId.trim(),
+      aggregated_merchant_id: aggregatedMerchantId,
     });
 
     const recordedByUserId = input.recordedByUserId?.trim() || undefined;
@@ -539,15 +548,11 @@ export async function startGatewayWalletCheckoutForInvoice(input: {
       input.businessId,
       codeNorm,
     );
-    if (!secrets?.aggregatedMerchantId?.trim()) {
-      throw new HttpError(503, "Wave checkout is not provisioned for this business.");
-    }
+    const { wave, aggregatedMerchantId } = waveClientForSalesSecrets(secrets);
 
     const publicToken = genPublicToken();
     const successUrl = spaHashRoute(appBase, `/pay/${encodeURIComponent(publicToken)}`);
     const errorUrl = spaHashRoute(appBase, `/pay/${encodeURIComponent(publicToken)}?error=1`);
-
-    const wave = waveServiceFromEnv();
 
     const amountStr = String(Math.round(Number(total)));
     const session = await wave.createSalesCheckoutSession({
@@ -556,7 +561,7 @@ export async function startGatewayWalletCheckoutForInvoice(input: {
       success_url: successUrl,
       error_url: errorUrl,
       client_reference: invoice.id,
-      aggregated_merchant_id: secrets.aggregatedMerchantId.trim(),
+      aggregated_merchant_id: aggregatedMerchantId,
     });
 
     const payment = await upsertSalesInvoiceWalletPayment(invoice.id, input.businessId, invoice.business.name, {

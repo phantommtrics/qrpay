@@ -201,13 +201,13 @@ Response `data` includes:
 
 | Field | Purpose |
 |-------|---------|
-| `wallets` | Gateways **ready for checkout** (same rules as Easypay POS): Wave needs a provisioned **aggregated merchant** and platform `WAVE_CHECKOUT_BEARER`; Yonna needs client id + secret; APS needs username + password **and** server env `APS_WALLET_BASE_URL`. |
+| `wallets` | Gateways **ready for checkout** (same rules as Easypay POS): Wave needs either a stored **own-account API key** (`fieldStatus.ownAccountBearer`) or a provisioned **aggregated merchant** plus platform `WAVE_CHECKOUT_BEARER`; Yonna needs client id + secret; APS needs username + password **and** server env `APS_WALLET_BASE_URL`. |
 | `gatewayStatus` | One row per **enabled** platform gateway that has a checkout adapter — includes `hasCredential`, `checkoutConfigured`, and `fieldStatus` **booleans only** (no secrets). Use this when `wallets` is empty to see *why* (e.g. Wave aggregated merchant missing, or APS API base not configured). |
 | `readinessHint` | Short human-readable summary when `wallets` is empty, or `null` when at least one wallet is available. |
 
 **Common reasons `wallets` is empty while “credentials exist” on Easypay**
 
-- **Incomplete stored secrets** — e.g. Wave saved without a provisioned aggregated merchant (`fieldStatus.aggregatedMerchant`), platform `WAVE_CHECKOUT_BEARER` missing (`fieldStatus.platformWaveBearer`), or Yonna missing `clientId` / `secretKey`. Businesses with legacy per-business Wave bearer tokens must re-save Wave in Merchant API. Check `gatewayStatus[].fieldStatus`.
+- **Incomplete stored secrets** — e.g. Wave missing both an own-account API key (`fieldStatus.ownAccountBearer`) and a provisioned aggregated merchant (`fieldStatus.aggregatedMerchant`) plus platform `WAVE_CHECKOUT_BEARER` (`fieldStatus.platformWaveBearer`), or Yonna missing `clientId` / `secretKey`. An own-account Wave bearer is a valid ready state. Check `gatewayStatus[].fieldStatus`.
 - **APS** — merchant username/password can be saved, but listing requires **`APS_WALLET_BASE_URL`** (and related APS env) on the Easypay API server.
 - **Decryption** — if `APP_SECRET_ENCRYPTION_KEY` changed after secrets were saved, decrypt fails and `checkoutConfigured` stays false until credentials are re-saved.
 - **Wrong tenant** — credentials are on a different `businessId` than the one 7-aside uses (`hasCredential` false for all rows).

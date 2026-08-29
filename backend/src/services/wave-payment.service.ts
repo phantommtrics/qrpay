@@ -96,9 +96,13 @@ type WaveCheckoutSessionBaseRequest = {
   restrict_payer_mobile?: string;
 };
 
-/** Merchant POS / sales-invoice checkout — aggregated merchant is required. */
+/**
+ * Merchant POS / sales-invoice checkout.
+ * Aggregated merchant id is required for platform-aggregator keys; omit for a
+ * merchant’s own Wave Business API key.
+ */
 export type WaveSalesCheckoutSessionRequest = WaveCheckoutSessionBaseRequest & {
-  aggregated_merchant_id: string;
+  aggregated_merchant_id?: string;
 };
 
 /** Platform subscription invoice checkout — must not include aggregated_merchant_id. */
@@ -239,15 +243,13 @@ export class WavePaymentService {
   }
 
   /**
-   * Customer payments for orders / sales invoices. Always sends `aggregated_merchant_id`.
+   * Customer payments for orders / sales invoices.
+   * Sends `aggregated_merchant_id` only when provided (aggregator tenants).
    */
   async createSalesCheckoutSession(
     payload: WaveSalesCheckoutSessionRequest,
   ): Promise<WaveCheckoutSession> {
-    const aggregatedMerchantId = payload.aggregated_merchant_id.trim();
-    if (!aggregatedMerchantId) {
-      throw new HttpError(503, "Wave checkout is not provisioned for this business.");
-    }
+    const aggregatedMerchantId = payload.aggregated_merchant_id?.trim();
     return this.postCheckoutSession(
       compactWaveCheckoutFields({
         amount: payload.amount,

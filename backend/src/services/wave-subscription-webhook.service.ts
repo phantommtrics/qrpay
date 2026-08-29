@@ -9,10 +9,14 @@ import {
 } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
-import { waveServiceFromEnv } from "./wave-client-env.js";
+import { waveServiceForBusiness, waveServiceFromEnv } from "./wave-client-env.js";
 import { completeSubscriptionInvoicePayment } from "./subscription.service.js";
-import { CHECKOUT_ADAPTER_WAVE_GAMBIA } from "./payment-gateway.service.js";
+import { CHECKOUT_ADAPTER_WAVE_GAMBIA, GATEWAY_CODE_WAVE_GAMBIA } from "./payment-gateway.service.js";
 import { cancelPendingInvoicePaymentLedgers } from "./billing-ledger.service.js";
+import {
+  getDecryptedGatewaySecrets,
+  type WaveGatewaySecrets,
+} from "./business-gateway-credential.service.js";
 import {
   completeWalletPaymentByPublicToken,
   WAVE_GAMBIA_WEBHOOK_LOG_PROVIDER,
@@ -52,22 +56,44 @@ const STATUS_MAP: Record<string, WaveCheckoutWebhookContext["mapped"]> = {
   open: "PENDING",
 };
 
+async function resolveWaveWebhookSecretAndBusinessId(ctx: {
+  waveSessionId?: string;
+  clientReference?: string;
+}): Promise<{ webhookSecret: string; businessId: string | null }> {
+  const pending = await findPendingWaveMerchantPayment({
+    waveSessionId: ctx.waveSessionId,
+    clientReference: ctx.clientReference,
+    mapped: "PENDING",
+  });
+  if (pending) {
+    const secrets = await getDecryptedGatewaySecrets<WaveGatewaySecrets>(
+      pending.businessId,
+      pending.gatewayCode?.trim() || GATEWAY_CODE_WAVE_GAMBIA,
+    );
+    const ownSecret = secrets?.webhookSecret?.trim();
+    if (ownSecret) {
+      return { webhookSecret: ownSecret, businessId: pending.businessId };
+    }
+    const platformSecret = (process.env.WAVE_WEBHOOK_SECRET || "").trim();
+    if (platformSecret) {
+      return { webhookSecret: platformSecret, businessId: pending.businessId };
+    }
+    throw new Error("WAVE_WEBHOOK_SECRET not configured");
+  }
+
+  const platformSecret = (process.env.WAVE_WEBHOOK_SECRET || "").trim();
+  if (!platformSecret) {
+    throw new Error("WAVE_WEBHOOK_SECRET not configured");
+  }
+  return { webhookSecret: platformSecret, businessId: null };
+}
+
 async function parseWaveCheckoutWebhook(
   rawBody: string,
   signatureHeader: string,
 ): Promise<WaveCheckoutWebhookContext> {
-  const webhookSecret = process.env.WAVE_WEBHOOK_SECRET;
-  if (!webhookSecret) {
-    throw new Error("WAVE_WEBHOOK_SECRET not configured");
-  }
-
   if (!signatureHeader || !rawBody) {
     throw new Error("Missing signature or body");
-  }
-
-  const valid = validateWaveSignature(signatureHeader, rawBody, webhookSecret);
-  if (!valid) {
-    throw new Error("Invalid signature");
   }
 
   let payload: Record<string, unknown>;
@@ -100,6 +126,16 @@ async function parseWaveCheckoutWebhook(
       dataObject?.client_reference,
     ) || undefined;
 
+  const { webhookSecret, businessId } = await resolveWaveWebhookSecretAndBusinessId({
+    waveSessionId,
+    clientReference,
+  });
+
+  const valid = validateWaveSignature(signatureHeader, rawBody, webhookSecret);
+  if (!valid) {
+    throw new Error("Invalid signature");
+  }
+
   let paymentStatus =
     firstString(payload.payment_status, data?.payment_status, dataObject?.payment_status) ||
     undefined;
@@ -115,7 +151,9 @@ async function parseWaveCheckoutWebhook(
 
   if (!paymentStatus && !checkoutStatus && waveSessionId && mapped === "PENDING") {
     try {
-      const waveApi = waveServiceFromEnv();
+      const waveApi = businessId
+        ? await waveServiceForBusiness(businessId)
+        : waveServiceFromEnv();
       const session = await waveApi.getCheckoutSession(waveSessionId);
       paymentStatus = session?.payment_status || paymentStatus;
       checkoutStatus = session?.checkout_status || checkoutStatus;

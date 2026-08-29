@@ -60,7 +60,7 @@ Services live under **`backend/src/services/`**. The following map is representa
 - **`product.service.ts`**, **`menu-category.service.ts`**
 - **`dining-table.service.ts`**
 - **`sale.service.ts`** — Orders, payments, cash/wallet completion, receipts, **public pay** info, simulator webhook.
-- **`order-wallet-checkout.service.ts`** — Wave/Yonna session creation for **orders** and **sales invoices**. Wave uses platform `WAVE_CHECKOUT_BEARER` + per-business aggregated merchant id; Yonna uses business decrypted credentials.
+- **`order-wallet-checkout.service.ts`** — Wave/Yonna session creation for **orders** and **sales invoices**. Wave uses the business’s own API key when stored, otherwise platform `WAVE_CHECKOUT_BEARER` + per-business aggregated merchant id; Yonna uses business decrypted credentials.
 - **`sale-accounting.service.ts`**, **`merchant-pos-wallet-fee-resolution.service.ts`** — Customer sale journals and wallet fees.
 
 ### Restaurant (public)

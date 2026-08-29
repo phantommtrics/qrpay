@@ -95,6 +95,10 @@ export function MerchantApiIntegrationPanel({
   /** Percent 0–100; stored as fraction in credentials (per business). */
   const [apsWalletFeePercent, setApsWalletFeePercent] = useState('')
 
+  const [waveBearer, setWaveBearer] = useState('')
+  const [waveWebhook, setWaveWebhook] = useState('')
+  const [waveWalletFeePercent, setWaveWalletFeePercent] = useState('')
+
   const load = useCallback(async () => {
     if (!businessId) {
       return
@@ -107,7 +111,7 @@ export function MerchantApiIntegrationPanel({
         fetchBusinessGatewayCredentialStatus(businessId),
         fetchBusinessApsWalletCustomerAuths(businessId),
       ])
-      const list = gw.filter(isIntegrable).filter((g) => g.checkoutAdapter?.trim() !== 'wave_gambia')
+      const list = gw.filter(isIntegrable)
       setGateways(list)
       setStatusRows(credPack.credentialStatus)
       setWebhookEndpoints(credPack.webhookEndpoints)
@@ -178,6 +182,9 @@ export function MerchantApiIntegrationPanel({
     setApsUsername('')
     setApsPassword('')
     setApsWalletFeePercent('')
+    setWaveBearer('')
+    setWaveWebhook('')
+    setWaveWalletFeePercent('')
   }
 
   function closeCredentialModal() {
@@ -284,6 +291,39 @@ export function MerchantApiIntegrationPanel({
           secrets,
           replaceSecrets,
         })
+      } else if (modalAdapter === 'wave_gambia') {
+        const secrets: {
+          bearerToken?: string
+          webhookSecret?: string
+          customerWalletFeeRate?: number | null
+        } = {}
+        if (replaceSecrets) {
+          secrets.bearerToken = waveBearer.trim()
+          secrets.webhookSecret = waveWebhook.trim()
+        } else {
+          if (waveBearer.trim()) {
+            secrets.bearerToken = waveBearer.trim()
+          }
+          if (waveWebhook.trim()) {
+            secrets.webhookSecret = waveWebhook.trim()
+          }
+        }
+        const wfp = waveWalletFeePercent.trim()
+        if (wfp !== '') {
+          const p = Number.parseFloat(wfp.replace(',', '.'))
+          if (!Number.isFinite(p) || p < 0 || p > 100) {
+            setError('Wallet fee must be between 0 and 100 (%).')
+            return
+          }
+          secrets.customerWalletFeeRate = p / 100
+        } else if (replaceSecrets) {
+          secrets.customerWalletFeeRate = null
+        }
+        await upsertBusinessGatewayCredentialRequest(businessId, {
+          gatewayCode: modalGateway.code,
+          secrets,
+          replaceSecrets,
+        })
       } else {
         setError('This provider cannot be configured here yet.')
         return
@@ -305,7 +345,14 @@ export function MerchantApiIntegrationPanel({
     setSaving(true)
     setError(null)
     try {
-      await deleteBusinessGatewayCredentialRequest(businessId, modalGateway.code)
+      if (modalAdapter === 'wave_gambia') {
+        await upsertBusinessGatewayCredentialRequest(businessId, {
+          gatewayCode: modalGateway.code,
+          secrets: { clearOwnAccount: true },
+        })
+      } else {
+        await deleteBusinessGatewayCredentialRequest(businessId, modalGateway.code)
+      }
       closeCredentialModal()
       resetFormFields()
       await load()
@@ -394,6 +441,18 @@ export function MerchantApiIntegrationPanel({
               apsWalletFeePercent.trim() !== '',
           )
         : apsUsername.trim().length > 0 && apsPassword.trim().length > 0)
+
+  const canSaveWave =
+    modalAdapter === 'wave_gambia' &&
+    (isEditCredentialModal
+      ? Boolean(waveBearer.trim())
+      : modalStatus?.fieldStatus?.ownAccountBearer
+        ? Boolean(
+            waveBearer.trim() ||
+              waveWebhook.trim() ||
+              waveWalletFeePercent.trim() !== '',
+          )
+        : Boolean(waveBearer.trim()))
 
   const inputClass =
     'mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500'
@@ -498,8 +557,9 @@ export function MerchantApiIntegrationPanel({
               <p className="mt-1 text-xs text-slate-500">
                 {allowMutations ? (
                   <>
-                    Configure Yonna and APS credentials here. Wave sales checkout is provisioned automatically under
-                    the platform aggregator when the organization is created.
+                    Configure Yonna, APS, and optional own Wave Business credentials here. Wave sales checkout is
+                    provisioned automatically under the platform aggregator unless this business uses its own Wave
+                    API key.
                   </>
                 ) : (
                   <>Credentials are read-only. Your role can view status but not change keys.</>
@@ -508,7 +568,10 @@ export function MerchantApiIntegrationPanel({
               <div className="mt-3 flex gap-3 overflow-x-auto pb-2 pt-1 [-webkit-overflow-scrolling:touch]">
                 {gateways.map((g) => {
                   const st = statusByCode.get(g.code)
-                  const hasKeys = Boolean(st?.hasCredential)
+                  const isWaveCard = g.checkoutAdapter?.trim() === 'wave_gambia'
+                  const hasKeys = isWaveCard
+                    ? Boolean(st?.fieldStatus?.ownAccountBearer)
+                    : Boolean(st?.hasCredential)
                   const brandImg = checkoutWalletBrandImageSrc(g.checkoutAdapter)
                   const statusReady = Boolean(st?.checkoutConfigured)
                   const statusPartial = Boolean(st?.hasCredential) && !statusReady
@@ -618,11 +681,11 @@ export function MerchantApiIntegrationPanel({
                       <th className="px-4 py-3">Checkout</th>
                       <th className="px-4 py-3">Agg. merchant</th>
                       <th className="px-4 py-3">Platform Wave</th>
+                      <th className="px-4 py-3">Own Wave key</th>
                       <th className="px-4 py-3">Client ID</th>
                       <th className="px-4 py-3">Secret</th>
                       <th className="px-4 py-3">Webhook</th>
                       <th className="px-4 py-3">Wallet fee</th>
-                      {/* Wave: no manual keys; see platform business detail for provision logs */}
                       <th className="px-4 py-3">Updated</th>
                     </tr>
                   </thead>
@@ -654,6 +717,13 @@ export function MerchantApiIntegrationPanel({
                             )}
                           </td>
                           <td className="px-4 py-3">
+                            {isWave ? (
+                              <YesNo value={Boolean(fs?.ownAccountBearer)} />
+                            ) : (
+                              <EmDash />
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
                             {isYonna ? (
                               <YesNo value={Boolean(fs?.clientId)} />
                             ) : isAps ? (
@@ -674,6 +744,8 @@ export function MerchantApiIntegrationPanel({
                           <td className="px-4 py-3">
                             {isYonna ? (
                               <YesNo value={Boolean(fs?.webhookSecret)} />
+                            ) : isWave ? (
+                              <YesNo value={Boolean(fs?.ownAccountWebhookSecret)} />
                             ) : (
                               <EmDash />
                             )}
@@ -881,6 +953,59 @@ export function MerchantApiIntegrationPanel({
                       </>
                     ) : null}
 
+                    {modalAdapter === 'wave_gambia' ? (
+                      <>
+                        <p className="text-xs text-slate-500">
+                          Optional. Use this only if the merchant has their own Wave Business account.
+                        </p>
+                        <div>
+                          <label className="text-sm font-medium text-slate-800">Wave API key</label>
+                          <input
+                            type="password"
+                            autoComplete="off"
+                            className={inputClass}
+                            value={waveBearer}
+                            onChange={(e) => setWaveBearer(e.target.value)}
+                            placeholder={
+                              isEditCredentialModal ? 'New API key (required)' : 'Required'
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-slate-800">Webhook secret</label>
+                          <input
+                            type="password"
+                            autoComplete="off"
+                            className={inputClass}
+                            value={waveWebhook}
+                            onChange={(e) => setWaveWebhook(e.target.value)}
+                            placeholder={
+                              isEditCredentialModal
+                                ? 'Empty removes webhook secret'
+                                : 'From Wave Business portal'
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-slate-800">
+                            Est. wallet fee on sales (% of payment)
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
+                            className={inputClass}
+                            value={waveWalletFeePercent}
+                            onChange={(e) => setWaveWalletFeePercent(e.target.value)}
+                            placeholder={isEditCredentialModal ? 'Empty removes saved fee' : 'e.g. 0 if none'}
+                          />
+                          <p className="mt-1 text-xs text-slate-500">
+                            Optional rate for merchant GL when customers pay by Wave wallet.
+                          </p>
+                        </div>
+                      </>
+                    ) : null}
+
                     {modalAdapter === 'yonna_wallet' ? (
                       <>
                         <div>
@@ -947,23 +1072,42 @@ export function MerchantApiIntegrationPanel({
                     ) : null}
                   </div>
 
-                  {modalAdapter === 'yonna_wallet' || modalAdapter === 'aps_wallet' ? (
+                  {modalAdapter === 'yonna_wallet' ||
+                  modalAdapter === 'aps_wallet' ||
+                  modalAdapter === 'wave_gambia' ? (
                     <div className="mt-6 flex flex-col-reverse gap-2 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
-                      {modalStatus?.hasCredential ? (
-                        <button
-                          type="button"
-                          disabled={saving}
-                          onClick={() => void handleRemove()}
-                          className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-                        >
-                          Remove all keys
-                        </button>
-                      ) : null}
+                      {modalAdapter === 'wave_gambia'
+                        ? modalStatus?.fieldStatus?.ownAccountBearer
+                          ? (
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => void handleRemove()}
+                                className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                              >
+                                Remove own-account keys
+                              </button>
+                            )
+                          : null
+                        : modalStatus?.hasCredential ? (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => void handleRemove()}
+                              className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                            >
+                              Remove all keys
+                            </button>
+                          ) : null}
                       <button
                         type="button"
                         disabled={
                           saving ||
-                          (modalAdapter === 'yonna_wallet' ? !canSaveYonna : !canSaveAps)
+                          (modalAdapter === 'yonna_wallet'
+                            ? !canSaveYonna
+                            : modalAdapter === 'aps_wallet'
+                              ? !canSaveAps
+                              : !canSaveWave)
                         }
                         onClick={() => void handleSave()}
                         className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"

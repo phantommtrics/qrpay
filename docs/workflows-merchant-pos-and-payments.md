@@ -11,18 +11,19 @@
 
 - **`listOrderCheckoutWallets`** — Lists gateways the business has **configured** (Merchant API + enabled payment method).
 - **`startWalletPayment`** / **`startGatewayWalletCheckout`** — Creates a **`Payment`** row with `publicToken` and provider session (Wave session URL, Yonna flow, or simulator URL).
-- **Wave** — Uses the platform aggregator token (`WAVE_CHECKOUT_BEARER` on the API server) plus each business’s **Wave aggregated merchant id** (provisioned via Merchant API; stored encrypted in `BusinessGatewayCredential`). No per-business Wave API bearer.
+- **Wave** — Default is the platform aggregator token (`WAVE_CHECKOUT_BEARER` on the API server) plus each business’s **Wave aggregated merchant id** (provisioned automatically; stored encrypted in `BusinessGatewayCredential`). A business may instead store its own Wave Business **API key** (`bearerToken`) and optional **webhook secret** — sales checkout then uses that key and omits `aggregated_merchant_id`. Webhooks still POST to the same `{APP_PUBLIC_BASE_URL}/api/webhooks/wave`. Subscription billing always uses the platform main merchant.
 - **Yonna / APS** — Secrets still come from **`getDecryptedGatewaySecrets(businessId, gatewayCode)`** per business.
 
 ### Auto-provision on business creation
 
 When `WAVE_CHECKOUT_BEARER` is set and the Wave gateway is enabled, new businesses get a Wave aggregated merchant and encrypted credential row automatically during owner signup and `POST /api/businesses`. **Internal-partner provision does not auto-create Wave merchants** — the platform owner must initiate that from the business detail or Wave Businesses screen. Each attempt is stored in `WaveAggregatedMerchantProvisionLog`.
 
-Platform operators provision or re-sync existing tenants from **`/#/platform/businesses/:id`** (Wave sales checkout panel). Merchants do not enter Wave API keys, webhook secrets, or bearer tokens — only Yonna/APS use Merchant API credential forms.
+Platform operators provision or re-sync existing tenants from **`/#/platform/businesses/:id`** (Wave sales checkout panel). Auto-provision is **skipped** when the business already has an own-account Wave API key. Merchants can optionally enter their own Wave API key and webhook secret under Merchant API (same entitlement as Yonna/APS). The webhook URL is the platform Wave URL — not a per-merchant path.
 
-### Migrating existing Wave credentials
+### Own-account vs aggregator Wave
 
-Businesses that previously saved a per-business Wave bearer must **re-save Wave** under Merchant API (profile fields), or rely on auto-provision for businesses created after this change. Old ciphertext without `aggregatedMerchantId` is treated as not configured until re-provisioned.
+- **Aggregator (default):** `checkoutConfigured` when `fieldStatus.aggregatedMerchant` and `fieldStatus.platformWaveBearer` are true.
+- **Own Wave Business account:** `checkoutConfigured` when `fieldStatus.ownAccountBearer` is true. Aggregator provision is skipped and Wave Operations stay on the parent account.
 
 ## Public pay page (`/pay/:publicToken`)
 

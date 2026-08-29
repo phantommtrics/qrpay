@@ -37,12 +37,30 @@ const apsSecretsInputSchema = z.object({
   customerWalletFeeRate: walletFeeRateFieldSchema,
 });
 
+/** Own-account Wave fields only. Aggregated merchant id is never set from this form. */
+const waveSecretsInputSchema = z.object({
+  bearerToken: z.string().optional(),
+  webhookSecret: z.string().optional(),
+  customerWalletFeeRate: walletFeeRateFieldSchema,
+  /** Drop stored API key + webhook secret; keep aggregated merchant id and fee. */
+  clearOwnAccount: z.boolean().optional(),
+});
+
 export type WaveGatewaySecrets = {
   /** Wave aggregated merchant id (from Aggregated Merchants API). */
-  aggregatedMerchantId: string;
+  aggregatedMerchantId?: string;
+  /** Own Wave Business API key; when set, sales checkout does not use the platform aggregator. */
+  bearerToken?: string;
+  /** Own Wave webhook HMAC secret (same URL as aggregated merchants). */
+  webhookSecret?: string;
   /** Estimated provider fee on gross customer wallet takings (orders/POS), fraction 0–1. */
   customerWalletFeeRate?: number;
 };
+
+export function waveOwnAccountBearer(secrets: WaveGatewaySecrets | null | undefined): string | null {
+  const token = secrets?.bearerToken?.trim();
+  return token ? token : null;
+}
 
 /** Stored per business; API base URL and access channel come from server env only. */
 export type ApsGatewaySecrets = {
@@ -196,6 +214,14 @@ function parseWalletFeeRate(raw: unknown): number | undefined {
   return n;
 }
 
+function optionalTrimmedSecret(raw: unknown): string | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const t = raw.trim();
+  return t.length > 0 ? t : undefined;
+}
+
 export function parseExistingWave(raw: Record<string, unknown> | null): WaveGatewaySecrets | null {
   if (!raw) {
     return null;
@@ -204,12 +230,92 @@ export function parseExistingWave(raw: Record<string, unknown> | null): WaveGate
     typeof raw.aggregatedMerchantId === "string"
       ? raw.aggregatedMerchantId.trim()
       : "";
-  if (!aggregatedMerchantId) {
+  const bearerToken = optionalTrimmedSecret(raw.bearerToken);
+  const webhookSecret = optionalTrimmedSecret(raw.webhookSecret);
+  if (!aggregatedMerchantId && !bearerToken) {
     return null;
   }
   return {
-    aggregatedMerchantId,
+    aggregatedMerchantId: aggregatedMerchantId || undefined,
+    bearerToken,
+    webhookSecret,
     customerWalletFeeRate: parseWalletFeeRate(raw.customerWalletFeeRate),
+  };
+}
+
+function mergeWaveFeeRate(
+  existing: WaveGatewaySecrets | null,
+  input: z.infer<typeof waveSecretsInputSchema>,
+): number | undefined {
+  if (input.customerWalletFeeRate === undefined) {
+    return existing?.customerWalletFeeRate;
+  }
+  if (input.customerWalletFeeRate === null) {
+    return undefined;
+  }
+  return input.customerWalletFeeRate;
+}
+
+function clearWaveOwnAccountSecrets(existing: WaveGatewaySecrets | null): WaveGatewaySecrets {
+  const aggregatedMerchantId = existing?.aggregatedMerchantId?.trim();
+  return {
+    aggregatedMerchantId: aggregatedMerchantId || undefined,
+    customerWalletFeeRate: existing?.customerWalletFeeRate,
+  };
+}
+
+function replaceWaveOwnAccountSecrets(
+  existing: WaveGatewaySecrets | null,
+  input: z.infer<typeof waveSecretsInputSchema>,
+): WaveGatewaySecrets {
+  const bearerToken = input.bearerToken?.trim();
+  if (!bearerToken) {
+    throw new HttpError(400, "Wave Business API key is required.");
+  }
+  let webhookSecret: string | undefined;
+  if (input.webhookSecret !== undefined) {
+    const t = input.webhookSecret.trim();
+    webhookSecret = t.length > 0 ? t : undefined;
+  } else {
+    webhookSecret = undefined;
+  }
+  let customerWalletFeeRate: number | undefined;
+  if (input.customerWalletFeeRate === undefined || input.customerWalletFeeRate === null) {
+    customerWalletFeeRate = undefined;
+  } else {
+    customerWalletFeeRate = input.customerWalletFeeRate;
+  }
+  return {
+    aggregatedMerchantId: existing?.aggregatedMerchantId?.trim() || undefined,
+    bearerToken,
+    webhookSecret,
+    customerWalletFeeRate,
+  };
+}
+
+function mergeWaveOwnAccountSecrets(
+  existing: WaveGatewaySecrets | null,
+  input: z.infer<typeof waveSecretsInputSchema>,
+): WaveGatewaySecrets {
+  const bearerToken =
+    input.bearerToken !== undefined && input.bearerToken.trim().length > 0
+      ? input.bearerToken.trim()
+      : existing?.bearerToken?.trim();
+  if (!bearerToken) {
+    throw new HttpError(400, "Wave Business API key is required.");
+  }
+  let webhookSecret: string | undefined;
+  if (input.webhookSecret === undefined) {
+    webhookSecret = existing?.webhookSecret;
+  } else {
+    const t = input.webhookSecret.trim();
+    webhookSecret = t.length > 0 ? t : undefined;
+  }
+  return {
+    aggregatedMerchantId: existing?.aggregatedMerchantId?.trim() || undefined,
+    bearerToken,
+    webhookSecret,
+    customerWalletFeeRate: mergeWaveFeeRate(existing, input),
   };
 }
 
@@ -241,6 +347,10 @@ export type GatewayCredentialFieldStatus = {
   aggregatedMerchant?: boolean;
   /** Wave: platform `WAVE_CHECKOUT_BEARER` is set on the server. */
   platformWaveBearer?: boolean;
+  /** Wave: this business stored its own Wave Business API key. */
+  ownAccountBearer?: boolean;
+  /** Wave: this business stored its own Wave webhook HMAC secret. */
+  ownAccountWebhookSecret?: boolean;
   webhookSecret?: boolean;
   /** Wave/Yonna/APS: estimated customer wallet fee rate (0–1) configured for accounting. */
   customerWalletFeeRate?: boolean;
@@ -266,15 +376,19 @@ function fieldStatusFromDecrypted(
   if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
     const platformWaveBearer = isPlatformWaveCheckoutConfigured();
     const aggregatedMerchant = nonEmptyString(raw.aggregatedMerchantId);
+    const ownAccountBearer = nonEmptyString(raw.bearerToken);
+    const ownAccountWebhookSecret = nonEmptyString(raw.webhookSecret);
     const rate = parseWalletFeeRate(raw.customerWalletFeeRate);
     const customerWalletFeeRate = rate !== undefined && rate > 0;
     return {
       fieldStatus: {
         aggregatedMerchant,
         platformWaveBearer,
+        ownAccountBearer,
+        ownAccountWebhookSecret,
         customerWalletFeeRate,
       },
-      checkoutConfigured: Boolean(platformWaveBearer && aggregatedMerchant),
+      checkoutConfigured: Boolean(ownAccountBearer || (platformWaveBearer && aggregatedMerchant)),
     };
   }
   if (adapter === CHECKOUT_ADAPTER_YONNA_WALLET) {
@@ -342,6 +456,8 @@ export async function listBusinessGatewayCredentialStatus(businessId: string) {
       fieldStatus = {
         aggregatedMerchant: false,
         platformWaveBearer: isPlatformWaveCheckoutConfigured(),
+        ownAccountBearer: false,
+        ownAccountWebhookSecret: false,
       };
       checkoutConfigured = false;
     }
@@ -396,10 +512,14 @@ export async function upsertBusinessGatewayCredential(input: {
   const replace = Boolean(input.replaceSecrets);
 
   if (adapter === CHECKOUT_ADAPTER_WAVE_GAMBIA) {
-    throw new HttpError(
-      400,
-      "Wave sales checkout is provisioned automatically under the platform aggregator. Use POST /api/platform/businesses/:businessId/wave-aggregated-merchant/provision instead.",
-    );
+    const parsed = waveSecretsInputSchema.parse(input.secrets);
+    if (parsed.clearOwnAccount) {
+      payload = clearWaveOwnAccountSecrets(parseExistingWave(existingPayload));
+    } else {
+      payload = replace
+        ? replaceWaveOwnAccountSecrets(parseExistingWave(existingPayload), parsed)
+        : mergeWaveOwnAccountSecrets(parseExistingWave(existingPayload), parsed);
+    }
   } else if (adapter === CHECKOUT_ADAPTER_YONNA_WALLET) {
     const parsed = yonnaSecretsInputSchema.parse(input.secrets);
     payload = replace

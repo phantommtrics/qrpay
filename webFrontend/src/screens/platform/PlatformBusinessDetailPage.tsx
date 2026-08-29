@@ -302,8 +302,8 @@ export function PlatformBusinessDetailPage() {
                   <div>
                     <h2 className="text-lg font-semibold text-slate-900">Merchant API</h2>
                     <p className="mt-1 text-sm text-slate-500">
-                      Yonna and APS credentials for this business. Wave sales checkout uses the platform aggregator
-                      and is provisioned below (not per-business API keys).
+                      Yonna, APS, and optional own Wave Business credentials for this business. Aggregated Wave
+                      checkout is provisioned below unless this business uses its own Wave API key.
                     </p>
                   </div>
                 </div>
@@ -313,7 +313,10 @@ export function PlatformBusinessDetailPage() {
                   businessId={businessId}
                   allowMutations={canEditMerchantApi}
                   platformWaveConfigured={waveCredPack?.platformWaveConfigured ?? false}
-                  aggregatedMerchantReady={Boolean(waveCredPack?.waveRow?.checkoutConfigured)}
+                  aggregatedMerchantReady={Boolean(
+                    waveCredPack?.waveRow?.fieldStatus?.aggregatedMerchant,
+                  )}
+                  ownAccountActive={Boolean(waveCredPack?.waveRow?.fieldStatus?.ownAccountBearer)}
                   onProvisioned={() => void loadWaveCredPack()}
                 />
                 <MerchantApiIntegrationPanel

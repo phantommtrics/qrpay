@@ -26,7 +26,7 @@ This folder contains **architecture**, **component**, and **workflow** documenta
 
 - **Platform** sells **subscriptions** to **businesses**; subscription money and platform GL live in **platform** accounting and **BillingLedger**.
 - Each **business** is a tenant with its own **products**, **orders**, **contacts**, **sales documents**, and **merchant chart of accounts** / journals.
-- **Customer payments** for orders or approved sales invoices use Merchant API gateway configuration. **Wave** uses the platform aggregator (`WAVE_CHECKOUT_BEARER`) plus a per-business aggregated merchant id; **Yonna/APS** use per-business encrypted credentials. Subscription billing uses separate platform env keys.
+- **Customer payments** for orders or approved sales invoices use Merchant API gateway configuration. **Wave** defaults to the platform aggregator (`WAVE_CHECKOUT_BEARER`) plus a per-business aggregated merchant id; a business may instead store its own Wave API key. **Yonna/APS** use per-business encrypted credentials. Subscription billing uses separate platform env keys.
 - **Public** routes (guest menu, guest quotation/invoice, public pay link) use **tokens in the URL** and no JWT.
 
 ## Diagram (tenancy)

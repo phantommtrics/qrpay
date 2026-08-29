@@ -2613,6 +2613,10 @@ export async function changeBusinessSubscriptionPlan(
 export type GatewayCredentialFieldStatus = {
   aggregatedMerchant?: boolean
   platformWaveBearer?: boolean
+  /** Wave: this business stored its own Wave Business API key. */
+  ownAccountBearer?: boolean
+  /** Wave: this business stored its own Wave webhook HMAC secret. */
+  ownAccountWebhookSecret?: boolean
   webhookSecret?: boolean
   /** Wave/Yonna/APS: wallet fee rate (0–1) saved for POS/order accounting. */
   customerWalletFeeRate?: boolean
@@ -2632,7 +2636,7 @@ export type BusinessGatewayCredentialStatusRow = {
   name: string
   checkoutAdapter: string | null
   hasCredential: boolean
-  /** True when minimum secrets exist to run checkout (aggregated merchant for Wave; client + secret for Yonna). */
+  /** True when minimum secrets exist to run checkout (own Wave API key, or aggregated merchant + platform bearer; client + secret for Yonna). */
   checkoutConfigured: boolean
   /** Which secret slots are populated; never includes secret values. */
   fieldStatus: GatewayCredentialFieldStatus | null

@@ -22,6 +22,37 @@ export function waveServiceFromEnv(): WavePaymentService {
   return new WavePaymentService({ baseUrl, bearerToken: bearer });
 }
 
+export function waveServiceFromBearer(bearerToken: string): WavePaymentService {
+  const bearer = bearerToken.trim();
+  if (!bearer) {
+    throw new HttpError(503, "Wave merchant API key is missing.");
+  }
+  return new WavePaymentService({ baseUrl: waveApiBaseUrl(), bearerToken: bearer });
+}
+
+/**
+ * Sales checkout client: the business’s own Wave API key when stored, otherwise the
+ * platform aggregator (`WAVE_CHECKOUT_BEARER`). Subscription billing still uses
+ * {@link waveServiceFromEnv} only.
+ */
+export async function waveServiceForBusiness(
+  businessId: string,
+  gatewayCode = "wave_gambia",
+): Promise<WavePaymentService> {
+  const { getDecryptedGatewaySecrets, waveOwnAccountBearer } = await import(
+    "./business-gateway-credential.service.js"
+  );
+  const secrets = await getDecryptedGatewaySecrets<{ bearerToken?: string }>(
+    businessId,
+    gatewayCode,
+  );
+  const own = waveOwnAccountBearer(secrets);
+  if (own) {
+    return waveServiceFromBearer(own);
+  }
+  return waveServiceFromEnv();
+}
+
 function platformAggregatedMerchantDisplayName(): string {
   const platform = (process.env.PLATFORM_NAME || "DirectPay").trim() || "DirectPay";
   return `${platform} Platform`.slice(0, 255);

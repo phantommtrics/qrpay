@@ -164,6 +164,22 @@ export async function provisionWaveAggregatedMerchantForBusiness(input: {
     }
   }
 
+  if (existingSecrets?.bearerToken?.trim()) {
+    await writeProvisionLog({
+      businessId,
+      trigger,
+      operation: null,
+      status: WaveAggregatedMerchantProvisionStatus.SKIPPED,
+      aggregatedMerchantId: existingSecrets.aggregatedMerchantId?.trim() || null,
+      errorMessage: "Business uses its own Wave API key; aggregator provision skipped.",
+    });
+    return {
+      status: "skipped",
+      message:
+        "This business uses its own Wave Business account. Aggregator provision is not applicable.",
+    };
+  }
+
   const existingId = existingSecrets?.aggregatedMerchantId?.trim();
   if (existingId && !force) {
     await writeProvisionLog({
@@ -201,6 +217,8 @@ export async function provisionWaveAggregatedMerchantForBusiness(input: {
     const payload: WaveGatewaySecrets = {
       aggregatedMerchantId,
       customerWalletFeeRate: existingSecrets?.customerWalletFeeRate,
+      bearerToken: existingSecrets?.bearerToken,
+      webhookSecret: existingSecrets?.webhookSecret,
     };
 
     const enc = encryptJsonPayload(payload);
