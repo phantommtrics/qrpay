@@ -96,6 +96,10 @@ import {
   updatePlatformWaveAggregatedMerchant,
 } from "./services/wave-aggregated-merchant.service.js";
 import {
+  getWaveSelfSettlementConfig,
+  updateWaveSelfSettlementConfig,
+} from "./services/wave-self-settlement.service.js";
+import {
   clearBusinessApsWalletCustomerAuth,
   clearPlatformApsWalletCustomerAuth,
   listBusinessApsWalletCustomerAuths,
@@ -1435,6 +1439,36 @@ app.get(
       const { businessId } = req.params;
       const logs = await listWaveAggregatedMerchantProvisionLogs(businessId as string);
       res.json({ data: { logs } });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/businesses/:businessId/wave-self-settlement",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "view"),
+  async (req, res, next) => {
+    try {
+      const data = await getWaveSelfSettlementConfig(req.params.businessId as string);
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.put(
+  "/api/platform/businesses/:businessId/wave-self-settlement",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "edit"),
+  async (req, res, next) => {
+    try {
+      const data = await updateWaveSelfSettlementConfig(req.params.businessId as string, req.body);
+      res.json({ data });
     } catch (error) {
       next(error);
     }

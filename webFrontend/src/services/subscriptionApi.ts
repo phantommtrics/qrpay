@@ -2772,6 +2772,42 @@ export async function fetchWaveAggregatedMerchantProvisionLogs(businessId: strin
   return response.data
 }
 
+export type WaveSelfSettlementConfig = {
+  enabled: boolean
+  mobile: string | null
+  feeRate: number
+  feeFixed: number
+  aggregatedMerchantId: string | null
+  ownAccountActive: boolean
+  checkoutFeeRate: number
+}
+
+export async function fetchWaveSelfSettlementConfig(businessId: string) {
+  const response = await apiRequest<{ data: WaveSelfSettlementConfig }>(
+    `/platform/businesses/${businessId}/wave-self-settlement`,
+  )
+  return response.data
+}
+
+export async function updateWaveSelfSettlementConfig(
+  businessId: string,
+  input: {
+    enabled: boolean
+    mobile?: string | null
+    feeRate: number
+    feeFixed: number
+  },
+) {
+  const response = await apiRequest<{ data: WaveSelfSettlementConfig }>(
+    `/platform/businesses/${businessId}/wave-self-settlement`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    },
+  )
+  return response.data
+}
+
 export async function deleteBusinessGatewayCredentialRequest(
   businessId: string,
   gatewayCode: string,

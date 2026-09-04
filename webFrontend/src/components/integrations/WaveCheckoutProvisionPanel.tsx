@@ -4,7 +4,9 @@ import { Loader2, RefreshCw } from 'lucide-react'
 import {
   ApiError,
   fetchWaveAggregatedMerchantProvisionLogs,
+  fetchWaveSelfSettlementConfig,
   provisionWaveAggregatedMerchant,
+  updateWaveSelfSettlementConfig,
   type WaveAggregatedMerchantProvisionLogRow,
 } from '../../services/subscriptionApi'
 import { checkoutWalletBrandImageSrc } from '../../utils/checkoutWalletBrandImage'
@@ -55,6 +57,13 @@ export function WaveCheckoutProvisionPanel({
   const [provisioning, setProvisioning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [settlementEnabled, setSettlementEnabled] = useState(false)
+  const [settlementMobile, setSettlementMobile] = useState('')
+  const [settlementFeePercent, setSettlementFeePercent] = useState('0')
+  const [settlementFeeFixed, setSettlementFeeFixed] = useState('0')
+  const [checkoutFeePercent, setCheckoutFeePercent] = useState(1)
+  const [settlementLoading, setSettlementLoading] = useState(false)
+  const [settlementSaving, setSettlementSaving] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -70,9 +79,72 @@ export function WaveCheckoutProvisionPanel({
     }
   }, [businessId])
 
+  const loadSettlement = useCallback(async () => {
+    if (ownAccountActive) {
+      return
+    }
+    setSettlementLoading(true)
+    try {
+      const data = await fetchWaveSelfSettlementConfig(businessId)
+      setSettlementEnabled(data.enabled)
+      setSettlementMobile(data.mobile ?? '')
+      setSettlementFeePercent(String(Math.round(data.feeRate * 10000) / 100))
+      setSettlementFeeFixed(String(data.feeFixed))
+      setCheckoutFeePercent(Math.round(data.checkoutFeeRate * 10000) / 100)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not load Wave self-settlement settings.')
+    } finally {
+      setSettlementLoading(false)
+    }
+  }, [businessId, ownAccountActive])
+
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    void loadSettlement()
+  }, [loadSettlement])
+
+  async function handleSaveSettlement() {
+    if (!allowMutations || ownAccountActive) {
+      return
+    }
+    const percent = Number.parseFloat(settlementFeePercent.replace(',', '.'))
+    const fixed = Number.parseFloat(settlementFeeFixed.replace(',', '.'))
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      setError('Withhold percent must be between 0 and 100.')
+      return
+    }
+    if (!Number.isFinite(fixed) || fixed < 0) {
+      setError('Withhold amount must be 0 or greater.')
+      return
+    }
+    setSettlementSaving(true)
+    setError(null)
+    setSuccessMessage(null)
+    try {
+      const data = await updateWaveSelfSettlementConfig(businessId, {
+        enabled: settlementEnabled,
+        mobile: settlementMobile.trim() || null,
+        feeRate: percent / 100,
+        feeFixed: fixed,
+      })
+      setSettlementEnabled(data.enabled)
+      setSettlementMobile(data.mobile ?? '')
+      setSettlementFeePercent(String(Math.round(data.feeRate * 10000) / 100))
+      setSettlementFeeFixed(String(data.feeFixed))
+      setSuccessMessage(
+        data.enabled
+          ? 'Self-settlement saved. After each Wave checkout webhook, DirectPay will payout the received amount minus withhold to this Wave number.'
+          : 'Self-settlement saved (disabled).',
+      )
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not save self-settlement.')
+    } finally {
+      setSettlementSaving(false)
+    }
+  }
 
   async function handleProvision(force: boolean) {
     if (!allowMutations) {
@@ -94,6 +166,7 @@ export function WaveCheckoutProvisionPanel({
         setSuccessMessage(result.message ?? 'Provision skipped.')
       }
       await load()
+      await loadSettlement()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Wave provision failed.')
       await load()
@@ -183,6 +256,80 @@ export function WaveCheckoutProvisionPanel({
       {successMessage ? (
         <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           {successMessage}
+        </div>
+      ) : null}
+
+      {!ownAccountActive ? (
+        <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Self-settlement</h3>
+          {settlementLoading ? (
+            <p className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading self-settlement…
+            </p>
+          ) : (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={settlementEnabled}
+                  disabled={!allowMutations || !aggregatedMerchantReady}
+                  onChange={(e) => setSettlementEnabled(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-teal-700"
+                />
+                Enable self-settlement payouts after checkout webhooks
+              </label>
+              <label className="block text-sm text-slate-700 sm:col-span-2">
+                Wave customer number
+                <input
+                  type="tel"
+                  value={settlementMobile}
+                  disabled={!allowMutations || !aggregatedMerchantReady}
+                  onChange={(e) => setSettlementMobile(e.target.value)}
+                  placeholder="+220…"
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
+                />
+              </label>
+              <label className="block text-sm text-slate-700">
+                Withhold percent
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={settlementFeePercent}
+                  disabled={!allowMutations || !aggregatedMerchantReady}
+                  onChange={(e) => setSettlementFeePercent(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
+                />
+              </label>
+              <label className="block text-sm text-slate-700">
+                Withhold fixed amount
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={settlementFeeFixed}
+                  disabled={!allowMutations || !aggregatedMerchantReady}
+                  onChange={(e) => setSettlementFeeFixed(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100"
+                />
+              </label>
+              {allowMutations ? (
+                <div className="sm:col-span-2">
+                  <button
+                    type="button"
+                    disabled={settlementSaving || !aggregatedMerchantReady}
+                    onClick={() => void handleSaveSettlement()}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {settlementSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Save self-settlement
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
       ) : null}
 

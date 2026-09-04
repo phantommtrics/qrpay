@@ -55,7 +55,45 @@ export type WaveGatewaySecrets = {
   webhookSecret?: string;
   /** Estimated provider fee on gross customer wallet takings (orders/POS), fraction 0–1. */
   customerWalletFeeRate?: number;
+  /** When true, payout gross minus withhold to `selfSettlementMobile` after aggregator checkout. */
+  selfSettlementEnabled?: boolean;
+  /** Merchant Wave customer number (E.164) for aggregator self-settlement payouts. */
+  selfSettlementMobile?: string;
+  /** Platform withhold as a fraction of gross (0–1). Combined with `selfSettlementFeeFixed`. */
+  selfSettlementFeeRate?: number;
+  /** Platform withhold as a fixed amount in the payment currency. */
+  selfSettlementFeeFixed?: number;
 };
+
+export type WaveSelfSettlementSecretFields = Pick<
+  WaveGatewaySecrets,
+  | "selfSettlementEnabled"
+  | "selfSettlementMobile"
+  | "selfSettlementFeeRate"
+  | "selfSettlementFeeFixed"
+>;
+
+export function waveSelfSettlementFieldsFrom(
+  existing: WaveGatewaySecrets | null | undefined,
+): WaveSelfSettlementSecretFields {
+  if (!existing) {
+    return {};
+  }
+  return {
+    ...(existing.selfSettlementEnabled !== undefined
+      ? { selfSettlementEnabled: existing.selfSettlementEnabled }
+      : {}),
+    ...(existing.selfSettlementMobile
+      ? { selfSettlementMobile: existing.selfSettlementMobile }
+      : {}),
+    ...(existing.selfSettlementFeeRate !== undefined
+      ? { selfSettlementFeeRate: existing.selfSettlementFeeRate }
+      : {}),
+    ...(existing.selfSettlementFeeFixed !== undefined
+      ? { selfSettlementFeeFixed: existing.selfSettlementFeeFixed }
+      : {}),
+  };
+}
 
 export function waveOwnAccountBearer(secrets: WaveGatewaySecrets | null | undefined): string | null {
   const token = secrets?.bearerToken?.trim();
@@ -222,6 +260,37 @@ function optionalTrimmedSecret(raw: unknown): string | undefined {
   return t.length > 0 ? t : undefined;
 }
 
+function parseOptionalBoolean(raw: unknown): boolean | undefined {
+  if (raw === true || raw === false) {
+    return raw;
+  }
+  return undefined;
+}
+
+function parseNonNegativeMoney(raw: unknown): number | undefined {
+  if (raw === null || raw === undefined) {
+    return undefined;
+  }
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+  if (!Number.isFinite(n) || n < 0) {
+    return undefined;
+  }
+  return Math.round(n * 100) / 100;
+}
+
+function parseSelfSettlementFields(raw: Record<string, unknown>): WaveSelfSettlementSecretFields {
+  const mobile = optionalTrimmedSecret(raw.selfSettlementMobile);
+  const feeRate = parseWalletFeeRate(raw.selfSettlementFeeRate);
+  const feeFixed = parseNonNegativeMoney(raw.selfSettlementFeeFixed);
+  const enabled = parseOptionalBoolean(raw.selfSettlementEnabled);
+  return {
+    ...(enabled !== undefined ? { selfSettlementEnabled: enabled } : {}),
+    ...(mobile ? { selfSettlementMobile: mobile } : {}),
+    ...(feeRate !== undefined ? { selfSettlementFeeRate: feeRate } : {}),
+    ...(feeFixed !== undefined ? { selfSettlementFeeFixed: feeFixed } : {}),
+  };
+}
+
 export function parseExistingWave(raw: Record<string, unknown> | null): WaveGatewaySecrets | null {
   if (!raw) {
     return null;
@@ -240,6 +309,7 @@ export function parseExistingWave(raw: Record<string, unknown> | null): WaveGate
     bearerToken,
     webhookSecret,
     customerWalletFeeRate: parseWalletFeeRate(raw.customerWalletFeeRate),
+    ...parseSelfSettlementFields(raw),
   };
 }
 
@@ -261,6 +331,7 @@ function clearWaveOwnAccountSecrets(existing: WaveGatewaySecrets | null): WaveGa
   return {
     aggregatedMerchantId: aggregatedMerchantId || undefined,
     customerWalletFeeRate: existing?.customerWalletFeeRate,
+    ...waveSelfSettlementFieldsFrom(existing),
   };
 }
 
@@ -290,6 +361,7 @@ function replaceWaveOwnAccountSecrets(
     bearerToken,
     webhookSecret,
     customerWalletFeeRate,
+    ...waveSelfSettlementFieldsFrom(existing),
   };
 }
 
@@ -316,6 +388,7 @@ function mergeWaveOwnAccountSecrets(
     bearerToken,
     webhookSecret,
     customerWalletFeeRate: mergeWaveFeeRate(existing, input),
+    ...waveSelfSettlementFieldsFrom(existing),
   };
 }
 
@@ -354,6 +427,8 @@ export type GatewayCredentialFieldStatus = {
   webhookSecret?: boolean;
   /** Wave/Yonna/APS: estimated customer wallet fee rate (0–1) configured for accounting. */
   customerWalletFeeRate?: boolean;
+  /** Wave aggregator: self-settlement payout is enabled. */
+  selfSettlementEnabled?: boolean;
   /** Yonna: client ID on file. */
   clientId?: boolean;
   /** Yonna: API secret key on file. */
@@ -380,6 +455,7 @@ function fieldStatusFromDecrypted(
     const ownAccountWebhookSecret = nonEmptyString(raw.webhookSecret);
     const rate = parseWalletFeeRate(raw.customerWalletFeeRate);
     const customerWalletFeeRate = rate !== undefined && rate > 0;
+    const selfSettlementEnabled = parseOptionalBoolean(raw.selfSettlementEnabled) === true;
     return {
       fieldStatus: {
         aggregatedMerchant,
@@ -387,6 +463,7 @@ function fieldStatusFromDecrypted(
         ownAccountBearer,
         ownAccountWebhookSecret,
         customerWalletFeeRate,
+        selfSettlementEnabled,
       },
       checkoutConfigured: Boolean(ownAccountBearer || (platformWaveBearer && aggregatedMerchant)),
     };

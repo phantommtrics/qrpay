@@ -25,6 +25,10 @@ Platform operators provision or re-sync existing tenants from **`/#/platform/bus
 - **Aggregator (default):** `checkoutConfigured` when `fieldStatus.aggregatedMerchant` and `fieldStatus.platformWaveBearer` are true.
 - **Own Wave Business account:** `checkoutConfigured` when `fieldStatus.ownAccountBearer` is true. Aggregator provision is skipped and Wave Operations stay on the parent account.
 
+### Aggregator self-settlement
+
+Aggregated merchants’ checkout funds land in the platform Wave wallet, tagged with the tenant `aggregated_merchant_id` (Wave takes its checkout fee, typically ~1%, overridable via `WAVE_SELF_SETTLEMENT_CHECKOUT_FEE_RATE`). Optionally, after a successful sales webhook (`POST /api/webhooks/wave`), DirectPay enqueues a **self-settlement payout** to that business’s configured Wave customer number: **received amount − withhold** (percent and/or fixed GMD per business). The payout uses `POST /v1/payout` with `aggregated_merchant_id` so Wave debits that merchant’s sub-balance. The HTTP 200 to Wave is sent after payment completion and enqueue; a worker performs the payout. Configure this on **Platform → Businesses → [business] → Wave sales checkout**. Own-account (BYOK) merchants are skipped — funds already sit in their Wave wallet.
+
 ## Public pay page (`/pay/:publicToken`)
 
 - Customer lands after Wave success URL or simulator link.

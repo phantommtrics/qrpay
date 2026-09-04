@@ -86,6 +86,7 @@ Services live under **`backend/src/services/`**. The following map is representa
 ### Payment provider integrations
 
 - **`wave-payment.service.ts`**, **`yonna-forex-payment.service.ts`** — Low-level API calls.
+- **`wave-self-settlement.service.ts`** — Aggregator checkout → payout to the merchant Wave number after webhook.
 
 ## Public API surface (examples)
 

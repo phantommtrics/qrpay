@@ -21,6 +21,7 @@ import {
   completeWalletPaymentByPublicToken,
   WAVE_GAMBIA_WEBHOOK_LOG_PROVIDER,
 } from "./sale.service.js";
+import { enqueueWaveSelfSettlementForPayment } from "./wave-self-settlement.service.js";
 
 function validateWaveSignature(waveSignature: string, rawBody: string, webhookSecret: string): boolean {
   try {
@@ -225,7 +226,10 @@ async function handleWaveSubscriptionCheckoutWebhook(
   return true;
 }
 
-async function findPendingWaveMerchantPayment(ctx: WaveCheckoutWebhookContext) {
+async function findWaveMerchantPayment(
+  ctx: WaveCheckoutWebhookContext,
+  statuses: PaymentStatus[],
+) {
   const { waveSessionId, clientReference } = ctx;
   const or: Prisma.PaymentWhereInput[] = [];
   if (waveSessionId) {
@@ -243,19 +247,18 @@ async function findPendingWaveMerchantPayment(ctx: WaveCheckoutWebhookContext) {
     where: {
       method: PaymentMethod.QR_WALLET,
       provider: PaymentProvider.WAVE_GAMBIA,
-      status: PaymentStatus.PENDING,
+      status: { in: statuses },
       OR: or,
     },
     orderBy: { createdAt: "desc" },
   });
 }
 
-async function handleWaveMerchantWalletCheckoutWebhook(ctx: WaveCheckoutWebhookContext): Promise<void> {
-  const payment = await findPendingWaveMerchantPayment(ctx);
-  if (!payment) {
-    return;
-  }
+async function findPendingWaveMerchantPayment(ctx: WaveCheckoutWebhookContext) {
+  return findWaveMerchantPayment(ctx, [PaymentStatus.PENDING]);
+}
 
+async function handleWaveMerchantWalletCheckoutWebhook(ctx: WaveCheckoutWebhookContext): Promise<void> {
   const { mapped, waveSessionId } = ctx;
 
   if (mapped === "PENDING") {
@@ -263,6 +266,10 @@ async function handleWaveMerchantWalletCheckoutWebhook(ctx: WaveCheckoutWebhookC
   }
 
   if (mapped === "CANCELLED" || mapped === "FAILED") {
+    const payment = await findPendingWaveMerchantPayment(ctx);
+    if (!payment) {
+      return;
+    }
     await prisma.payment.updateMany({
       where: { id: payment.id, status: PaymentStatus.PENDING },
       data: {
@@ -276,15 +283,31 @@ async function handleWaveMerchantWalletCheckoutWebhook(ctx: WaveCheckoutWebhookC
     return;
   }
 
+  const payment = await findWaveMerchantPayment(ctx, [
+    PaymentStatus.PENDING,
+    PaymentStatus.COMPLETED,
+  ]);
+  if (!payment) {
+    return;
+  }
+
   const externalEventId = waveSessionId
     ? `wave:session:${waveSessionId}`
     : `wave:payment:${payment.id}`;
 
-  await completeWalletPaymentByPublicToken(payment.publicToken, {
-    externalEventId,
-    settlementSource: "webhook",
-    webhookLogProvider: WAVE_GAMBIA_WEBHOOK_LOG_PROVIDER,
-  });
+  if (payment.status === PaymentStatus.PENDING) {
+    await completeWalletPaymentByPublicToken(payment.publicToken, {
+      externalEventId,
+      settlementSource: "webhook",
+      webhookLogProvider: WAVE_GAMBIA_WEBHOOK_LOG_PROVIDER,
+    });
+  }
+
+  try {
+    await enqueueWaveSelfSettlementForPayment(payment.id);
+  } catch (err) {
+    console.error("[wave-self-settlement] Failed to enqueue payout for payment", payment.id, err);
+  }
 }
 
 /**

@@ -9,6 +9,7 @@ import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import {
   parseExistingWave,
+  waveSelfSettlementFieldsFrom,
   type WaveGatewaySecrets,
 } from "./business-gateway-credential.service.js";
 import { decryptJsonPayload, encryptJsonPayload } from "../utils/field-encryption.js";
@@ -219,6 +220,7 @@ export async function provisionWaveAggregatedMerchantForBusiness(input: {
       customerWalletFeeRate: existingSecrets?.customerWalletFeeRate,
       bearerToken: existingSecrets?.bearerToken,
       webhookSecret: existingSecrets?.webhookSecret,
+      ...waveSelfSettlementFieldsFrom(existingSecrets),
     };
 
     const enc = encryptJsonPayload(payload);

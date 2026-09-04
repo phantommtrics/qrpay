@@ -360,6 +360,7 @@ model Business {
   salesLedgerEntries            SalesLedgerEntry[]
   gatewayCredentials            BusinessGatewayCredential[]
   waveAggregatedMerchantProvisionLogs WaveAggregatedMerchantProvisionLog[]
+  waveSelfSettlementPayouts     WaveSelfSettlementPayout[]
   apsWalletCustomerAuths        BusinessApsWalletCustomerAuth[]
   salesQuotations               SalesQuotation[]
   salesInvoices                 SalesInvoice[]
@@ -539,6 +540,52 @@ model WaveAggregatedMerchantProvisionLog {
   createdAt            DateTime                                @default(now())
   business             Business                                @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
+  @@index([businessId, createdAt])
+}
+
+enum WaveSelfSettlementPayoutStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  SKIPPED
+}
+
+/**
+ * Aggregator self-settlement: after a tenant Wave checkout webhook, payout gross minus withhold
+ * to the merchant's configured Wave mobile, debiting their aggregated merchant id.
+ */
+model WaveSelfSettlementPayout {
+  id                       String                         @id @default(cuid())
+  paymentId                String                         @unique
+  businessId               String
+  aggregatedMerchantId     String
+  mobile                   String
+  name                     String
+  currency                 String
+  grossAmount              Decimal                        @db.Decimal(12, 2)
+  withholdAmount           Decimal                        @db.Decimal(12, 2)
+  requestedReceiveAmount   Decimal                        @db.Decimal(12, 2)
+  receiveAmount            Decimal                        @db.Decimal(12, 2)
+  clamped                  Boolean                        @default(false)
+  fee                      String?
+  status                   WaveSelfSettlementPayoutStatus @default(PENDING)
+  wavePayoutId             String?                        @unique
+  clientReference          String?
+  idempotencyKey           String                         @unique
+  attempts                 Int                            @default(0)
+  maxAttempts              Int                            @default(8)
+  nextAttemptAt            DateTime                       @default(now())
+  errorCode                String?
+  errorMessage             String?                        @db.Text
+  skipReason               String?
+  waveTimestamp            DateTime?
+  createdAt                DateTime                       @default(now())
+  updatedAt                DateTime                       @updatedAt
+  payment                  Payment                        @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  business                 Business                       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
   @@index([businessId, createdAt])
 }
 
@@ -1626,6 +1673,7 @@ model Payment {
   business           Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
   recordedBy         User?              @relation("PaymentRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
   salesLedgerEntries SalesLedgerEntry[]
+  waveSelfSettlementPayout WaveSelfSettlementPayout?
 
   @@unique([businessId, publicCode])
   @@index([orderId])

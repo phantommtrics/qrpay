@@ -5,6 +5,7 @@ import { ensureDefaultPlatformChartAccounts } from "./services/platform-chart-of
 import { ensurePlatformModulesSeeded } from "./services/platform-module-sync.service.js";
 import { syncSystemCatalogAndPlanEntitlements } from "./services/system-catalog-sync.service.js";
 import { startPartnerOutboundWebhookWorker } from "./services/internal-partner-webhook-queue.service.js";
+import { startWaveSelfSettlementWorker } from "./services/wave-self-settlement.service.js";
 import { runSubscriptionRenewalInvoiceSweepOnce } from "./services/subscription.service.js";
 import { isDigitalOceanBillingConfigured } from "./config/digitalocean-env.js";
 import { syncDigitalOceanInvoices } from "./services/digitalocean-billing.service.js";
@@ -18,6 +19,7 @@ ensurePlatformModulesSeeded()
         `DirectPay backend listening on http://localhost:${env.PORT} (all interfaces — use your PC LAN IP from other devices)`,
       );
       startPartnerOutboundWebhookWorker();
+      startWaveSelfSettlementWorker();
       const sweepMs = Math.max(
         60_000,
         Number(process.env.SUBSCRIPTION_RENEWAL_SWEEP_MS ?? `${6 * 60 * 60 * 1000}`) || 6 * 60 * 60 * 1000,
