@@ -104,7 +104,6 @@ export function WaveCheckoutProvisionPanel({
   const [draftMobile, setDraftMobile] = useState('')
   const [draftFeePercent, setDraftFeePercent] = useState('0')
   const [draftFeeFixed, setDraftFeeFixed] = useState('0')
-  const [checkoutFeePercent, setCheckoutFeePercent] = useState(1)
   const [settlementLoading, setSettlementLoading] = useState(false)
   const [settlementSaving, setSettlementSaving] = useState(false)
   const [settlementModalOpen, setSettlementModalOpen] = useState(false)
@@ -140,7 +139,6 @@ export function WaveCheckoutProvisionPanel({
       setDraftMobile(form.mobile)
       setDraftFeePercent(form.feePercent)
       setDraftFeeFixed(form.feeFixed)
-      setCheckoutFeePercent(Math.round(data.checkoutFeeRate * 10000) / 100)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not load Wave self-settlement settings.')
     } finally {
@@ -462,7 +460,6 @@ export function WaveCheckoutProvisionPanel({
                   <X className="h-5 w-5" />
                 </button>
                 <h2 className="pr-10 text-lg font-semibold text-slate-900">Self-settlement</h2>
-
                 <div className="mt-5 space-y-4">
                   <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-3 text-sm text-slate-800">
                     <input
@@ -472,12 +469,7 @@ export function WaveCheckoutProvisionPanel({
                       onChange={(e) => setDraftEnabled(e.target.checked)}
                       className="mt-0.5 h-4 w-4 rounded border-slate-300 text-teal-700"
                     />
-                    <span>
-                      <span className="font-medium">Enable payouts after checkout</span>
-                      <span className="mt-0.5 block text-xs text-slate-500">
-                        Runs when the Wave sales webhook succeeds. Skipped for own-account merchants.
-                      </span>
-                    </span>
+                    <span className="font-medium">Enable payouts after checkout</span>
                   </label>
 
                   <div>
