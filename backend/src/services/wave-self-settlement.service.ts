@@ -35,6 +35,7 @@ const BACKOFF_MS = [
 ];
 
 const PROCESSING_STALE_MS = 2 * 60 * 1000;
+const WAVE_PROCESSING_POLL_MS = 5_000;
 
 let workerStarted = false;
 let drainScheduled = false;
@@ -338,6 +339,44 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
   }
 }
 
+function localStatusFromWavePayout(waveStatus: string): WaveSelfSettlementPayoutStatus {
+  if (waveStatus === "failed" || waveStatus === "reversed") {
+    return WaveSelfSettlementPayoutStatus.FAILED;
+  }
+  if (waveStatus === "succeeded") {
+    return WaveSelfSettlementPayoutStatus.SUCCEEDED;
+  }
+  return WaveSelfSettlementPayoutStatus.PROCESSING;
+}
+
+async function persistWavePayoutResult(
+  rowId: string,
+  result: {
+    id: string;
+    status: string;
+    fee?: string;
+    timestamp?: string;
+    payout_error?: { error_code: string; error_message: string };
+  },
+): Promise<WaveSelfSettlementPayoutStatus> {
+  const localStatus = localStatusFromWavePayout(result.status);
+  await prisma.waveSelfSettlementPayout.update({
+    where: { id: rowId },
+    data: {
+      status: localStatus,
+      wavePayoutId: result.id,
+      fee: result.fee ?? null,
+      errorCode: result.payout_error?.error_code ?? null,
+      errorMessage: result.payout_error?.error_message ?? null,
+      waveTimestamp: result.timestamp ? new Date(result.timestamp) : new Date(),
+      ...(localStatus === WaveSelfSettlementPayoutStatus.PROCESSING
+        ? { nextAttemptAt: new Date(Date.now() + WAVE_PROCESSING_POLL_MS) }
+        : {}),
+    },
+  });
+  return localStatus;
+}
+
 async function sendSettlementPayout(row: {
   id: string;
   receiveAmount: Prisma.Decimal;
@@ -347,42 +386,44 @@ async function sendSettlementPayout(row: {
   clientReference: string | null;
   aggregatedMerchantId: string;
   idempotencyKey: string;
+  wavePayoutId: string | null;
 }): Promise<void> {
   if (!isPlatformWaveCheckoutConfigured()) {
     throw new HttpError(503, "Wave is not configured (WAVE_CHECKOUT_BEARER).");
   }
   const wave = waveServiceFromEnv();
-  const payload: WavePayoutRequest = {
-    currency: row.currency,
-    receive_amount: row.receiveAmount.toFixed(2),
-    name: row.name,
-    mobile: row.mobile,
-    aggregated_merchant_id: row.aggregatedMerchantId,
-    ...(row.clientReference ? { client_reference: row.clientReference } : {}),
-  };
-  console.info("[wave-self-settlement] sending payout", {
-    payoutId: row.id,
-    receiveAmount: row.receiveAmount.toFixed(2),
-    mobile: row.mobile,
-    aggregatedMerchantId: row.aggregatedMerchantId,
-  });
-  const result = await wave.createPayout(payload, row.idempotencyKey);
+  const existingWaveId = row.wavePayoutId?.trim();
+  let result;
+  if (existingWaveId) {
+    console.info("[wave-self-settlement] polling Wave payout", {
+      payoutId: row.id,
+      wavePayoutId: existingWaveId,
+    });
+    result = await wave.getPayout(existingWaveId);
+  } else {
+    const payload: WavePayoutRequest = {
+      currency: row.currency,
+      receive_amount: row.receiveAmount.toFixed(2),
+      name: row.name,
+      mobile: row.mobile,
+      aggregated_merchant_id: row.aggregatedMerchantId,
+      ...(row.clientReference ? { client_reference: row.clientReference } : {}),
+    };
+    console.info("[wave-self-settlement] sending payout", {
+      payoutId: row.id,
+      receiveAmount: row.receiveAmount.toFixed(2),
+      mobile: row.mobile,
+      aggregatedMerchantId: row.aggregatedMerchantId,
+    });
+    result = await wave.createPayout(payload, row.idempotencyKey);
+  }
+  const localStatus = await persistWavePayoutResult(row.id, result);
   console.info("[wave-self-settlement] payout result", {
     payoutId: row.id,
     wavePayoutId: result.id,
-    status: result.status,
+    waveStatus: result.status,
+    localStatus,
     error: result.payout_error?.error_message ?? null,
-  });
-  await prisma.waveSelfSettlementPayout.update({
-    where: { id: row.id },
-    data: {
-      status: result.status === "failed" ? WaveSelfSettlementPayoutStatus.FAILED : WaveSelfSettlementPayoutStatus.SUCCEEDED,
-      wavePayoutId: result.id,
-      fee: result.fee ?? null,
-      errorCode: result.payout_error?.error_code ?? null,
-      errorMessage: result.payout_error?.error_message ?? null,
-      waveTimestamp: result.timestamp ? new Date(result.timestamp) : new Date(),
-    },
   });
 }
 
@@ -393,6 +434,7 @@ export async function processWaveSelfSettlementJobs(limit = 10): Promise<number>
     where: {
       OR: [
         { status: WaveSelfSettlementPayoutStatus.PENDING, nextAttemptAt: { lte: now } },
+        { status: WaveSelfSettlementPayoutStatus.PROCESSING, nextAttemptAt: { lte: now } },
         { status: WaveSelfSettlementPayoutStatus.PROCESSING, updatedAt: { lte: staleBefore } },
       ],
     },
@@ -402,22 +444,30 @@ export async function processWaveSelfSettlementJobs(limit = 10): Promise<number>
 
   let touched = 0;
   for (const row of rows) {
+    const isPoll = Boolean(row.wavePayoutId?.trim());
     const claimed = await prisma.waveSelfSettlementPayout.updateMany({
-      where: {
-        id: row.id,
-        status: { in: [WaveSelfSettlementPayoutStatus.PENDING, WaveSelfSettlementPayoutStatus.PROCESSING] },
-      },
-      data: {
-        status: WaveSelfSettlementPayoutStatus.PROCESSING,
-        attempts: { increment: 1 },
-      },
+      where: isPoll
+        ? { id: row.id, status: WaveSelfSettlementPayoutStatus.PROCESSING }
+        : {
+            id: row.id,
+            wavePayoutId: null,
+            status: {
+              in: [WaveSelfSettlementPayoutStatus.PENDING, WaveSelfSettlementPayoutStatus.PROCESSING],
+            },
+          },
+      data: isPoll
+        ? { status: WaveSelfSettlementPayoutStatus.PROCESSING }
+        : {
+            status: WaveSelfSettlementPayoutStatus.PROCESSING,
+            attempts: { increment: 1 },
+          },
     });
     if (claimed.count !== 1) {
       continue;
     }
     touched += 1;
 
-    const attemptNumber = row.attempts + 1;
+    const attemptNumber = isPoll ? row.attempts : row.attempts + 1;
     try {
       await sendSettlementPayout(row);
     } catch (e) {
