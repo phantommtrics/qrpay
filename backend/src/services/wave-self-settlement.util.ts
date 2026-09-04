@@ -7,46 +7,100 @@ export function roundMoney2(n: Prisma.Decimal): Prisma.Decimal {
   return n.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 }
 
+/** Wave GMD fees: 0.50 and up → 1, below 0.50 → 0 (half-up to whole dalasis). */
+export function roundWaveFeeToWhole(n: Prisma.Decimal): Prisma.Decimal {
+  if (n.lte(0)) {
+    return new Prisma.Decimal(0);
+  }
+  return n.toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP);
+}
+
 export type WaveSelfSettlementAmounts = {
   withholdAmount: Prisma.Decimal;
   requestedReceiveAmount: Prisma.Decimal;
   receiveAmount: Prisma.Decimal;
   clamped: boolean;
+  checkoutFeeAmount: Prisma.Decimal;
+  payoutFeeAmount: Prisma.Decimal;
 };
 
 /**
- * X = round2(G × percentRate) + fixedAmount
- * requested = G − X
- * receiveAmount is clamped to estimated Wave net G × (1 − checkoutFeeRate) so we
- * do not overdraw the aggregated merchant sub-balance after Wave's checkout fee.
+ * Wave `receive_amount` is net to the recipient; Wave then debits receive + payout fee
+ * from the aggregated merchant sub-balance. Both Wave fees are whole GMD (half-up).
+ *
+ * checkoutFee = roundWhole(G × checkoutFeeRate)
+ * withhold X = round2(G × percentRate) + fixedAmount
+ * available = G − checkoutFee − X
+ * receive is the largest amount with receive + roundWhole(receive × payoutFeeRate) ≤ available
  */
+function receiveNetOfPayoutFee(
+  available: Prisma.Decimal,
+  payoutRate: Prisma.Decimal,
+): { receive: Prisma.Decimal; payoutFee: Prisma.Decimal } {
+  const zero = new Prisma.Decimal(0);
+  if (available.lte(0)) {
+    return { receive: zero, payoutFee: zero };
+  }
+  if (payoutRate.lte(0)) {
+    const receive = roundMoney2(available);
+    return { receive, payoutFee: zero };
+  }
+  const step = new Prisma.Decimal("0.01");
+  let lo = zero;
+  let hi = roundMoney2(available);
+  let bestReceive = zero;
+  let bestFee = roundWaveFeeToWhole(zero);
+  while (lo.lte(hi)) {
+    const mid = roundMoney2(lo.plus(hi).div(2));
+    const fee = roundWaveFeeToWhole(mid.mul(payoutRate));
+    if (mid.plus(fee).lte(available)) {
+      bestReceive = mid;
+      bestFee = fee;
+      lo = mid.plus(step);
+    } else {
+      hi = mid.minus(step);
+    }
+  }
+  return { receive: bestReceive, payoutFee: bestFee };
+}
+
 export function computeWaveSelfSettlementAmounts(input: {
   gross: Prisma.Decimal | string | number;
   feeRate: number;
   feeFixed: number;
   checkoutFeeRate: Prisma.Decimal | string | number;
+  payoutFeeRate?: Prisma.Decimal | string | number;
 }): WaveSelfSettlementAmounts {
   const gross = new Prisma.Decimal(String(input.gross));
   const rate = new Prisma.Decimal(String(input.feeRate || 0));
   const fixed = new Prisma.Decimal(String(input.feeFixed || 0));
   const checkoutRate = new Prisma.Decimal(String(input.checkoutFeeRate));
+  const payoutRate = new Prisma.Decimal(String(input.payoutFeeRate ?? 0));
 
   const withholdAmount = roundMoney2(gross.mul(rate).plus(fixed));
   const requestedReceiveAmount = roundMoney2(gross.minus(withholdAmount));
-  const estimatedNet = roundMoney2(gross.mul(new Prisma.Decimal(1).minus(checkoutRate)));
+  const checkoutFeeAmount = roundWaveFeeToWhole(gross.mul(checkoutRate));
+  const netAfterCheckout = roundMoney2(gross.minus(checkoutFeeAmount));
+  const available = roundMoney2(netAfterCheckout.minus(withholdAmount));
 
-  let receiveAmount = requestedReceiveAmount;
-  let clamped = false;
-  if (receiveAmount.gt(estimatedNet)) {
-    receiveAmount = estimatedNet;
+  const { receive: receiveAmount, payoutFee: payoutFeeAmount } = receiveNetOfPayoutFee(
+    available,
+    payoutRate,
+  );
+
+  let clamped = receiveAmount.lt(requestedReceiveAmount) || receiveAmount.lte(0);
+  if (requestedReceiveAmount.lt(0) && receiveAmount.lte(0)) {
     clamped = true;
   }
-  if (receiveAmount.lt(0)) {
-    receiveAmount = new Prisma.Decimal(0);
-    clamped = true;
-  }
 
-  return { withholdAmount, requestedReceiveAmount, receiveAmount, clamped };
+  return {
+    withholdAmount,
+    requestedReceiveAmount,
+    receiveAmount,
+    clamped,
+    checkoutFeeAmount,
+    payoutFeeAmount,
+  };
 }
 
 export type WaveSelfSettlementSkipReason =

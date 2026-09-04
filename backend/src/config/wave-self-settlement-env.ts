@@ -1,9 +1,8 @@
 import { Prisma } from "@prisma/client";
 
 /**
- * Wave incoming checkout fee used to estimate remaining aggregated-merchant
- * balance after Wave takes its cut. Not the merchant GL `customerWalletFeeRate`.
- * Fraction 0–1. Default 0.01 (1%).
+ * Wave fee rates used to estimate remaining aggregated-merchant balance.
+ * Not the merchant GL `customerWalletFeeRate`. Fraction 0–1.
  */
 function parseRate(raw: string | undefined, fallback: string, envKey: string): Prisma.Decimal {
   const s = raw?.trim();
@@ -29,6 +28,21 @@ const checkoutFeeRate = parseRate(
   "WAVE_SELF_SETTLEMENT_CHECKOUT_FEE_RATE",
 );
 
+const payoutFeeRate = parseRate(
+  process.env.WAVE_SELF_SETTLEMENT_PAYOUT_FEE_RATE,
+  "0.01",
+  "WAVE_SELF_SETTLEMENT_PAYOUT_FEE_RATE",
+);
+
+/** Wave incoming checkout fee (typically ~1%). Default 0.01. */
 export function waveSelfSettlementCheckoutFeeRate(): Prisma.Decimal {
   return checkoutFeeRate;
+}
+
+/**
+ * Wave `POST /v1/payout` fee on top of `receive_amount` (Wave's receive_amount is net to the
+ * recipient). Default 0.01.
+ */
+export function waveSelfSettlementPayoutFeeRate(): Prisma.Decimal {
+  return payoutFeeRate;
 }

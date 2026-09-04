@@ -2780,6 +2780,7 @@ export type WaveSelfSettlementConfig = {
   aggregatedMerchantId: string | null
   ownAccountActive: boolean
   checkoutFeeRate: number
+  payoutFeeRate: number
 }
 
 export async function fetchWaveSelfSettlementConfig(businessId: string) {

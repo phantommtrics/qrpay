@@ -8,7 +8,10 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 
-import { waveSelfSettlementCheckoutFeeRate } from "../config/wave-self-settlement-env.js";
+import {
+  waveSelfSettlementCheckoutFeeRate,
+  waveSelfSettlementPayoutFeeRate,
+} from "../config/wave-self-settlement-env.js";
 import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import { encryptJsonPayload } from "../utils/field-encryption.js";
@@ -39,6 +42,7 @@ const WAVE_PROCESSING_POLL_MS = 5_000;
 
 let workerStarted = false;
 let drainScheduled = false;
+let jobsRunning = false;
 
 function settlementIdempotencyKey(paymentId: string): string {
   const hex = createHash("sha256").update(`wave-self-settle:${paymentId}`).digest("hex");
@@ -46,8 +50,22 @@ function settlementIdempotencyKey(paymentId: string): string {
 }
 
 function isPermanentWavePayoutError(e: unknown): boolean {
-  if (e instanceof HttpError) {
-    return e.statusCode >= 400 && e.statusCode < 500 && e.statusCode !== 429;
+  if (!(e instanceof HttpError)) {
+    return false;
+  }
+  if (e.statusCode === 429) {
+    return false;
+  }
+  if (e.statusCode >= 400 && e.statusCode < 500) {
+    return true;
+  }
+  const msg = e.message;
+  // wave-payment.service maps Wave 4xx/401/403 onto HttpError 502.
+  if (/Wave API rejected credentials/.test(msg)) {
+    return true;
+  }
+  if (/Wave API request rejected \(4\d\d\)/.test(msg)) {
+    return true;
   }
   return false;
 }
@@ -73,6 +91,7 @@ export type WaveSelfSettlementConfig = {
   aggregatedMerchantId: string | null;
   ownAccountActive: boolean;
   checkoutFeeRate: number;
+  payoutFeeRate: number;
 };
 
 export async function getWaveSelfSettlementConfig(businessId: string): Promise<WaveSelfSettlementConfig> {
@@ -89,6 +108,7 @@ export async function getWaveSelfSettlementConfig(businessId: string): Promise<W
   );
   const parsed = secrets ? parseExistingWave(secrets as unknown as Record<string, unknown>) : null;
   const checkout = waveSelfSettlementCheckoutFeeRate();
+  const payoutFee = waveSelfSettlementPayoutFeeRate();
   return {
     enabled: parsed?.selfSettlementEnabled === true,
     mobile: parsed?.selfSettlementMobile?.trim() || null,
@@ -97,6 +117,7 @@ export async function getWaveSelfSettlementConfig(businessId: string): Promise<W
     aggregatedMerchantId: parsed?.aggregatedMerchantId?.trim() || null,
     ownAccountActive: Boolean(waveOwnAccountBearer(parsed)),
     checkoutFeeRate: Number(checkout.toString()),
+    payoutFeeRate: Number(payoutFee.toString()),
   };
 }
 
@@ -264,6 +285,7 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
     feeRate: settlementFeeRateFromSecrets(parsed),
     feeFixed: settlementFeeFixedFromSecrets(parsed),
     checkoutFeeRate: waveSelfSettlementCheckoutFeeRate(),
+    payoutFeeRate: waveSelfSettlementPayoutFeeRate(),
   });
 
   const skip = waveSelfSettlementSkipReason({
@@ -329,8 +351,11 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
     paymentId: payment.id,
     businessId: payment.businessId,
     status,
-    receiveAmount: amounts.receiveAmount.toFixed(2),
+    grossAmount: new Prisma.Decimal(String(payment.amount)).toFixed(2),
+    checkoutFeeAmount: amounts.checkoutFeeAmount.toFixed(2),
     withholdAmount: amounts.withholdAmount.toFixed(2),
+    payoutFeeAmount: amounts.payoutFeeAmount.toFixed(2),
+    receiveAmount: amounts.receiveAmount.toFixed(2),
     mobile,
   });
 
@@ -428,14 +453,34 @@ async function sendSettlementPayout(row: {
 }
 
 export async function processWaveSelfSettlementJobs(limit = 10): Promise<number> {
+  if (jobsRunning) {
+    return 0;
+  }
+  jobsRunning = true;
+  try {
+    return await runWaveSelfSettlementJobs(limit);
+  } finally {
+    jobsRunning = false;
+  }
+}
+
+async function runWaveSelfSettlementJobs(limit = 10): Promise<number> {
   const now = new Date();
   const staleBefore = new Date(now.getTime() - PROCESSING_STALE_MS);
   const rows = await prisma.waveSelfSettlementPayout.findMany({
     where: {
       OR: [
         { status: WaveSelfSettlementPayoutStatus.PENDING, nextAttemptAt: { lte: now } },
-        { status: WaveSelfSettlementPayoutStatus.PROCESSING, nextAttemptAt: { lte: now } },
-        { status: WaveSelfSettlementPayoutStatus.PROCESSING, updatedAt: { lte: staleBefore } },
+        {
+          status: WaveSelfSettlementPayoutStatus.PROCESSING,
+          wavePayoutId: { not: null },
+          nextAttemptAt: { lte: now },
+        },
+        {
+          status: WaveSelfSettlementPayoutStatus.PROCESSING,
+          wavePayoutId: null,
+          updatedAt: { lte: staleBefore },
+        },
       ],
     },
     orderBy: { nextAttemptAt: "asc" },
@@ -445,21 +490,24 @@ export async function processWaveSelfSettlementJobs(limit = 10): Promise<number>
   let touched = 0;
   for (const row of rows) {
     const isPoll = Boolean(row.wavePayoutId?.trim());
+    const holdUntil = new Date(now.getTime() + PROCESSING_STALE_MS);
     const claimed = await prisma.waveSelfSettlementPayout.updateMany({
       where: isPoll
         ? { id: row.id, status: WaveSelfSettlementPayoutStatus.PROCESSING }
         : {
             id: row.id,
             wavePayoutId: null,
-            status: {
-              in: [WaveSelfSettlementPayoutStatus.PENDING, WaveSelfSettlementPayoutStatus.PROCESSING],
-            },
+            status:
+              row.status === WaveSelfSettlementPayoutStatus.PROCESSING
+                ? WaveSelfSettlementPayoutStatus.PROCESSING
+                : WaveSelfSettlementPayoutStatus.PENDING,
           },
       data: isPoll
-        ? { status: WaveSelfSettlementPayoutStatus.PROCESSING }
+        ? { status: WaveSelfSettlementPayoutStatus.PROCESSING, nextAttemptAt: holdUntil }
         : {
             status: WaveSelfSettlementPayoutStatus.PROCESSING,
             attempts: { increment: 1 },
+            nextAttemptAt: holdUntil,
           },
     });
     if (claimed.count !== 1) {
@@ -485,9 +533,14 @@ export async function processWaveSelfSettlementJobs(limit = 10): Promise<number>
           nextAttemptAt: exhausted ? now : new Date(now.getTime() + delay),
         },
       });
-      if (exhausted) {
-        console.warn("[wave-self-settlement] payout failed:", row.id, message);
-      }
+      console.warn("[wave-self-settlement] payout attempt error", {
+        payoutId: row.id,
+        attemptNumber,
+        permanent,
+        exhausted,
+        errorCode,
+        message,
+      });
     }
   }
 
