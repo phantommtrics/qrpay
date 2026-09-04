@@ -65,6 +65,7 @@ Easypay may configure **comma-separated** values in `INTERNAL_PARTNER_API_SECRET
 |--------|------|---------|
 | `POST` | `/api/internal-partner/v1/provision` | Create tenant (business + owner user + comped BASIC subscription). Idempotent on `externalUserId`. |
 | `POST` | `/api/internal-partner/v1/businesses/:businessId/orders` | Create order for a booking amount. Idempotent while same `partnerExternalBookingId` is still unpaid. |
+| `GET` | `/api/internal-partner/v1/businesses/:businessId/orders/:orderId` | Poll order + payments (`pending_payment` → `paid`). Same `{ data: { order } }` shape as create. |
 | `GET` | `/api/internal-partner/v1/businesses/:businessId/orders/:orderId/checkout-wallets` | List configured wallets (APS / Wave / Yonna) for checkout. |
 | `POST` | `/api/internal-partner/v1/businesses/:businessId/orders/:orderId/payments/wallet` | Start Wave or Yonna checkout for the order. |
 | `POST` | `.../orders/:orderId/payments/aps-wallet/authorize` | APS: send OTP / authorize. |

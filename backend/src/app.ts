@@ -212,6 +212,7 @@ import {
   getOrderForBusiness,
   listOrdersForBusiness,
   getPublicPayInfo,
+  enqueueWaveSelfSettlementForPayments,
   getReceiptForBusiness,
   isSimulatorPublicPayEnabled,
   listPaymentsForBusiness,
@@ -559,6 +560,8 @@ app.use(
   }),
 );
 
+app.use(httpRequestLogger);
+
 app.post(
   "/api/webhooks/wave",
   express.raw({ type: "application/json", limit: "512kb" }),
@@ -621,7 +624,6 @@ app.post(
 );
 
 app.use(express.json());
-app.use(httpRequestLogger);
 app.use("/uploads", express.static(uploadsRoot));
 
 function getRequestClientKey(request: express.Request): string {
@@ -7355,6 +7357,28 @@ app.post(
         category: body.category,
       });
       response.status(created ? 201 : 200).json({
+        data: { order: formatSaleOrder(order) },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/internal-partner/v1/businesses/:businessId/orders/:orderId",
+  requireInternalPartnerApiSecret,
+  async (request, response, next) => {
+    try {
+      const businessId = request.params.businessId as string;
+      const orderId = request.params.orderId as string;
+      await assertInternalPartnerProvisionedBusiness(businessId);
+      const order = await getOrderForBusiness(orderId, businessId);
+      if (!order?.partnerExternalBookingId) {
+        throw new HttpError(404, "Order not found.");
+      }
+      await enqueueWaveSelfSettlementForPayments(order.payments);
+      response.json({
         data: { order: formatSaleOrder(order) },
       });
     } catch (error) {

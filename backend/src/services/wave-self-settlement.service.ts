@@ -235,6 +235,12 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
     where: { paymentId: payment.id },
   });
   if (existing) {
+    console.info("[wave-self-settlement] already queued", {
+      paymentId: payment.id,
+      businessId: payment.businessId,
+      payoutId: existing.id,
+      status: existing.status,
+    });
     if (existing.status === WaveSelfSettlementPayoutStatus.PENDING) {
       scheduleDrain();
     }
@@ -318,6 +324,15 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
     throw error;
   }
 
+  console.info("[wave-self-settlement] enqueued", {
+    paymentId: payment.id,
+    businessId: payment.businessId,
+    status,
+    receiveAmount: amounts.receiveAmount.toFixed(2),
+    withholdAmount: amounts.withholdAmount.toFixed(2),
+    mobile,
+  });
+
   if (status === WaveSelfSettlementPayoutStatus.PENDING) {
     scheduleDrain();
   }
@@ -345,7 +360,19 @@ async function sendSettlementPayout(row: {
     aggregated_merchant_id: row.aggregatedMerchantId,
     ...(row.clientReference ? { client_reference: row.clientReference } : {}),
   };
+  console.info("[wave-self-settlement] sending payout", {
+    payoutId: row.id,
+    receiveAmount: row.receiveAmount.toFixed(2),
+    mobile: row.mobile,
+    aggregatedMerchantId: row.aggregatedMerchantId,
+  });
   const result = await wave.createPayout(payload, row.idempotencyKey);
+  console.info("[wave-self-settlement] payout result", {
+    payoutId: row.id,
+    wavePayoutId: result.id,
+    status: result.status,
+    error: result.payout_error?.error_message ?? null,
+  });
   await prisma.waveSelfSettlementPayout.update({
     where: { id: row.id },
     data: {

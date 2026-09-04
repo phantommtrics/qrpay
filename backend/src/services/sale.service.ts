@@ -61,6 +61,60 @@ async function enqueueWaveSelfSettlementSafe(payment: { id: string; provider: st
   }
 }
 
+export async function enqueueWaveSelfSettlementForPayments(
+  payments: Array<{ id: string; provider: string; status: string }>,
+): Promise<void> {
+  for (const payment of payments) {
+    if (payment.status !== PaymentStatus.COMPLETED) {
+      continue;
+    }
+    await enqueueWaveSelfSettlementSafe(payment);
+  }
+}
+
+async function reconcilePendingWaveWalletPayment(payment: {
+  id: string;
+  publicToken: string;
+  businessId: string;
+  status: string;
+  provider: string;
+  providerRef: string | null;
+}): Promise<boolean> {
+  if (payment.provider !== PaymentProvider.WAVE_GAMBIA) {
+    return false;
+  }
+  if (payment.status === PaymentStatus.COMPLETED) {
+    await enqueueWaveSelfSettlementSafe(payment);
+    return false;
+  }
+  if (payment.status !== PaymentStatus.PENDING) {
+    return false;
+  }
+  const sessionId = payment.providerRef?.trim();
+  if (!sessionId) {
+    return false;
+  }
+  try {
+    const { waveServiceForBusiness } = await import("./wave-client-env.js");
+    const session = await waveServiceForBusiness(payment.businessId);
+    const checkout = await session.getCheckoutSession(sessionId);
+    const succeeded =
+      checkout.payment_status === "succeeded" || checkout.checkout_status === "complete";
+    if (!succeeded) {
+      return false;
+    }
+    await completeWalletPaymentByPublicToken(payment.publicToken, {
+      externalEventId: `wave:session:${sessionId}`,
+      settlementSource: "webhook",
+      webhookLogProvider: WAVE_GAMBIA_WEBHOOK_LOG_PROVIDER,
+    });
+    return true;
+  } catch (err) {
+    console.warn("[wave] public-pay session reconcile failed", payment.id, err);
+    return false;
+  }
+}
+
 async function shouldSendOwnerPaymentPush(
   businessId: string,
   processingUserId?: string | null,
@@ -1691,7 +1745,7 @@ export async function cancelPendingOrder(orderId: string, businessId: string) {
 }
 
 export async function getPublicPayInfo(publicToken: string) {
-  const payment = await prisma.payment.findUnique({
+  let payment = await prisma.payment.findUnique({
     where: { publicToken },
     include: {
       business: { select: { name: true } },
@@ -1702,6 +1756,21 @@ export async function getPublicPayInfo(publicToken: string) {
 
   if (!payment) {
     throw new HttpError(404, "Payment not found.");
+  }
+
+  const reconciled = await reconcilePendingWaveWalletPayment(payment);
+  if (reconciled) {
+    const fresh = await prisma.payment.findUnique({
+      where: { publicToken },
+      include: {
+        business: { select: { name: true } },
+        order: { select: { id: true, status: true, total: true, currency: true } },
+        salesInvoice: { select: { id: true, publicCode: true, status: true } },
+      },
+    });
+    if (fresh) {
+      payment = fresh;
+    }
   }
 
   if (payment.salesInvoiceId && payment.salesInvoice) {
