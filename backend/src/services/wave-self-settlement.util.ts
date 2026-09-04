@@ -42,16 +42,16 @@ function receiveNetOfPayoutFee(
     return { receive: zero, payoutFee: zero };
   }
   if (payoutRate.lte(0)) {
-    const receive = roundMoney2(available);
-    return { receive, payoutFee: zero };
+    const receive = available.toDecimalPlaces(0, Prisma.Decimal.ROUND_DOWN);
+    return { receive: receive.lt(0) ? zero : receive, payoutFee: zero };
   }
-  const step = new Prisma.Decimal("0.01");
+  const step = new Prisma.Decimal(1);
   let lo = zero;
-  let hi = roundMoney2(available);
+  let hi = available.toDecimalPlaces(0, Prisma.Decimal.ROUND_DOWN);
   let bestReceive = zero;
   let bestFee = roundWaveFeeToWhole(zero);
   while (lo.lte(hi)) {
-    const mid = roundMoney2(lo.plus(hi).div(2));
+    const mid = lo.plus(hi).div(2).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP);
     const fee = roundWaveFeeToWhole(mid.mul(payoutRate));
     if (mid.plus(fee).lte(available)) {
       bestReceive = mid;

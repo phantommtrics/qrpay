@@ -26,6 +26,7 @@ import { GATEWAY_CODE_WAVE_GAMBIA, getPaymentGatewayByCode } from "./payment-gat
 import { isPlatformWaveCheckoutConfigured, waveServiceFromEnv } from "./wave-client-env.js";
 import { normalizeWaveMobile } from "./wave-ops.service.js";
 import type { WavePayoutRequest } from "./wave-payment.service.js";
+import { formatWavePayoutAmount } from "./wave-payment.service.js";
 import {
   computeWaveSelfSettlementAmounts,
   settlementFeeFixedFromSecrets,
@@ -428,7 +429,7 @@ async function sendSettlementPayout(row: {
   } else {
     const payload: WavePayoutRequest = {
       currency: row.currency,
-      receive_amount: row.receiveAmount.toFixed(2),
+      receive_amount: formatWavePayoutAmount(row.receiveAmount.toString()),
       name: row.name,
       mobile: row.mobile,
       aggregated_merchant_id: row.aggregatedMerchantId,
@@ -436,7 +437,7 @@ async function sendSettlementPayout(row: {
     };
     console.info("[wave-self-settlement] sending payout", {
       payoutId: row.id,
-      receiveAmount: row.receiveAmount.toFixed(2),
+      receiveAmount: payload.receive_amount,
       mobile: row.mobile,
       aggregatedMerchantId: row.aggregatedMerchantId,
     });

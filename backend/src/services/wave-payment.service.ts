@@ -11,11 +11,32 @@ function waveErrorMessageFromResponseData(data: unknown): string {
   }
   if (typeof data === "object") {
     const o = data as Record<string, unknown>;
+    let base = "";
     for (const key of ["message", "error", "detail", "description", "code"] as const) {
       const v = o[key];
       if (typeof v === "string" && v.trim()) {
-        return v.trim().slice(0, 500);
+        base = v.trim();
+        break;
       }
+    }
+    const details = o.details;
+    if (Array.isArray(details) && details.length > 0) {
+      const parts = details.map((item) => {
+        if (!item || typeof item !== "object") {
+          return String(item);
+        }
+        const d = item as Record<string, unknown>;
+        const loc = Array.isArray(d.loc) ? d.loc.map(String).join(".") : "";
+        const msg = typeof d.msg === "string" ? d.msg.trim() : "";
+        return [loc, msg].filter(Boolean).join(": ");
+      });
+      const joined = parts.filter(Boolean).join("; ");
+      if (joined) {
+        return `${base ? `${base} — ` : ""}${joined}`.slice(0, 800);
+      }
+    }
+    if (base) {
+      return base.slice(0, 500);
     }
   }
   try {
@@ -118,6 +139,29 @@ function compactWaveCheckoutFields(
     }
   }
   return body;
+}
+
+/**
+ * Wave Amount type: string with no decimal places (e.g. `"49"`, not `"49.00"`).
+ * https://docs.wave.com/payout/#types
+ */
+export function formatWavePayoutAmount(raw: string | number): string {
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new HttpError(400, "Wave payout amount must be a positive number.");
+  }
+  return String(Math.round(n));
+}
+
+function compactWavePayoutBody(payload: WavePayoutRequest): Record<string, string> {
+  return compactWaveCheckoutFields({
+    currency: payload.currency.trim().toUpperCase(),
+    receive_amount: formatWavePayoutAmount(payload.receive_amount),
+    mobile: payload.mobile,
+    name: payload.name,
+    client_reference: payload.client_reference,
+    aggregated_merchant_id: payload.aggregated_merchant_id,
+  });
 }
 
 export interface WaveCheckoutSession {
@@ -445,7 +489,7 @@ export class WavePaymentService {
     try {
       const res = await this.api.post<WavePayout>(
         "/v1/payout",
-        payload,
+        compactWavePayoutBody(payload),
         this.withIdempotency(idempotencyKey),
       );
       return res.data;
@@ -486,7 +530,7 @@ export class WavePaymentService {
     try {
       const res = await this.api.post<WavePayoutBatch>(
         "/v1/payout-batch",
-        { payouts },
+        { payouts: payouts.map((p) => compactWavePayoutBody(p)) },
         this.withIdempotency(idempotencyKey),
       );
       return res.data;
