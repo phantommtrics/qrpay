@@ -137,6 +137,9 @@ async function parseWaveCheckoutWebhook(
     throw new Error("Invalid signature");
   }
 
+  const eventType =
+    firstString(payload.type, payload.event, data?.type, dataObject?.type) || undefined;
+
   let paymentStatus =
     firstString(payload.payment_status, data?.payment_status, dataObject?.payment_status) ||
     undefined;
@@ -149,6 +152,10 @@ async function parseWaveCheckoutWebhook(
     STATUS_MAP[paymentStatus as string] ||
     STATUS_MAP[checkoutStatus as string] ||
     "PENDING";
+
+  if (mapped === "PENDING" && eventType === "checkout.session.completed") {
+    mapped = "SUCCESS";
+  }
 
   if (!paymentStatus && !checkoutStatus && waveSessionId && mapped === "PENDING") {
     try {

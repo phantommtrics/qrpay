@@ -225,6 +225,9 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
     return;
   }
   if (payment.status !== PaymentStatus.COMPLETED) {
+    console.warn(
+      `[wave-self-settlement] skip payment ${payment.id}: status is ${payment.status}, expected COMPLETED`,
+    );
     return;
   }
 
@@ -232,6 +235,9 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
     where: { paymentId: payment.id },
   });
   if (existing) {
+    if (existing.status === WaveSelfSettlementPayoutStatus.PENDING) {
+      scheduleDrain();
+    }
     return;
   }
 
@@ -239,7 +245,12 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
     payment.businessId,
     payment.gatewayCode?.trim() || GATEWAY_CODE_WAVE_GAMBIA,
   );
-  const parsed = secrets ? parseExistingWave(secrets as unknown as Record<string, unknown>) ?? secrets : null;
+  const parsedWave = secrets
+    ? parseExistingWave(secrets as unknown as Record<string, unknown>)
+    : null;
+  const parsed: WaveGatewaySecrets | null | undefined = parsedWave
+    ? { ...parsedWave, ...waveSelfSettlementFieldsFrom(secrets) }
+    : secrets;
 
   const amounts = computeWaveSelfSettlementAmounts({
     gross: payment.amount,
@@ -252,6 +263,18 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
     secrets: parsed,
     receiveAmount: amounts.receiveAmount,
   });
+  if (skip) {
+    console.warn("[wave-self-settlement] skip", {
+      paymentId: payment.id,
+      businessId: payment.businessId,
+      reason: skip,
+      enabled: parsed?.selfSettlementEnabled === true,
+      hasMobile: Boolean(parsed?.selfSettlementMobile?.trim()),
+      hasAggregatedMerchant: Boolean(parsed?.aggregatedMerchantId?.trim()),
+      ownAccount: Boolean(waveOwnAccountBearer(parsed)),
+      receiveAmount: amounts.receiveAmount.toFixed(2),
+    });
+  }
   if (skip === "own_account" || skip === "no_aggregated_merchant" || skip === "disabled" || skip === "missing_mobile") {
     return;
   }

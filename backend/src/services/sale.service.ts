@@ -49,6 +49,18 @@ function webhookLogProviderForWalletComplete(options?: {
   return SIMULATOR_WEBHOOK_PROVIDER;
 }
 
+async function enqueueWaveSelfSettlementSafe(payment: { id: string; provider: string }): Promise<void> {
+  if (payment.provider !== PaymentProvider.WAVE_GAMBIA) {
+    return;
+  }
+  try {
+    const { enqueueWaveSelfSettlementForPayment } = await import("./wave-self-settlement.service.js");
+    await enqueueWaveSelfSettlementForPayment(payment.id);
+  } catch (err) {
+    console.error("[wave-self-settlement] Failed to enqueue payout for payment", payment.id, err);
+  }
+}
+
 async function shouldSendOwnerPaymentPush(
   businessId: string,
   processingUserId?: string | null,
@@ -1320,7 +1332,7 @@ export async function completeWalletPaymentByPublicToken(
   }
 
   if (payment.salesInvoiceId && payment.salesInvoice) {
-    return completeSalesInvoiceWalletPaymentCore(
+    const result = await completeSalesInvoiceWalletPaymentCore(
       {
         id: payment.id,
         businessId: payment.businessId,
@@ -1337,6 +1349,8 @@ export async function completeWalletPaymentByPublicToken(
       },
       options,
     );
+    await enqueueWaveSelfSettlementSafe(payment);
+    return result;
   }
 
   if (!payment.orderId || !payment.order) {
@@ -1355,22 +1369,26 @@ export async function completeWalletPaymentByPublicToken(
       },
     });
     if (existingLog) {
-      return {
+      const duplicate = {
         ok: true as const,
         duplicate: true as const,
         orderId: payment.orderId,
         receiptId: payment.order.receipt?.id ?? null,
       };
+      await enqueueWaveSelfSettlementSafe(payment);
+      return duplicate;
     }
   }
 
   if (payment.status === PaymentStatus.COMPLETED || payment.order.status === OrderStatus.PAID) {
-    return {
+    const duplicate = {
       ok: true as const,
       duplicate: true as const,
       orderId: payment.orderId,
       receiptId: payment.order.receipt?.id ?? null,
     };
+    await enqueueWaveSelfSettlementSafe(payment);
+    return duplicate;
   }
 
   if (payment.status !== PaymentStatus.PENDING) {
@@ -1564,6 +1582,7 @@ export async function completeWalletPaymentByPublicToken(
     });
   }
 
+  await enqueueWaveSelfSettlementSafe(payment);
   return result;
 }
 
