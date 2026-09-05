@@ -9,7 +9,6 @@ import {
 import {
   WAVE_UNASSIGNED_MERCHANT_ID,
   collectAllWaveOpsTransactions,
-  collectWaveOpsTransactionPage,
   decodeWaveOpsTxCursor,
   resolveWaveOpsTxRange,
   waveOpsDatesForRange,
@@ -187,29 +186,14 @@ export async function listWaveOpsTransactions(input: {
       ...(after ? { after } : {}),
     });
 
-  if (input.all) {
-    const items = await collectAllWaveOpsTransactions({ dates, merchant, fetchPage });
-    return formatWaveOpsTransactionsResponse({
-      from,
-      to,
-      items,
-      endCursor: null,
-      hasNext: false,
-    });
-  }
-
   const cursorRaw = input.after?.trim();
-  const startDate = dates[0];
-  if (!startDate) {
-    throw new HttpError(400, "from and to (or date) must be YYYY-MM-DD.");
-  }
-  const cursor = cursorRaw ? decodeWaveOpsTxCursor(cursorRaw) : { date: startDate };
-  const page = await collectWaveOpsTransactionPage({
+  const cursor = cursorRaw ? decodeWaveOpsTxCursor(cursorRaw) : undefined;
+  const page = await collectAllWaveOpsTransactions({
     dates,
-    startDate: cursor.date,
-    startAfter: cursor.after,
     merchant,
     fetchPage,
+    startDate: cursor?.date,
+    startAfter: cursor?.after,
   });
   return formatWaveOpsTransactionsResponse({
     from,

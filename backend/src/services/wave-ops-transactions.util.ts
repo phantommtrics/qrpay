@@ -174,12 +174,24 @@ export async function collectAllWaveOpsTransactions(opts: {
   dates: string[];
   merchant?: string;
   fetchPage: (date: string, after?: string) => Promise<WaveTransactionsResponse>;
+  startDate?: string;
+  startAfter?: string;
   maxPagesPerDay?: number;
-}): Promise<WaveTransaction[]> {
+}): Promise<WaveOpsTxPage> {
   const maxPagesPerDay = opts.maxPagesPerDay ?? 50;
+  const startIdx = opts.startDate ? opts.dates.indexOf(opts.startDate) : 0;
+  if (opts.startDate && startIdx < 0) {
+    throw new HttpError(400, "Pagination cursor is outside the selected date range.");
+  }
+
   const items: WaveTransaction[] = [];
-  for (const date of opts.dates) {
-    let after: string | undefined;
+  for (let i = startIdx; i < opts.dates.length; i += 1) {
+    const date = opts.dates[i];
+    if (!date) {
+      continue;
+    }
+    let after: string | undefined =
+      i === startIdx ? opts.startAfter?.trim() || undefined : undefined;
     for (let page = 0; page < maxPagesPerDay; page += 1) {
       const res = await opts.fetchPage(date, after);
       items.push(...(res.items ?? []).filter((tx) => matchesWaveOpsMerchant(tx, opts.merchant)));
@@ -190,10 +202,17 @@ export async function collectAllWaveOpsTransactions(opts: {
       if (!cursor) {
         break;
       }
+      if (page === maxPagesPerDay - 1) {
+        return {
+          items,
+          endCursor: encodeWaveOpsTxCursor({ date, after: cursor }),
+          hasNext: true,
+        };
+      }
       after = cursor;
     }
   }
-  return items;
+  return { items, endCursor: null, hasNext: false };
 }
 
 export function waveOpsDatesForRange(from: string, to: string): string[] {

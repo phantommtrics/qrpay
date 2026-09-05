@@ -267,9 +267,9 @@ export function PlatformWaveOpsTransactionsPage() {
           Transactions
         </h1>
         <p className="mt-2 max-w-3xl text-slate-600">
-          Wallet transactions for a date range (up to 31 days). Wave paginates by day; merchant
-          filter is applied after each page. Description uses Wave&apos;s payment reason, or the
-          transaction type when none is set. Refund reverses a received payment including fees.
+          Wallet transactions for the selected date range (up to 31 days), same as merchant
+          summary. Description uses Wave&apos;s payment reason, or the transaction type when none
+          is set. Refund reverses a received payment including fees.
         </p>
       </div>
 

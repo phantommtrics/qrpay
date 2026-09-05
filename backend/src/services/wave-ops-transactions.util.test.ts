@@ -163,7 +163,7 @@ describe("collectWaveOpsTransactionPage", () => {
 
 describe("collectAllWaveOpsTransactions", () => {
   it("walks every day and Wave page, then filters", async () => {
-    const items = await collectAllWaveOpsTransactions({
+    const result = await collectAllWaveOpsTransactions({
       dates: ["2026-09-01", "2026-09-02"],
       merchant: "am_1",
       fetchPage: async (date, after) => {
@@ -180,8 +180,27 @@ describe("collectAllWaveOpsTransactions", () => {
       },
     });
     assert.deepEqual(
-      items.map((t) => t.transaction_id),
+      result.items.map((t) => t.transaction_id),
       ["a", "d"],
+    );
+    assert.equal(result.hasNext, false);
+  });
+
+  it("continues from a mid-range cursor", async () => {
+    const datesCalled: string[] = [];
+    const result = await collectAllWaveOpsTransactions({
+      dates: ["2026-09-01", "2026-09-02", "2026-09-03"],
+      startDate: "2026-09-02",
+      startAfter: "c2",
+      fetchPage: async (date, after) => {
+        datesCalled.push(`${date}:${after ?? ""}`);
+        return page([tx({ transaction_id: `${date}-${after || "start"}` })], { date });
+      },
+    });
+    assert.deepEqual(datesCalled, ["2026-09-02:c2", "2026-09-03:"]);
+    assert.deepEqual(
+      result.items.map((t) => t.transaction_id),
+      ["2026-09-02-c2", "2026-09-03-start"],
     );
   });
 });
