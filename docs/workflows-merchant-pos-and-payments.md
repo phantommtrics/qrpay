@@ -33,6 +33,7 @@ Aggregated merchants’ checkout funds land in the platform Wave wallet, tagged 
 
 - Customer lands after Wave success URL or simulator link.
 - **`getPublicPayInfo`** returns amount and status; **`completeWalletPaymentByPublicToken`** completes the payment when allowed (simulator or webhook path).
+- When two Wave checkouts complete at once, the first status read can miss the row (`Payment not found`). The page keeps confirming and polls for about 45 seconds instead of requiring a refresh; the API also retries once and accepts a Wave session id as `providerRef`.
 - For **orders**, completion ties to **`Order`**; for **sales invoices**, completion uses **`salesInvoiceId`** on the payment and runs **`markSalesInvoicePaidWithWalletPayment`** (see sales workflow doc).
 
 ## Cash

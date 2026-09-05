@@ -1744,15 +1744,44 @@ export async function cancelPendingOrder(orderId: string, businessId: string) {
   return order;
 }
 
-export async function getPublicPayInfo(publicToken: string) {
-  let payment = await prisma.payment.findUnique({
-    where: { publicToken },
-    include: {
-      business: { select: { name: true } },
-      order: { select: { id: true, status: true, total: true, currency: true } },
-      salesInvoice: { select: { id: true, publicCode: true, status: true } },
-    },
+const PUBLIC_PAY_LOOKUP_INCLUDE = {
+  business: { select: { name: true } },
+  order: { select: { id: true, status: true, total: true, currency: true } },
+  salesInvoice: { select: { id: true, publicCode: true, status: true } },
+} as const;
+
+function normalizePublicPayToken(raw: string): string {
+  return raw.trim().split(/[?#&]/)[0] ?? "";
+}
+
+async function findPaymentForPublicPay(publicToken: string) {
+  const token = normalizePublicPayToken(publicToken);
+  if (!token) {
+    return null;
+  }
+
+  const byToken = await prisma.payment.findUnique({
+    where: { publicToken: token },
+    include: PUBLIC_PAY_LOOKUP_INCLUDE,
   });
+  if (byToken) {
+    return byToken;
+  }
+
+  return prisma.payment.findUnique({
+    where: { providerRef: token },
+    include: PUBLIC_PAY_LOOKUP_INCLUDE,
+  });
+}
+
+export async function getPublicPayInfo(publicToken: string) {
+  const token = normalizePublicPayToken(publicToken);
+  let payment = await findPaymentForPublicPay(token);
+
+  if (!payment) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    payment = await findPaymentForPublicPay(token);
+  }
 
   if (!payment) {
     throw new HttpError(404, "Payment not found.");
@@ -1760,14 +1789,7 @@ export async function getPublicPayInfo(publicToken: string) {
 
   const reconciled = await reconcilePendingWaveWalletPayment(payment);
   if (reconciled) {
-    const fresh = await prisma.payment.findUnique({
-      where: { publicToken },
-      include: {
-        business: { select: { name: true } },
-        order: { select: { id: true, status: true, total: true, currency: true } },
-        salesInvoice: { select: { id: true, publicCode: true, status: true } },
-      },
-    });
+    const fresh = await findPaymentForPublicPay(payment.publicToken);
     if (fresh) {
       payment = fresh;
     }

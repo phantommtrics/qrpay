@@ -584,7 +584,7 @@ export type PublicPayInfo =
     }
 
 export async function fetchPublicPayInfo(publicToken: string): Promise<PublicPayInfo> {
-  const response = await fetch(`${API_BASE_URL}/public/pay/${publicToken}`)
+  const response = await fetch(`${API_BASE_URL}/public/pay/${encodeURIComponent(publicToken)}`)
   let payload: unknown = null
   try {
     payload = await response.json()

@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 
-import { fetchPublicPayInfo } from '../services/salesApi'
+import { fetchPublicPayInfo, type PublicPayInfo } from '../services/salesApi'
 import { ApiError } from '../services/subscriptionApi'
 import { formatMoney } from '../utils/formatMoney'
 
 const DIRECTPAY_LOGO = '/logos/Direct%20Pay-02.png'
-const POLL_MS = 3000
+const POLL_MS = 2000
+const GIVE_UP_MS = 45_000
 
-function isPaymentSettled(info: Awaited<ReturnType<typeof fetchPublicPayInfo>>) {
+function isPaymentSettled(info: PublicPayInfo) {
   return (
     info.paymentStatus === 'completed' ||
     (info.kind === 'order' && info.orderStatus === 'paid') ||
@@ -17,12 +18,35 @@ function isPaymentSettled(info: Awaited<ReturnType<typeof fetchPublicPayInfo>>) 
   )
 }
 
+function isPaymentFailed(info: PublicPayInfo) {
+  return info.paymentStatus === 'failed' || info.paymentStatus === 'cancelled'
+}
+
+function publicPayLookupToken(raw: string | undefined): string {
+  if (!raw) {
+    return ''
+  }
+  let decoded = raw.trim()
+  try {
+    decoded = decodeURIComponent(decoded)
+  } catch {
+    /* keep raw trim */
+  }
+  return decoded.split(/[?#&]/)[0] ?? ''
+}
+
 export function PublicPayPage() {
-  const { publicToken } = useParams<{ publicToken: string }>()
+  const { publicToken: rawPublicToken } = useParams<{ publicToken: string }>()
+  const publicToken = publicPayLookupToken(rawPublicToken)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [info, setInfo] = useState<Awaited<ReturnType<typeof fetchPublicPayInfo>> | null>(null)
+  const [info, setInfo] = useState<PublicPayInfo | null>(null)
   const [paid, setPaid] = useState(false)
+  const giveUpAtRef = useRef(0)
+
+  useEffect(() => {
+    giveUpAtRef.current = Date.now() + GIVE_UP_MS
+  }, [publicToken])
 
   const load = useCallback(async (options?: { silent?: boolean }) => {
     if (!publicToken) {
@@ -33,15 +57,19 @@ export function PublicPayPage() {
     if (!options?.silent) {
       setLoading(true)
     }
-    setError(null)
     try {
       const data = await fetchPublicPayInfo(publicToken)
       setInfo(data)
+      setError(null)
       if (isPaymentSettled(data)) {
         setPaid(true)
       }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Could not load payment.')
+      const message = e instanceof ApiError ? e.message : 'Could not load payment.'
+      if (Date.now() < giveUpAtRef.current) {
+        return
+      }
+      setError(message)
     } finally {
       if (!options?.silent) {
         setLoading(false)
@@ -53,17 +81,28 @@ export function PublicPayPage() {
     void load()
   }, [load])
 
+  const failed = Boolean(info && isPaymentFailed(info))
+  const gaveUp = Boolean(error && !info)
+  const shouldPoll = Boolean(publicToken) && !paid && !failed && !gaveUp && (!info || !isPaymentSettled(info))
+
   useEffect(() => {
-    if (!publicToken || paid || !info || isPaymentSettled(info)) {
+    if (!shouldPoll || loading) {
       return
     }
     const interval = window.setInterval(() => {
       void load({ silent: true })
     }, POLL_MS)
-    return () => window.clearInterval(interval)
-  }, [publicToken, paid, info, load])
+    const remaining = Math.max(0, giveUpAtRef.current - Date.now())
+    const timeout = window.setTimeout(() => {
+      void load({ silent: true })
+    }, remaining + 50)
+    return () => {
+      window.clearInterval(interval)
+      window.clearTimeout(timeout)
+    }
+  }, [shouldPoll, loading, load])
 
-  if (loading) {
+  if (loading && !info) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
         <Loader2 className="h-8 w-8 animate-spin text-teal-600" aria-label="Loading" />
@@ -86,11 +125,6 @@ export function PublicPayPage() {
     )
   }
 
-  if (!info) {
-    return null
-  }
-
-  const failed = info.paymentStatus === 'failed' || info.paymentStatus === 'cancelled'
   const confirming = !paid && !failed
 
   return (
@@ -106,16 +140,24 @@ export function PublicPayPage() {
           />
         </div>
 
-        <p className="text-center text-sm font-medium uppercase tracking-wide text-teal-700">
-          {info.businessName}
-        </p>
+        {info ? (
+          <>
+            <p className="text-center text-sm font-medium uppercase tracking-wide text-teal-700">
+              {info.businessName}
+            </p>
 
-        <div className="my-6 text-center">
-          <p className="text-sm text-slate-500">Amount paid</p>
-          <p className="mt-1 text-3xl font-bold text-slate-900">{formatMoney(info.amount)}</p>
-        </div>
+            <div className="my-6 text-center">
+              <p className="text-sm text-slate-500">Amount paid</p>
+              <p className="mt-1 text-3xl font-bold text-slate-900">{formatMoney(info.amount)}</p>
+            </div>
+          </>
+        ) : (
+          <div className="my-6 text-center">
+            <p className="text-sm text-slate-500">Payment</p>
+          </div>
+        )}
 
-        {paid ? (
+        {paid && info ? (
           <div className="space-y-3 text-center">
             <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500" aria-hidden />
             <h1 className="text-xl font-semibold text-slate-900">Thank you</h1>
@@ -123,23 +165,23 @@ export function PublicPayPage() {
               Your payment has been received by {info.businessName}. We appreciate your payment.
             </p>
           </div>
-        ) : failed ? (
+        ) : failed && info ? (
           <div className="space-y-2 text-center">
             <h1 className="text-lg font-semibold text-slate-900">Payment not completed</h1>
             <p className="text-sm leading-relaxed text-slate-600">
               This payment could not be confirmed. If money was deducted from your wallet, please contact{' '}
               {info.businessName} for assistance.
             </p>
-            {error ? <p className="text-sm text-red-600">{error}</p> : null}
           </div>
         ) : (
           <div className="space-y-3 text-center">
             <Loader2 className="mx-auto h-10 w-10 animate-spin text-teal-600" aria-hidden />
             <h1 className="text-lg font-semibold text-slate-900">Confirming your payment</h1>
             <p className="text-sm leading-relaxed text-slate-600">
-              Please wait a moment while we confirm your payment with {info.businessName}.
+              {info
+                ? `Please wait a moment while we confirm your payment with ${info.businessName}.`
+                : 'Please wait a moment while we confirm your payment.'}
             </p>
-            {error ? <p className="text-sm text-red-600">{error}</p> : null}
           </div>
         )}
 
