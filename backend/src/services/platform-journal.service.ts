@@ -67,6 +67,7 @@ export async function listPlatformJournalEntries(pagination: {
         },
         reversedByPlatformEntry: { select: { id: true } },
         billFromPayment: { select: { id: true, publicCode: true } },
+        business: { select: { id: true, name: true } },
       },
     }),
   ]);

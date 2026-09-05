@@ -463,6 +463,7 @@ export function PlatformWaveOpsPayoutsPage() {
                     <tr>
                       <th className="px-4 py-3">Created</th>
                       <th className="px-4 py-3">Recipient</th>
+                      <th className="px-4 py-3">Merchant</th>
                       <th className="px-4 py-3">Amount</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Wave id</th>
@@ -472,14 +473,14 @@ export function PlatformWaveOpsPayoutsPage() {
                   <tbody className="divide-y divide-slate-100">
                     {loading && history.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                        <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                           <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                         </td>
                       </tr>
                     ) : null}
                     {!loading && history.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                        <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                           No payouts yet.
                         </td>
                       </tr>
@@ -492,6 +493,14 @@ export function PlatformWaveOpsPayoutsPage() {
                         <td className="px-4 py-3 text-slate-800">
                           {row.name}
                           <span className="block text-xs text-slate-500">{row.mobile}</span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-800">
+                          {row.business?.name ?? '—'}
+                          {row.kind === 'self_settlement' ? (
+                            <span className="mt-0.5 block text-xs font-medium text-teal-700">
+                              Self-settlement
+                            </span>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3 text-slate-800">
                           {row.receiveAmount} {row.currency}

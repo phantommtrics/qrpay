@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import {
+  ActivityActorKind,
   PaymentProvider,
   PaymentStatus,
   Prisma,
@@ -27,6 +28,9 @@ import { isPlatformWaveCheckoutConfigured, waveServiceFromEnv } from "./wave-cli
 import { normalizeWaveMobile } from "./wave-ops.service.js";
 import type { WavePayoutRequest } from "./wave-payment.service.js";
 import { formatWavePayoutAmount } from "./wave-payment.service.js";
+import { upsertWaveOpsPayoutForSelfSettlement } from "./wave-ops.service.js";
+import { postPlatformJournalForSelfSettlementPayout } from "./platform-self-settlement-journal.service.js";
+import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
 import {
   computeWaveSelfSettlementAmounts,
   settlementFeeFixedFromSecrets,
@@ -400,7 +404,95 @@ async function persistWavePayoutResult(
         : {}),
     },
   });
+  if (localStatus === WaveSelfSettlementPayoutStatus.SUCCEEDED) {
+    await recordSucceededSelfSettlementLocalCopy(rowId);
+  }
   return localStatus;
+}
+
+async function recordSucceededSelfSettlementLocalCopy(rowId: string): Promise<void> {
+  const row = await prisma.waveSelfSettlementPayout.findUnique({
+    where: { id: rowId },
+  });
+  if (!row?.wavePayoutId) {
+    return;
+  }
+  try {
+    const opsId = await upsertWaveOpsPayoutForSelfSettlement({
+      businessId: row.businessId,
+      wavePayoutId: row.wavePayoutId,
+      status: "succeeded",
+      currency: row.currency,
+      receiveAmount: formatWavePayoutAmount(row.receiveAmount.toString()),
+      fee: row.fee,
+      mobile: row.mobile,
+      name: row.name,
+      clientReference: row.clientReference,
+      idempotencyKey: `self-settle:${row.idempotencyKey}`,
+      waveTimestamp: row.waveTimestamp,
+    });
+    const journalId = await prisma.$transaction(async (tx) => {
+      const id = await postPlatformJournalForSelfSettlementPayout(tx, {
+        id: row.id,
+        businessId: row.businessId,
+        paymentId: row.paymentId,
+        currency: row.currency,
+        receiveAmount: row.receiveAmount,
+        withholdAmount: row.withholdAmount,
+        fee: row.fee,
+      });
+      await tx.waveSelfSettlementPayout.update({
+        where: { id: row.id },
+        data: {
+          waveOpsPayoutId: opsId,
+          ...(id ? { platformJournalEntryId: id } : {}),
+        },
+      });
+      await appendActivityLog(tx, {
+        businessId: row.businessId,
+        actorUserId: null,
+        actorKind: ActivityActorKind.SYSTEM,
+        eventType: ACTIVITY_EVENT.WAVE_SELF_SETTLEMENT_SUCCEEDED,
+        resourceType: "WaveSelfSettlementPayout",
+        resourceId: row.id,
+        metadata: {
+          wavePayoutId: row.wavePayoutId,
+          receiveAmount: row.receiveAmount.toFixed(2),
+          withholdAmount: row.withholdAmount.toFixed(2),
+          fee: row.fee,
+          waveOpsPayoutId: opsId,
+          platformJournalEntryId: id,
+        },
+      });
+      return id;
+    });
+    console.info("[wave-self-settlement] local copy recorded", {
+      payoutId: row.id,
+      waveOpsPayoutId: opsId,
+      platformJournalEntryId: journalId,
+    });
+  } catch (err) {
+    console.error("[wave-self-settlement] Failed to record local payout / platform journal", row.id, err);
+  }
+}
+
+/** Catch up SUCCEEDED rows that predate local Wave-ops / platform journal posting. */
+async function backfillSucceededSelfSettlementLocalCopies(): Promise<void> {
+  const rows = await prisma.waveSelfSettlementPayout.findMany({
+    where: {
+      status: WaveSelfSettlementPayoutStatus.SUCCEEDED,
+      OR: [{ waveOpsPayoutId: null }, { platformJournalEntryId: null }],
+    },
+    select: { id: true },
+    take: 100,
+    orderBy: { createdAt: "asc" },
+  });
+  for (const row of rows) {
+    await recordSucceededSelfSettlementLocalCopy(row.id);
+  }
+  if (rows.length) {
+    console.info("[wave-self-settlement] backfilled local copies", { count: rows.length });
+  }
 }
 
 async function sendSettlementPayout(row: {
@@ -555,9 +647,11 @@ export function startWaveSelfSettlementWorker(): void {
   workerStarted = true;
   const raw = Number(process.env.WAVE_SELF_SETTLEMENT_WORKER_MS ?? "15000");
   const ms = Number.isFinite(raw) && raw >= 5000 ? raw : 15_000;
-  void processWaveSelfSettlementJobs(25).catch((err) => {
-    console.error("[wave-self-settlement] worker initial run error:", err);
-  });
+  void processWaveSelfSettlementJobs(25)
+    .then(() => backfillSucceededSelfSettlementLocalCopies())
+    .catch((err) => {
+      console.error("[wave-self-settlement] worker initial run error:", err);
+    });
   setInterval(() => {
     void processWaveSelfSettlementJobs(25).catch((err) => {
       console.error("[wave-self-settlement] worker error:", err);

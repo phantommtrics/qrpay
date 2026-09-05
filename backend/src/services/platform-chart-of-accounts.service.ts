@@ -21,6 +21,12 @@ export const PLATFORM_CHART_WAVE_WALLET_FEES_SUBSCRIPTIONS = PLATFORM_CHART_WALL
 export const PLATFORM_CHART_HOSTING = "P-5100";
 export const PLATFORM_CHART_EMAIL_SERVICES = "P-5110";
 export const PLATFORM_CHART_DOMAIN = "P-5120";
+/** Aggregator Wave wallet movements for merchant checkout self-settlement. */
+export const PLATFORM_CHART_AGGREGATOR_WAVE_CLEARING = "P-1200";
+/** Platform keep from aggregator checkout (fixed and/or percent withhold). */
+export const PLATFORM_CHART_SELF_SETTLEMENT_WITHHOLD = "P-4010";
+/** Amount paid out to the merchant Wave number plus Wave payout fee. */
+export const PLATFORM_CHART_SELF_SETTLEMENT_PAYOUTS = "P-4920";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -75,6 +81,30 @@ const DEFAULT_PLATFORM_ACCOUNTS: Array<{
     name: "Wallet fees — subscription checkouts",
     description:
       "Wallet or payment-rail fees on merchant subscription invoices (e.g. Wave ~1%; Yonna when applicable). Reduces net subscription clearing.",
+    category: ChartAccountCategory.EXPENSE,
+    isSystem: true,
+  },
+  {
+    code: PLATFORM_CHART_AGGREGATOR_WAVE_CLEARING,
+    name: "Aggregator Wave clearing",
+    description:
+      "Platform Wave wallet tagged to aggregated merchants. Credited when self-settlement pays a merchant; debited when withhold is recognized as platform revenue.",
+    category: ChartAccountCategory.ASSET,
+    isSystem: true,
+  },
+  {
+    code: PLATFORM_CHART_SELF_SETTLEMENT_WITHHOLD,
+    name: "Merchant self-settlement withhold",
+    description:
+      "Platform revenue kept from aggregator checkout (fixed and/or percent withhold after Wave fees).",
+    category: ChartAccountCategory.REVENUE,
+    isSystem: true,
+  },
+  {
+    code: PLATFORM_CHART_SELF_SETTLEMENT_PAYOUTS,
+    name: "Merchant self-settlement payouts",
+    description:
+      "Direct cost of paying the merchant Wave number after aggregator checkout, including Wave payout fees.",
     category: ChartAccountCategory.EXPENSE,
     isSystem: true,
   },

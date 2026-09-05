@@ -137,6 +137,17 @@ export function PlatformWaveOpsPayoutDetailPage() {
                   <span className="block text-slate-500">{row.mobile}</span>
                 </dd>
               </div>
+              {row.business ? (
+                <div>
+                  <dt className="font-medium text-slate-500">Merchant</dt>
+                  <dd className="mt-1 text-slate-900">
+                    {row.business.name}
+                    {row.kind === 'self_settlement' ? (
+                      <span className="block text-xs text-teal-700">Self-settlement</span>
+                    ) : null}
+                  </dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="font-medium text-slate-500">Amount</dt>
                 <dd className="mt-1 text-slate-900">

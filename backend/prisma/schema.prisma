@@ -230,6 +230,10 @@ enum PlatformJournalSourceType {
    * Wallet/processor fee on subscription payment (billing ledger WALLET_FEE row).
    */
   SUBSCRIPTION_WALLET_FEE
+  /**
+   * Aggregator self-settlement: payout cost + withhold revenue for a merchant checkout.
+   */
+  WAVE_SELF_SETTLEMENT
 }
 
 enum SalesLedgerEntryType {
@@ -361,6 +365,8 @@ model Business {
   gatewayCredentials            BusinessGatewayCredential[]
   waveAggregatedMerchantProvisionLogs WaveAggregatedMerchantProvisionLog[]
   waveSelfSettlementPayouts     WaveSelfSettlementPayout[]
+  waveOpsPayouts                WaveOpsPayout[]
+  platformJournalEntries        PlatformJournalEntry[]
   apsWalletCustomerAuths        BusinessApsWalletCustomerAuth[]
   salesQuotations               SalesQuotation[]
   salesInvoices                 SalesInvoice[]
@@ -580,10 +586,14 @@ model WaveSelfSettlementPayout {
   errorMessage             String?                        @db.Text
   skipReason               String?
   waveTimestamp            DateTime?
+  platformJournalEntryId   String?                        @unique
+  waveOpsPayoutId          String?                        @unique
   createdAt                DateTime                       @default(now())
   updatedAt                DateTime                       @updatedAt
   payment                  Payment                        @relation(fields: [paymentId], references: [id], onDelete: Cascade)
   business                 Business                       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  platformJournalEntry     PlatformJournalEntry?          @relation("WaveSelfSettlementJournal", fields: [platformJournalEntryId], references: [id], onDelete: SetNull)
+  waveOpsPayout            WaveOpsPayout?                 @relation("WaveSelfSettlementOpsPayout", fields: [waveOpsPayoutId], references: [id], onDelete: SetNull)
 
   @@index([status, nextAttemptAt])
   @@index([businessId, createdAt])
@@ -900,6 +910,10 @@ model PlatformJournalEntry {
   sourceId                       String?
   reference                      String?
   /**
+   * Merchant tenant when the entry is about a specific business (e.g. self-settlement).
+   */
+  businessId                     String?
+  /**
    * When set, this entry reverses another platform journal (debits/credits swapped).
    * Each source journal can have at most one reversal row pointing to it.
    */
@@ -910,9 +924,12 @@ model PlatformJournalEntry {
   reversedByPlatformEntry        PlatformJournalEntry?      @relation("PlatformJournalReversal")
   billFromPayment                PlatformBill?              @relation("PlatformBillJournal")
   digitalOceanInvoice            DigitalOceanInvoice?       @relation("DigitalOceanInvoiceJournal")
+  business                       Business?                  @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  waveSelfSettlementPayout       WaveSelfSettlementPayout?  @relation("WaveSelfSettlementJournal")
 
   @@index([postedAt])
   @@index([sourceType, sourceId])
+  @@index([businessId])
 }
 
 model PlatformJournalLine {
@@ -1011,6 +1028,7 @@ model WaveOpsPayout {
   idempotencyKey     String              @unique
   platformSupplierId String?
   platformBillId     String?
+  businessId         String?
   errorCode          String?
   errorMessage       String?             @db.Text
   waveTimestamp      DateTime?
@@ -1020,12 +1038,15 @@ model WaveOpsPayout {
   batch              WaveOpsPayoutBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
   supplier           PlatformSupplier?   @relation(fields: [platformSupplierId], references: [id], onDelete: SetNull)
   bill               PlatformBill?       @relation(fields: [platformBillId], references: [id], onDelete: SetNull)
+  business           Business?           @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  selfSettlementPayout WaveSelfSettlementPayout? @relation("WaveSelfSettlementOpsPayout")
 
   @@index([createdAt])
   @@index([status])
   @@index([platformSupplierId])
   @@index([clientReference])
   @@index([batchId])
+  @@index([businessId])
 }
 
 model PlatformBillLine {

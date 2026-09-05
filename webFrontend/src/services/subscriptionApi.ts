@@ -2929,6 +2929,7 @@ export type PlatformJournalEntryRow = {
   reversesPlatformJournalEntryId?: string | null
   hasReversal?: boolean
   billPayment?: { id: string; publicCode: string } | null
+  business?: { id: string; name: string } | null
   createdAt: string
   lines: PlatformJournalLineRow[]
 }
@@ -3509,6 +3510,8 @@ export type WaveOpsPayoutRow = {
   supplier: { id: string; name: string; phone: string | null } | null
   bill: { id: string; publicCode: string } | null
   batch: { id: string; waveBatchId: string | null; status: string } | null
+  business?: { id: string; name: string } | null
+  kind?: 'self_settlement' | 'ops'
 }
 
 export type WaveOpsPayoutBatchRow = {

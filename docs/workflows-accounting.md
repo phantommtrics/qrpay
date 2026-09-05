@@ -19,7 +19,8 @@
 ## Platform accounting
 
 - **Separate** chart and journals for the **operator** (`platform-chart-of-accounts.service.ts`, `platform-journal.service.ts`, `platform-subscription-journal.service.ts`).
-- Used for subscription revenue recognition, refunds, platform wallet fees — **not** mixed with tenant `ChartOfAccount` rows.
+- Used for subscription revenue recognition, refunds, platform wallet fees, and **aggregator self-settlement** — **not** mixed with tenant `ChartOfAccount` rows.
+- Self-settlement on Wave payout success (`WAVE_SELF_SETTLEMENT`): **Dr P-4920** (payout + Wave fee) · **Cr P-1200** (aggregator Wave clearing); **Dr P-1200** · **Cr P-4010** (withhold revenue). The merchant is stored on `PlatformJournalEntry.businessId`. A local `WaveOpsPayout` row is created so the payout appears in Wave Operations like supplier payouts.
 
 ## Platform reports
 

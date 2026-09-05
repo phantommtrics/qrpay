@@ -66,7 +66,8 @@ export function PlatformAccountingJournalsPage() {
           <h1 className="mt-3 text-2xl font-semibold text-qb-heading">Platform journal ledger</h1>
           <p className="mt-2 text-sm text-qb-muted">
             All activity on the platform chart of accounts: subscription payments, checkout settlement,
-            supplier bill payments, refunds, fees, and operator-posted journals. To post or review only
+            aggregator self-settlement (payout cost and withhold), supplier bill payments, refunds, fees,
+            and operator-posted journals. To post or review only
             manual entries by platform staff, use{' '}
             <Link
               to={APP_PATHS.platformAccountingOperatorJournals}
@@ -99,6 +100,7 @@ export function PlatformAccountingJournalsPage() {
                     {e.sourceType ? (
                       <span className="rounded bg-white px-1.5 py-0.5">{e.sourceType}</span>
                     ) : null}
+                    {e.business ? <span>{e.business.name}</span> : null}
                     {e.memo ? <span>{e.memo}</span> : null}
                     {e.reference ? <span className="font-mono">ref {e.reference}</span> : null}
                     {e.hasReversal ? (

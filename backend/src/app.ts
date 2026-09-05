@@ -3075,6 +3075,7 @@ app.get(
           billPayment: e.billFromPayment
             ? { id: e.billFromPayment.id, publicCode: e.billFromPayment.publicCode }
             : null,
+          business: e.business ? { id: e.business.id, name: e.business.name } : null,
           createdAt: e.createdAt.toISOString(),
           lines: e.lines.map((ln) => ({
             id: ln.id,

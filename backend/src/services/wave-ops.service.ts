@@ -25,6 +25,13 @@ export function normalizeWaveMobile(input: string): string | null {
   return s;
 }
 
+const WAVE_OPS_PAYOUT_INCLUDE = {
+  supplier: { select: { id: true, name: true, phone: true } },
+  bill: { select: { id: true, publicCode: true } },
+  batch: { select: { id: true, waveBatchId: true, status: true } },
+  business: { select: { id: true, name: true } },
+} as const;
+
 function parseAmount(raw: string | number): string {
   const n = typeof raw === "number" ? raw : Number(String(raw).trim());
   if (!Number.isFinite(n) || n <= 0) {
@@ -72,6 +79,7 @@ function formatPayoutRow(row: {
   supplier?: { id: string; name: string; phone: string | null } | null;
   bill?: { id: string; publicCode: string } | null;
   batch?: { id: string; waveBatchId: string | null; status: string } | null;
+  business?: { id: string; name: string } | null;
 }) {
   const reverseDeadlineMs = row.waveTimestamp
     ? row.waveTimestamp.getTime() + 3 * 24 * 60 * 60 * 1000
@@ -80,6 +88,7 @@ function formatPayoutRow(row: {
     row.status === "succeeded" &&
     !row.reversedAt &&
     Boolean(row.wavePayoutId) &&
+    !row.business &&
     Date.now() < reverseDeadlineMs;
 
   return {
@@ -117,6 +126,10 @@ function formatPayoutRow(row: {
           status: row.batch.status,
         }
       : null,
+    business: row.business
+      ? { id: row.business.id, name: row.business.name }
+      : null,
+    kind: row.business ? ("self_settlement" as const) : ("ops" as const),
   };
 }
 
@@ -216,11 +229,7 @@ export async function createWaveOpsPayout(input: {
     const updated = await prisma.waveOpsPayout.update({
       where: { id: local.id },
       data: mapWavePayoutFields(result),
-      include: {
-        supplier: { select: { id: true, name: true, phone: true } },
-        bill: { select: { id: true, publicCode: true } },
-        batch: { select: { id: true, waveBatchId: true, status: true } },
-      },
+      include: WAVE_OPS_PAYOUT_INCLUDE,
     });
     return formatPayoutRow(updated);
   } catch (e) {
@@ -231,11 +240,7 @@ export async function createWaveOpsPayout(input: {
         status: "failed",
         errorMessage: message,
       },
-      include: {
-        supplier: { select: { id: true, name: true, phone: true } },
-        bill: { select: { id: true, publicCode: true } },
-        batch: { select: { id: true, waveBatchId: true, status: true } },
-      },
+      include: WAVE_OPS_PAYOUT_INCLUDE,
     });
     if (e instanceof HttpError) throw e;
     return formatPayoutRow(updated);
@@ -375,11 +380,7 @@ export async function listWaveOpsPayouts(input?: {
     },
     orderBy: { createdAt: "desc" },
     take: limit,
-    include: {
-      supplier: { select: { id: true, name: true, phone: true } },
-      bill: { select: { id: true, publicCode: true } },
-      batch: { select: { id: true, waveBatchId: true, status: true } },
-    },
+    include: WAVE_OPS_PAYOUT_INCLUDE,
   });
   return rows.map(formatPayoutRow);
 }
@@ -416,19 +417,11 @@ export async function searchWaveOpsPayoutsByClientReference(clientReference: str
       ? await prisma.waveOpsPayout.update({
           where: { id: existing.id },
           data,
-          include: {
-            supplier: { select: { id: true, name: true, phone: true } },
-            bill: { select: { id: true, publicCode: true } },
-            batch: { select: { id: true, waveBatchId: true, status: true } },
-          },
+          include: WAVE_OPS_PAYOUT_INCLUDE,
         })
       : await prisma.waveOpsPayout.create({
           data,
-          include: {
-            supplier: { select: { id: true, name: true, phone: true } },
-            bill: { select: { id: true, publicCode: true } },
-            batch: { select: { id: true, waveBatchId: true, status: true } },
-          },
+          include: WAVE_OPS_PAYOUT_INCLUDE,
         });
     upserted.push(formatPayoutRow(row));
   }
@@ -436,11 +429,7 @@ export async function searchWaveOpsPayoutsByClientReference(clientReference: str
   if (!upserted.length) {
     const local = await prisma.waveOpsPayout.findMany({
       where: { clientReference: ref },
-      include: {
-        supplier: { select: { id: true, name: true, phone: true } },
-        bill: { select: { id: true, publicCode: true } },
-        batch: { select: { id: true, waveBatchId: true, status: true } },
-      },
+      include: WAVE_OPS_PAYOUT_INCLUDE,
     });
     return local.map(formatPayoutRow);
   }
@@ -451,11 +440,7 @@ export async function searchWaveOpsPayoutsByClientReference(clientReference: str
 export async function getWaveOpsPayout(id: string, opts?: { refresh?: boolean }) {
   const row = await prisma.waveOpsPayout.findUnique({
     where: { id },
-    include: {
-      supplier: { select: { id: true, name: true, phone: true } },
-      bill: { select: { id: true, publicCode: true } },
-      batch: { select: { id: true, waveBatchId: true, status: true } },
-    },
+    include: WAVE_OPS_PAYOUT_INCLUDE,
   });
   if (!row) throw new HttpError(404, "Payout not found.");
 
@@ -466,11 +451,7 @@ export async function getWaveOpsPayout(id: string, opts?: { refresh?: boolean })
       const updated = await prisma.waveOpsPayout.update({
         where: { id: row.id },
         data: mapWavePayoutFields(remote),
-        include: {
-          supplier: { select: { id: true, name: true, phone: true } },
-          bill: { select: { id: true, publicCode: true } },
-          batch: { select: { id: true, waveBatchId: true, status: true } },
-        },
+        include: WAVE_OPS_PAYOUT_INCLUDE,
       });
       return formatPayoutRow(updated);
     } catch {
@@ -488,6 +469,9 @@ export async function reverseWaveOpsPayout(id: string) {
   const row = await prisma.waveOpsPayout.findUnique({ where: { id } });
   if (!row) throw new HttpError(404, "Payout not found.");
   if (!row.wavePayoutId) throw new HttpError(400, "Payout has no Wave id to reverse.");
+  if (row.businessId) {
+    throw new HttpError(400, "Self-settlement payouts cannot be reversed from Wave Operations.");
+  }
   if (row.status !== "succeeded") {
     throw new HttpError(400, "Only succeeded payouts can be reversed.");
   }
@@ -523,6 +507,7 @@ export async function listWaveOpsPayoutBatches(limit = 50) {
         include: {
           supplier: { select: { id: true, name: true, phone: true } },
           bill: { select: { id: true, publicCode: true } },
+          business: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: "asc" },
       },
@@ -553,6 +538,7 @@ export async function getWaveOpsPayoutBatch(id: string) {
         include: {
           supplier: { select: { id: true, name: true, phone: true } },
           bill: { select: { id: true, publicCode: true } },
+          business: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: "asc" },
       },
@@ -620,6 +606,7 @@ async function getWaveOpsPayoutBatchFresh(id: string) {
         include: {
           supplier: { select: { id: true, name: true, phone: true } },
           bill: { select: { id: true, publicCode: true } },
+          business: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: "asc" },
       },
@@ -712,4 +699,55 @@ export async function sendWavePayoutForBill(input: {
   }
 
   return { wavePayoutId: result.id, status: result.status };
+}
+
+/** Local Wave-ops copy of an aggregator self-settlement payout (same list as supplier payouts). */
+export async function upsertWaveOpsPayoutForSelfSettlement(input: {
+  businessId: string;
+  wavePayoutId: string;
+  status: string;
+  currency: string;
+  receiveAmount: string;
+  fee: string | null;
+  mobile: string;
+  name: string;
+  clientReference: string | null;
+  idempotencyKey: string;
+  waveTimestamp: Date | null;
+}): Promise<string> {
+  const existing = await prisma.waveOpsPayout.findFirst({
+    where: {
+      OR: [
+        { wavePayoutId: input.wavePayoutId },
+        { idempotencyKey: input.idempotencyKey },
+      ],
+    },
+    select: { id: true },
+  });
+  const data = {
+    wavePayoutId: input.wavePayoutId,
+    status: input.status,
+    currency: input.currency,
+    receiveAmount: input.receiveAmount,
+    fee: input.fee,
+    mobile: input.mobile,
+    name: input.name,
+    clientReference: input.clientReference,
+    businessId: input.businessId,
+    waveTimestamp: input.waveTimestamp,
+  };
+  if (existing) {
+    await prisma.waveOpsPayout.update({
+      where: { id: existing.id },
+      data,
+    });
+    return existing.id;
+  }
+  const created = await prisma.waveOpsPayout.create({
+    data: {
+      ...data,
+      idempotencyKey: input.idempotencyKey,
+    },
+  });
+  return created.id;
 }
