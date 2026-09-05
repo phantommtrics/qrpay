@@ -4,6 +4,7 @@ import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import { loadWaveMerchantBusinessLinks } from "./wave-aggregated-merchant.service.js";
 import { isPlatformWaveCheckoutConfigured, waveServiceFromEnv } from "./wave-client-env.js";
+import { syncLocalWaveReversalsFromTransactions } from "./wave-merchant-payment-reversal.service.js";
 import type { WaveAggregatedMerchant } from "./wave-payment.service.js";
 import {
   WAVE_UNASSIGNED_MERCHANT_ID,
@@ -124,10 +125,9 @@ export async function getWaveMerchantTransactionSummary(input: {
   const dates = inclusiveYmdRange(from, to);
 
   const wave = waveServiceFromEnv();
-  const [merchantsFromWave, links, localAggs] = await Promise.all([
+  const [merchantsFromWave, links] = await Promise.all([
     wave.listAllAggregatedMerchants(),
     loadWaveMerchantBusinessLinks(),
-    loadLocalWavePaymentAggs(from, to),
   ]);
 
   const waveByMerchantDate = new Map<string, Map<string, WaveMoneyTotals>>();
@@ -136,6 +136,7 @@ export async function getWaveMerchantTransactionSummary(input: {
 
   for (const date of dates) {
     const items = await wave.listAllTransactionsForDate(date);
+    await syncLocalWaveReversalsFromTransactions(items);
     const grouped = groupWaveTransactionsForDate(items);
     for (const [merchantId, { name, totals }] of grouped) {
       if (name) {
@@ -149,6 +150,7 @@ export async function getWaveMerchantTransactionSummary(input: {
     }
   }
 
+  const localAggs = await loadLocalWavePaymentAggs(from, to);
   const { byMerchant: localByMerchant, unlinked } = assignLocalAggsToMerchants(
     localAggs,
     links.merchantIdByBusinessId,

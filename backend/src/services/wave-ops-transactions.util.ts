@@ -98,6 +98,41 @@ export function waveTransactionDescription(tx: WaveTransaction): string {
   return waveTransactionTypeLabel(tx.transaction_type);
 }
 
+export function isWaveTransactionReversal(tx: WaveTransaction): boolean {
+  if (tx.is_reversal === true) {
+    return true;
+  }
+  const type = tx.transaction_type?.trim() ?? "";
+  return type.endsWith("_refund") || type.endsWith("_reversal");
+}
+
+/**
+ * Client references for Wave rows that represent a refund/reversal.
+ * Wave often omits `client_reference` on the reversal row; fall back to the
+ * matching original `transaction_id` in the same batch.
+ */
+export function clientReferencesForWaveReversals(items: WaveTransaction[]): string[] {
+  const originalRefByTxId = new Map<string, string>();
+  for (const tx of items) {
+    const ref = tx.client_reference?.trim();
+    if (!ref || isWaveTransactionReversal(tx)) {
+      continue;
+    }
+    originalRefByTxId.set(tx.transaction_id, ref);
+  }
+  const refs = new Set<string>();
+  for (const tx of items) {
+    if (!isWaveTransactionReversal(tx)) {
+      continue;
+    }
+    const ref = tx.client_reference?.trim() || originalRefByTxId.get(tx.transaction_id);
+    if (ref) {
+      refs.add(ref);
+    }
+  }
+  return [...refs];
+}
+
 export async function collectWaveOpsTransactionPage(opts: {
   dates: string[];
   startDate: string;

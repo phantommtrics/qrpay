@@ -96,7 +96,7 @@ export function PlatformWaveOpsTransactionsPage() {
   const [exportOpen, setExportOpen] = useState(false)
   const exportMenuRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
-  const [refundId, setRefundId] = useState<string | null>(null)
+  const [refundTx, setRefundTx] = useState<{ id: string; clientReference?: string } | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const merchantOptions = useMemo(
@@ -173,12 +173,12 @@ export function PlatformWaveOpsTransactionsPage() {
   }, [exportOpen])
 
   const confirmRefund = async () => {
-    if (!refundId) return
-    setBusyId(refundId)
+    if (!refundTx) return
+    setBusyId(refundTx.id)
     setError(null)
     try {
-      await refundWaveOpsTransaction(refundId)
-      setRefundId(null)
+      await refundWaveOpsTransaction(refundTx.id, refundTx.clientReference)
+      setRefundTx(null)
       await load()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Refund failed.')
@@ -455,7 +455,12 @@ export function PlatformWaveOpsTransactionsPage() {
                       {canManage && !tx.is_reversal && Number(tx.amount) > 0 ? (
                         <button
                           type="button"
-                          onClick={() => setRefundId(tx.transaction_id)}
+                          onClick={() =>
+                            setRefundTx({
+                              id: tx.transaction_id,
+                              clientReference: tx.client_reference,
+                            })
+                          }
                           className="inline-flex items-center gap-1 text-xs font-semibold text-rose-700 hover:text-rose-800"
                         >
                           <RotateCcw className="h-3.5 w-3.5" />
@@ -485,19 +490,20 @@ export function PlatformWaveOpsTransactionsPage() {
         ) : null}
       </PageCard>
 
-      {refundId ? (
+      {refundTx ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4">
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-slate-900">Refund transaction?</h3>
             <p className="mt-2 text-sm text-slate-600">
-              This reverses payment <span className="font-mono text-xs">{refundId}</span> including
-              fees. This cannot be undone from here.
+              This reverses payment <span className="font-mono text-xs">{refundTx.id}</span> including
+              fees. The matching local checkout will also be marked reversed. This cannot be undone
+              from here.
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
                 disabled={Boolean(busyId)}
-                onClick={() => setRefundId(null)}
+                onClick={() => setRefundTx(null)}
                 className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Cancel

@@ -154,7 +154,7 @@ export type SalePayment = {
   publicToken: string
   amount: number
   currency: string
-  status: 'pending' | 'completed' | 'failed'
+  status: 'pending' | 'completed' | 'failed' | 'reversed'
   reference: string
   providerReference: string
   method: 'qr_wallet' | 'cash'

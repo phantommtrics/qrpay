@@ -3626,11 +3626,16 @@ export async function fetchWaveMerchantTransactionSummary(params?: {
   return res.data
 }
 
-export async function refundWaveOpsTransaction(transactionId: string): Promise<{ ok: boolean }> {
-  const res = await apiRequest<{ data: { ok: boolean } }>(
-    `/platform/wave-operations/transactions/${encodeURIComponent(transactionId)}/refund`,
-    { method: 'POST', body: '{}' },
-  )
+export async function refundWaveOpsTransaction(
+  transactionId: string,
+  clientReference?: string,
+): Promise<{ ok: boolean; localPaymentId?: string | null; localReversed?: boolean }> {
+  const res = await apiRequest<{
+    data: { ok: boolean; localPaymentId?: string | null; localReversed?: boolean }
+  }>(`/platform/wave-operations/transactions/${encodeURIComponent(transactionId)}/refund`, {
+    method: 'POST',
+    body: JSON.stringify(clientReference ? { clientReference } : {}),
+  })
   return res.data
 }
 

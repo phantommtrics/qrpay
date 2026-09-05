@@ -140,6 +140,7 @@ enum PaymentStatus {
   COMPLETED
   FAILED
   CANCELLED
+  REVERSED
 }
 
 enum PaymentMethod {
@@ -1682,6 +1683,8 @@ model Payment {
   providerRef        String             @unique
   publicToken        String             @unique
   completedAt        DateTime?
+  /** Set when a Wave (or other wallet) collection is refunded/reversed. */
+  reversedAt         DateTime?
   /**
    * Staff member who recorded cash or initiated wallet checkout from POS (guest-paid wallet may still show this).
    */

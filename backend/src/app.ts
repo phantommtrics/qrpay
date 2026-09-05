@@ -4038,7 +4038,9 @@ app.post(
   requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "edit"),
   async (req, res, next) => {
     try {
-      const data = await refundWaveOpsTransaction(req.params.transactionId as string);
+      const body = req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
+      const clientReference = String(body.clientReference ?? "").trim() || undefined;
+      const data = await refundWaveOpsTransaction(req.params.transactionId as string, clientReference);
       res.json({ data });
     } catch (e) {
       next(e);
@@ -6129,12 +6131,14 @@ function serializeRestaurantMenuNode(node: MenuTreeNode): {
 
 function mapPaymentStatusToApi(
   status: PaymentStatusType,
-): "pending" | "completed" | "failed" {
+): "pending" | "completed" | "failed" | "reversed" {
   switch (status) {
     case PaymentStatus.COMPLETED:
       return "completed";
     case PaymentStatus.PENDING:
       return "pending";
+    case PaymentStatus.REVERSED:
+      return "reversed";
     case PaymentStatus.FAILED:
     case PaymentStatus.CANCELLED:
       return "failed";

@@ -1,0 +1,3 @@
+ALTER TYPE "PaymentStatus" ADD VALUE 'REVERSED';
+
+ALTER TABLE "Payment" ADD COLUMN "reversedAt" TIMESTAMP(3);

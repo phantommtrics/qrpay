@@ -6,6 +6,8 @@ function getStatusColor(status: Payment['status']) {
       return 'bg-emerald-100 text-emerald-700'
     case 'pending':
       return 'bg-amber-100 text-amber-700'
+    case 'reversed':
+      return 'bg-slate-100 text-slate-700'
     default:
       return 'bg-red-100 text-red-700'
   }

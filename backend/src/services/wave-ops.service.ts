@@ -7,6 +7,10 @@ import {
   waveServiceFromEnv,
 } from "./wave-client-env.js";
 import {
+  markLocalWavePaymentReversed,
+  syncLocalWaveReversalsFromTransactions,
+} from "./wave-merchant-payment-reversal.service.js";
+import {
   WAVE_UNASSIGNED_MERCHANT_ID,
   collectAllWaveOpsTransactions,
   decodeWaveOpsTxCursor,
@@ -195,6 +199,7 @@ export async function listWaveOpsTransactions(input: {
     startDate: cursor?.date,
     startAfter: cursor?.after,
   });
+  await syncLocalWaveReversalsFromTransactions(page.items);
   return formatWaveOpsTransactionsResponse({
     from,
     to,
@@ -225,7 +230,10 @@ function formatWaveOpsTransactionsResponse(input: {
   };
 }
 
-export async function refundWaveOpsTransaction(transactionId: string) {
+export async function refundWaveOpsTransaction(
+  transactionId: string,
+  clientReference?: string | null,
+) {
   if (!isPlatformWaveCheckoutConfigured()) {
     throw new HttpError(503, "Wave is not configured (WAVE_CHECKOUT_BEARER).");
   }
@@ -234,7 +242,17 @@ export async function refundWaveOpsTransaction(transactionId: string) {
   const wave = waveServiceFromEnv();
   const idempotencyKey = randomUUID();
   await wave.refundTransaction(id, idempotencyKey);
-  return { ok: true, transactionId: id, idempotencyKey };
+  const local = await markLocalWavePaymentReversed({
+    clientReference,
+    waveTransactionId: id,
+  });
+  return {
+    ok: true,
+    transactionId: id,
+    idempotencyKey,
+    localPaymentId: local?.paymentId ?? null,
+    localReversed: Boolean(local),
+  };
 }
 
 async function loadSupplierOrThrow(supplierId: string) {

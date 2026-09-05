@@ -5,10 +5,12 @@ import { HttpError } from "../lib/http-error.js";
 import type { WaveTransaction, WaveTransactionsResponse } from "./wave-payment.service.js";
 import {
   WAVE_UNASSIGNED_MERCHANT_ID,
+  clientReferencesForWaveReversals,
   collectAllWaveOpsTransactions,
   collectWaveOpsTransactionPage,
   decodeWaveOpsTxCursor,
   encodeWaveOpsTxCursor,
+  isWaveTransactionReversal,
   matchesWaveOpsMerchant,
   resolveWaveOpsTxRange,
   waveTransactionDescription,
@@ -85,6 +87,47 @@ describe("matchesWaveOpsMerchant", () => {
     assert.equal(matchesWaveOpsMerchant(assigned, "am_2"), false);
     assert.equal(matchesWaveOpsMerchant(unassigned, WAVE_UNASSIGNED_MERCHANT_ID), true);
     assert.equal(matchesWaveOpsMerchant(assigned, WAVE_UNASSIGNED_MERCHANT_ID), false);
+  });
+});
+
+describe("wave transaction reversals", () => {
+  it("detects is_reversal and refund/reversal types", () => {
+    assert.equal(isWaveTransactionReversal(tx({ transaction_id: "a", is_reversal: true })), true);
+    assert.equal(
+      isWaveTransactionReversal(tx({ transaction_id: "b", transaction_type: "api_checkout_refund" })),
+      true,
+    );
+    assert.equal(
+      isWaveTransactionReversal(tx({ transaction_id: "c", transaction_type: "api_payout_reversal" })),
+      true,
+    );
+    assert.equal(
+      isWaveTransactionReversal(tx({ transaction_id: "d", transaction_type: "api_checkout" })),
+      false,
+    );
+  });
+
+  it("uses the original client_reference when the reversal row omits it", () => {
+    assert.deepEqual(
+      clientReferencesForWaveReversals([
+        tx({
+          transaction_id: "T_1",
+          client_reference: "order_1",
+          transaction_type: "api_checkout",
+        }),
+        tx({
+          transaction_id: "T_1",
+          is_reversal: true,
+          amount: "-100",
+        }),
+        tx({
+          transaction_id: "T_2",
+          client_reference: "inv_2",
+          transaction_type: "api_checkout_refund",
+        }),
+      ]),
+      ["order_1", "inv_2"],
+    );
   });
 });
 

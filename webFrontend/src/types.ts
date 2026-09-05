@@ -237,7 +237,7 @@ export interface Payment {
   id: string
   orderId: string
   amount: number
-  status: 'pending' | 'completed' | 'failed'
+  status: 'pending' | 'completed' | 'failed' | 'reversed'
   reference: string
   method: 'qr_wallet' | 'cash'
   businessId: string
