@@ -208,6 +208,10 @@ export interface WaveTransaction {
   is_reversal?: boolean;
   aggregated_merchant_id?: string;
   aggregated_merchant_name?: string;
+  /** Wave has no `description` field; this is the closest narrative text. */
+  payment_reason?: string;
+  transaction_type?: string;
+  client_reference?: string;
 }
 
 export interface WaveTransactionsResponse {

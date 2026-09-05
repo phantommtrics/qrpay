@@ -362,6 +362,7 @@ import {
   getWaveOpsPayout,
   getWaveOpsPayoutBatch,
   listWaveOpsPayoutBatches,
+  listWaveOpsAggregatedMerchants,
   listWaveOpsPayouts,
   listWaveOpsTransactions,
   refundWaveOpsTransaction,
@@ -3984,9 +3985,28 @@ app.get(
   requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "view"),
   async (req, res, next) => {
     try {
-      const date = String(req.query.date ?? "").trim();
+      const date = String(req.query.date ?? "").trim() || undefined;
+      const from = String(req.query.from ?? "").trim() || undefined;
+      const to = String(req.query.to ?? "").trim() || undefined;
       const after = String(req.query.after ?? "").trim() || undefined;
-      const data = await listWaveOpsTransactions({ date, after });
+      const merchant = String(req.query.merchant ?? "").trim() || undefined;
+      const all = ["1", "true", "yes"].includes(String(req.query.all ?? "").trim().toLowerCase());
+      const data = await listWaveOpsTransactions({ date, from, to, after, merchant, all });
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/wave-operations/aggregated-merchants",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "view"),
+  async (_req, res, next) => {
+    try {
+      const data = await listWaveOpsAggregatedMerchants();
       res.json({ data });
     } catch (e) {
       next(e);

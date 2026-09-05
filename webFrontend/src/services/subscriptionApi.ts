@@ -3473,6 +3473,9 @@ export type WaveOpsTransaction = {
   is_reversal?: boolean
   aggregated_merchant_id?: string
   aggregated_merchant_name?: string
+  payment_reason?: string
+  transaction_type?: string
+  client_reference?: string
 }
 
 export type WaveOpsTransactionsResponse = {
@@ -3482,7 +3485,15 @@ export type WaveOpsTransactionsResponse = {
     has_next_page: boolean
   }
   date: string
+  from?: string
+  to?: string
   items: WaveOpsTransaction[]
+  unassignedMerchantId?: string
+}
+
+export type WaveOpsAggregatedMerchant = {
+  id: string
+  name: string
 }
 
 export type WaveOpsPayoutRow = {
@@ -3531,13 +3542,25 @@ export async function fetchWaveOpsBalance(): Promise<WaveOpsBalance> {
 }
 
 export async function fetchWaveOpsTransactions(params: {
-  date: string
+  from: string
+  to: string
   after?: string
+  merchant?: string
+  all?: boolean
 }): Promise<WaveOpsTransactionsResponse> {
-  const q = new URLSearchParams({ date: params.date })
+  const q = new URLSearchParams({ from: params.from, to: params.to })
   if (params.after) q.set('after', params.after)
+  if (params.merchant) q.set('merchant', params.merchant)
+  if (params.all) q.set('all', '1')
   const res = await apiRequest<{ data: WaveOpsTransactionsResponse }>(
     `/platform/wave-operations/transactions?${q.toString()}`,
+  )
+  return res.data
+}
+
+export async function fetchWaveOpsAggregatedMerchants(): Promise<WaveOpsAggregatedMerchant[]> {
+  const res = await apiRequest<{ data: WaveOpsAggregatedMerchant[] }>(
+    '/platform/wave-operations/aggregated-merchants',
   )
   return res.data
 }

@@ -6,7 +6,15 @@ import {
   isPlatformWaveCheckoutConfigured,
   waveServiceFromEnv,
 } from "./wave-client-env.js";
-import type { WavePayout, WavePayoutRequest } from "./wave-payment.service.js";
+import {
+  WAVE_UNASSIGNED_MERCHANT_ID,
+  collectAllWaveOpsTransactions,
+  collectWaveOpsTransactionPage,
+  decodeWaveOpsTxCursor,
+  resolveWaveOpsTxRange,
+  waveOpsDatesForRange,
+} from "./wave-ops-transactions.util.js";
+import type { WavePayout, WavePayoutRequest, WaveTransaction } from "./wave-payment.service.js";
 
 /** Normalize to E.164-ish mobile for Wave (`+` prefix required). */
 export function normalizeWaveMobile(input: string): string | null {
@@ -146,19 +154,91 @@ export async function getWaveOpsBalance() {
   };
 }
 
-export async function listWaveOpsTransactions(input: { date: string; after?: string }) {
+export async function listWaveOpsAggregatedMerchants() {
   if (!isPlatformWaveCheckoutConfigured()) {
     throw new HttpError(503, "Wave is not configured (WAVE_CHECKOUT_BEARER).");
   }
-  const date = input.date.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    throw new HttpError(400, "date must be YYYY-MM-DD.");
-  }
   const wave = waveServiceFromEnv();
-  return wave.listTransactions({
-    date,
-    ...(input.after?.trim() ? { after: input.after.trim() } : {}),
+  const items = await wave.listAllAggregatedMerchants();
+  return items
+    .map((m) => ({ id: m.id, name: m.name }))
+    .filter((m) => m.id.trim())
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+}
+
+export async function listWaveOpsTransactions(input: {
+  date?: string;
+  from?: string;
+  to?: string;
+  after?: string;
+  merchant?: string;
+  all?: boolean;
+}) {
+  if (!isPlatformWaveCheckoutConfigured()) {
+    throw new HttpError(503, "Wave is not configured (WAVE_CHECKOUT_BEARER).");
+  }
+  const { from, to } = resolveWaveOpsTxRange(input);
+  const dates = waveOpsDatesForRange(from, to);
+  const merchant = input.merchant?.trim() || undefined;
+  const wave = waveServiceFromEnv();
+  const fetchPage = (date: string, after?: string) =>
+    wave.listTransactions({
+      date,
+      ...(after ? { after } : {}),
+    });
+
+  if (input.all) {
+    const items = await collectAllWaveOpsTransactions({ dates, merchant, fetchPage });
+    return formatWaveOpsTransactionsResponse({
+      from,
+      to,
+      items,
+      endCursor: null,
+      hasNext: false,
+    });
+  }
+
+  const cursorRaw = input.after?.trim();
+  const startDate = dates[0];
+  if (!startDate) {
+    throw new HttpError(400, "from and to (or date) must be YYYY-MM-DD.");
+  }
+  const cursor = cursorRaw ? decodeWaveOpsTxCursor(cursorRaw) : { date: startDate };
+  const page = await collectWaveOpsTransactionPage({
+    dates,
+    startDate: cursor.date,
+    startAfter: cursor.after,
+    merchant,
+    fetchPage,
   });
+  return formatWaveOpsTransactionsResponse({
+    from,
+    to,
+    items: page.items,
+    endCursor: page.endCursor,
+    hasNext: page.hasNext,
+  });
+}
+
+function formatWaveOpsTransactionsResponse(input: {
+  from: string;
+  to: string;
+  items: WaveTransaction[];
+  endCursor: string | null;
+  hasNext: boolean;
+}) {
+  return {
+    page_info: {
+      start_cursor: null as string | null,
+      end_cursor: input.endCursor,
+      has_next_page: input.hasNext,
+    },
+    date: input.from,
+    from: input.from,
+    to: input.to,
+    items: input.items,
+    unassignedMerchantId: WAVE_UNASSIGNED_MERCHANT_ID,
+  };
 }
 
 export async function refundWaveOpsTransaction(transactionId: string) {
