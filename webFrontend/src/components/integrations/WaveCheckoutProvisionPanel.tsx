@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import { Loader2, RefreshCw, Wallet, X } from 'lucide-react'
+import { Loader2, Percent, RefreshCw, Wallet, X } from 'lucide-react'
 
 import {
   ApiError,
@@ -51,6 +51,8 @@ function applyConfigToForm(data: WaveSelfSettlementConfig) {
     mobile: data.mobile ?? '',
     feePercent: feePercentLabel(data.feeRate),
     feeFixed: String(data.feeFixed),
+    checkoutFeePercent: feePercentLabel(data.checkoutFeeRate),
+    checkoutFeeOverride: Boolean(data.checkoutFeeRateOverride),
   }
 }
 
@@ -108,6 +110,12 @@ export function WaveCheckoutProvisionPanel({
   const [settlementSaving, setSettlementSaving] = useState(false)
   const [settlementModalOpen, setSettlementModalOpen] = useState(false)
   const [settlementModalError, setSettlementModalError] = useState<string | null>(null)
+  const [checkoutFeePercent, setCheckoutFeePercent] = useState('1')
+  const [checkoutFeeOverride, setCheckoutFeeOverride] = useState(false)
+  const [draftCheckoutFeePercent, setDraftCheckoutFeePercent] = useState('1')
+  const [checkoutFeeModalOpen, setCheckoutFeeModalOpen] = useState(false)
+  const [checkoutFeeSaving, setCheckoutFeeSaving] = useState(false)
+  const [checkoutFeeModalError, setCheckoutFeeModalError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -135,10 +143,13 @@ export function WaveCheckoutProvisionPanel({
       setSettlementMobile(form.mobile)
       setSettlementFeePercent(form.feePercent)
       setSettlementFeeFixed(form.feeFixed)
+      setCheckoutFeePercent(form.checkoutFeePercent)
+      setCheckoutFeeOverride(form.checkoutFeeOverride)
       setDraftEnabled(form.enabled)
       setDraftMobile(form.mobile)
       setDraftFeePercent(form.feePercent)
       setDraftFeeFixed(form.feeFixed)
+      setDraftCheckoutFeePercent(form.checkoutFeePercent)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not load Wave self-settlement settings.')
     } finally {
@@ -176,6 +187,72 @@ export function WaveCheckoutProvisionPanel({
     setSettlementModalOpen(true)
   }
 
+  function closeCheckoutFeeModal() {
+    if (checkoutFeeSaving) {
+      return
+    }
+    setCheckoutFeeModalOpen(false)
+    setCheckoutFeeModalError(null)
+    setDraftCheckoutFeePercent(checkoutFeePercent)
+  }
+
+  function openCheckoutFeeModal() {
+    setDraftCheckoutFeePercent(checkoutFeePercent)
+    setCheckoutFeeModalError(null)
+    setSuccessMessage(null)
+    setCheckoutFeeModalOpen(true)
+  }
+
+  function applySettlementForm(data: WaveSelfSettlementConfig) {
+    const form = applyConfigToForm(data)
+    setSettlementEnabled(form.enabled)
+    setSettlementMobile(form.mobile)
+    setSettlementFeePercent(form.feePercent)
+    setSettlementFeeFixed(form.feeFixed)
+    setCheckoutFeePercent(form.checkoutFeePercent)
+    setCheckoutFeeOverride(form.checkoutFeeOverride)
+    setDraftEnabled(form.enabled)
+    setDraftMobile(form.mobile)
+    setDraftFeePercent(form.feePercent)
+    setDraftFeeFixed(form.feeFixed)
+    setDraftCheckoutFeePercent(form.checkoutFeePercent)
+  }
+
+  async function handleSaveCheckoutFee(resetToDefault = false) {
+    if (!allowMutations || ownAccountActive) {
+      return
+    }
+    const percent = Number.parseFloat(draftCheckoutFeePercent.replace(',', '.'))
+    if (!resetToDefault && (!Number.isFinite(percent) || percent < 0 || percent > 100)) {
+      setCheckoutFeeModalError('Checkout fee must be between 0 and 100 (%).')
+      return
+    }
+    setCheckoutFeeSaving(true)
+    setCheckoutFeeModalError(null)
+    try {
+      const withholdPercent = Number.parseFloat(settlementFeePercent.replace(',', '.'))
+      const withholdFixed = Number.parseFloat(settlementFeeFixed.replace(',', '.'))
+      const data = await updateWaveSelfSettlementConfig(businessId, {
+        enabled: settlementEnabled,
+        mobile: settlementMobile.trim() || null,
+        feeRate: Number.isFinite(withholdPercent) ? withholdPercent / 100 : 0,
+        feeFixed: Number.isFinite(withholdFixed) ? withholdFixed : 0,
+        checkoutFeeRate: resetToDefault ? null : percent / 100,
+      })
+      applySettlementForm(data)
+      setCheckoutFeeModalOpen(false)
+      setSuccessMessage(
+        resetToDefault
+          ? 'Wave checkout fee reset to the platform default.'
+          : `Wave checkout fee saved (${feePercentLabel(data.checkoutFeeRate)}% of checkout).`,
+      )
+    } catch (e) {
+      setCheckoutFeeModalError(e instanceof ApiError ? e.message : 'Could not save checkout fee.')
+    } finally {
+      setCheckoutFeeSaving(false)
+    }
+  }
+
   async function handleSaveSettlement() {
     if (!allowMutations || ownAccountActive) {
       return
@@ -203,15 +280,7 @@ export function WaveCheckoutProvisionPanel({
         feeRate: percent / 100,
         feeFixed: fixed,
       })
-      const form = applyConfigToForm(data)
-      setSettlementEnabled(form.enabled)
-      setSettlementMobile(form.mobile)
-      setSettlementFeePercent(form.feePercent)
-      setSettlementFeeFixed(form.feeFixed)
-      setDraftEnabled(form.enabled)
-      setDraftMobile(form.mobile)
-      setDraftFeePercent(form.feePercent)
-      setDraftFeeFixed(form.feeFixed)
+      applySettlementForm(data)
       setSettlementModalOpen(false)
       setSuccessMessage(
         data.enabled
@@ -341,6 +410,43 @@ export function WaveCheckoutProvisionPanel({
 
       {!ownAccountActive ? (
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Wave checkout fee</p>
+            {settlementLoading ? (
+              <p className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading…
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-slate-700">
+                <span className="font-medium">{checkoutFeePercent}%</span>
+                <span className="text-slate-500"> of checkout</span>
+                {checkoutFeeOverride ? (
+                  <span className="ml-2 inline-flex rounded-full bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-800">
+                    Merchant rate
+                  </span>
+                ) : (
+                  <span className="ml-2 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                    Platform default
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            disabled={!aggregatedMerchantReady || settlementLoading}
+            onClick={() => openCheckoutFeeModal()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <Percent className="h-4 w-4" />
+            {allowMutations ? (checkoutFeeOverride ? 'Edit' : 'Set rate') : 'View'}
+          </button>
+        </div>
+      ) : null}
+
+      {!ownAccountActive ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Self-settlement</p>
             {settlementLoading ? (
@@ -547,6 +653,98 @@ export function WaveCheckoutProvisionPanel({
                     >
                       {settlementSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                       {settlementSaving ? 'Saving…' : 'Save'}
+                    </button>
+                  ) : null}
+                </div>
+              </form>
+            </CenteredModal>
+          </div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {checkoutFeeModalOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <ModalOverlay
+              className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+              onClick={() => closeCheckoutFeeModal()}
+            />
+            <CenteredModal className="relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl">
+              <form
+                className="relative p-6"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  void handleSaveCheckoutFee(false)
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={checkoutFeeSaving}
+                  onClick={() => closeCheckoutFeeModal()}
+                  className="absolute right-4 top-4 rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Close"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+                <h2 className="pr-10 text-lg font-semibold text-slate-900">Wave checkout fee</h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  What Wave charges when this merchant receives a checkout. Used for self-settlement
+                  payout math and the merchant wallet-fee journal. Change it when Wave reduces the
+                  rate.
+                </p>
+                <div className="mt-5">
+                  <label className="text-sm font-medium text-slate-800" htmlFor="wave-checkout-fee-percent">
+                    Checkout fee (% of payment)
+                  </label>
+                  <input
+                    id="wave-checkout-fee-percent"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    className={inputClass}
+                    value={draftCheckoutFeePercent}
+                    disabled={!allowMutations || checkoutFeeSaving}
+                    onChange={(e) => setDraftCheckoutFeePercent(e.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Example: 1 = 1%. Platform default is 1% until you set a merchant rate.
+                  </p>
+                </div>
+
+                {checkoutFeeModalError ? (
+                  <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    {checkoutFeeModalError}
+                  </p>
+                ) : null}
+
+                <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
+                  <button
+                    type="button"
+                    disabled={checkoutFeeSaving}
+                    onClick={() => closeCheckoutFeeModal()}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {allowMutations ? 'Cancel' : 'Close'}
+                  </button>
+                  {allowMutations && checkoutFeeOverride ? (
+                    <button
+                      type="button"
+                      disabled={checkoutFeeSaving}
+                      onClick={() => void handleSaveCheckoutFee(true)}
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Use default
+                    </button>
+                  ) : null}
+                  {allowMutations ? (
+                    <button
+                      type="submit"
+                      disabled={checkoutFeeSaving}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-500 disabled:opacity-50"
+                    >
+                      {checkoutFeeSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      {checkoutFeeSaving ? 'Saving…' : 'Save'}
                     </button>
                   ) : null}
                 </div>

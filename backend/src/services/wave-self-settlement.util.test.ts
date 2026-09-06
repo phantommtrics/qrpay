@@ -213,3 +213,29 @@ describe("waveSelfSettlementSkipReason", () => {
     );
   });
 });
+
+describe("resolveWaveAggregatedCheckoutFeeRate", () => {
+  it("uses the merchant rate when set, including 0", async () => {
+    const { resolveWaveAggregatedCheckoutFeeRate, resolveMerchantWalletFeeRate } =
+      await import("./merchant-pos-wallet-fee-resolution.service.js");
+    const merchant = resolveWaveAggregatedCheckoutFeeRate({
+      aggregatedMerchantId: "am_1",
+      customerWalletFeeRate: 0.008,
+    });
+    assert.equal(merchant.toString(), "0.008");
+    const zero = resolveWaveAggregatedCheckoutFeeRate({
+      aggregatedMerchantId: "am_1",
+      customerWalletFeeRate: 0,
+    });
+    assert.equal(zero.toString(), "0");
+    const fallback = resolveWaveAggregatedCheckoutFeeRate({ aggregatedMerchantId: "am_1" });
+    assert.equal(fallback.toString(), "0.01");
+    const gl = resolveMerchantWalletFeeRate({ aggregatedMerchantId: "am_1" }, "WAVE_GAMBIA");
+    assert.equal(gl.toString(), "0.01");
+    const ownAccount = resolveMerchantWalletFeeRate(
+      { bearerToken: "secret", customerWalletFeeRate: undefined },
+      "WAVE_GAMBIA",
+    );
+    assert.equal(ownAccount.toString(), "0");
+  });
+});

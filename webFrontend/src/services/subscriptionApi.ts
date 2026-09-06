@@ -2780,6 +2780,7 @@ export type WaveSelfSettlementConfig = {
   aggregatedMerchantId: string | null
   ownAccountActive: boolean
   checkoutFeeRate: number
+  checkoutFeeRateOverride: boolean
   payoutFeeRate: number
 }
 
@@ -2797,6 +2798,7 @@ export async function updateWaveSelfSettlementConfig(
     mobile?: string | null
     feeRate: number
     feeFixed: number
+    checkoutFeeRate?: number | null
   },
 ) {
   const response = await apiRequest<{ data: WaveSelfSettlementConfig }>(

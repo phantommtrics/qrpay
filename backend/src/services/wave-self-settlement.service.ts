@@ -9,10 +9,8 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 
-import {
-  waveSelfSettlementCheckoutFeeRate,
-  waveSelfSettlementPayoutFeeRate,
-} from "../config/wave-self-settlement-env.js";
+import { waveSelfSettlementPayoutFeeRate } from "../config/wave-self-settlement-env.js";
+import { resolveWaveAggregatedCheckoutFeeRate } from "./merchant-pos-wallet-fee-resolution.service.js";
 import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import { encryptJsonPayload } from "../utils/field-encryption.js";
@@ -96,6 +94,7 @@ export type WaveSelfSettlementConfig = {
   aggregatedMerchantId: string | null;
   ownAccountActive: boolean;
   checkoutFeeRate: number;
+  checkoutFeeRateOverride: boolean;
   payoutFeeRate: number;
 };
 
@@ -112,7 +111,7 @@ export async function getWaveSelfSettlementConfig(businessId: string): Promise<W
     GATEWAY_CODE_WAVE_GAMBIA,
   );
   const parsed = secrets ? parseExistingWave(secrets as unknown as Record<string, unknown>) : null;
-  const checkout = waveSelfSettlementCheckoutFeeRate();
+  const checkout = resolveWaveAggregatedCheckoutFeeRate(parsed);
   const payoutFee = waveSelfSettlementPayoutFeeRate();
   return {
     enabled: parsed?.selfSettlementEnabled === true,
@@ -122,6 +121,7 @@ export async function getWaveSelfSettlementConfig(businessId: string): Promise<W
     aggregatedMerchantId: parsed?.aggregatedMerchantId?.trim() || null,
     ownAccountActive: Boolean(waveOwnAccountBearer(parsed)),
     checkoutFeeRate: Number(checkout.toString()),
+    checkoutFeeRateOverride: parsed?.customerWalletFeeRate !== undefined,
     payoutFeeRate: Number(payoutFee.toString()),
   };
 }
@@ -131,6 +131,8 @@ const updateSelfSettlementSchema = z.object({
   mobile: z.string().trim().max(32).nullable().optional(),
   feeRate: z.number().min(0).max(1),
   feeFixed: z.number().min(0),
+  /** Wave checkout fee on incoming payments, fraction 0–1. Null clears the per-merchant override. */
+  checkoutFeeRate: z.union([z.number().min(0).max(1), z.null()]).optional(),
 });
 
 export async function updateWaveSelfSettlementConfig(
@@ -193,9 +195,16 @@ export async function updateWaveSelfSettlementConfig(
     throw new HttpError(400, "Wave customer number is required when self-settlement is enabled.");
   }
 
+  let customerWalletFeeRate = existing?.customerWalletFeeRate;
+  if (input.checkoutFeeRate === null) {
+    customerWalletFeeRate = undefined;
+  } else if (input.checkoutFeeRate !== undefined) {
+    customerWalletFeeRate = input.checkoutFeeRate;
+  }
+
   const payload: WaveGatewaySecrets = {
     aggregatedMerchantId,
-    customerWalletFeeRate: existing?.customerWalletFeeRate,
+    customerWalletFeeRate,
     bearerToken: existing?.bearerToken,
     webhookSecret: existing?.webhookSecret,
     ...waveSelfSettlementFieldsFrom(existing),
@@ -207,6 +216,9 @@ export async function updateWaveSelfSettlementConfig(
 
   if (!mobile) {
     delete payload.selfSettlementMobile;
+  }
+  if (customerWalletFeeRate === undefined) {
+    delete payload.customerWalletFeeRate;
   }
 
   let enc: { iv: string; ciphertext: string };
@@ -289,7 +301,7 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
     gross: payment.amount,
     feeRate: settlementFeeRateFromSecrets(parsed),
     feeFixed: settlementFeeFixedFromSecrets(parsed),
-    checkoutFeeRate: waveSelfSettlementCheckoutFeeRate(),
+    checkoutFeeRate: resolveWaveAggregatedCheckoutFeeRate(parsed),
     payoutFeeRate: waveSelfSettlementPayoutFeeRate(),
   });
 
