@@ -227,12 +227,37 @@ export async function getPlatformBusinessDetail(
   };
 }
 
-export async function listPlatformBusinessesPaginated(pagination: PlatformListPagination) {
+export type PlatformBusinessListFilters = {
+  nameContains?: string;
+  createdFrom?: Date;
+  createdTo?: Date;
+};
+
+export async function listPlatformBusinessesPaginated(
+  pagination: PlatformListPagination,
+  filters: PlatformBusinessListFilters = {},
+) {
+  const where: Prisma.BusinessWhereInput = {};
+  const nameQ = filters.nameContains?.trim();
+  if (nameQ) {
+    where.name = { contains: nameQ, mode: "insensitive" };
+  }
+  if (filters.createdFrom || filters.createdTo) {
+    where.createdAt = {};
+    if (filters.createdFrom) {
+      where.createdAt.gte = filters.createdFrom;
+    }
+    if (filters.createdTo) {
+      where.createdAt.lte = filters.createdTo;
+    }
+  }
+
   const skip = (pagination.page - 1) * pagination.pageSize;
 
   const [total, rows] = await prisma.$transaction([
-    prisma.business.count(),
+    prisma.business.count({ where }),
     prisma.business.findMany({
+      where,
       include: {
         subscriptions: {
           include: { plan: true },

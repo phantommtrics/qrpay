@@ -329,7 +329,10 @@ export async function getPlatformMerchantCategoryJournal(
         COALESCE(
           SUM(
             CASE
-              WHEN sle."type" = 'WALLET_FEE'::"SalesLedgerEntryType" THEN sle."amount"::numeric
+              WHEN sle."type" IN (
+                'WALLET_FEE'::"SalesLedgerEntryType",
+                'SELF_SETTLEMENT_CHECKOUT_FEE'::"SalesLedgerEntryType"
+              ) THEN sle."amount"::numeric
               ELSE 0::numeric
             END
           ),
@@ -342,7 +345,8 @@ export async function getPlatformMerchantCategoryJournal(
         AND sle."paymentId" IS NOT NULL
         AND sle."type" IN (
           'CUSTOMER_SALE'::"SalesLedgerEntryType",
-          'WALLET_FEE'::"SalesLedgerEntryType"
+          'WALLET_FEE'::"SalesLedgerEntryType",
+          'SELF_SETTLEMENT_CHECKOUT_FEE'::"SalesLedgerEntryType"
         )
         AND p."businessId" = sle."businessId"
         AND p."status" = 'COMPLETED'::"PaymentStatus"
@@ -459,10 +463,13 @@ export async function getPlatformMerchantCategoryJournal(
           0
         )::numeric AS "customerSaleTotal",
         COALESCE(
-          MAX(
+          SUM(
             CASE
-              WHEN sle."type" = 'WALLET_FEE'::"SalesLedgerEntryType" THEN sle."amount"::numeric
-              ELSE NULL
+              WHEN sle."type" IN (
+                'WALLET_FEE'::"SalesLedgerEntryType",
+                'SELF_SETTLEMENT_CHECKOUT_FEE'::"SalesLedgerEntryType"
+              ) THEN sle."amount"::numeric
+              ELSE 0::numeric
             END
           ),
           0
@@ -477,7 +484,8 @@ export async function getPlatformMerchantCategoryJournal(
        AND sle."status" = 'SUCCEEDED'::"SalesLedgerStatus"
        AND sle."type" IN (
          'CUSTOMER_SALE'::"SalesLedgerEntryType",
-         'WALLET_FEE'::"SalesLedgerEntryType"
+         'WALLET_FEE'::"SalesLedgerEntryType",
+         'SELF_SETTLEMENT_CHECKOUT_FEE'::"SalesLedgerEntryType"
        )
       WHERE p."status" = 'COMPLETED'::"PaymentStatus"
         AND p."completedAt" IS NOT NULL

@@ -28,6 +28,7 @@ import {
   CHECKOUT_ADAPTER_WAVE_GAMBIA,
   CHECKOUT_ADAPTER_YONNA_WALLET,
 } from "./payment-gateway.service.js";
+import { computeWalletFeeAmount } from "./merchant-pos-wallet-fee-resolution.service.js";
 
 type Tx = Omit<
   Prisma.TransactionClient,
@@ -455,7 +456,7 @@ export async function recordSubscriptionCheckoutWalletFeeTx(
 
   if (!ledger) {
     const rate = subscriptionCheckoutWalletFeeRate(input.provider);
-    const feeAmount = new Prisma.Decimal(input.grossAmount.toString()).mul(rate).toDecimalPlaces(2);
+    const feeAmount = computeWalletFeeAmount(input.grossAmount, rate, input.provider);
     if (feeAmount.lte(0)) {
       return;
     }

@@ -53,8 +53,13 @@ export type WaveGatewaySecrets = {
   bearerToken?: string;
   /** Own Wave webhook HMAC secret (same URL as aggregated merchants). */
   webhookSecret?: string;
-  /** Estimated provider fee on gross customer wallet takings (orders/POS), fraction 0–1. */
+  /** Estimated Wave checkout fee booked on merchant GL (orders/POS), fraction 0–1. */
   customerWalletFeeRate?: number;
+  /**
+   * Wave checkout fee reserved in self-settlement payout math, fraction 0–1.
+   * Independent of {@link customerWalletFeeRate} so Wave can change one rate and not the other.
+   */
+  selfSettlementCheckoutFeeRate?: number;
   /** When true, payout gross minus withhold to `selfSettlementMobile` after aggregator checkout. */
   selfSettlementEnabled?: boolean;
   /** Merchant Wave customer number (E.164) for aggregator self-settlement payouts. */
@@ -71,6 +76,7 @@ export type WaveSelfSettlementSecretFields = Pick<
   | "selfSettlementMobile"
   | "selfSettlementFeeRate"
   | "selfSettlementFeeFixed"
+  | "selfSettlementCheckoutFeeRate"
 >;
 
 export function waveSelfSettlementFieldsFrom(
@@ -91,6 +97,9 @@ export function waveSelfSettlementFieldsFrom(
       : {}),
     ...(existing.selfSettlementFeeFixed !== undefined
       ? { selfSettlementFeeFixed: existing.selfSettlementFeeFixed }
+      : {}),
+    ...(existing.selfSettlementCheckoutFeeRate !== undefined
+      ? { selfSettlementCheckoutFeeRate: existing.selfSettlementCheckoutFeeRate }
       : {}),
   };
 }
@@ -282,12 +291,14 @@ function parseSelfSettlementFields(raw: Record<string, unknown>): WaveSelfSettle
   const mobile = optionalTrimmedSecret(raw.selfSettlementMobile);
   const feeRate = parseWalletFeeRate(raw.selfSettlementFeeRate);
   const feeFixed = parseNonNegativeMoney(raw.selfSettlementFeeFixed);
+  const checkoutFeeRate = parseWalletFeeRate(raw.selfSettlementCheckoutFeeRate);
   const enabled = parseOptionalBoolean(raw.selfSettlementEnabled);
   return {
     ...(enabled !== undefined ? { selfSettlementEnabled: enabled } : {}),
     ...(mobile ? { selfSettlementMobile: mobile } : {}),
     ...(feeRate !== undefined ? { selfSettlementFeeRate: feeRate } : {}),
     ...(feeFixed !== undefined ? { selfSettlementFeeFixed: feeFixed } : {}),
+    ...(checkoutFeeRate !== undefined ? { selfSettlementCheckoutFeeRate: checkoutFeeRate } : {}),
   };
 }
 

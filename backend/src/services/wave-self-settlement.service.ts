@@ -10,7 +10,11 @@ import {
 import { z } from "zod";
 
 import { waveSelfSettlementPayoutFeeRate } from "../config/wave-self-settlement-env.js";
-import { resolveWaveAggregatedCheckoutFeeRate } from "./merchant-pos-wallet-fee-resolution.service.js";
+import {
+  resolveMerchantWalletFeeRate,
+  resolveWaveSelfSettlementCheckoutFeeRate,
+} from "./merchant-pos-wallet-fee-resolution.service.js";
+import { PaymentProvider } from "../lib/prisma-sales-enums.js";
 import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import { encryptJsonPayload } from "../utils/field-encryption.js";
@@ -29,6 +33,7 @@ import { formatWavePayoutAmount } from "./wave-payment.service.js";
 import { upsertWaveOpsPayoutForSelfSettlement } from "./wave-ops.service.js";
 import { postPlatformJournalForSelfSettlementPayout } from "./platform-self-settlement-journal.service.js";
 import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
+import { recordMerchantSelfSettlementCheckoutFeeJournalAndLedger } from "./sale-accounting.service.js";
 import {
   computeWaveSelfSettlementAmounts,
   settlementFeeFixedFromSecrets,
@@ -95,6 +100,8 @@ export type WaveSelfSettlementConfig = {
   ownAccountActive: boolean;
   checkoutFeeRate: number;
   checkoutFeeRateOverride: boolean;
+  settlementCheckoutFeeRate: number;
+  settlementCheckoutFeeRateOverride: boolean;
   payoutFeeRate: number;
 };
 
@@ -111,7 +118,8 @@ export async function getWaveSelfSettlementConfig(businessId: string): Promise<W
     GATEWAY_CODE_WAVE_GAMBIA,
   );
   const parsed = secrets ? parseExistingWave(secrets as unknown as Record<string, unknown>) : null;
-  const checkout = resolveWaveAggregatedCheckoutFeeRate(parsed);
+  const checkout = resolveMerchantWalletFeeRate(parsed, PaymentProvider.WAVE_GAMBIA);
+  const settlementCheckout = resolveWaveSelfSettlementCheckoutFeeRate(parsed);
   const payoutFee = waveSelfSettlementPayoutFeeRate();
   return {
     enabled: parsed?.selfSettlementEnabled === true,
@@ -122,6 +130,8 @@ export async function getWaveSelfSettlementConfig(businessId: string): Promise<W
     ownAccountActive: Boolean(waveOwnAccountBearer(parsed)),
     checkoutFeeRate: Number(checkout.toString()),
     checkoutFeeRateOverride: parsed?.customerWalletFeeRate !== undefined,
+    settlementCheckoutFeeRate: Number(settlementCheckout.toString()),
+    settlementCheckoutFeeRateOverride: parsed?.selfSettlementCheckoutFeeRate !== undefined,
     payoutFeeRate: Number(payoutFee.toString()),
   };
 }
@@ -131,8 +141,10 @@ const updateSelfSettlementSchema = z.object({
   mobile: z.string().trim().max(32).nullable().optional(),
   feeRate: z.number().min(0).max(1),
   feeFixed: z.number().min(0),
-  /** Wave checkout fee on incoming payments, fraction 0–1. Null clears the per-merchant override. */
+  /** Merchant GL Wave checkout fee, fraction 0–1. Null clears the per-merchant override. */
   checkoutFeeRate: z.union([z.number().min(0).max(1), z.null()]).optional(),
+  /** Self-settlement Wave checkout fee, fraction 0–1. Null clears the per-merchant override. */
+  settlementCheckoutFeeRate: z.union([z.number().min(0).max(1), z.null()]).optional(),
 });
 
 export async function updateWaveSelfSettlementConfig(
@@ -202,6 +214,13 @@ export async function updateWaveSelfSettlementConfig(
     customerWalletFeeRate = input.checkoutFeeRate;
   }
 
+  let selfSettlementCheckoutFeeRate = existing?.selfSettlementCheckoutFeeRate;
+  if (input.settlementCheckoutFeeRate === null) {
+    selfSettlementCheckoutFeeRate = undefined;
+  } else if (input.settlementCheckoutFeeRate !== undefined) {
+    selfSettlementCheckoutFeeRate = input.settlementCheckoutFeeRate;
+  }
+
   const payload: WaveGatewaySecrets = {
     aggregatedMerchantId,
     customerWalletFeeRate,
@@ -211,6 +230,7 @@ export async function updateWaveSelfSettlementConfig(
     selfSettlementEnabled: input.enabled,
     selfSettlementFeeRate: input.feeRate,
     selfSettlementFeeFixed: Math.round(input.feeFixed * 100) / 100,
+    selfSettlementCheckoutFeeRate,
     ...(mobile ? { selfSettlementMobile: mobile } : { selfSettlementMobile: undefined }),
   };
 
@@ -219,6 +239,9 @@ export async function updateWaveSelfSettlementConfig(
   }
   if (customerWalletFeeRate === undefined) {
     delete payload.customerWalletFeeRate;
+  }
+  if (selfSettlementCheckoutFeeRate === undefined) {
+    delete payload.selfSettlementCheckoutFeeRate;
   }
 
   let enc: { iv: string; ciphertext: string };
@@ -255,7 +278,11 @@ export async function updateWaveSelfSettlementConfig(
 export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Promise<void> {
   const payment = await prisma.payment.findUnique({
     where: { id: paymentId },
-    include: { business: { select: { name: true } } },
+    include: {
+      business: { select: { name: true } },
+      order: { select: { publicCode: true } },
+      salesInvoice: { select: { publicCode: true } },
+    },
   });
   if (!payment) {
     return;
@@ -268,6 +295,61 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
       `[wave-self-settlement] skip payment ${payment.id}: status is ${payment.status}, expected COMPLETED`,
     );
     return;
+  }
+
+  const secrets = await getDecryptedGatewaySecrets<WaveGatewaySecrets>(
+    payment.businessId,
+    payment.gatewayCode?.trim() || GATEWAY_CODE_WAVE_GAMBIA,
+  );
+  const parsedWave = secrets
+    ? parseExistingWave(secrets as unknown as Record<string, unknown>)
+    : null;
+  const parsed: WaveGatewaySecrets | null | undefined = parsedWave
+    ? { ...parsedWave, ...waveSelfSettlementFieldsFrom(secrets) }
+    : secrets;
+
+  const checkoutFeeRate = resolveWaveSelfSettlementCheckoutFeeRate(parsed);
+  const amounts = computeWaveSelfSettlementAmounts({
+    gross: payment.amount,
+    feeRate: settlementFeeRateFromSecrets(parsed),
+    feeFixed: settlementFeeFixedFromSecrets(parsed),
+    checkoutFeeRate,
+    payoutFeeRate: waveSelfSettlementPayoutFeeRate(),
+  });
+
+  const skip = waveSelfSettlementSkipReason({
+    secrets: parsed,
+    receiveAmount: amounts.receiveAmount,
+  });
+
+  if (skip !== "own_account" && parsed?.aggregatedMerchantId?.trim() && amounts.checkoutFeeAmount.gt(0)) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        await recordMerchantSelfSettlementCheckoutFeeJournalAndLedger(tx, {
+          businessId: payment.businessId,
+          paymentId: payment.id,
+          paymentPublicCode: payment.publicCode,
+          amount: payment.amount,
+          currency: payment.currency,
+          provider: payment.provider,
+          method: payment.method,
+          status: payment.status,
+          providerRef: payment.providerRef,
+          gatewayCode: payment.gatewayCode,
+          orderId: payment.orderId,
+          orderPublicCode: payment.order?.publicCode ?? null,
+          salesInvoicePublicCode: payment.salesInvoice?.publicCode ?? null,
+          feeAmount: amounts.checkoutFeeAmount,
+          rate: checkoutFeeRate,
+        });
+      });
+    } catch (error) {
+      console.error("[wave-self-settlement] reserved checkout fee journal failed", {
+        paymentId: payment.id,
+        businessId: payment.businessId,
+        error,
+      });
+    }
   }
 
   const existing = await prisma.waveSelfSettlementPayout.findUnique({
@@ -285,30 +367,6 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
     }
     return;
   }
-
-  const secrets = await getDecryptedGatewaySecrets<WaveGatewaySecrets>(
-    payment.businessId,
-    payment.gatewayCode?.trim() || GATEWAY_CODE_WAVE_GAMBIA,
-  );
-  const parsedWave = secrets
-    ? parseExistingWave(secrets as unknown as Record<string, unknown>)
-    : null;
-  const parsed: WaveGatewaySecrets | null | undefined = parsedWave
-    ? { ...parsedWave, ...waveSelfSettlementFieldsFrom(secrets) }
-    : secrets;
-
-  const amounts = computeWaveSelfSettlementAmounts({
-    gross: payment.amount,
-    feeRate: settlementFeeRateFromSecrets(parsed),
-    feeFixed: settlementFeeFixedFromSecrets(parsed),
-    checkoutFeeRate: resolveWaveAggregatedCheckoutFeeRate(parsed),
-    payoutFeeRate: waveSelfSettlementPayoutFeeRate(),
-  });
-
-  const skip = waveSelfSettlementSkipReason({
-    secrets: parsed,
-    receiveAmount: amounts.receiveAmount,
-  });
   if (skip) {
     console.warn("[wave-self-settlement] skip", {
       paymentId: payment.id,

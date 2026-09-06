@@ -25,11 +25,13 @@ describe("parseExistingWave", () => {
       selfSettlementMobile: "+2201234567",
       selfSettlementFeeRate: 0.02,
       selfSettlementFeeFixed: 10,
+      selfSettlementCheckoutFeeRate: 0.008,
     });
     assert.equal(secrets?.selfSettlementEnabled, true);
     assert.equal(secrets?.selfSettlementMobile, "+2201234567");
     assert.equal(secrets?.selfSettlementFeeRate, 0.02);
     assert.equal(secrets?.selfSettlementFeeFixed, 10);
+    assert.equal(secrets?.selfSettlementCheckoutFeeRate, 0.008);
   });
 
   it("reads own-account secrets without an aggregated merchant", () => {
@@ -67,6 +69,7 @@ describe("waveSelfSettlementFieldsFrom", () => {
       selfSettlementMobile: "+2201234567",
       selfSettlementFeeRate: 0.01,
       selfSettlementFeeFixed: 5,
+      selfSettlementCheckoutFeeRate: 0.008,
     });
     const kept = waveSelfSettlementFieldsFrom(existing);
     assert.deepEqual(kept, {
@@ -74,6 +77,7 @@ describe("waveSelfSettlementFieldsFrom", () => {
       selfSettlementMobile: "+2201234567",
       selfSettlementFeeRate: 0.01,
       selfSettlementFeeFixed: 5,
+      selfSettlementCheckoutFeeRate: 0.008,
     });
     const cleared = {
       aggregatedMerchantId: existing?.aggregatedMerchantId,

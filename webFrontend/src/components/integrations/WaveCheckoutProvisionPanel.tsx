@@ -53,6 +53,8 @@ function applyConfigToForm(data: WaveSelfSettlementConfig) {
     feeFixed: String(data.feeFixed),
     checkoutFeePercent: feePercentLabel(data.checkoutFeeRate),
     checkoutFeeOverride: Boolean(data.checkoutFeeRateOverride),
+    settlementCheckoutFeePercent: feePercentLabel(data.settlementCheckoutFeeRate ?? 0.01),
+    settlementCheckoutFeeOverride: Boolean(data.settlementCheckoutFeeRateOverride),
   }
 }
 
@@ -116,6 +118,12 @@ export function WaveCheckoutProvisionPanel({
   const [checkoutFeeModalOpen, setCheckoutFeeModalOpen] = useState(false)
   const [checkoutFeeSaving, setCheckoutFeeSaving] = useState(false)
   const [checkoutFeeModalError, setCheckoutFeeModalError] = useState<string | null>(null)
+  const [settlementCheckoutFeePercent, setSettlementCheckoutFeePercent] = useState('1')
+  const [settlementCheckoutFeeOverride, setSettlementCheckoutFeeOverride] = useState(false)
+  const [draftSettlementCheckoutFeePercent, setDraftSettlementCheckoutFeePercent] = useState('1')
+  const [settlementCheckoutFeeModalOpen, setSettlementCheckoutFeeModalOpen] = useState(false)
+  const [settlementCheckoutFeeSaving, setSettlementCheckoutFeeSaving] = useState(false)
+  const [settlementCheckoutFeeModalError, setSettlementCheckoutFeeModalError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -145,11 +153,14 @@ export function WaveCheckoutProvisionPanel({
       setSettlementFeeFixed(form.feeFixed)
       setCheckoutFeePercent(form.checkoutFeePercent)
       setCheckoutFeeOverride(form.checkoutFeeOverride)
+      setSettlementCheckoutFeePercent(form.settlementCheckoutFeePercent)
+      setSettlementCheckoutFeeOverride(form.settlementCheckoutFeeOverride)
       setDraftEnabled(form.enabled)
       setDraftMobile(form.mobile)
       setDraftFeePercent(form.feePercent)
       setDraftFeeFixed(form.feeFixed)
       setDraftCheckoutFeePercent(form.checkoutFeePercent)
+      setDraftSettlementCheckoutFeePercent(form.settlementCheckoutFeePercent)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not load Wave self-settlement settings.')
     } finally {
@@ -211,11 +222,14 @@ export function WaveCheckoutProvisionPanel({
     setSettlementFeeFixed(form.feeFixed)
     setCheckoutFeePercent(form.checkoutFeePercent)
     setCheckoutFeeOverride(form.checkoutFeeOverride)
+    setSettlementCheckoutFeePercent(form.settlementCheckoutFeePercent)
+    setSettlementCheckoutFeeOverride(form.settlementCheckoutFeeOverride)
     setDraftEnabled(form.enabled)
     setDraftMobile(form.mobile)
     setDraftFeePercent(form.feePercent)
     setDraftFeeFixed(form.feeFixed)
     setDraftCheckoutFeePercent(form.checkoutFeePercent)
+    setDraftSettlementCheckoutFeePercent(form.settlementCheckoutFeePercent)
   }
 
   async function handleSaveCheckoutFee(resetToDefault = false) {
@@ -243,13 +257,66 @@ export function WaveCheckoutProvisionPanel({
       setCheckoutFeeModalOpen(false)
       setSuccessMessage(
         resetToDefault
-          ? 'Wave checkout fee reset to the platform default.'
-          : `Wave checkout fee saved (${feePercentLabel(data.checkoutFeeRate)}% of checkout).`,
+          ? 'Checkout fee reset to the platform default.'
+          : `Checkout fee saved (${feePercentLabel(data.checkoutFeeRate)}% of payment).`,
       )
     } catch (e) {
       setCheckoutFeeModalError(e instanceof ApiError ? e.message : 'Could not save checkout fee.')
     } finally {
       setCheckoutFeeSaving(false)
+    }
+  }
+
+  function closeSettlementCheckoutFeeModal() {
+    if (settlementCheckoutFeeSaving) {
+      return
+    }
+    setSettlementCheckoutFeeModalOpen(false)
+    setSettlementCheckoutFeeModalError(null)
+    setDraftSettlementCheckoutFeePercent(settlementCheckoutFeePercent)
+  }
+
+  function openSettlementCheckoutFeeModal() {
+    setDraftSettlementCheckoutFeePercent(settlementCheckoutFeePercent)
+    setSettlementCheckoutFeeModalError(null)
+    setSuccessMessage(null)
+    setSettlementCheckoutFeeModalOpen(true)
+  }
+
+  async function handleSaveSettlementCheckoutFee(resetToDefault = false) {
+    if (!allowMutations || ownAccountActive) {
+      return
+    }
+    const percent = Number.parseFloat(draftSettlementCheckoutFeePercent.replace(',', '.'))
+    if (!resetToDefault && (!Number.isFinite(percent) || percent < 0 || percent > 100)) {
+      setSettlementCheckoutFeeModalError('Self-settlement checkout fee must be between 0 and 100 (%).')
+      return
+    }
+    setSettlementCheckoutFeeSaving(true)
+    setSettlementCheckoutFeeModalError(null)
+    try {
+      const withholdPercent = Number.parseFloat(settlementFeePercent.replace(',', '.'))
+      const withholdFixed = Number.parseFloat(settlementFeeFixed.replace(',', '.'))
+      const data = await updateWaveSelfSettlementConfig(businessId, {
+        enabled: settlementEnabled,
+        mobile: settlementMobile.trim() || null,
+        feeRate: Number.isFinite(withholdPercent) ? withholdPercent / 100 : 0,
+        feeFixed: Number.isFinite(withholdFixed) ? withholdFixed : 0,
+        settlementCheckoutFeeRate: resetToDefault ? null : percent / 100,
+      })
+      applySettlementForm(data)
+      setSettlementCheckoutFeeModalOpen(false)
+      setSuccessMessage(
+        resetToDefault
+          ? 'Self-settlement checkout fee reset to the platform default.'
+          : `Self-settlement checkout fee saved (${feePercentLabel(data.settlementCheckoutFeeRate)}% of checkout).`,
+      )
+    } catch (e) {
+      setSettlementCheckoutFeeModalError(
+        e instanceof ApiError ? e.message : 'Could not save self-settlement checkout fee.',
+      )
+    } finally {
+      setSettlementCheckoutFeeSaving(false)
     }
   }
 
@@ -411,7 +478,7 @@ export function WaveCheckoutProvisionPanel({
       {!ownAccountActive ? (
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Wave checkout fee</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Checkout fee</p>
             {settlementLoading ? (
               <p className="mt-1 flex items-center gap-2 text-sm text-slate-500">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -441,6 +508,45 @@ export function WaveCheckoutProvisionPanel({
           >
             <Percent className="h-4 w-4" />
             {allowMutations ? (checkoutFeeOverride ? 'Edit' : 'Set rate') : 'View'}
+          </button>
+        </div>
+      ) : null}
+
+      {!ownAccountActive ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Self-settlement checkout fee
+            </p>
+            {settlementLoading ? (
+              <p className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading…
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-slate-700">
+                <span className="font-medium">{settlementCheckoutFeePercent}%</span>
+                <span className="text-slate-500"> reserved before payout</span>
+                {settlementCheckoutFeeOverride ? (
+                  <span className="ml-2 inline-flex rounded-full bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-800">
+                    Merchant rate
+                  </span>
+                ) : (
+                  <span className="ml-2 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                    Platform default
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            disabled={!aggregatedMerchantReady || settlementLoading}
+            onClick={() => openSettlementCheckoutFeeModal()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <Percent className="h-4 w-4" />
+            {allowMutations ? (settlementCheckoutFeeOverride ? 'Edit' : 'Set rate') : 'View'}
           </button>
         </div>
       ) : null}
@@ -686,11 +792,10 @@ export function WaveCheckoutProvisionPanel({
                 >
                   <X className="h-5 w-5" />
                 </button>
-                <h2 className="pr-10 text-lg font-semibold text-slate-900">Wave checkout fee</h2>
+                <h2 className="pr-10 text-lg font-semibold text-slate-900">Checkout fee</h2>
                 <p className="mt-2 text-sm text-slate-600">
-                  What Wave charges when this merchant receives a checkout. Used for self-settlement
-                  payout math and the merchant wallet-fee journal. Change it when Wave reduces the
-                  rate.
+                  Wave charge booked on this merchant&apos;s sales journal. Separate from the
+                  self-settlement checkout fee. Rounded to whole dalasis (50 at 1% is 1, not 0.50).
                 </p>
                 <div className="mt-5">
                   <label className="text-sm font-medium text-slate-800" htmlFor="wave-checkout-fee-percent">
@@ -708,7 +813,7 @@ export function WaveCheckoutProvisionPanel({
                     onChange={(e) => setDraftCheckoutFeePercent(e.target.value)}
                   />
                   <p className="mt-1 text-xs text-slate-500">
-                    Example: 1 = 1%. Platform default is 1% until you set a merchant rate.
+                    Example: 1 = 1%. Fee is then rounded to the nearest dalasi (half-up).
                   </p>
                 </div>
 
@@ -745,6 +850,100 @@ export function WaveCheckoutProvisionPanel({
                     >
                       {checkoutFeeSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                       {checkoutFeeSaving ? 'Saving…' : 'Save'}
+                    </button>
+                  ) : null}
+                </div>
+              </form>
+            </CenteredModal>
+          </div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {settlementCheckoutFeeModalOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <ModalOverlay
+              className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+              onClick={() => closeSettlementCheckoutFeeModal()}
+            />
+            <CenteredModal className="relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl">
+              <form
+                className="relative p-6"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  void handleSaveSettlementCheckoutFee(false)
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={settlementCheckoutFeeSaving}
+                  onClick={() => closeSettlementCheckoutFeeModal()}
+                  className="absolute right-4 top-4 rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Close"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+                <h2 className="pr-10 text-lg font-semibold text-slate-900">Self-settlement checkout fee</h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  Wave charge reserved from the aggregated balance before payout. Separate from the
+                  merchant checkout fee. Change this when Wave updates the settlement checkout rate.
+                </p>
+                <div className="mt-5">
+                  <label
+                    className="text-sm font-medium text-slate-800"
+                    htmlFor="wave-settlement-checkout-fee-percent"
+                  >
+                    Self-settlement checkout fee (% of payment)
+                  </label>
+                  <input
+                    id="wave-settlement-checkout-fee-percent"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    className={inputClass}
+                    value={draftSettlementCheckoutFeePercent}
+                    disabled={!allowMutations || settlementCheckoutFeeSaving}
+                    onChange={(e) => setDraftSettlementCheckoutFeePercent(e.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Example: 1 = 1%. Fee is then rounded to the nearest dalasi (half-up).
+                  </p>
+                </div>
+
+                {settlementCheckoutFeeModalError ? (
+                  <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    {settlementCheckoutFeeModalError}
+                  </p>
+                ) : null}
+
+                <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
+                  <button
+                    type="button"
+                    disabled={settlementCheckoutFeeSaving}
+                    onClick={() => closeSettlementCheckoutFeeModal()}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {allowMutations ? 'Cancel' : 'Close'}
+                  </button>
+                  {allowMutations && settlementCheckoutFeeOverride ? (
+                    <button
+                      type="button"
+                      disabled={settlementCheckoutFeeSaving}
+                      onClick={() => void handleSaveSettlementCheckoutFee(true)}
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Use default
+                    </button>
+                  ) : null}
+                  {allowMutations ? (
+                    <button
+                      type="submit"
+                      disabled={settlementCheckoutFeeSaving}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-500 disabled:opacity-50"
+                    >
+                      {settlementCheckoutFeeSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      {settlementCheckoutFeeSaving ? 'Saving…' : 'Save'}
                     </button>
                   ) : null}
                 </div>

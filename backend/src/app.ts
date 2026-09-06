@@ -1191,6 +1191,14 @@ const platformPaginationQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
 });
 
+const platformBusinessesQuerySchema = z.object({
+  q: z.string().max(200).optional(),
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(500).default(10),
+});
+
 const platformSubscriptionsQuerySchema = z.object({
   status: z.nativeEnum(SubscriptionStatus).optional(),
   createdFrom: z.string().optional(),
@@ -1302,10 +1310,17 @@ app.get(
   requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "view"),
   async (req, res, next) => {
   try {
-    const query = platformPaginationQuerySchema.parse(req.query);
+    const query = platformBusinessesQuerySchema.parse(req.query);
     const page = clampPage(query.page);
-    const pageSize = clampPageSize(query.pageSize);
-    const { rows, total } = await listPlatformBusinessesPaginated({ page, pageSize });
+    const pageSize = clampPageSize(query.pageSize, 500);
+    const { rows, total } = await listPlatformBusinessesPaginated(
+      { page, pageSize },
+      {
+        nameContains: query.q,
+        createdFrom: parseDateFilterDayStart(query.createdFrom),
+        createdTo: parseDateFilterDayEnd(query.createdTo),
+      },
+    );
     res.json({
       data: rows,
       total,

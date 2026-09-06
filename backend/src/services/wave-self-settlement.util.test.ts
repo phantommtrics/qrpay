@@ -214,24 +214,45 @@ describe("waveSelfSettlementSkipReason", () => {
   });
 });
 
-describe("resolveWaveAggregatedCheckoutFeeRate", () => {
-  it("uses the merchant rate when set, including 0", async () => {
-    const { resolveWaveAggregatedCheckoutFeeRate, resolveMerchantWalletFeeRate } =
-      await import("./merchant-pos-wallet-fee-resolution.service.js");
-    const merchant = resolveWaveAggregatedCheckoutFeeRate({
+describe("computeWalletFeeAmount", () => {
+  it("rounds Wave 1% of 50 to 1, and 1% of 40 to 0", async () => {
+    const { computeWalletFeeAmount } = await import("./merchant-pos-wallet-fee-resolution.service.js");
+    assert.equal(computeWalletFeeAmount(50, 0.01, "WAVE_GAMBIA").toString(), "1");
+    assert.equal(computeWalletFeeAmount(40, 0.01, "WAVE_GAMBIA").toString(), "0");
+    assert.equal(computeWalletFeeAmount("0.5", 1, "wave_gambia").toString(), "1");
+    assert.equal(computeWalletFeeAmount(50, 0.01, "APS_WALLET").toString(), "0.5");
+  });
+});
+
+describe("resolveWave fee rates", () => {
+  it("keeps self-settlement checkout fee and merchant GL checkout fee independent", async () => {
+    const {
+      resolveWaveSelfSettlementCheckoutFeeRate,
+      resolveMerchantWalletFeeRate,
+    } = await import("./merchant-pos-wallet-fee-resolution.service.js");
+    const settlementOnly = resolveWaveSelfSettlementCheckoutFeeRate({
       aggregatedMerchantId: "am_1",
-      customerWalletFeeRate: 0.008,
+      selfSettlementCheckoutFeeRate: 0.008,
+      customerWalletFeeRate: 0.02,
     });
-    assert.equal(merchant.toString(), "0.008");
-    const zero = resolveWaveAggregatedCheckoutFeeRate({
+    assert.equal(settlementOnly.toString(), "0.008");
+    const settlementDefault = resolveWaveSelfSettlementCheckoutFeeRate({
       aggregatedMerchantId: "am_1",
-      customerWalletFeeRate: 0,
+      customerWalletFeeRate: 0.02,
     });
-    assert.equal(zero.toString(), "0");
-    const fallback = resolveWaveAggregatedCheckoutFeeRate({ aggregatedMerchantId: "am_1" });
-    assert.equal(fallback.toString(), "0.01");
-    const gl = resolveMerchantWalletFeeRate({ aggregatedMerchantId: "am_1" }, "WAVE_GAMBIA");
-    assert.equal(gl.toString(), "0.01");
+    assert.equal(settlementDefault.toString(), "0.01");
+    const settlementZero = resolveWaveSelfSettlementCheckoutFeeRate({
+      aggregatedMerchantId: "am_1",
+      selfSettlementCheckoutFeeRate: 0,
+    });
+    assert.equal(settlementZero.toString(), "0");
+    const gl = resolveMerchantWalletFeeRate(
+      { aggregatedMerchantId: "am_1", customerWalletFeeRate: 0.02 },
+      "WAVE_GAMBIA",
+    );
+    assert.equal(gl.toString(), "0.02");
+    const glDefault = resolveMerchantWalletFeeRate({ aggregatedMerchantId: "am_1" }, "WAVE_GAMBIA");
+    assert.equal(glDefault.toString(), "0.01");
     const ownAccount = resolveMerchantWalletFeeRate(
       { bearerToken: "secret", customerWalletFeeRate: undefined },
       "WAVE_GAMBIA",

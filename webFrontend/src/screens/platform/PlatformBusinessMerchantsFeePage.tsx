@@ -54,7 +54,7 @@ export function PlatformBusinessMerchantsFeePage() {
 
   const exportCsv = () => {
     if (!report) return
-    const headers = ['Merchant', 'Payment channel', 'CUSTOMER_SALE (sum)', 'WALLET_FEE (sum)', 'Net']
+    const headers = ['Merchant', 'Payment channel', 'CUSTOMER_SALE (sum)', 'Wallet fees (sum)', 'Net']
     const rows =
       ledgerSorted.length > 0
         ? [
@@ -94,7 +94,7 @@ export function PlatformBusinessMerchantsFeePage() {
           : [
               {
                 heading: 'Sales ledger by merchant and payment channel',
-                headers: ['Merchant', 'Channel', 'CUSTOMER_SALE (sum)', 'WALLET_FEE (sum)', 'Net'],
+                headers: ['Merchant', 'Channel', 'CUSTOMER_SALE (sum)', 'Wallet fees (sum)', 'Net'],
                 rows: ledgerSorted.map((r) => {
                   const net = r.customerSaleLedgerTotal - r.walletFeeLedgerTotal
                   return [
@@ -122,7 +122,7 @@ export function PlatformBusinessMerchantsFeePage() {
   return (
     <BusinessMerchantsReportChrome
       title="Fee"
-      description="Succeeded sales ledger totals by merchant and payment channel."
+      description="Succeeded sales ledger totals by merchant and payment channel. Wallet fees include checkout estimate and reserved self-settlement checkout fee."
       deniedMessage="You do not have access to the business merchants fee report."
       canView={canView}
       canExport={canExport}

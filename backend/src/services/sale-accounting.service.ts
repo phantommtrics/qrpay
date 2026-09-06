@@ -29,6 +29,7 @@ import {
   type YonnaGatewaySecrets,
 } from "./business-gateway-credential.service.js";
 import {
+  computeWalletFeeAmount,
   resolveMerchantWalletFeeRate,
 } from "./merchant-pos-wallet-fee-resolution.service.js";
 
@@ -136,6 +137,9 @@ function paymentMethodDisplay(input: CustomerSaleJournalInput): string {
  * **Wave/Yonna/APS wallet fee (optional)** — After the sale journal, {@link recordMerchantCustomerWalletFeeJournalAndLedger}
  * posts Dr QR wallet processing fees · Cr Digital clearing. Rate: `customerWalletFeeRate` on the business gateway
  * credential for the payment gateway, else `MERCHANT_CHECKOUT_*_WALLET_FEE_RATE` in env.
+ *
+ * **Wave reserved self-settlement checkout fee** — {@link recordMerchantSelfSettlementCheckoutFeeJournalAndLedger}
+ * posts the amount reserved from the aggregated balance before payout (independent of WALLET_FEE).
  *
  * Idempotent per payment via `SalesLedgerEntry` unique (`paymentId`, `type`).
  */
@@ -371,7 +375,7 @@ export async function recordMerchantCustomerWalletFeeJournalAndLedger(
     WaveGatewaySecrets | YonnaGatewaySecrets | ApsGatewaySecrets
   >(input.businessId, gatewayCode);
   const rate = resolveMerchantWalletFeeRate(secrets, input.provider);
-  const fee = new Prisma.Decimal(input.amount.toString()).mul(rate).toDecimalPlaces(2);
+  const fee = computeWalletFeeAmount(input.amount, rate, input.provider);
   if (fee.lte(0)) {
     return;
   }
@@ -438,6 +442,116 @@ export async function recordMerchantCustomerWalletFeeJournalAndLedger(
       metadata: {
         feeBasis: "payment_gross",
         rate: rate.toString(),
+        rounding: paymentProviderKey(input.provider) === paymentProviderKey(PaymentProvider.WAVE_GAMBIA)
+          ? "wave_whole_gmd"
+          : "money_2dp",
+        orderPublicCode: input.orderPublicCode,
+        salesInvoicePublicCode: input.salesInvoicePublicCode,
+        paymentPublicCode: input.paymentPublicCode,
+        debitAccountCode: expenseAcct.code,
+        creditAccountCode: clearingAcct.code,
+      },
+    },
+  });
+}
+
+/**
+ * Wave checkout fee reserved from the aggregated merchant balance before self-settlement payout.
+ * Same COA as {@link recordMerchantCustomerWalletFeeJournalAndLedger}, separate ledger type so both can post.
+ */
+export async function recordMerchantSelfSettlementCheckoutFeeJournalAndLedger(
+  tx: Prisma.TransactionClient,
+  input: MerchantWalletFeeJournalInput & {
+    feeAmount: Prisma.Decimal;
+    rate: Prisma.Decimal;
+  },
+): Promise<void> {
+  if (!isPaymentCompleted(input.status)) {
+    return;
+  }
+  if (paymentProviderKey(input.provider) !== paymentProviderKey(PaymentProvider.WAVE_GAMBIA)) {
+    return;
+  }
+
+  const fee = new Prisma.Decimal(String(input.feeAmount));
+  if (fee.lte(0)) {
+    return;
+  }
+
+  const existingFee = await tx.salesLedgerEntry.findFirst({
+    where: {
+      paymentId: input.paymentId,
+      type: SalesLedgerEntryType.SELF_SETTLEMENT_CHECKOUT_FEE,
+    },
+  });
+  if (existingFee) {
+    return;
+  }
+
+  await ensureDefaultChartOfAccountsForBusiness(tx, input.businessId);
+
+  const expenseAcct = await getChartAccountByCode(tx, input.businessId, CHART_CODE_QR_WALLET_PROCESSING_FEES);
+  const clearingAcct = await getChartAccountByCode(tx, input.businessId, CHART_CODE_MERCHANT_WALLET_CLEARING);
+  if (!expenseAcct || !clearingAcct) {
+    throw new Error("Chart accounts missing for QR wallet fee posting.");
+  }
+
+  const sourceLabel = input.orderPublicCode?.trim()
+    ? `Order ${input.orderPublicCode.trim()}`
+    : input.salesInvoicePublicCode?.trim()
+      ? `Invoice ${input.salesInvoicePublicCode.trim()}`
+      : "Wallet payment";
+
+  const rate = new Prisma.Decimal(String(input.rate));
+  const memo = [
+    `Self-settlement reserved checkout fee — ${sourceLabel}`,
+    `Payment ${input.paymentPublicCode} · ${providerLabel(input.provider)}`,
+    `${input.currency} ${fee.toString()} (rate ${rate.toString()} × gross ${input.amount.toString()})`,
+  ].join(" | ");
+
+  const journal = await tx.journalEntry.create({
+    data: {
+      businessId: input.businessId,
+      memo,
+      sourceType: JournalSourceType.CUSTOMER_SALE_SELF_SETTLEMENT_CHECKOUT_FEE,
+      sourceId: input.paymentId,
+      journalApprovalExempt: true,
+      lines: {
+        create: [
+          {
+            chartOfAccountId: expenseAcct.id,
+            debitAmount: fee,
+            creditAmount: new Prisma.Decimal(0),
+            description: `Reserved Wave checkout fee — payment ${input.paymentPublicCode}`,
+          },
+          {
+            chartOfAccountId: clearingAcct.id,
+            debitAmount: new Prisma.Decimal(0),
+            creditAmount: fee,
+            description: "Reduce digital payments clearing by reserved Wave checkout fee",
+          },
+        ],
+      },
+    },
+  });
+
+  await tx.salesLedgerEntry.create({
+    data: {
+      businessId: input.businessId,
+      orderId: input.orderId,
+      paymentId: input.paymentId,
+      journalEntryId: journal.id,
+      type: SalesLedgerEntryType.SELF_SETTLEMENT_CHECKOUT_FEE,
+      direction: SalesLedgerDirection.MONEY_OUT,
+      status: SalesLedgerStatus.SUCCEEDED,
+      amount: fee,
+      currency: input.currency,
+      provider: providerLabel(input.provider),
+      providerPaymentRef: input.providerRef,
+      metadata: {
+        feeBasis: "self_settlement_reserved",
+        rate: rate.toString(),
+        rounding: "wave_whole_gmd",
         orderPublicCode: input.orderPublicCode,
         salesInvoicePublicCode: input.salesInvoicePublicCode,
         paymentPublicCode: input.paymentPublicCode,

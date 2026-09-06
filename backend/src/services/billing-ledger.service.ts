@@ -14,8 +14,9 @@ import {
   removePlatformJournalForPendingCheckoutLedger,
 } from "./platform-subscription-journal.service.js";
 import { CHECKOUT_ADAPTER_WAVE_GAMBIA, CHECKOUT_ADAPTER_YONNA_WALLET } from "./payment-gateway.service.js";
+import { computeWalletFeeAmount } from "./merchant-pos-wallet-fee-resolution.service.js";
 
-/** Gross × configured wallet-fee rate (2 dp). Used when opening a Wave/Yonna subscription checkout. */
+/** Gross × configured wallet-fee rate. Wave uses whole-GMD rounding. */
 export function subscriptionCheckoutPendingWalletFeeAmount(
   provider: string,
   grossAmount: Prisma.Decimal,
@@ -26,7 +27,7 @@ export function subscriptionCheckoutPendingWalletFeeAmount(
       : provider === CHECKOUT_ADAPTER_YONNA_WALLET
         ? subscriptionCheckoutYonnaWalletFeeRate()
         : new Prisma.Decimal(0);
-  return new Prisma.Decimal(grossAmount.toString()).mul(rate).toDecimalPlaces(2);
+  return computeWalletFeeAmount(grossAmount, rate, provider);
 }
 
 /**

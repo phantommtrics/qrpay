@@ -180,6 +180,10 @@ enum JournalSourceType {
    * Merchant wallet/processor fee on a completed customer QR payment (pairs with SalesLedger WALLET_FEE).
    */
   CUSTOMER_SALE_WALLET_FEE
+  /**
+   * Wave self-settlement reserved checkout fee (pairs with SalesLedger SELF_SETTLEMENT_CHECKOUT_FEE).
+   */
+  CUSTOMER_SALE_SELF_SETTLEMENT_CHECKOUT_FEE
   MANUAL_MONEY_IN
   MANUAL_MONEY_OUT
   MANUAL_BANK_TRANSFER
@@ -240,6 +244,8 @@ enum PlatformJournalSourceType {
 enum SalesLedgerEntryType {
   CUSTOMER_SALE
   WALLET_FEE
+  /** Wave checkout fee reserved from aggregated balance before self-settlement payout. */
+  SELF_SETTLEMENT_CHECKOUT_FEE
 }
 
 enum SalesLedgerDirection {

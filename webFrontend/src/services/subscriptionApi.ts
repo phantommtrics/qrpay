@@ -1518,10 +1518,22 @@ export type PaginatedPayload<T> = {
   pageSize: number
 }
 
-export async function fetchPlatformBusinessesList(params?: { page?: number; pageSize?: number }) {
+export async function fetchPlatformBusinessesList(params?: {
+  page?: number
+  pageSize?: number
+  q?: string
+  createdFrom?: string
+  createdTo?: string
+}) {
   const sp = new URLSearchParams()
   sp.set('page', String(params?.page ?? 1))
   sp.set('pageSize', String(params?.pageSize ?? 10))
+  const q = params?.q?.trim()
+  if (q) sp.set('q', q)
+  const createdFrom = params?.createdFrom?.trim()
+  if (createdFrom) sp.set('createdFrom', createdFrom)
+  const createdTo = params?.createdTo?.trim()
+  if (createdTo) sp.set('createdTo', createdTo)
   return apiRequest<PaginatedPayload<PlatformBusinessListRow>>(
     `/platform/businesses?${sp.toString()}`,
   )
@@ -2781,6 +2793,8 @@ export type WaveSelfSettlementConfig = {
   ownAccountActive: boolean
   checkoutFeeRate: number
   checkoutFeeRateOverride: boolean
+  settlementCheckoutFeeRate: number
+  settlementCheckoutFeeRateOverride: boolean
   payoutFeeRate: number
 }
 
@@ -2799,6 +2813,7 @@ export async function updateWaveSelfSettlementConfig(
     feeRate: number
     feeFixed: number
     checkoutFeeRate?: number | null
+    settlementCheckoutFeeRate?: number | null
   },
 ) {
   const response = await apiRequest<{ data: WaveSelfSettlementConfig }>(

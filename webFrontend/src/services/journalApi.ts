@@ -146,6 +146,10 @@ export const JOURNAL_SOURCE_FILTER_OPTIONS: Array<{ value: string; label: string
   { value: '', label: 'All types' },
   { value: 'CUSTOMER_SALE_PAYMENT', label: 'Customer sale payment' },
   { value: 'CUSTOMER_SALE_WALLET_FEE', label: 'Customer sale wallet fee' },
+  {
+    value: 'CUSTOMER_SALE_SELF_SETTLEMENT_CHECKOUT_FEE',
+    label: 'Self-settlement reserved checkout fee',
+  },
   { value: 'MANUAL_MONEY_IN', label: 'Money in' },
   { value: 'MANUAL_MONEY_OUT', label: 'Money out' },
   { value: 'MANUAL_BANK_TRANSFER', label: 'Bank transfer' },

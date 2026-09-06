@@ -2,8 +2,9 @@ import { Prisma } from "@prisma/client";
 
 /**
  * Wave fee rates used to estimate remaining aggregated-merchant balance.
- * `WAVE_SELF_SETTLEMENT_CHECKOUT_FEE_RATE` is also the fallback when a merchant
- * has no per-business `customerWalletFeeRate`. Fraction 0–1.
+ * `WAVE_SELF_SETTLEMENT_CHECKOUT_FEE_RATE` is the fallback when a merchant has
+ * no per-business `selfSettlementCheckoutFeeRate`. Fraction 0–1. Independent of
+ * merchant GL `customerWalletFeeRate`.
  */
 function parseRate(raw: string | undefined, fallback: string, envKey: string): Prisma.Decimal {
   const s = raw?.trim();

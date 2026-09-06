@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Building2, ChevronRight, Users } from 'lucide-react'
+import { Building2, ChevronRight, Filter, Users } from 'lucide-react'
 import { generatePath, Link } from 'react-router-dom'
 
 import { TablePagination } from '../../components/ui/TablePagination'
@@ -12,6 +12,7 @@ import {
   fetchPlatformBusinessesList,
   type PlatformBusinessListRow,
 } from '../../services/subscriptionApi'
+import { localCalendarMonthEnd, localCalendarMonthStart } from '../../utils/localCalendarDate'
 import { isPlatformOperator } from '../../utils/platformOperator'
 
 const PAGE_SIZE = 10
@@ -28,11 +29,26 @@ function formatShortDate(iso: string) {
 
 export function PlatformBusinessesPage() {
   const { user } = useAuth()
+  const [nameInput, setNameInput] = useState('')
+  const [nameQ, setNameQ] = useState('')
+  const [createdFrom, setCreatedFrom] = useState(() => localCalendarMonthStart())
+  const [createdTo, setCreatedTo] = useState(() => localCalendarMonthEnd())
   const [rows, setRows] = useState<PlatformBusinessListRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setNameQ(nameInput.trim())
+    }, 400)
+    return () => window.clearTimeout(t)
+  }, [nameInput])
+
+  useEffect(() => {
+    setPage(1)
+  }, [nameQ])
 
   const load = useCallback(async () => {
     if (!isPlatformOperator(user)) {
@@ -41,7 +57,13 @@ export function PlatformBusinessesPage() {
     setLoading(true)
     setError(null)
     try {
-      const payload = await fetchPlatformBusinessesList({ page, pageSize: PAGE_SIZE })
+      const payload = await fetchPlatformBusinessesList({
+        page,
+        pageSize: PAGE_SIZE,
+        q: nameQ || undefined,
+        createdFrom: createdFrom.trim() || undefined,
+        createdTo: createdTo.trim() || undefined,
+      })
       setRows(payload.data)
       setTotal(payload.total)
     } catch (e) {
@@ -51,7 +73,7 @@ export function PlatformBusinessesPage() {
     } finally {
       setLoading(false)
     }
-  }, [user?.isPlatformOwner, user?.isPlatformAdmin, page])
+  }, [user?.isPlatformOwner, user?.isPlatformAdmin, page, nameQ, createdFrom, createdTo])
 
   useEffect(() => {
     void load()
@@ -74,6 +96,64 @@ export function PlatformBusinessesPage() {
         </p>
       </div>
 
+      <PageCard className="p-6">
+        <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
+          <Filter className="h-4 w-4 text-teal-600" />
+          Filters
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="block text-sm sm:col-span-2 lg:col-span-1">
+            <span className="mb-1 block font-medium text-slate-700">Business name</span>
+            <input
+              type="search"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              placeholder="Search name…"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-slate-800 outline-none focus:border-teal-500"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-slate-700">Created from</span>
+            <input
+              type="date"
+              value={createdFrom}
+              onChange={(e) => {
+                setCreatedFrom(e.target.value)
+                setPage(1)
+              }}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-slate-800 outline-none focus:border-teal-500"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-slate-700">Created to</span>
+            <input
+              type="date"
+              value={createdTo}
+              onChange={(e) => {
+                setCreatedTo(e.target.value)
+                setPage(1)
+              }}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-slate-800 outline-none focus:border-teal-500"
+            />
+          </label>
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={() => {
+                setNameInput('')
+                setNameQ('')
+                setCreatedFrom(localCalendarMonthStart())
+                setCreatedTo(localCalendarMonthEnd())
+                setPage(1)
+              }}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Reset to this month
+            </button>
+          </div>
+        </div>
+      </PageCard>
+
       <PageCard className="overflow-hidden p-0">
         {loading && rows.length === 0 ? (
           <p className="p-8 text-sm text-slate-500">Loading businesses…</p>
@@ -84,7 +164,11 @@ export function PlatformBusinessesPage() {
             <div className="overflow-x-auto">
               {rows.length === 0 ? (
                 <p className="p-8 text-sm text-slate-500">
-                  {total === 0 ? 'No businesses yet.' : 'No businesses on this page.'}
+                  {nameQ || createdFrom || createdTo
+                    ? 'No businesses match these filters.'
+                    : total === 0
+                      ? 'No businesses yet.'
+                      : 'No businesses on this page.'}
                 </p>
               ) : (
                 <table className="w-full min-w-[720px] text-left text-sm">
