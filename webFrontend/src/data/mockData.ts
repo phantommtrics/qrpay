@@ -91,6 +91,18 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     category: 'Administration',
   },
   {
+    key: 'platform.business_merchants.view',
+    label: 'Business merchants (view)',
+    description: 'View cross-merchant journal, 360 journal, fee, and self settlement reports',
+    category: 'Administration',
+  },
+  {
+    key: 'platform.business_merchants.export',
+    label: 'Business merchants (export)',
+    description: 'Export business merchants reports as CSV or PDF',
+    category: 'Administration',
+  },
+  {
     key: 'platform.digitalocean_billing.view',
     label: 'DigitalOcean billing (view)',
     description: 'View DigitalOcean balance, invoices, and billing history',

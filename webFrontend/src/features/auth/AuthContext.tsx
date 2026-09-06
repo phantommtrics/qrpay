@@ -963,6 +963,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               m?.['platform.wave_operations']?.edit || m?.['platform.wave_operations']?.create,
             )
           }
+          if (permission === 'platform.business_merchants.view') {
+            return Boolean(
+              m?.['platform.business_merchants']?.view ||
+                m?.['platform.business_merchants']?.edit ||
+                m?.['platform.business_merchants']?.create,
+            )
+          }
+          if (permission === 'platform.business_merchants.export') {
+            return Boolean(m?.['platform.business_merchants']?.export)
+          }
           if (permission === 'platform.digitalocean_billing.view') {
             return Boolean(
               m?.['platform.digitalocean_billing']?.view ||
@@ -1093,6 +1103,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               return Boolean(
                 m?.['platform.wave_operations']?.edit || m?.['platform.wave_operations']?.create,
               )
+            }
+            if (permission === 'platform.business_merchants.view') {
+              return Boolean(
+                m?.['platform.business_merchants']?.view ||
+                  m?.['platform.business_merchants']?.edit ||
+                  m?.['platform.business_merchants']?.create,
+              )
+            }
+            if (permission === 'platform.business_merchants.export') {
+              return Boolean(m?.['platform.business_merchants']?.export)
             }
             if (permission === 'platform.digitalocean_billing.view') {
               return Boolean(

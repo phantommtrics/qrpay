@@ -103,6 +103,11 @@ export const APP_PATHS = {
   platformWaveOpsPayoutBatches: '/platform/wave-operations/payout-batches',
   platformWaveOpsPayoutBatchDetail: '/platform/wave-operations/payout-batches/:batchId',
   platformWaveOpsPayoutDetail: '/platform/wave-operations/payouts/:payoutId',
+  /** Cross-merchant POS category sales journal. */
+  platformBusinessMerchantsJournal: '/platform/business-merchants/journal',
+  platformBusinessMerchantsFee: '/platform/business-merchants/fee',
+  platformBusinessMerchantsSelfSettlement: '/platform/business-merchants/self-settlement',
+  platformBusinessMerchants360Journal: '/platform/business-merchants/360-journal',
   platformBusinessDetail: '/platform/businesses/:businessId',
   platformBillings: '/platform/billings',
   /** Corporate industry: tenant list and custom bill templates (platform operator). */
@@ -348,6 +353,34 @@ export const PLATFORM_WAVE_OPERATIONS_SUBNAV: PlatformBusinessesSubNavItem[] = [
       'platform.wave_operations.view',
       'platform.businesses.manage',
     ] as const,
+  },
+]
+
+/** Platform operator: Business Merchants reports. */
+export const PLATFORM_BUSINESS_MERCHANTS_SUBNAV: PlatformBusinessesSubNavItem[] = [
+  {
+    name: 'journal',
+    path: APP_PATHS.platformBusinessMerchantsJournal,
+    title: 'Journal',
+    permission: 'platform.business_merchants.view',
+  },
+  {
+    name: 'fee',
+    path: APP_PATHS.platformBusinessMerchantsFee,
+    title: 'Fee',
+    permission: 'platform.business_merchants.view',
+  },
+  {
+    name: 'selfSettlement',
+    path: APP_PATHS.platformBusinessMerchantsSelfSettlement,
+    title: 'Self settlement',
+    permission: 'platform.business_merchants.view',
+  },
+  {
+    name: '360Journal',
+    path: APP_PATHS.platformBusinessMerchants360Journal,
+    title: '360 journal',
+    permission: 'platform.business_merchants.view',
   },
 ]
 
@@ -705,6 +738,19 @@ export function getPageTitle(pathname: string) {
 
   if (pathname.includes(APP_PATHS.platformWaveBusinesses)) {
     return 'Wave Businesses'
+  }
+
+  if (pathname.includes(APP_PATHS.platformBusinessMerchants360Journal)) {
+    return '360 journal'
+  }
+  if (pathname.includes(APP_PATHS.platformBusinessMerchantsFee)) {
+    return 'Merchant fee'
+  }
+  if (pathname.includes(APP_PATHS.platformBusinessMerchantsSelfSettlement)) {
+    return 'Merchant self settlement'
+  }
+  if (pathname.includes(APP_PATHS.platformBusinessMerchantsJournal)) {
+    return 'Merchant journal'
   }
 
   if (pathname.includes(APP_PATHS.platformBusinesses)) {

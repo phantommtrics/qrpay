@@ -44,6 +44,8 @@ export const PLATFORM_MODULE_SLUGS = {
   ACTIVITY_LOG: "platform.activity_log",
   /** Wave business wallet: balance, transactions, payouts. */
   WAVE_OPERATIONS: "platform.wave_operations",
+  /** Cross-merchant POS category sales journal. */
+  BUSINESS_MERCHANTS: "platform.business_merchants",
   /** DigitalOcean invoices: sync, review, post hosting expenses to the platform journal. */
   DIGITALOCEAN_BILLING: "platform.digitalocean_billing",
 } as const;
@@ -155,6 +157,11 @@ export const PLATFORM_MODULES_SEED: { slug: string; label: string; sortOrder: nu
     slug: PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS,
     label: "Wave operations",
     sortOrder: 57,
+  },
+  {
+    slug: PLATFORM_MODULE_SLUGS.BUSINESS_MERCHANTS,
+    label: "Business merchants",
+    sortOrder: 59,
   },
   {
     slug: PLATFORM_MODULE_SLUGS.DIGITALOCEAN_BILLING,

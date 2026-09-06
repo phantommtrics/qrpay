@@ -14,6 +14,7 @@ import {
   LogOut,
   Plus,
   Shield,
+  Store,
   Waves,
 } from 'lucide-react'
 import { generatePath, NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -22,6 +23,7 @@ import {
   APP_PATHS,
   MAIN_NAV_ITEMS,
   PLATFORM_BUSINESSES_SUBNAV,
+  PLATFORM_BUSINESS_MERCHANTS_SUBNAV,
   PLATFORM_CORPORATE_SUBNAV,
   PLATFORM_FINANCE_SUBNAV,
   PLATFORM_WAVE_OPERATIONS_SUBNAV,
@@ -51,6 +53,7 @@ const PLATFORM_BUSINESSES_SECTION_KEY = 'qrpay.sidebar.platform-businesses.open.
 const PLATFORM_FINANCE_SECTION_KEY = 'qrpay.sidebar.platform-finance.open.v1'
 const PLATFORM_SECURITY_SECTION_KEY = 'qrpay.sidebar.platform-security.open.v1'
 const PLATFORM_WAVE_OPS_SECTION_KEY = 'qrpay.sidebar.platform-wave-ops.open.v1'
+const PLATFORM_BUSINESS_MERCHANTS_SECTION_KEY = 'qrpay.sidebar.platform-business-merchants.open.v1'
 const PLATFORM_CORPORATE_SECTION_KEY = 'qrpay.sidebar.platform-corporate.open.v1'
 
 export function Sidebar({
@@ -101,6 +104,17 @@ export function Sidebar({
     return (
       p.startsWith('/platform/wave-operations') || p.startsWith('/platform/wave-businesses')
     )
+  })
+  const [isPlatformBusinessMerchantsOpen, setIsPlatformBusinessMerchantsOpen] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true
+    }
+    const stored = window.localStorage.getItem(PLATFORM_BUSINESS_MERCHANTS_SECTION_KEY)
+    if (stored !== null) {
+      return stored === 'true'
+    }
+    const p = window.location.hash.replace(/^#/, '') || window.location.pathname
+    return p.startsWith('/platform/business-merchants')
   })
   const [isPlatformFinanceOpen, setIsPlatformFinanceOpen] = useState(() => {
     if (typeof window === 'undefined') {
@@ -264,6 +278,16 @@ export function Sidebar({
     if (typeof window === 'undefined') {
       return
     }
+    window.localStorage.setItem(
+      PLATFORM_BUSINESS_MERCHANTS_SECTION_KEY,
+      String(isPlatformBusinessMerchantsOpen),
+    )
+  }, [isPlatformBusinessMerchantsOpen])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
     window.localStorage.setItem(PLATFORM_SECURITY_SECTION_KEY, String(isPlatformSecurityOpen))
   }, [isPlatformSecurityOpen])
 
@@ -282,6 +306,9 @@ export function Sidebar({
     }
     if (p.startsWith('/platform/wave-operations') || p.startsWith('/platform/wave-businesses')) {
       setIsPlatformWaveOpsOpen(true)
+    }
+    if (p.startsWith('/platform/business-merchants')) {
+      setIsPlatformBusinessMerchantsOpen(true)
     }
     if (p.startsWith('/platform/corporate')) {
       setIsPlatformCorporateOpen(true)
@@ -329,6 +356,11 @@ export function Sidebar({
       return p.startsWith('/platform/payment-gateways')
     }
     return false
+  }
+
+  function isPlatformBusinessMerchantsSubActive(path: string) {
+    const p = location.pathname
+    return p === path || p.startsWith(`${path}/`)
   }
 
   function isPlatformWaveOpsSubActive(path: string) {
@@ -729,6 +761,50 @@ export function Sidebar({
                   </div>
                 ) : null}
               </div>
+              {PLATFORM_BUSINESS_MERCHANTS_SUBNAV.some((item) =>
+                platformBusinessesSubnavAllowed(item, canAccess),
+              ) ? (
+                <div className="mb-1 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsPlatformBusinessMerchantsOpen((o) => !o)}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
+                  >
+                    <span className="flex items-center gap-2 truncate">
+                      <Store className="h-4 w-4 shrink-0 text-teal-500/90" />
+                      Business Merchants
+                    </span>
+                    <ChevronDown
+                      className={`h-4 w-4 shrink-0 transition-transform ${
+                        isPlatformBusinessMerchantsOpen ? 'rotate-0' : '-rotate-90'
+                      }`}
+                    />
+                  </button>
+                  {isPlatformBusinessMerchantsOpen ? (
+                    <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
+                      {PLATFORM_BUSINESS_MERCHANTS_SUBNAV.filter((item) =>
+                        platformBusinessesSubnavAllowed(item, canAccess),
+                      ).map((item) => {
+                        const subActive = isPlatformBusinessMerchantsSubActive(item.path)
+                        return (
+                          <NavLink
+                            key={item.path}
+                            to={item.path}
+                            onClick={() => setIsOpen(false)}
+                            className={`flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
+                              subActive
+                                ? 'bg-teal-500/10 text-teal-300'
+                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                            }`}
+                          >
+                            <span className="font-medium">{item.title}</span>
+                          </NavLink>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {PLATFORM_CORPORATE_SUBNAV.some((item) =>
                 platformBusinessesSubnavAllowed(item, canAccess),
               ) ? (

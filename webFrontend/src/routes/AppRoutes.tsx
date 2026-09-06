@@ -267,6 +267,26 @@ const PlatformWaveOpsMerchantSummaryPage = lazy(() =>
     default: module.PlatformWaveOpsMerchantSummaryPage,
   })),
 )
+const PlatformBusinessMerchantsJournalPage = lazy(() =>
+  import('../screens/platform/PlatformBusinessMerchantsJournalPage').then((module) => ({
+    default: module.PlatformBusinessMerchantsJournalPage,
+  })),
+)
+const PlatformBusinessMerchantsFeePage = lazy(() =>
+  import('../screens/platform/PlatformBusinessMerchantsFeePage').then((module) => ({
+    default: module.PlatformBusinessMerchantsFeePage,
+  })),
+)
+const PlatformBusinessMerchantsSelfSettlementPage = lazy(() =>
+  import('../screens/platform/PlatformBusinessMerchantsSelfSettlementPage').then((module) => ({
+    default: module.PlatformBusinessMerchantsSelfSettlementPage,
+  })),
+)
+const PlatformBusinessMerchants360JournalPage = lazy(() =>
+  import('../screens/platform/PlatformBusinessMerchants360JournalPage').then((module) => ({
+    default: module.PlatformBusinessMerchants360JournalPage,
+  })),
+)
 const PlatformWaveOpsPayoutsPage = lazy(() =>
   import('../screens/platform/PlatformWaveOpsPayoutsPage').then((module) => ({
     default: module.PlatformWaveOpsPayoutsPage,
@@ -568,6 +588,30 @@ export function AppRoutes() {
       element: <PlatformWaveOpsMerchantSummaryPage />,
       roles: PLATFORM_OPERATOR_ROLES,
       permission: 'platform.wave_operations.view' as const,
+    },
+    {
+      path: APP_PATHS.platformBusinessMerchantsJournal,
+      element: <PlatformBusinessMerchantsJournalPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.business_merchants.view' as const,
+    },
+    {
+      path: APP_PATHS.platformBusinessMerchantsFee,
+      element: <PlatformBusinessMerchantsFeePage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.business_merchants.view' as const,
+    },
+    {
+      path: APP_PATHS.platformBusinessMerchantsSelfSettlement,
+      element: <PlatformBusinessMerchantsSelfSettlementPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.business_merchants.view' as const,
+    },
+    {
+      path: APP_PATHS.platformBusinessMerchants360Journal,
+      element: <PlatformBusinessMerchants360JournalPage />,
+      roles: PLATFORM_OPERATOR_ROLES,
+      permission: 'platform.business_merchants.view' as const,
     },
     {
       path: APP_PATHS.platformWaveOpsPayouts,

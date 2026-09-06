@@ -120,6 +120,7 @@ import {
   updateMenuCategory,
 } from "./services/menu-category.service.js";
 import { getCategorySalesSummaryReport } from "./services/category-sales-summary.service.js";
+import { getPlatformMerchantCategoryJournal } from "./services/platform-merchant-category-journal.service.js";
 import {
   createProduct,
   getPublicBusinessMenu,
@@ -3957,6 +3958,35 @@ app.post(
     try {
       const row = await voidPlatformBill(req.params.billId as string);
       res.json({ data: formatPlatformBillApi(row) });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/business-merchants/journal",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESS_MERCHANTS, "view"),
+  async (req, res, next) => {
+    try {
+      const from = String(req.query.from ?? "").trim();
+      const to = String(req.query.to ?? "").trim();
+      if (!from || !to) {
+        throw new HttpError(400, "from and to dates are required.");
+      }
+      const businessId = String(req.query.businessId ?? "").trim() || undefined;
+      const sectionRaw = String(req.query.section ?? "journal").trim();
+      const section =
+        sectionRaw === "fee" ||
+        sectionRaw === "settlement" ||
+        sectionRaw === "journal" ||
+        sectionRaw === "360"
+          ? sectionRaw
+          : "journal";
+      const data = await getPlatformMerchantCategoryJournal(from, to, businessId, section);
+      res.json({ data });
     } catch (e) {
       next(e);
     }
