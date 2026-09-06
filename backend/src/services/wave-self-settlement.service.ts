@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 
 import {
   ActivityActorKind,
-  PaymentProvider,
   PaymentStatus,
   Prisma,
   WaveSelfSettlementPayoutStatus,
@@ -10,11 +9,11 @@ import {
 import { z } from "zod";
 
 import { waveSelfSettlementPayoutFeeRate } from "../config/wave-self-settlement-env.js";
+import { PaymentProvider } from "../lib/prisma-sales-enums.js";
 import {
   resolveMerchantWalletFeeRate,
   resolveWaveSelfSettlementCheckoutFeeRate,
 } from "./merchant-pos-wallet-fee-resolution.service.js";
-import { PaymentProvider } from "../lib/prisma-sales-enums.js";
 import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import { encryptJsonPayload } from "../utils/field-encryption.js";
