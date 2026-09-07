@@ -581,6 +581,10 @@ model WaveSelfSettlementPayout {
   requestedReceiveAmount   Decimal                        @db.Decimal(12, 2)
   receiveAmount            Decimal                        @db.Decimal(12, 2)
   clamped                  Boolean                        @default(false)
+  /** Inferred slot count used for fixed withhold (1 when unit amount is unset or not an exact multiple). */
+  bookingUnits             Int                            @default(1)
+  /** Slot price snapshotted from business config at enqueue time; null when per-payment withhold. */
+  bookingUnitAmount        Decimal?                       @db.Decimal(12, 2)
   fee                      String?
   status                   WaveSelfSettlementPayoutStatus @default(PENDING)
   wavePayoutId             String?                        @unique

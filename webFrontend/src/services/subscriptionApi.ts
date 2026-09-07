@@ -2789,6 +2789,7 @@ export type WaveSelfSettlementConfig = {
   mobile: string | null
   feeRate: number
   feeFixed: number
+  bookingUnitAmount: number
   aggregatedMerchantId: string | null
   ownAccountActive: boolean
   checkoutFeeRate: number
@@ -2812,6 +2813,7 @@ export async function updateWaveSelfSettlementConfig(
     mobile?: string | null
     feeRate: number
     feeFixed: number
+    bookingUnitAmount: number
     checkoutFeeRate?: number | null
     settlementCheckoutFeeRate?: number | null
   },

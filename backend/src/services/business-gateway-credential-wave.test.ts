@@ -25,12 +25,14 @@ describe("parseExistingWave", () => {
       selfSettlementMobile: "+2201234567",
       selfSettlementFeeRate: 0.02,
       selfSettlementFeeFixed: 10,
+      selfSettlementBookingUnitAmount: 2200,
       selfSettlementCheckoutFeeRate: 0.008,
     });
     assert.equal(secrets?.selfSettlementEnabled, true);
     assert.equal(secrets?.selfSettlementMobile, "+2201234567");
     assert.equal(secrets?.selfSettlementFeeRate, 0.02);
     assert.equal(secrets?.selfSettlementFeeFixed, 10);
+    assert.equal(secrets?.selfSettlementBookingUnitAmount, 2200);
     assert.equal(secrets?.selfSettlementCheckoutFeeRate, 0.008);
   });
 
@@ -54,6 +56,14 @@ describe("parseExistingWave", () => {
     assert.equal(waveOwnAccountBearer(secrets), "wave-key");
   });
 
+  it("omits booking unit amount of 0", () => {
+    const secrets = parseExistingWave({
+      aggregatedMerchantId: "am_123",
+      selfSettlementBookingUnitAmount: 0,
+    });
+    assert.equal(secrets?.selfSettlementBookingUnitAmount, undefined);
+  });
+
   it("returns null when neither aggregator id nor own-account key is present", () => {
     assert.equal(parseExistingWave({ customerWalletFeeRate: 0.02 }), null);
     assert.equal(parseExistingWave(null), null);
@@ -69,6 +79,7 @@ describe("waveSelfSettlementFieldsFrom", () => {
       selfSettlementMobile: "+2201234567",
       selfSettlementFeeRate: 0.01,
       selfSettlementFeeFixed: 5,
+      selfSettlementBookingUnitAmount: 2200,
       selfSettlementCheckoutFeeRate: 0.008,
     });
     const kept = waveSelfSettlementFieldsFrom(existing);
@@ -77,6 +88,7 @@ describe("waveSelfSettlementFieldsFrom", () => {
       selfSettlementMobile: "+2201234567",
       selfSettlementFeeRate: 0.01,
       selfSettlementFeeFixed: 5,
+      selfSettlementBookingUnitAmount: 2200,
       selfSettlementCheckoutFeeRate: 0.008,
     });
     const cleared = {

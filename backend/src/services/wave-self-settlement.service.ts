@@ -35,6 +35,8 @@ import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
 import { recordMerchantSelfSettlementCheckoutFeeJournalAndLedger } from "./sale-accounting.service.js";
 import {
   computeWaveSelfSettlementAmounts,
+  inferSettlementBookingUnits,
+  settlementBookingUnitAmountFromSecrets,
   settlementFeeFixedFromSecrets,
   settlementFeeRateFromSecrets,
   waveSelfSettlementSkipReason,
@@ -95,6 +97,7 @@ export type WaveSelfSettlementConfig = {
   mobile: string | null;
   feeRate: number;
   feeFixed: number;
+  bookingUnitAmount: number;
   aggregatedMerchantId: string | null;
   ownAccountActive: boolean;
   checkoutFeeRate: number;
@@ -125,6 +128,7 @@ export async function getWaveSelfSettlementConfig(businessId: string): Promise<W
     mobile: parsed?.selfSettlementMobile?.trim() || null,
     feeRate: settlementFeeRateFromSecrets(parsed),
     feeFixed: settlementFeeFixedFromSecrets(parsed),
+    bookingUnitAmount: settlementBookingUnitAmountFromSecrets(parsed),
     aggregatedMerchantId: parsed?.aggregatedMerchantId?.trim() || null,
     ownAccountActive: Boolean(waveOwnAccountBearer(parsed)),
     checkoutFeeRate: Number(checkout.toString()),
@@ -140,6 +144,8 @@ const updateSelfSettlementSchema = z.object({
   mobile: z.string().trim().max(32).nullable().optional(),
   feeRate: z.number().min(0).max(1),
   feeFixed: z.number().min(0),
+  /** Slot price in GMD. 0 clears per-unit withhold (one withhold per payment). */
+  bookingUnitAmount: z.number().min(0),
   /** Merchant GL Wave checkout fee, fraction 0–1. Null clears the per-merchant override. */
   checkoutFeeRate: z.union([z.number().min(0).max(1), z.null()]).optional(),
   /** Self-settlement Wave checkout fee, fraction 0–1. Null clears the per-merchant override. */
@@ -220,6 +226,7 @@ export async function updateWaveSelfSettlementConfig(
     selfSettlementCheckoutFeeRate = input.settlementCheckoutFeeRate;
   }
 
+  const bookingUnitAmount = Math.round(input.bookingUnitAmount * 100) / 100;
   const payload: WaveGatewaySecrets = {
     aggregatedMerchantId,
     customerWalletFeeRate,
@@ -231,10 +238,14 @@ export async function updateWaveSelfSettlementConfig(
     selfSettlementFeeFixed: Math.round(input.feeFixed * 100) / 100,
     selfSettlementCheckoutFeeRate,
     ...(mobile ? { selfSettlementMobile: mobile } : { selfSettlementMobile: undefined }),
+    ...(bookingUnitAmount > 0 ? { selfSettlementBookingUnitAmount: bookingUnitAmount } : {}),
   };
 
   if (!mobile) {
     delete payload.selfSettlementMobile;
+  }
+  if (bookingUnitAmount <= 0) {
+    delete payload.selfSettlementBookingUnitAmount;
   }
   if (customerWalletFeeRate === undefined) {
     delete payload.customerWalletFeeRate;
@@ -308,12 +319,18 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
     : secrets;
 
   const checkoutFeeRate = resolveWaveSelfSettlementCheckoutFeeRate(parsed);
+  const bookingUnitAmount = settlementBookingUnitAmountFromSecrets(parsed);
+  const bookingUnits = inferSettlementBookingUnits(
+    payment.amount,
+    bookingUnitAmount > 0 ? bookingUnitAmount : null,
+  );
   const amounts = computeWaveSelfSettlementAmounts({
     gross: payment.amount,
     feeRate: settlementFeeRateFromSecrets(parsed),
     feeFixed: settlementFeeFixedFromSecrets(parsed),
     checkoutFeeRate,
     payoutFeeRate: waveSelfSettlementPayoutFeeRate(),
+    units: bookingUnits,
   });
 
   const skip = waveSelfSettlementSkipReason({
@@ -408,6 +425,8 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
         requestedReceiveAmount: amounts.requestedReceiveAmount,
         receiveAmount: amounts.receiveAmount,
         clamped: amounts.clamped,
+        bookingUnits,
+        bookingUnitAmount: bookingUnitAmount > 0 ? bookingUnitAmount : null,
         status,
         skipReason: skip === "non_positive_payout" ? skip : null,
         clientReference: payment.id,
@@ -428,6 +447,8 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
     grossAmount: new Prisma.Decimal(String(payment.amount)).toFixed(2),
     checkoutFeeAmount: amounts.checkoutFeeAmount.toFixed(2),
     withholdAmount: amounts.withholdAmount.toFixed(2),
+    bookingUnits,
+    bookingUnitAmount: bookingUnitAmount > 0 ? bookingUnitAmount : null,
     payoutFeeAmount: amounts.payoutFeeAmount.toFixed(2),
     receiveAmount: amounts.receiveAmount.toFixed(2),
     mobile,

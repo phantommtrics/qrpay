@@ -68,6 +68,11 @@ export type WaveGatewaySecrets = {
   selfSettlementFeeRate?: number;
   /** Platform withhold as a fixed amount in the payment currency. */
   selfSettlementFeeFixed?: number;
+  /**
+   * Slot/booking price used to infer unit count from checkout gross.
+   * When set, fixed withhold is multiplied by exact multiples of this amount.
+   */
+  selfSettlementBookingUnitAmount?: number;
 };
 
 export type WaveSelfSettlementSecretFields = Pick<
@@ -76,6 +81,7 @@ export type WaveSelfSettlementSecretFields = Pick<
   | "selfSettlementMobile"
   | "selfSettlementFeeRate"
   | "selfSettlementFeeFixed"
+  | "selfSettlementBookingUnitAmount"
   | "selfSettlementCheckoutFeeRate"
 >;
 
@@ -97,6 +103,10 @@ export function waveSelfSettlementFieldsFrom(
       : {}),
     ...(existing.selfSettlementFeeFixed !== undefined
       ? { selfSettlementFeeFixed: existing.selfSettlementFeeFixed }
+      : {}),
+    ...(existing.selfSettlementBookingUnitAmount !== undefined &&
+    existing.selfSettlementBookingUnitAmount > 0
+      ? { selfSettlementBookingUnitAmount: existing.selfSettlementBookingUnitAmount }
       : {}),
     ...(existing.selfSettlementCheckoutFeeRate !== undefined
       ? { selfSettlementCheckoutFeeRate: existing.selfSettlementCheckoutFeeRate }
@@ -291,6 +301,7 @@ function parseSelfSettlementFields(raw: Record<string, unknown>): WaveSelfSettle
   const mobile = optionalTrimmedSecret(raw.selfSettlementMobile);
   const feeRate = parseWalletFeeRate(raw.selfSettlementFeeRate);
   const feeFixed = parseNonNegativeMoney(raw.selfSettlementFeeFixed);
+  const bookingUnitAmount = parseNonNegativeMoney(raw.selfSettlementBookingUnitAmount);
   const checkoutFeeRate = parseWalletFeeRate(raw.selfSettlementCheckoutFeeRate);
   const enabled = parseOptionalBoolean(raw.selfSettlementEnabled);
   return {
@@ -298,6 +309,9 @@ function parseSelfSettlementFields(raw: Record<string, unknown>): WaveSelfSettle
     ...(mobile ? { selfSettlementMobile: mobile } : {}),
     ...(feeRate !== undefined ? { selfSettlementFeeRate: feeRate } : {}),
     ...(feeFixed !== undefined ? { selfSettlementFeeFixed: feeFixed } : {}),
+    ...(bookingUnitAmount !== undefined && bookingUnitAmount > 0
+      ? { selfSettlementBookingUnitAmount: bookingUnitAmount }
+      : {}),
     ...(checkoutFeeRate !== undefined ? { selfSettlementCheckoutFeeRate: checkoutFeeRate } : {}),
   };
 }

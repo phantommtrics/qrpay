@@ -51,6 +51,7 @@ function applyConfigToForm(data: WaveSelfSettlementConfig) {
     mobile: data.mobile ?? '',
     feePercent: feePercentLabel(data.feeRate),
     feeFixed: String(data.feeFixed),
+    bookingUnitAmount: data.bookingUnitAmount > 0 ? String(data.bookingUnitAmount) : '',
     checkoutFeePercent: feePercentLabel(data.checkoutFeeRate),
     checkoutFeeOverride: Boolean(data.checkoutFeeRateOverride),
     settlementCheckoutFeePercent: feePercentLabel(data.settlementCheckoutFeeRate ?? 0.01),
@@ -58,9 +59,19 @@ function applyConfigToForm(data: WaveSelfSettlementConfig) {
   }
 }
 
-function withholdSummary(feePercent: string, feeFixed: string) {
-  const percent = Number.parseFloat(feePercent.replace(',', '.'))
-  const fixed = Number.parseFloat(feeFixed.replace(',', '.'))
+function parseMoneyInput(raw: string) {
+  const n = Number.parseFloat(raw.replace(',', '.').trim())
+  return Number.isFinite(n) ? n : NaN
+}
+
+function roundMoney2(n: number) {
+  return Math.round(n * 100) / 100
+}
+
+function withholdSummary(feePercent: string, feeFixed: string, bookingUnitAmount: string) {
+  const percent = parseMoneyInput(feePercent)
+  const fixed = parseMoneyInput(feeFixed)
+  const unit = parseMoneyInput(bookingUnitAmount)
   const hasPercent = Number.isFinite(percent) && percent > 0
   const hasFixed = Number.isFinite(fixed) && fixed > 0
   if (!hasPercent && !hasFixed) {
@@ -71,9 +82,35 @@ function withholdSummary(feePercent: string, feeFixed: string) {
     parts.push(`${percent}%`)
   }
   if (hasFixed) {
-    parts.push(formatMoney(fixed, { decimals: 2 }))
+    if (Number.isFinite(unit) && unit > 0) {
+      parts.push(`${formatMoney(fixed, { decimals: 2 })} per ${formatMoney(unit, { decimals: 2 })} unit`)
+    } else {
+      parts.push(formatMoney(fixed, { decimals: 2 }))
+    }
   }
   return parts.join(' + ')
+}
+
+function withholdUnitExample(feePercent: string, feeFixed: string, bookingUnitAmount: string) {
+  const percent = parseMoneyInput(feePercent)
+  const fixed = parseMoneyInput(feeFixed)
+  const unit = parseMoneyInput(bookingUnitAmount)
+  if (!Number.isFinite(unit) || unit <= 0) {
+    return null
+  }
+  if (!Number.isFinite(fixed) || fixed < 0) {
+    return null
+  }
+  const twoGross = roundMoney2(unit * 2)
+  const twoFixed = roundMoney2(fixed * 2)
+  const percentPart =
+    Number.isFinite(percent) && percent > 0 ? roundMoney2((twoGross * percent) / 100) : 0
+  const withhold = roundMoney2(percentPart + twoFixed)
+  const unitLabel = formatMoney(unit, { decimals: 2 })
+  if (percentPart > 0) {
+    return `2 × ${unitLabel} → withhold ${formatMoney(withhold, { decimals: 2 })} (${percent}% of ${formatMoney(twoGross, { decimals: 2 })} + 2 × ${formatMoney(fixed, { decimals: 2 })})`
+  }
+  return `2 × ${unitLabel} → withhold ${formatMoney(twoFixed, { decimals: 2 })}`
 }
 
 export type WaveCheckoutProvisionPanelProps = {
@@ -104,10 +141,12 @@ export function WaveCheckoutProvisionPanel({
   const [settlementMobile, setSettlementMobile] = useState('')
   const [settlementFeePercent, setSettlementFeePercent] = useState('0')
   const [settlementFeeFixed, setSettlementFeeFixed] = useState('0')
+  const [settlementBookingUnitAmount, setSettlementBookingUnitAmount] = useState('')
   const [draftEnabled, setDraftEnabled] = useState(false)
   const [draftMobile, setDraftMobile] = useState('')
   const [draftFeePercent, setDraftFeePercent] = useState('0')
   const [draftFeeFixed, setDraftFeeFixed] = useState('0')
+  const [draftBookingUnitAmount, setDraftBookingUnitAmount] = useState('')
   const [settlementLoading, setSettlementLoading] = useState(false)
   const [settlementSaving, setSettlementSaving] = useState(false)
   const [settlementModalOpen, setSettlementModalOpen] = useState(false)
@@ -151,6 +190,7 @@ export function WaveCheckoutProvisionPanel({
       setSettlementMobile(form.mobile)
       setSettlementFeePercent(form.feePercent)
       setSettlementFeeFixed(form.feeFixed)
+      setSettlementBookingUnitAmount(form.bookingUnitAmount)
       setCheckoutFeePercent(form.checkoutFeePercent)
       setCheckoutFeeOverride(form.checkoutFeeOverride)
       setSettlementCheckoutFeePercent(form.settlementCheckoutFeePercent)
@@ -159,6 +199,7 @@ export function WaveCheckoutProvisionPanel({
       setDraftMobile(form.mobile)
       setDraftFeePercent(form.feePercent)
       setDraftFeeFixed(form.feeFixed)
+      setDraftBookingUnitAmount(form.bookingUnitAmount)
       setDraftCheckoutFeePercent(form.checkoutFeePercent)
       setDraftSettlementCheckoutFeePercent(form.settlementCheckoutFeePercent)
     } catch (e) {
@@ -186,6 +227,7 @@ export function WaveCheckoutProvisionPanel({
     setDraftMobile(settlementMobile)
     setDraftFeePercent(settlementFeePercent)
     setDraftFeeFixed(settlementFeeFixed)
+    setDraftBookingUnitAmount(settlementBookingUnitAmount)
   }
 
   function openSettlementModal() {
@@ -193,6 +235,7 @@ export function WaveCheckoutProvisionPanel({
     setDraftMobile(settlementMobile)
     setDraftFeePercent(settlementFeePercent)
     setDraftFeeFixed(settlementFeeFixed)
+    setDraftBookingUnitAmount(settlementBookingUnitAmount)
     setSettlementModalError(null)
     setSuccessMessage(null)
     setSettlementModalOpen(true)
@@ -220,6 +263,7 @@ export function WaveCheckoutProvisionPanel({
     setSettlementMobile(form.mobile)
     setSettlementFeePercent(form.feePercent)
     setSettlementFeeFixed(form.feeFixed)
+    setSettlementBookingUnitAmount(form.bookingUnitAmount)
     setCheckoutFeePercent(form.checkoutFeePercent)
     setCheckoutFeeOverride(form.checkoutFeeOverride)
     setSettlementCheckoutFeePercent(form.settlementCheckoutFeePercent)
@@ -228,6 +272,7 @@ export function WaveCheckoutProvisionPanel({
     setDraftMobile(form.mobile)
     setDraftFeePercent(form.feePercent)
     setDraftFeeFixed(form.feeFixed)
+    setDraftBookingUnitAmount(form.bookingUnitAmount)
     setDraftCheckoutFeePercent(form.checkoutFeePercent)
     setDraftSettlementCheckoutFeePercent(form.settlementCheckoutFeePercent)
   }
@@ -246,11 +291,13 @@ export function WaveCheckoutProvisionPanel({
     try {
       const withholdPercent = Number.parseFloat(settlementFeePercent.replace(',', '.'))
       const withholdFixed = Number.parseFloat(settlementFeeFixed.replace(',', '.'))
+      const unitAmount = parseMoneyInput(settlementBookingUnitAmount)
       const data = await updateWaveSelfSettlementConfig(businessId, {
         enabled: settlementEnabled,
         mobile: settlementMobile.trim() || null,
         feeRate: Number.isFinite(withholdPercent) ? withholdPercent / 100 : 0,
         feeFixed: Number.isFinite(withholdFixed) ? withholdFixed : 0,
+        bookingUnitAmount: Number.isFinite(unitAmount) && unitAmount > 0 ? unitAmount : 0,
         checkoutFeeRate: resetToDefault ? null : percent / 100,
       })
       applySettlementForm(data)
@@ -297,11 +344,13 @@ export function WaveCheckoutProvisionPanel({
     try {
       const withholdPercent = Number.parseFloat(settlementFeePercent.replace(',', '.'))
       const withholdFixed = Number.parseFloat(settlementFeeFixed.replace(',', '.'))
+      const unitAmount = parseMoneyInput(settlementBookingUnitAmount)
       const data = await updateWaveSelfSettlementConfig(businessId, {
         enabled: settlementEnabled,
         mobile: settlementMobile.trim() || null,
         feeRate: Number.isFinite(withholdPercent) ? withholdPercent / 100 : 0,
         feeFixed: Number.isFinite(withholdFixed) ? withholdFixed : 0,
+        bookingUnitAmount: Number.isFinite(unitAmount) && unitAmount > 0 ? unitAmount : 0,
         settlementCheckoutFeeRate: resetToDefault ? null : percent / 100,
       })
       applySettlementForm(data)
@@ -326,12 +375,18 @@ export function WaveCheckoutProvisionPanel({
     }
     const percent = Number.parseFloat(draftFeePercent.replace(',', '.'))
     const fixed = Number.parseFloat(draftFeeFixed.replace(',', '.'))
+    const unitRaw = draftBookingUnitAmount.trim()
+    const unitAmount = unitRaw ? parseMoneyInput(unitRaw) : 0
     if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
       setSettlementModalError('Withhold percent must be between 0 and 100.')
       return
     }
     if (!Number.isFinite(fixed) || fixed < 0) {
       setSettlementModalError('Withhold amount must be 0 or greater.')
+      return
+    }
+    if (unitRaw && (!Number.isFinite(unitAmount) || unitAmount < 0)) {
+      setSettlementModalError('Booking unit amount must be 0 or greater.')
       return
     }
     if (draftEnabled && !draftMobile.trim()) {
@@ -346,6 +401,7 @@ export function WaveCheckoutProvisionPanel({
         mobile: draftMobile.trim() || null,
         feeRate: percent / 100,
         feeFixed: fixed,
+        bookingUnitAmount: Number.isFinite(unitAmount) && unitAmount > 0 ? unitAmount : 0,
       })
       applySettlementForm(data)
       setSettlementModalOpen(false)
@@ -391,6 +447,7 @@ export function WaveCheckoutProvisionPanel({
   }
 
   const brandImg = checkoutWalletBrandImageSrc('wave_gambia')
+  const unitExample = withholdUnitExample(draftFeePercent, draftFeeFixed, draftBookingUnitAmount)
   const settlementConfigured = Boolean(settlementMobile.trim()) || settlementEnabled
 
   return (
@@ -576,7 +633,7 @@ export function WaveCheckoutProvisionPanel({
                     <span className="font-medium">{settlementMobile.trim() || 'No Wave number'}</span>
                     <span className="text-slate-500">
                       {' '}
-                      · {withholdSummary(settlementFeePercent, settlementFeeFixed)}
+                      · {withholdSummary(settlementFeePercent, settlementFeeFixed, settlementBookingUnitAmount)}
                     </span>
                   </>
                 ) : (
@@ -733,6 +790,32 @@ export function WaveCheckoutProvisionPanel({
                         onChange={(e) => setDraftFeeFixed(e.target.value)}
                       />
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-slate-800" htmlFor="wave-self-settlement-unit-amount">
+                      unit amount
+                    </label>
+                    <input
+                      id="wave-self-settlement-unit-amount"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className={inputClass}
+                      value={draftBookingUnitAmount}
+                      disabled={!allowMutations || settlementSaving}
+                      onChange={(e) => setDraftBookingUnitAmount(e.target.value)}
+                      placeholder="Leave empty for one withhold per payment"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      When checkout is an exact multiple of this amount, fixed withhold applies once per
+                      unit. Leave empty to withhold once per payment.
+                    </p>
+                    {unitExample ? (
+                      <p className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                        {unitExample}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 

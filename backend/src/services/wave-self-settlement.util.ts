@@ -25,11 +25,39 @@ export type WaveSelfSettlementAmounts = {
 };
 
 /**
+ * Infer slot count from checkout gross and a configured booking-unit price.
+ * Returns an integer ≥ 1 only when gross is an exact 2-decimal multiple of unitAmount;
+ * otherwise 1 (unset unit price, odd amounts, or non-slot payments).
+ */
+export function inferSettlementBookingUnits(
+  gross: Prisma.Decimal | string | number,
+  unitAmount: Prisma.Decimal | string | number | null | undefined,
+): number {
+  if (unitAmount === null || unitAmount === undefined) {
+    return 1;
+  }
+  const g = roundMoney2(new Prisma.Decimal(String(gross)));
+  const u = roundMoney2(new Prisma.Decimal(String(unitAmount)));
+  if (g.lte(0) || u.lte(0)) {
+    return 1;
+  }
+  const units = g.div(u).toDecimalPlaces(0, Prisma.Decimal.ROUND_DOWN);
+  if (units.lt(1)) {
+    return 1;
+  }
+  if (!u.mul(units).eq(g)) {
+    return 1;
+  }
+  return Number(units.toFixed(0));
+}
+
+/**
  * Wave `receive_amount` is net to the recipient; Wave then debits receive + payout fee
  * from the aggregated merchant sub-balance. Both Wave fees are whole GMD (half-up).
  *
  * checkoutFee = roundWhole(G × checkoutFeeRate)
- * withhold X = round2(G × percentRate) + fixedAmount
+ * units = inferBookingUnits(G, unitAmount)   // 1 if unset or not an exact multiple
+ * withhold X = round2(G × percentRate) + round2(fixedAmount × units)
  * available = G − checkoutFee − X
  * receive is the largest amount with receive + roundWhole(receive × payoutFeeRate) ≤ available
  */
@@ -70,14 +98,19 @@ export function computeWaveSelfSettlementAmounts(input: {
   feeFixed: number;
   checkoutFeeRate: Prisma.Decimal | string | number;
   payoutFeeRate?: Prisma.Decimal | string | number;
+  /** Slot count for fixed withhold. Defaults to 1 (one withhold per payment). */
+  units?: number;
 }): WaveSelfSettlementAmounts {
   const gross = new Prisma.Decimal(String(input.gross));
   const rate = new Prisma.Decimal(String(input.feeRate || 0));
   const fixed = new Prisma.Decimal(String(input.feeFixed || 0));
   const checkoutRate = new Prisma.Decimal(String(input.checkoutFeeRate));
   const payoutRate = new Prisma.Decimal(String(input.payoutFeeRate ?? 0));
+  const unitsRaw = input.units ?? 1;
+  const units =
+    Number.isFinite(unitsRaw) && unitsRaw >= 1 ? Math.floor(unitsRaw) : 1;
 
-  const withholdAmount = roundMoney2(gross.mul(rate).plus(fixed));
+  const withholdAmount = roundMoney2(gross.mul(rate).plus(fixed.mul(units)));
   const requestedReceiveAmount = roundMoney2(gross.minus(withholdAmount));
   const checkoutFeeAmount = roundWaveFeeToWhole(gross.mul(checkoutRate));
   const netAfterCheckout = roundMoney2(gross.minus(checkoutFeeAmount));
@@ -141,4 +174,11 @@ export function settlementFeeRateFromSecrets(secrets: WaveGatewaySecrets | null 
 export function settlementFeeFixedFromSecrets(secrets: WaveGatewaySecrets | null | undefined): number {
   const n = secrets?.selfSettlementFeeFixed;
   return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+export function settlementBookingUnitAmountFromSecrets(
+  secrets: WaveGatewaySecrets | null | undefined,
+): number {
+  const n = secrets?.selfSettlementBookingUnitAmount;
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
 }

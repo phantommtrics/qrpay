@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 
 import {
   computeWaveSelfSettlementAmounts,
+  inferSettlementBookingUnits,
   roundWaveFeeToWhole,
   waveSelfSettlementSkipReason,
 } from "./wave-self-settlement.util.js";
@@ -139,6 +140,75 @@ describe("computeWaveSelfSettlementAmounts", () => {
     assert.equal(r.receiveAmount.toFixed(2), "2168.00");
     assert.equal(r.payoutFeeAmount.toFixed(2), "0.00");
     assert.equal(r.clamped, true);
+  });
+
+  it("multiplies fixed withhold by inferred booking units", () => {
+    const one = computeWaveSelfSettlementAmounts({
+      gross: 2200,
+      feeRate: 0,
+      feeFixed: 10,
+      checkoutFeeRate: 0.01,
+      payoutFeeRate: 0.01,
+      units: inferSettlementBookingUnits(2200, 2200),
+    });
+    assert.equal(one.withholdAmount.toFixed(2), "10.00");
+
+    const two = computeWaveSelfSettlementAmounts({
+      gross: 4400,
+      feeRate: 0,
+      feeFixed: 10,
+      checkoutFeeRate: 0.01,
+      payoutFeeRate: 0.01,
+      units: inferSettlementBookingUnits(4400, 2200),
+    });
+    assert.equal(two.withholdAmount.toFixed(2), "20.00");
+    assert.equal(two.checkoutFeeAmount.toFixed(2), "44.00");
+
+    const twoWithPercent = computeWaveSelfSettlementAmounts({
+      gross: 4400,
+      feeRate: 0.02,
+      feeFixed: 10,
+      checkoutFeeRate: 0.01,
+      payoutFeeRate: 0.01,
+      units: inferSettlementBookingUnits(4400, 2200),
+    });
+    assert.equal(twoWithPercent.withholdAmount.toFixed(2), "108.00");
+
+    const odd = computeWaveSelfSettlementAmounts({
+      gross: 5000,
+      feeRate: 0,
+      feeFixed: 10,
+      checkoutFeeRate: 0.01,
+      payoutFeeRate: 0.01,
+      units: inferSettlementBookingUnits(5000, 2200),
+    });
+    assert.equal(odd.withholdAmount.toFixed(2), "10.00");
+
+    const unset = computeWaveSelfSettlementAmounts({
+      gross: 4400,
+      feeRate: 0,
+      feeFixed: 10,
+      checkoutFeeRate: 0.01,
+      payoutFeeRate: 0.01,
+      units: inferSettlementBookingUnits(4400, null),
+    });
+    assert.equal(unset.withholdAmount.toFixed(2), "10.00");
+  });
+});
+
+describe("inferSettlementBookingUnits", () => {
+  it("returns 1 when unit amount is unset or not an exact multiple", () => {
+    assert.equal(inferSettlementBookingUnits(4400, null), 1);
+    assert.equal(inferSettlementBookingUnits(4400, 0), 1);
+    assert.equal(inferSettlementBookingUnits(5000, 2200), 1);
+    assert.equal(inferSettlementBookingUnits(1000, 2200), 1);
+  });
+
+  it("returns the exact multiple for slot-priced checkouts", () => {
+    assert.equal(inferSettlementBookingUnits(2200, 2200), 1);
+    assert.equal(inferSettlementBookingUnits(4400, 2200), 2);
+    assert.equal(inferSettlementBookingUnits(6600, 2200), 3);
+    assert.equal(inferSettlementBookingUnits("4400.00", "2200.00"), 2);
   });
 });
 
