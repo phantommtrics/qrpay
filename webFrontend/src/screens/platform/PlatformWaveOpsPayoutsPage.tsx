@@ -92,6 +92,16 @@ export function PlatformWaveOpsPayoutsPage() {
     [merchants],
   )
 
+  const supplierSearchOptions = useMemo(
+    () =>
+      supplierOptions.map((s) => ({
+        value: s.id,
+        label: s.name,
+        hint: s.phone?.trim() || 'No phone',
+      })),
+    [supplierOptions],
+  )
+
   const loadHistory = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -286,19 +296,19 @@ export function PlatformWaveOpsPayoutsPage() {
               </label>
               <label className="block text-sm">
                 <span className="mb-1.5 block font-medium text-slate-700">Supplier contact</span>
-                <select
+                <SearchableSelect
                   value={supplierId}
-                  onChange={(e) => setSupplierId(e.target.value)}
-                  className={fieldInput}
-                >
-                  <option value="">Select…</option>
-                  {supplierOptions.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                      {s.phone ? ` (${s.phone})` : ' — no phone'}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSupplierId}
+                  options={supplierSearchOptions}
+                  placeholder="Search supplier…"
+                  emptyMessage="No suppliers"
+                  noResultsMessage="No matching supplier"
+                  ariaLabel="Supplier contact"
+                  matchOptionValue
+                  listWindowInitial={6}
+                  listWindowStep={6}
+                  buttonClassName="rounded-lg px-3 py-2 text-sm"
+                />
               </label>
               <label className="block text-sm">
                 <span className="mb-1.5 block font-medium text-slate-700">Amount</span>
@@ -401,25 +411,24 @@ export function PlatformWaveOpsPayoutsPage() {
                   <tbody className="divide-y divide-slate-100">
                     {bulkRows.map((row, idx) => (
                       <tr key={row.key}>
-                        <td className="px-4 py-3 align-top">
-                          <select
+                        <td className="min-w-[16rem] px-4 py-3 align-top">
+                          <SearchableSelect
                             value={row.supplierId}
-                            onChange={(e) => {
-                              const v = e.target.value
+                            onChange={(v) => {
                               setBulkRows((prev) =>
                                 prev.map((r, i) => (i === idx ? { ...r, supplierId: v } : r)),
                               )
                             }}
-                            className={`${fieldInput} min-w-[12rem]`}
-                          >
-                            <option value="">Select…</option>
-                            {supplierOptions.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.name}
-                                {s.phone ? ` (${s.phone})` : ''}
-                              </option>
-                            ))}
-                          </select>
+                            options={supplierSearchOptions}
+                            placeholder="Search supplier…"
+                            emptyMessage="No suppliers"
+                            noResultsMessage="No matching supplier"
+                            ariaLabel={`Supplier for row ${idx + 1}`}
+                            matchOptionValue
+                            listWindowInitial={6}
+                            listWindowStep={6}
+                            buttonClassName="rounded-lg px-3 py-2 text-sm"
+                          />
                         </td>
                         <td className="px-4 py-3 align-top">
                           <input
