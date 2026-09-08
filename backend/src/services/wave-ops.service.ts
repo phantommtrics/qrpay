@@ -19,6 +19,7 @@ import {
   waveOpsDatesForRange,
 } from "./wave-ops-transactions.util.js";
 import { loadWaveMerchantBusinessLinks } from "./wave-aggregated-merchant.service.js";
+import { syncPlatformJournalForWaveOpsSupplierPayout } from "./platform-wave-ops-payout-journal.service.js";
 import type { WavePayout, WavePayoutRequest, WaveTransaction } from "./wave-payment.service.js";
 
 /** Normalize to E.164-ish mobile for Wave (`+` prefix required). */
@@ -94,6 +95,28 @@ function payoutNeedsWaveStatusRefresh(row: {
   return Date.now() - anchor.getTime() < WAVE_OPS_STATUS_REFRESH_WINDOW_MS;
 }
 
+async function syncStandaloneWaveOpsPayoutJournal(row: {
+  id: string;
+  businessId: string | null;
+  platformBillId?: string | null;
+  status: string;
+  reversedAt: Date | null;
+  platformJournalEntryId?: string | null;
+}): Promise<void> {
+  if (row.businessId || row.platformBillId) {
+    return;
+  }
+  const status = row.status.trim().toLowerCase();
+  const reversed = status === "reversed" || Boolean(row.reversedAt);
+  if (status === "succeeded" && row.platformJournalEntryId && !reversed) {
+    return;
+  }
+  if (status !== "succeeded" && !reversed) {
+    return;
+  }
+  await syncPlatformJournalForWaveOpsSupplierPayout(row.id);
+}
+
 async function applySelfSettlementReverseFromWaveOps(row: {
   businessId: string | null;
   wavePayoutId: string | null;
@@ -145,6 +168,8 @@ async function refreshWaveOpsPayoutFromWave(row: {
           where: { id: row.id },
           include: WAVE_OPS_PAYOUT_INCLUDE,
         });
+        const latest = after ?? updated;
+        await syncStandaloneWaveOpsPayoutJournal(latest);
         return after ? formatPayoutRow(after) : formatPayoutRow(updated);
       } catch (err) {
         console.error(
@@ -154,6 +179,7 @@ async function refreshWaveOpsPayoutFromWave(row: {
         );
       }
     }
+    await syncStandaloneWaveOpsPayoutJournal(updated);
     return formatPayoutRow(updated);
   } catch {
     return null;
@@ -487,6 +513,7 @@ export async function createWaveOpsPayout(input: {
       data: mapWavePayoutFields(result),
       include: WAVE_OPS_PAYOUT_INCLUDE,
     });
+    await syncStandaloneWaveOpsPayoutJournal(updated);
     return formatPayoutRow(updated);
   } catch (e) {
     const message = e instanceof HttpError ? e.message : "Wave payout failed.";
@@ -602,10 +629,11 @@ export async function createWaveOpsPayoutBulk(input: {
     for (let i = 0; i < localRows.length; i++) {
       const wr = waveRows[i];
       if (!wr) continue;
-      await prisma.waveOpsPayout.update({
+      const updated = await prisma.waveOpsPayout.update({
         where: { id: localRows[i].id },
         data: mapWavePayoutFields(wr),
       });
+      await syncStandaloneWaveOpsPayoutJournal(updated);
     }
 
     return getWaveOpsPayoutBatch(batch.id);
@@ -642,6 +670,7 @@ export async function listWaveOpsPayouts(input?: {
     include: WAVE_OPS_PAYOUT_INCLUDE,
   });
   const refreshed = await refreshWaveOpsPayoutsInBatches(rows);
+  await Promise.all(rows.map((row) => syncStandaloneWaveOpsPayoutJournal(row)));
   return rows.map((row) => refreshed.get(row.id) ?? formatPayoutRow(row));
 }
 
@@ -706,6 +735,7 @@ export async function searchWaveOpsPayoutsByClientReference(clientReference: str
         );
       }
     }
+    await syncStandaloneWaveOpsPayoutJournal(row);
     upserted.push(formatPayoutRow(row));
   }
 
@@ -734,6 +764,7 @@ export async function getWaveOpsPayout(id: string, opts?: { refresh?: boolean })
     }
   }
 
+  await syncStandaloneWaveOpsPayoutJournal(row);
   return formatPayoutRow(row);
 }
 
@@ -768,6 +799,7 @@ export async function reverseWaveOpsPayout(id: string) {
     where: { id: row.id },
     data: { reversedAt: new Date(), status: "reversed" },
   });
+  await syncPlatformJournalForWaveOpsSupplierPayout(row.id);
 
   return getWaveOpsPayout(id);
 }
@@ -788,6 +820,9 @@ export async function listWaveOpsPayoutBatches(limit = 50) {
       },
     },
   });
+  await Promise.all(
+    batches.flatMap((b) => b.payouts.map((p) => syncStandaloneWaveOpsPayoutJournal(p))),
+  );
   return batches.map((b) => ({
     id: b.id,
     waveBatchId: b.waveBatchId,
@@ -844,10 +879,11 @@ export async function getWaveOpsPayoutBatch(id: string) {
           ? localRows.find((r) => r.wavePayoutId === wr.id)
           : undefined;
         const target = byId ?? localRows[i];
-        await prisma.waveOpsPayout.update({
+        const updated = await prisma.waveOpsPayout.update({
           where: { id: target.id },
           data: mapWavePayoutFields(wr),
         });
+        await syncStandaloneWaveOpsPayoutJournal(updated);
       }
 
       return getWaveOpsPayoutBatchFresh(id);
@@ -856,6 +892,7 @@ export async function getWaveOpsPayoutBatch(id: string) {
     }
   }
 
+  await Promise.all(batch.payouts.map((p) => syncStandaloneWaveOpsPayoutJournal(p)));
   return {
     id: batch.id,
     waveBatchId: batch.waveBatchId,
@@ -888,6 +925,7 @@ async function getWaveOpsPayoutBatchFresh(id: string) {
     },
   });
   if (!batch) throw new HttpError(404, "Payout batch not found.");
+  await Promise.all(batch.payouts.map((p) => syncStandaloneWaveOpsPayoutJournal(p)));
   return {
     id: batch.id,
     waveBatchId: batch.waveBatchId,

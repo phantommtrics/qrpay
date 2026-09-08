@@ -22,6 +22,8 @@
 - Used for subscription revenue recognition, refunds, platform wallet fees, and **aggregator self-settlement** — **not** mixed with tenant `ChartOfAccount` rows.
 - Self-settlement on Wave payout success (`WAVE_SELF_SETTLEMENT`): **Dr P-4920** (payout + Wave fee) · **Cr P-1200** (aggregator Wave clearing); **Dr P-1200** · **Cr P-4010** (withhold revenue). The merchant is stored on `PlatformJournalEntry.businessId`. A local `WaveOpsPayout` row is created so the payout appears in Wave Operations like supplier payouts.
 - Self-settlement on Wave payout reverse (`WAVE_SELF_SETTLEMENT_REVERSAL`): Wave returns the payout **including fees**. DirectPay swaps every line of the original platform journal (undo P-4920 cost, P-4010 withhold, P-1200 clearing) and reverses the merchant reserved checkout-fee journal (`CUSTOMER_SALE_SELF_SETTLEMENT_CHECKOUT_FEE` / sales ledger `SELF_SETTLEMENT_CHECKOUT_FEE`). The original customer-sale journal is left unchanged. Detection is Wave payout poll, Wave Operations payout refresh, or `api_payout_reversal` on the transaction list — not the Wave Operations reverse button.
+- Wave Operations supplier payouts (`WAVE_OPS_PAYOUT`): standalone single or bulk payouts (not self-settlement, not bill-linked) post **Dr P-4930** (receive + Wave fee) · **Cr P-1200** (aggregator Wave clearing). The supplier name is on the journal memo. Bill-linked payouts keep `PURCHASE_BILL_PAYMENT` only. Self-settlement keeps `WAVE_SELF_SETTLEMENT`.
+- Wave Operations supplier payout reverse (`WAVE_OPS_PAYOUT_REVERSAL`): swaps the original P-4930 / P-1200 lines after Wave reports reversed (Ops reverse button, payout refresh, or batch/list sync).
 
 ## Platform reports
 

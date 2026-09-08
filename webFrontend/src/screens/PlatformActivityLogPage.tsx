@@ -12,6 +12,8 @@ const EVENT_LABELS: Record<string, string> = {
   'platform.bill.paid': 'Supplier bill marked paid',
   'wave.self_settlement.succeeded': 'Wave self-settlement succeeded',
   'wave.self_settlement.reversed': 'Wave self-settlement reversed',
+  'wave.ops_payout.succeeded': 'Wave operations payout succeeded',
+  'wave.ops_payout.reversed': 'Wave operations payout reversed',
 }
 
 function eventLabel(eventType: string): string {
@@ -97,6 +99,12 @@ export function PlatformActivityLogPage() {
                 </option>
                 <option value="wave.self_settlement.reversed">
                   {eventLabel('wave.self_settlement.reversed')}
+                </option>
+                <option value="wave.ops_payout.succeeded">
+                  {eventLabel('wave.ops_payout.succeeded')}
+                </option>
+                <option value="wave.ops_payout.reversed">
+                  {eventLabel('wave.ops_payout.reversed')}
                 </option>
               </select>
             </label>

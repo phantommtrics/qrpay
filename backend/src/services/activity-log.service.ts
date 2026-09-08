@@ -20,6 +20,8 @@ export const ACTIVITY_EVENT = {
   DIGITALOCEAN_INVOICE_POSTED: "platform.digitalocean.invoice_posted",
   WAVE_SELF_SETTLEMENT_SUCCEEDED: "wave.self_settlement.succeeded",
   WAVE_SELF_SETTLEMENT_REVERSED: "wave.self_settlement.reversed",
+  WAVE_OPS_PAYOUT_SUCCEEDED: "wave.ops_payout.succeeded",
+  WAVE_OPS_PAYOUT_REVERSED: "wave.ops_payout.reversed",
 } as const;
 
 export async function appendActivityLog(

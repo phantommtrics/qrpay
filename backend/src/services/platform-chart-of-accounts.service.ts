@@ -27,6 +27,8 @@ export const PLATFORM_CHART_AGGREGATOR_WAVE_CLEARING = "P-1200";
 export const PLATFORM_CHART_SELF_SETTLEMENT_WITHHOLD = "P-4010";
 /** Amount paid out to the merchant Wave number plus Wave payout fee. */
 export const PLATFORM_CHART_SELF_SETTLEMENT_PAYOUTS = "P-4920";
+/** Wave Operations supplier payouts (single/bulk) plus Wave payout fee. */
+export const PLATFORM_CHART_WAVE_OPS_PAYOUTS = "P-4930";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -88,7 +90,7 @@ const DEFAULT_PLATFORM_ACCOUNTS: Array<{
     code: PLATFORM_CHART_AGGREGATOR_WAVE_CLEARING,
     name: "Aggregator Wave clearing",
     description:
-      "Platform Wave wallet tagged to aggregated merchants. Credited when self-settlement pays a merchant; debited when withhold is recognized as platform revenue.",
+      "Platform Wave wallet tagged to aggregated merchants. Credited when money leaves the wallet (self-settlement or Wave Operations payouts); debited when withhold is recognized as platform revenue.",
     category: ChartAccountCategory.ASSET,
     isSystem: true,
   },
@@ -105,6 +107,14 @@ const DEFAULT_PLATFORM_ACCOUNTS: Array<{
     name: "Merchant self-settlement payouts",
     description:
       "Direct cost of paying the merchant Wave number after aggregator checkout, including Wave payout fees.",
+    category: ChartAccountCategory.EXPENSE,
+    isSystem: true,
+  },
+  {
+    code: PLATFORM_CHART_WAVE_OPS_PAYOUTS,
+    name: "Wave operations payouts",
+    description:
+      "Direct cost of Wave Operations supplier payouts (single or bulk), including Wave payout fees.",
     category: ChartAccountCategory.EXPENSE,
     isSystem: true,
   },

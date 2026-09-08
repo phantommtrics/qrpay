@@ -243,6 +243,14 @@ enum PlatformJournalSourceType {
    * Swapped debits/credits to undo a WAVE_SELF_SETTLEMENT entry after Wave reverses the payout.
    */
   WAVE_SELF_SETTLEMENT_REVERSAL
+  /**
+   * Wave Operations supplier payout (single/bulk): payout cost + Wave fee vs aggregator clearing.
+   */
+  WAVE_OPS_PAYOUT
+  /**
+   * Swapped debits/credits after Wave reverses a WAVE_OPS_PAYOUT.
+   */
+  WAVE_OPS_PAYOUT_REVERSAL
 }
 
 enum SalesLedgerEntryType {
@@ -943,6 +951,7 @@ model PlatformJournalEntry {
   digitalOceanInvoice            DigitalOceanInvoice?       @relation("DigitalOceanInvoiceJournal")
   business                       Business?                  @relation(fields: [businessId], references: [id], onDelete: SetNull)
   waveSelfSettlementPayout       WaveSelfSettlementPayout?  @relation("WaveSelfSettlementJournal")
+  waveOpsPayout                  WaveOpsPayout?             @relation("WaveOpsPayoutJournal")
 
   @@index([postedAt])
   @@index([sourceType, sourceId])
@@ -1050,6 +1059,7 @@ model WaveOpsPayout {
   errorMessage       String?             @db.Text
   waveTimestamp      DateTime?
   reversedAt         DateTime?
+  platformJournalEntryId String?             @unique
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   batch              WaveOpsPayoutBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
@@ -1057,6 +1067,7 @@ model WaveOpsPayout {
   bill               PlatformBill?       @relation(fields: [platformBillId], references: [id], onDelete: SetNull)
   business           Business?           @relation(fields: [businessId], references: [id], onDelete: SetNull)
   selfSettlementPayout WaveSelfSettlementPayout? @relation("WaveSelfSettlementOpsPayout")
+  platformJournalEntry PlatformJournalEntry? @relation("WaveOpsPayoutJournal", fields: [platformJournalEntryId], references: [id], onDelete: SetNull)
 
   @@index([createdAt])
   @@index([status])
