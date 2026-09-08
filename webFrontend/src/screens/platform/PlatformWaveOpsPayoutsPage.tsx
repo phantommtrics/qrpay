@@ -4,6 +4,7 @@ import { Loader2, Plus, Search, Trash2, Waves } from 'lucide-react'
 
 import { PageCard } from '../../components/ui/PageCard'
 import { PageTransition } from '../../components/ui/PageTransition'
+import { SearchableSelect } from '../../components/ui/SearchableSelect'
 import { APP_PATHS } from '../../config/navigation'
 import { useAuth } from '../../features/auth/AuthContext'
 import {
@@ -11,9 +12,11 @@ import {
   createWaveOpsPayout,
   createWaveOpsPayoutBulk,
   fetchPlatformSuppliers,
+  fetchWaveOpsAggregatedMerchants,
   fetchWaveOpsPayouts,
   searchWaveOpsPayouts,
   type PlatformSupplierRow,
+  type WaveOpsAggregatedMerchant,
   type WaveOpsPayoutRow,
 } from '../../services/subscriptionApi'
 import { isPlatformOperator } from '../../utils/platformOperator'
@@ -27,6 +30,16 @@ const fieldInput =
 
 const fieldTextarea =
   'w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-relaxed text-slate-900 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600/30'
+
+function payoutMerchantLabel(m: WaveOpsAggregatedMerchant) {
+  if (m.kind === 'platform') {
+    return `Platform · ${m.name}`
+  }
+  if (m.business?.name) {
+    return `${m.business.name} · ${m.name}`
+  }
+  return m.name
+}
 
 function statusClass(status: string) {
   switch (status) {
@@ -48,6 +61,8 @@ export function PlatformWaveOpsPayoutsPage() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('history')
   const [suppliers, setSuppliers] = useState<PlatformSupplierRow[]>([])
+  const [merchants, setMerchants] = useState<WaveOpsAggregatedMerchant[]>([])
+  const [aggregatedMerchantId, setAggregatedMerchantId] = useState('')
   const [history, setHistory] = useState<WaveOpsPayoutRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -67,6 +82,16 @@ export function PlatformWaveOpsPayoutsPage() {
     [suppliers],
   )
 
+  const merchantOptions = useMemo(
+    () =>
+      merchants.map((m) => ({
+        value: m.id,
+        label: payoutMerchantLabel(m),
+        hint: m.id,
+      })),
+    [merchants],
+  )
+
   const loadHistory = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -84,8 +109,16 @@ export function PlatformWaveOpsPayoutsPage() {
     if (!isPlatformOperator(user) || !canAccess('platform.wave_operations.view')) return
     void (async () => {
       try {
-        const s = await fetchPlatformSuppliers()
+        const [s, m] = await Promise.all([
+          fetchPlatformSuppliers(),
+          fetchWaveOpsAggregatedMerchants().catch(() => [] as WaveOpsAggregatedMerchant[]),
+        ])
         setSuppliers(s)
+        setMerchants(m)
+        setAggregatedMerchantId((prev) => {
+          if (prev && m.some((row) => row.id === prev)) return prev
+          return m.find((row) => row.kind === 'platform')?.id ?? m[0]?.id ?? ''
+        })
       } catch {
         // non-fatal for history-only view
       }
@@ -94,7 +127,7 @@ export function PlatformWaveOpsPayoutsPage() {
   }, [user, canAccess, loadHistory])
 
   const submitSingle = async () => {
-    if (!supplierId || !amount) return
+    if (!supplierId || !amount || !aggregatedMerchantId) return
     setLoading(true)
     setError(null)
     try {
@@ -102,6 +135,7 @@ export function PlatformWaveOpsPayoutsPage() {
         supplierId,
         receiveAmount: amount,
         clientReference: clientRef.trim() || null,
+        aggregatedMerchantId,
       })
       setLastResult(row)
       await loadHistory()
@@ -113,6 +147,10 @@ export function PlatformWaveOpsPayoutsPage() {
   }
 
   const submitBulk = async () => {
+    if (!aggregatedMerchantId) {
+      setError('Choose a Wave aggregated merchant (platform or business) to debit.')
+      return
+    }
     const items = bulkRows
       .filter((r) => r.supplierId && r.receiveAmount)
       .map((r) => ({
@@ -127,7 +165,7 @@ export function PlatformWaveOpsPayoutsPage() {
     setLoading(true)
     setError(null)
     try {
-      const batch = await createWaveOpsPayoutBulk({ items })
+      const batch = await createWaveOpsPayoutBulk({ items, aggregatedMerchantId })
       navigate(generatePath(APP_PATHS.platformWaveOpsPayoutBatchDetail, { batchId: batch.id }))
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Bulk payout failed.')
@@ -183,8 +221,8 @@ export function PlatformWaveOpsPayoutsPage() {
             Payouts
           </h1>
           <p className="mt-2 max-w-3xl text-slate-600">
-            Send money from the Wave wallet to supplier contacts. Pay approved bills from Supplier
-            bills with Wave selected.
+            Send money from a Wave aggregated merchant (platform or business) to supplier contacts.
+            Pay approved bills from Supplier bills with Wave selected.
           </p>
         </div>
         <Link
@@ -225,6 +263,27 @@ export function PlatformWaveOpsPayoutsPage() {
         <div className="p-5 sm:p-6">
           {tab === 'single' && canManage ? (
             <div className="max-w-xl space-y-4">
+              <label className="block text-sm">
+                <span className="mb-1.5 block font-medium text-slate-700">
+                  Aggregated merchant
+                </span>
+                <SearchableSelect
+                  value={aggregatedMerchantId}
+                  onChange={setAggregatedMerchantId}
+                  options={merchantOptions}
+                  placeholder="Select platform or business merchant…"
+                  emptyMessage="No aggregated merchants"
+                  noResultsMessage="No matching merchant"
+                  ariaLabel="Aggregated merchant"
+                  matchOptionValue
+                  listWindowInitial={6}
+                  listWindowStep={6}
+                  buttonClassName="rounded-lg px-3 py-2 text-sm"
+                />
+                <span className="mt-1 block text-xs text-slate-500">
+                  Debits this merchant&apos;s sub-balance on the platform Wave wallet.
+                </span>
+              </label>
               <label className="block text-sm">
                 <span className="mb-1.5 block font-medium text-slate-700">Supplier contact</span>
                 <select
@@ -270,7 +329,7 @@ export function PlatformWaveOpsPayoutsPage() {
               </label>
               <button
                 type="button"
-                disabled={loading || !supplierId || !amount}
+                disabled={loading || !supplierId || !amount || !aggregatedMerchantId}
                 onClick={() => void submitSingle()}
                 className="inline-flex rounded-xl bg-teal-700 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-teal-800 disabled:opacity-50"
               >
@@ -308,8 +367,27 @@ export function PlatformWaveOpsPayoutsPage() {
           {tab === 'bulk' && canManage ? (
             <div className="space-y-4">
               <p className="text-sm text-slate-600">
-                Add multiple supplier payouts. Submitted as one Wave payout batch.
+                Add multiple supplier payouts. Submitted as one Wave payout batch from the selected
+                aggregated merchant.
               </p>
+              <label className="block max-w-xl text-sm">
+                <span className="mb-1.5 block font-medium text-slate-700">
+                  Aggregated merchant
+                </span>
+                <SearchableSelect
+                  value={aggregatedMerchantId}
+                  onChange={setAggregatedMerchantId}
+                  options={merchantOptions}
+                  placeholder="Select platform or business merchant…"
+                  emptyMessage="No aggregated merchants"
+                  noResultsMessage="No matching merchant"
+                  ariaLabel="Aggregated merchant for bulk payout"
+                  matchOptionValue
+                  listWindowInitial={6}
+                  listWindowStep={6}
+                  buttonClassName="rounded-lg px-3 py-2 text-sm"
+                />
+              </label>
               <div className="overflow-x-auto rounded-xl border border-slate-200">
                 <table className="min-w-full text-left text-sm">
                   <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -417,7 +495,7 @@ export function PlatformWaveOpsPayoutsPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={loading}
+                  disabled={loading || !aggregatedMerchantId}
                   onClick={() => void submitBulk()}
                   className="inline-flex rounded-xl bg-teal-700 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-teal-800 disabled:opacity-50"
                 >

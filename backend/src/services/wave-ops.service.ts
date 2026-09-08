@@ -4,6 +4,7 @@ import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import {
   isPlatformWaveCheckoutConfigured,
+  resolveWavePlatformAggregatedMerchantId,
   waveServiceFromEnv,
 } from "./wave-client-env.js";
 import {
@@ -17,6 +18,7 @@ import {
   resolveWaveOpsTxRange,
   waveOpsDatesForRange,
 } from "./wave-ops-transactions.util.js";
+import { loadWaveMerchantBusinessLinks } from "./wave-aggregated-merchant.service.js";
 import type { WavePayout, WavePayoutRequest, WaveTransaction } from "./wave-payment.service.js";
 
 /** Normalize to E.164-ish mobile for Wave (`+` prefix required). */
@@ -65,6 +67,131 @@ function mapWavePayoutFields(p: WavePayout) {
     errorMessage: p.payout_error?.error_message ?? null,
     waveTimestamp: p.timestamp ? new Date(p.timestamp) : null,
   };
+}
+
+const WAVE_OPS_STATUS_REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const WAVE_OPS_LIST_REFRESH_CONCURRENCY = 6;
+const WAVE_OPS_LIST_REFRESH_MAX = 40;
+
+function payoutNeedsWaveStatusRefresh(row: {
+  wavePayoutId: string | null;
+  status: string;
+  reversedAt: Date | null;
+  waveTimestamp: Date | null;
+  createdAt: Date;
+}): boolean {
+  if (!row.wavePayoutId?.trim()) {
+    return false;
+  }
+  const status = row.status.trim().toLowerCase();
+  if (status === "reversed" || status === "failed" || row.reversedAt) {
+    return false;
+  }
+  if (status === "processing") {
+    return true;
+  }
+  const anchor = row.waveTimestamp ?? row.createdAt;
+  return Date.now() - anchor.getTime() < WAVE_OPS_STATUS_REFRESH_WINDOW_MS;
+}
+
+async function applySelfSettlementReverseFromWaveOps(row: {
+  businessId: string | null;
+  wavePayoutId: string | null;
+  clientReference: string | null;
+}): Promise<void> {
+  if (!row.businessId || !row.wavePayoutId) {
+    return;
+  }
+  const { applyWaveSelfSettlementPayoutReversed } = await import(
+    "./wave-self-settlement-reversal.service.js"
+  );
+  await applyWaveSelfSettlementPayoutReversed({
+    wavePayoutId: row.wavePayoutId,
+    clientReference: row.clientReference,
+  });
+}
+
+/** Pull Wave GET /v1/payout into the local WaveOps row and reverse self-settlement journals if needed. */
+async function refreshWaveOpsPayoutFromWave(row: {
+  id: string;
+  wavePayoutId: string | null;
+  businessId: string | null;
+  clientReference: string | null;
+  reversedAt: Date | null;
+}): Promise<ReturnType<typeof formatPayoutRow> | null> {
+  const wavePayoutId = row.wavePayoutId?.trim();
+  if (!wavePayoutId || !isPlatformWaveCheckoutConfigured()) {
+    return null;
+  }
+  try {
+    const wave = waveServiceFromEnv();
+    const remote = await wave.getPayout(wavePayoutId);
+    const updated = await prisma.waveOpsPayout.update({
+      where: { id: row.id },
+      data: {
+        ...mapWavePayoutFields(remote),
+        ...(remote.status === "reversed" && !row.reversedAt ? { reversedAt: new Date() } : {}),
+      },
+      include: WAVE_OPS_PAYOUT_INCLUDE,
+    });
+    if (remote.status === "reversed" && (row.businessId || updated.businessId)) {
+      try {
+        await applySelfSettlementReverseFromWaveOps({
+          businessId: row.businessId || updated.businessId,
+          wavePayoutId,
+          clientReference: row.clientReference,
+        });
+        const after = await prisma.waveOpsPayout.findUnique({
+          where: { id: row.id },
+          include: WAVE_OPS_PAYOUT_INCLUDE,
+        });
+        return after ? formatPayoutRow(after) : formatPayoutRow(updated);
+      } catch (err) {
+        console.error(
+          "[wave-ops] Failed to reverse self-settlement journals after Wave payout reverse",
+          row.id,
+          err,
+        );
+      }
+    }
+    return formatPayoutRow(updated);
+  } catch {
+    return null;
+  }
+}
+
+async function refreshWaveOpsPayoutsInBatches<
+  T extends {
+    id: string;
+    wavePayoutId: string | null;
+    businessId: string | null;
+    clientReference: string | null;
+    reversedAt: Date | null;
+    status: string;
+    waveTimestamp: Date | null;
+    createdAt: Date;
+  },
+>(rows: T[]): Promise<Map<string, ReturnType<typeof formatPayoutRow>>> {
+  const updated = new Map<string, ReturnType<typeof formatPayoutRow>>();
+  if (!isPlatformWaveCheckoutConfigured()) {
+    return updated;
+  }
+  const pending = rows.filter(payoutNeedsWaveStatusRefresh).slice(0, WAVE_OPS_LIST_REFRESH_MAX);
+  for (let i = 0; i < pending.length; i += WAVE_OPS_LIST_REFRESH_CONCURRENCY) {
+    const chunk = pending.slice(i, i + WAVE_OPS_LIST_REFRESH_CONCURRENCY);
+    const results = await Promise.all(
+      chunk.map(async (row) => {
+        const refreshed = await refreshWaveOpsPayoutFromWave(row);
+        return refreshed ? ([row.id, refreshed] as const) : null;
+      }),
+    );
+    for (const item of results) {
+      if (item) {
+        updated.set(item[0], item[1]);
+      }
+    }
+  }
+  return updated;
 }
 
 function formatPayoutRow(row: {
@@ -162,11 +289,33 @@ export async function listWaveOpsAggregatedMerchants() {
     throw new HttpError(503, "Wave is not configured (WAVE_CHECKOUT_BEARER).");
   }
   const wave = waveServiceFromEnv();
-  const items = await wave.listAllAggregatedMerchants();
+  const [items, platformId, { businessByMerchantId }] = await Promise.all([
+    wave.listAllAggregatedMerchants(),
+    resolveWavePlatformAggregatedMerchantId().catch(() => null),
+    loadWaveMerchantBusinessLinks(),
+  ]);
   return items
-    .map((m) => ({ id: m.id, name: m.name }))
-    .filter((m) => m.id.trim())
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    .map((m) => {
+      const id = m.id.trim();
+      const business = businessByMerchantId.get(id) ?? null;
+      const kind = platformId && id === platformId ? ("platform" as const) : ("business" as const);
+      return {
+        id,
+        name: m.name,
+        kind,
+        business: business ? { id: business.id, name: business.name } : null,
+      };
+    })
+    .filter((m) => m.id)
+    .sort((a, b) => {
+      if (a.kind !== b.kind) {
+        return a.kind === "platform" ? -1 : 1;
+      }
+      const an = (a.business?.name || a.name).localeCompare(b.business?.name || b.name, undefined, {
+        sensitivity: "base",
+      });
+      return an;
+    });
 }
 
 export async function listWaveOpsTransactions(input: {
@@ -268,11 +417,34 @@ async function loadSupplierOrThrow(supplierId: string) {
   return { supplier, mobile };
 }
 
+/** Wave aggregator keys require aggregated_merchant_id. Platform bills default to the main merchant. */
+async function resolveOpsPayoutAggregatedMerchantId(requested?: string | null): Promise<string> {
+  const wanted = requested?.trim();
+  const platformId = await resolveWavePlatformAggregatedMerchantId();
+  if (!wanted) {
+    return platformId;
+  }
+  if (wanted === platformId) {
+    return wanted;
+  }
+  const wave = waveServiceFromEnv();
+  const merchants = await wave.listAllAggregatedMerchants();
+  const hit = merchants.find((m) => m.id.trim() === wanted);
+  if (!hit) {
+    throw new HttpError(
+      400,
+      "Unknown aggregated merchant. Choose the platform merchant or a provisioned business merchant.",
+    );
+  }
+  return wanted;
+}
+
 export async function createWaveOpsPayout(input: {
   supplierId: string;
   receiveAmount: string | number;
   clientReference?: string | null;
   platformBillId?: string | null;
+  aggregatedMerchantId?: string | null;
 }) {
   if (!isPlatformWaveCheckoutConfigured()) {
     throw new HttpError(503, "Wave is not configured (WAVE_CHECKOUT_BEARER).");
@@ -283,6 +455,7 @@ export async function createWaveOpsPayout(input: {
   const receiveAmount = parseAmount(input.receiveAmount);
   const clientReference = input.clientReference?.trim() || null;
   const idempotencyKey = randomUUID();
+  const aggregatedMerchantId = await resolveOpsPayoutAggregatedMerchantId(input.aggregatedMerchantId);
 
   const local = await prisma.waveOpsPayout.create({
     data: {
@@ -303,6 +476,7 @@ export async function createWaveOpsPayout(input: {
     receive_amount: receiveAmount,
     name: supplier.name,
     mobile,
+    aggregated_merchant_id: aggregatedMerchantId,
     ...(clientReference ? { client_reference: clientReference } : {}),
   };
 
@@ -330,6 +504,7 @@ export async function createWaveOpsPayout(input: {
 }
 
 export async function createWaveOpsPayoutBulk(input: {
+  aggregatedMerchantId?: string | null;
   items: Array<{
     supplierId: string;
     receiveAmount: string | number;
@@ -349,6 +524,7 @@ export async function createWaveOpsPayoutBulk(input: {
 
   const wave = waveServiceFromEnv();
   const balance = await wave.getBalance();
+  const aggregatedMerchantId = await resolveOpsPayoutAggregatedMerchantId(input.aggregatedMerchantId);
   const batchIdempotencyKey = randomUUID();
 
   const prepared: Array<{
@@ -380,6 +556,7 @@ export async function createWaveOpsPayoutBulk(input: {
         receive_amount: receiveAmount,
         name: supplier.name,
         mobile,
+        aggregated_merchant_id: aggregatedMerchantId,
         ...(clientReference ? { client_reference: clientReference } : {}),
       },
     });
@@ -464,7 +641,8 @@ export async function listWaveOpsPayouts(input?: {
     take: limit,
     include: WAVE_OPS_PAYOUT_INCLUDE,
   });
-  return rows.map(formatPayoutRow);
+  const refreshed = await refreshWaveOpsPayoutsInBatches(rows);
+  return rows.map((row) => refreshed.get(row.id) ?? formatPayoutRow(row));
 }
 
 export async function searchWaveOpsPayoutsByClientReference(clientReference: string) {
@@ -493,9 +671,10 @@ export async function searchWaveOpsPayoutsByClientReference(clientReference: str
       name: p.name,
       currency: p.currency,
       receiveAmount: p.receive_amount,
+      ...(p.status === "reversed" && !existing?.reversedAt ? { reversedAt: new Date() } : {}),
     };
 
-    const row = existing
+    let row = existing
       ? await prisma.waveOpsPayout.update({
           where: { id: existing.id },
           data,
@@ -505,6 +684,28 @@ export async function searchWaveOpsPayoutsByClientReference(clientReference: str
           data,
           include: WAVE_OPS_PAYOUT_INCLUDE,
         });
+    if (p.status === "reversed" && row.businessId) {
+      try {
+        await applySelfSettlementReverseFromWaveOps({
+          businessId: row.businessId,
+          wavePayoutId: row.wavePayoutId,
+          clientReference: row.clientReference,
+        });
+        const after = await prisma.waveOpsPayout.findUnique({
+          where: { id: row.id },
+          include: WAVE_OPS_PAYOUT_INCLUDE,
+        });
+        if (after) {
+          row = after;
+        }
+      } catch (err) {
+        console.error(
+          "[wave-ops] Failed to reverse self-settlement journals after Wave payout search",
+          row.id,
+          err,
+        );
+      }
+    }
     upserted.push(formatPayoutRow(row));
   }
 
@@ -526,18 +727,10 @@ export async function getWaveOpsPayout(id: string, opts?: { refresh?: boolean })
   });
   if (!row) throw new HttpError(404, "Payout not found.");
 
-  if (opts?.refresh && row.wavePayoutId && isPlatformWaveCheckoutConfigured()) {
-    try {
-      const wave = waveServiceFromEnv();
-      const remote = await wave.getPayout(row.wavePayoutId);
-      const updated = await prisma.waveOpsPayout.update({
-        where: { id: row.id },
-        data: mapWavePayoutFields(remote),
-        include: WAVE_OPS_PAYOUT_INCLUDE,
-      });
-      return formatPayoutRow(updated);
-    } catch {
-      // Return local if refresh fails.
+  if (opts?.refresh && row.wavePayoutId) {
+    const refreshed = await refreshWaveOpsPayoutFromWave(row);
+    if (refreshed) {
+      return refreshed;
     }
   }
 
@@ -763,6 +956,7 @@ export async function sendWavePayoutForBill(input: {
       receive_amount: receiveAmount,
       name: input.supplierName,
       mobile,
+      aggregated_merchant_id: await resolveOpsPayoutAggregatedMerchantId(),
       ...(clientReference ? { client_reference: clientReference } : {}),
     },
     idempotencyKey,

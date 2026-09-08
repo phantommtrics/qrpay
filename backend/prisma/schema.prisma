@@ -239,6 +239,10 @@ enum PlatformJournalSourceType {
    * Aggregator self-settlement: payout cost + withhold revenue for a merchant checkout.
    */
   WAVE_SELF_SETTLEMENT
+  /**
+   * Swapped debits/credits to undo a WAVE_SELF_SETTLEMENT entry after Wave reverses the payout.
+   */
+  WAVE_SELF_SETTLEMENT_REVERSAL
 }
 
 enum SalesLedgerEntryType {
@@ -255,6 +259,7 @@ enum SalesLedgerDirection {
 
 enum SalesLedgerStatus {
   SUCCEEDED
+  REVERSED
 }
 
 /**
@@ -562,6 +567,7 @@ enum WaveSelfSettlementPayoutStatus {
   SUCCEEDED
   FAILED
   SKIPPED
+  REVERSED
 }
 
 /**

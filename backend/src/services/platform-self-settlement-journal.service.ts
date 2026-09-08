@@ -145,3 +145,82 @@ export async function postPlatformJournalForSelfSettlementPayout(
 
   return entry.id;
 }
+
+/**
+ * Undo a WAVE_SELF_SETTLEMENT journal (payout cost + Wave fee + withhold revenue).
+ * Idempotent: returns the existing reversal id if already posted.
+ */
+export async function postPlatformJournalReversalForSelfSettlementPayout(
+  tx: Tx,
+  payoutId: string,
+): Promise<string | null> {
+  const original = await tx.platformJournalEntry.findFirst({
+    where: {
+      sourceType: PlatformJournalSourceType.WAVE_SELF_SETTLEMENT,
+      sourceId: payoutId,
+    },
+    include: {
+      lines: { orderBy: { id: "asc" } },
+      reversedByPlatformEntry: { select: { id: true } },
+    },
+  });
+  if (!original) {
+    return null;
+  }
+  if (original.reversedByPlatformEntry) {
+    return original.reversedByPlatformEntry.id;
+  }
+
+  const existingReversal = await tx.platformJournalEntry.findFirst({
+    where: {
+      OR: [
+        { reversesPlatformJournalEntryId: original.id },
+        {
+          sourceType: PlatformJournalSourceType.WAVE_SELF_SETTLEMENT_REVERSAL,
+          sourceId: payoutId,
+        },
+      ],
+    },
+    select: { id: true },
+  });
+  if (existingReversal) {
+    return existingReversal.id;
+  }
+
+  if (!original.lines.length) {
+    return null;
+  }
+
+  const reversal = await tx.platformJournalEntry.create({
+    data: {
+      postedAt: new Date(),
+      memo: original.memo?.trim()
+        ? `Reversal of ${original.memo.trim()}`
+        : `Reversal of Wave self-settlement (${payoutId})`,
+      reference: original.reference,
+      sourceType: PlatformJournalSourceType.WAVE_SELF_SETTLEMENT_REVERSAL,
+      sourceId: payoutId,
+      businessId: original.businessId,
+      reversesPlatformJournalEntryId: original.id,
+      lines: {
+        create: original.lines.map((ln) => {
+          const desc = ln.description?.trim()
+            ? `Reversal: ${ln.description.trim()}`
+            : "Reversal of self-settlement journal line";
+          return {
+            chartOfAccountId: ln.chartOfAccountId,
+            debitAmount: ln.creditAmount,
+            creditAmount: ln.debitAmount,
+            description: desc.length > 4000 ? desc.slice(0, 4000) : desc,
+            quantity: ln.quantity,
+            unitLabel: ln.unitLabel,
+            taxAmount: ln.taxAmount,
+          };
+        }),
+      },
+    },
+    select: { id: true },
+  });
+
+  return reversal.id;
+}

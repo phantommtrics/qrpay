@@ -80,7 +80,8 @@ async function findAggregatedMerchantIdByName(
 }
 
 /**
- * Aggregated merchant id for the **main** EasyPay Wave merchant (platform subscription invoices).
+ * Aggregated merchant id for the **main** EasyPay Wave merchant (platform subscription invoices
+ * and Wave Operations supplier payouts).
  *
  * Wave aggregator API keys always require `aggregated_merchant_id`. This is not a tenant
  * merchant: `WAVE_PLATFORM_AGGREGATED_MERCHANT_ID`, or find/create `"<PLATFORM_NAME> Platform"`.

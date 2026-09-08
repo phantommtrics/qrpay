@@ -10,6 +10,8 @@ const EVENT_LABELS: Record<string, string> = {
   'platform.journal.manual_posted': 'Manual journal posted',
   'platform.journal.reversed': 'Journal reversed',
   'platform.bill.paid': 'Supplier bill marked paid',
+  'wave.self_settlement.succeeded': 'Wave self-settlement succeeded',
+  'wave.self_settlement.reversed': 'Wave self-settlement reversed',
 }
 
 function eventLabel(eventType: string): string {
@@ -90,6 +92,12 @@ export function PlatformActivityLogPage() {
                 </option>
                 <option value="platform.journal.reversed">{eventLabel('platform.journal.reversed')}</option>
                 <option value="platform.bill.paid">{eventLabel('platform.bill.paid')}</option>
+                <option value="wave.self_settlement.succeeded">
+                  {eventLabel('wave.self_settlement.succeeded')}
+                </option>
+                <option value="wave.self_settlement.reversed">
+                  {eventLabel('wave.self_settlement.reversed')}
+                </option>
               </select>
             </label>
             <label className="flex flex-col text-xs font-semibold uppercase text-qb-muted">

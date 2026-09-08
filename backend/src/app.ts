@@ -4144,6 +4144,7 @@ app.post(
         receiveAmount: body.receiveAmount,
         clientReference: body.clientReference,
         platformBillId: body.platformBillId,
+        aggregatedMerchantId: body.aggregatedMerchantId,
       });
       res.status(201).json({ data });
     } catch (e) {
@@ -4160,7 +4161,10 @@ app.post(
   async (req, res, next) => {
     try {
       const body = waveOpsPayoutBulkBodySchema.parse(req.body);
-      const data = await createWaveOpsPayoutBulk({ items: body.items });
+      const data = await createWaveOpsPayoutBulk({
+        aggregatedMerchantId: body.aggregatedMerchantId,
+        items: body.items,
+      });
       res.status(201).json({ data });
     } catch (e) {
       next(e);
@@ -8899,11 +8903,13 @@ const waveOpsPayoutItemSchema = z.object({
   receiveAmount: z.union([z.string().trim().min(1), z.number().positive()]),
   clientReference: z.string().trim().max(500).optional().nullable(),
   platformBillId: z.string().trim().min(1).optional().nullable(),
+  aggregatedMerchantId: z.string().trim().min(1).max(128).optional().nullable(),
 });
 
 const waveOpsPayoutCreateBodySchema = waveOpsPayoutItemSchema;
 
 const waveOpsPayoutBulkBodySchema = z.object({
+  aggregatedMerchantId: z.string().trim().min(1).max(128).optional().nullable(),
   items: z.array(waveOpsPayoutItemSchema).min(1).max(100),
 });
 

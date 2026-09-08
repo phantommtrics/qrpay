@@ -1,7 +1,11 @@
 import { prisma } from "../lib/prisma.js";
 import { PaymentMethod, PaymentProvider, PaymentStatus } from "../lib/prisma-sales-enums.js";
-import { clientReferencesForWaveReversals } from "./wave-ops-transactions.util.js";
+import {
+  clientReferencesForWaveReversals,
+  wavePayoutReversalLookups,
+} from "./wave-ops-transactions.util.js";
 import type { WaveTransaction } from "./wave-payment.service.js";
+import { applyWaveSelfSettlementPayoutReversed } from "./wave-self-settlement-reversal.service.js";
 
 const WAVE_REVERSAL_SKIP_REASON = "Wave transaction reversed";
 const SETTLEMENT_PENDING = "PENDING";
@@ -90,6 +94,45 @@ export async function syncLocalWaveReversalsFromTransactions(
       }
     } catch (err) {
       console.error("[wave-ops] Failed to mark local payment reversed", clientReference, err);
+    }
+  }
+
+  const payoutLookups = wavePayoutReversalLookups(items);
+  const seen = new Set<string>();
+  for (const wavePayoutId of payoutLookups.wavePayoutIds) {
+    try {
+      const result = await applyWaveSelfSettlementPayoutReversed({ wavePayoutId });
+      if (!result || seen.has(result.payoutId)) {
+        continue;
+      }
+      seen.add(result.payoutId);
+      if (result.already) {
+        alreadyReversed += 1;
+      } else {
+        reversed += 1;
+      }
+    } catch (err) {
+      console.error("[wave-ops] Failed to apply self-settlement payout reversal", wavePayoutId, err);
+    }
+  }
+  for (const clientReference of payoutLookups.clientReferences) {
+    try {
+      const result = await applyWaveSelfSettlementPayoutReversed({ clientReference });
+      if (!result || seen.has(result.payoutId)) {
+        continue;
+      }
+      seen.add(result.payoutId);
+      if (result.already) {
+        alreadyReversed += 1;
+      } else {
+        reversed += 1;
+      }
+    } catch (err) {
+      console.error(
+        "[wave-ops] Failed to apply self-settlement payout reversal by client_reference",
+        clientReference,
+        err,
+      );
     }
   }
   return { reversed, alreadyReversed };

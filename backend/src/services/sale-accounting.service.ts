@@ -561,3 +561,101 @@ export async function recordMerchantSelfSettlementCheckoutFeeJournalAndLedger(
     },
   });
 }
+
+/**
+ * Undo the reserved Wave checkout-fee journal when Wave reverses the self-settlement payout
+ * (Wave returns fees). Idempotent. Does not reverse the original customer-sale journal.
+ */
+export async function reverseMerchantSelfSettlementCheckoutFeeJournal(
+  tx: Prisma.TransactionClient,
+  paymentId: string,
+): Promise<string | null> {
+  const original = await tx.journalEntry.findFirst({
+    where: {
+      sourceType: JournalSourceType.CUSTOMER_SALE_SELF_SETTLEMENT_CHECKOUT_FEE,
+      sourceId: paymentId,
+      reversesJournalEntryId: null,
+    },
+    include: {
+      lines: { orderBy: { id: "asc" } },
+      reversedByEntry: { select: { id: true } },
+    },
+  });
+  if (!original) {
+    return null;
+  }
+  if (original.reversedByEntry) {
+    await tx.salesLedgerEntry.updateMany({
+      where: {
+        paymentId,
+        type: SalesLedgerEntryType.SELF_SETTLEMENT_CHECKOUT_FEE,
+        status: SalesLedgerStatus.SUCCEEDED,
+      },
+      data: { status: SalesLedgerStatus.REVERSED },
+    });
+    return original.reversedByEntry.id;
+  }
+
+  const existingReversal = await tx.journalEntry.findFirst({
+    where: { reversesJournalEntryId: original.id },
+    select: { id: true },
+  });
+  if (existingReversal) {
+    await tx.salesLedgerEntry.updateMany({
+      where: {
+        paymentId,
+        type: SalesLedgerEntryType.SELF_SETTLEMENT_CHECKOUT_FEE,
+        status: SalesLedgerStatus.SUCCEEDED,
+      },
+      data: { status: SalesLedgerStatus.REVERSED },
+    });
+    return existingReversal.id;
+  }
+
+  if (!original.lines.length) {
+    return null;
+  }
+
+  const reversal = await tx.journalEntry.create({
+    data: {
+      businessId: original.businessId,
+      postedAt: new Date(),
+      memo: original.memo?.trim()
+        ? `Reversal of ${original.memo.trim()}`
+        : `Reversal of reserved Wave checkout fee (${paymentId})`,
+      reference: original.reference,
+      sourceType: JournalSourceType.MANUAL_JOURNAL_REVERSAL,
+      sourceId: original.id,
+      reversesJournalEntryId: original.id,
+      journalApprovalExempt: true,
+      lines: {
+        create: original.lines.map((ln) => {
+          const desc = ln.description?.trim()
+            ? `Reversal: ${ln.description.trim()}`
+            : "Reversal of reserved Wave checkout fee";
+          return {
+            chartOfAccountId: ln.chartOfAccountId,
+            debitAmount: ln.creditAmount,
+            creditAmount: ln.debitAmount,
+            description: desc.length > 4000 ? desc.slice(0, 4000) : desc,
+            quantity: ln.quantity,
+            unitLabel: ln.unitLabel,
+            taxAmount: ln.taxAmount,
+          };
+        }),
+      },
+    },
+    select: { id: true },
+  });
+
+  await tx.salesLedgerEntry.updateMany({
+    where: {
+      paymentId,
+      type: SalesLedgerEntryType.SELF_SETTLEMENT_CHECKOUT_FEE,
+      status: SalesLedgerStatus.SUCCEEDED,
+    },
+    data: { status: SalesLedgerStatus.REVERSED },
+  });
+
+  return reversal.id;
+}

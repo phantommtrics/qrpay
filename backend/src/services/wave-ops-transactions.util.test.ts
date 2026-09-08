@@ -10,9 +10,12 @@ import {
   collectWaveOpsTransactionPage,
   decodeWaveOpsTxCursor,
   encodeWaveOpsTxCursor,
+  isWaveCheckoutRefundTransaction,
+  isWavePayoutReversalTransaction,
   isWaveTransactionReversal,
   matchesWaveOpsMerchant,
   resolveWaveOpsTxRange,
+  wavePayoutReversalLookups,
   waveTransactionDescription,
 } from "./wave-ops-transactions.util.js";
 
@@ -104,6 +107,54 @@ describe("wave transaction reversals", () => {
     assert.equal(
       isWaveTransactionReversal(tx({ transaction_id: "d", transaction_type: "api_checkout" })),
       false,
+    );
+    assert.equal(
+      isWavePayoutReversalTransaction(tx({ transaction_id: "c", transaction_type: "api_payout_reversal" })),
+      true,
+    );
+    assert.equal(
+      isWaveCheckoutRefundTransaction(tx({ transaction_id: "c", transaction_type: "api_payout_reversal" })),
+      false,
+    );
+    assert.equal(
+      isWaveCheckoutRefundTransaction(tx({ transaction_id: "b", transaction_type: "api_checkout_refund" })),
+      true,
+    );
+  });
+
+  it("does not treat payout reversals as checkout refunds", () => {
+    assert.deepEqual(
+      clientReferencesForWaveReversals([
+        tx({
+          transaction_id: "P_1",
+          client_reference: "pay_1",
+          transaction_type: "api_payout_reversal",
+        }),
+        tx({
+          transaction_id: "T_2",
+          client_reference: "inv_2",
+          transaction_type: "api_checkout_refund",
+        }),
+      ]),
+      ["inv_2"],
+    );
+  });
+
+  it("looks up self-settlement payouts from payout reversal rows", () => {
+    assert.deepEqual(
+      wavePayoutReversalLookups([
+        tx({
+          transaction_id: "po_abc",
+          client_reference: "pay_1",
+          transaction_type: "api_payout",
+        }),
+        tx({
+          transaction_id: "rev_1",
+          client_reference: "pay_1",
+          transaction_type: "api_payout_reversal",
+        }),
+      ]),
+      { clientReferences: ["pay_1"], wavePayoutIds: ["po_abc", "rev_1"] },
     );
   });
 

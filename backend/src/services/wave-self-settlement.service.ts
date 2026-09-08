@@ -32,6 +32,10 @@ import { formatWavePayoutAmount } from "./wave-payment.service.js";
 import { upsertWaveOpsPayoutForSelfSettlement } from "./wave-ops.service.js";
 import { postPlatformJournalForSelfSettlementPayout } from "./platform-self-settlement-journal.service.js";
 import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
+import {
+  applyWaveSelfSettlementPayoutReversed,
+  pollSucceededSelfSettlementPayoutsForReverse,
+} from "./wave-self-settlement-reversal.service.js";
 import { recordMerchantSelfSettlementCheckoutFeeJournalAndLedger } from "./sale-accounting.service.js";
 import {
   computeWaveSelfSettlementAmounts,
@@ -460,7 +464,10 @@ export async function enqueueWaveSelfSettlementForPayment(paymentId: string): Pr
 }
 
 function localStatusFromWavePayout(waveStatus: string): WaveSelfSettlementPayoutStatus {
-  if (waveStatus === "failed" || waveStatus === "reversed") {
+  if (waveStatus === "reversed") {
+    return WaveSelfSettlementPayoutStatus.REVERSED;
+  }
+  if (waveStatus === "failed") {
     return WaveSelfSettlementPayoutStatus.FAILED;
   }
   if (waveStatus === "succeeded") {
@@ -480,18 +487,34 @@ async function persistWavePayoutResult(
   },
 ): Promise<WaveSelfSettlementPayoutStatus> {
   const localStatus = localStatusFromWavePayout(result.status);
+  const waveFields = {
+    wavePayoutId: result.id,
+    fee: result.fee ?? null,
+    errorCode: result.payout_error?.error_code ?? null,
+    errorMessage: result.payout_error?.error_message ?? null,
+    waveTimestamp: result.timestamp ? new Date(result.timestamp) : new Date(),
+  };
+  if (localStatus === WaveSelfSettlementPayoutStatus.REVERSED) {
+    await prisma.waveSelfSettlementPayout.update({
+      where: { id: rowId },
+      data: {
+        ...waveFields,
+        nextAttemptAt: new Date(Date.now() + WAVE_PROCESSING_POLL_MS),
+      },
+    });
+    await applyWaveSelfSettlementPayoutReversed({ payoutId: rowId, wavePayoutId: result.id });
+    return WaveSelfSettlementPayoutStatus.REVERSED;
+  }
   await prisma.waveSelfSettlementPayout.update({
     where: { id: rowId },
     data: {
       status: localStatus,
-      wavePayoutId: result.id,
-      fee: result.fee ?? null,
-      errorCode: result.payout_error?.error_code ?? null,
-      errorMessage: result.payout_error?.error_message ?? null,
-      waveTimestamp: result.timestamp ? new Date(result.timestamp) : new Date(),
+      ...waveFields,
       ...(localStatus === WaveSelfSettlementPayoutStatus.PROCESSING
         ? { nextAttemptAt: new Date(Date.now() + WAVE_PROCESSING_POLL_MS) }
-        : {}),
+        : localStatus === WaveSelfSettlementPayoutStatus.SUCCEEDED
+          ? { nextAttemptAt: new Date(Date.now() + 60_000) }
+          : {}),
     },
   });
   if (localStatus === WaveSelfSettlementPayoutStatus.SUCCEEDED) {
@@ -739,12 +762,15 @@ export function startWaveSelfSettlementWorker(): void {
   const ms = Number.isFinite(raw) && raw >= 5000 ? raw : 15_000;
   void processWaveSelfSettlementJobs(25)
     .then(() => backfillSucceededSelfSettlementLocalCopies())
+    .then(() => pollSucceededSelfSettlementPayoutsForReverse())
     .catch((err) => {
       console.error("[wave-self-settlement] worker initial run error:", err);
     });
   setInterval(() => {
-    void processWaveSelfSettlementJobs(25).catch((err) => {
-      console.error("[wave-self-settlement] worker error:", err);
-    });
+    void processWaveSelfSettlementJobs(25)
+      .then(() => pollSucceededSelfSettlementPayoutsForReverse())
+      .catch((err) => {
+        console.error("[wave-self-settlement] worker error:", err);
+      });
   }, ms);
 }

@@ -233,7 +233,7 @@ export interface WavePayoutRequest {
   aggregated_merchant_id?: string;
 }
 
-export type WavePayoutStatus = "processing" | "succeeded" | "failed";
+export type WavePayoutStatus = "processing" | "succeeded" | "failed" | "reversed";
 
 export interface WavePayoutError {
   error_code: string;

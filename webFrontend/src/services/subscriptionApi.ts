@@ -3513,6 +3513,8 @@ export type WaveOpsTransactionsResponse = {
 export type WaveOpsAggregatedMerchant = {
   id: string
   name: string
+  kind?: 'platform' | 'business'
+  business?: { id: string; name: string } | null
 }
 
 export type WaveOpsPayoutRow = {
@@ -3686,6 +3688,7 @@ export async function createWaveOpsPayout(body: {
   supplierId: string
   receiveAmount: string | number
   clientReference?: string | null
+  aggregatedMerchantId?: string | null
 }): Promise<WaveOpsPayoutRow> {
   const res = await apiRequest<{ data: WaveOpsPayoutRow }>('/platform/wave-operations/payouts', {
     method: 'POST',
@@ -3695,6 +3698,7 @@ export async function createWaveOpsPayout(body: {
 }
 
 export async function createWaveOpsPayoutBulk(body: {
+  aggregatedMerchantId?: string | null
   items: Array<{
     supplierId: string
     receiveAmount: string | number

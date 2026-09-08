@@ -66,7 +66,7 @@ export function PlatformAccountingJournalsPage() {
           <h1 className="mt-3 text-2xl font-semibold text-qb-heading">Platform journal ledger</h1>
           <p className="mt-2 text-sm text-qb-muted">
             All activity on the platform chart of accounts: subscription payments, checkout settlement,
-            aggregator self-settlement (payout cost and withhold), supplier bill payments, refunds, fees,
+            aggregator self-settlement (payout cost, withhold, and payout reversals), supplier bill payments, refunds, fees,
             and operator-posted journals. To post or review only
             manual entries by platform staff, use{' '}
             <Link

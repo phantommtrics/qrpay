@@ -106,6 +106,65 @@ export function isWaveTransactionReversal(tx: WaveTransaction): boolean {
   return type.endsWith("_refund") || type.endsWith("_reversal");
 }
 
+export function isWavePayoutReversalTransaction(tx: WaveTransaction): boolean {
+  const type = tx.transaction_type?.trim() ?? "";
+  if (type === "api_payout_reversal" || type === "bulk_payment_reversal") {
+    return true;
+  }
+  return tx.is_reversal === true && (type === "api_payout" || type === "bulk_payment");
+}
+
+export function isWaveCheckoutRefundTransaction(tx: WaveTransaction): boolean {
+  return isWaveTransactionReversal(tx) && !isWavePayoutReversalTransaction(tx);
+}
+
+/**
+ * Lookups for aggregator self-settlement payouts that Wave reversed.
+ * Matches client_reference (payment id) and Wave payout / transaction ids.
+ */
+export function wavePayoutReversalLookups(items: WaveTransaction[]): {
+  clientReferences: string[];
+  wavePayoutIds: string[];
+} {
+  const originalPayoutIdByRef = new Map<string, string>();
+  const originalRefByTxId = new Map<string, string>();
+  for (const tx of items) {
+    if (isWavePayoutReversalTransaction(tx)) {
+      continue;
+    }
+    const type = tx.transaction_type?.trim() ?? "";
+    const ref = tx.client_reference?.trim();
+    if (ref) {
+      originalRefByTxId.set(tx.transaction_id, ref);
+      if (type === "api_payout" || type === "bulk_payment") {
+        originalPayoutIdByRef.set(ref, tx.transaction_id);
+      }
+    }
+  }
+  const clientReferences = new Set<string>();
+  const wavePayoutIds = new Set<string>();
+  for (const tx of items) {
+    if (!isWavePayoutReversalTransaction(tx)) {
+      continue;
+    }
+    const ref = tx.client_reference?.trim() || originalRefByTxId.get(tx.transaction_id);
+    if (ref) {
+      clientReferences.add(ref);
+      const originalId = originalPayoutIdByRef.get(ref);
+      if (originalId) {
+        wavePayoutIds.add(originalId);
+      }
+    }
+    if (tx.transaction_id?.trim()) {
+      wavePayoutIds.add(tx.transaction_id.trim());
+    }
+  }
+  return {
+    clientReferences: [...clientReferences].sort(),
+    wavePayoutIds: [...wavePayoutIds].sort(),
+  };
+}
+
 /**
  * Client references for Wave rows that represent a refund/reversal.
  * Wave often omits `client_reference` on the reversal row; fall back to the
@@ -122,7 +181,7 @@ export function clientReferencesForWaveReversals(items: WaveTransaction[]): stri
   }
   const refs = new Set<string>();
   for (const tx of items) {
-    if (!isWaveTransactionReversal(tx)) {
+    if (!isWaveCheckoutRefundTransaction(tx)) {
       continue;
     }
     const ref = tx.client_reference?.trim() || originalRefByTxId.get(tx.transaction_id);
