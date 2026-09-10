@@ -14,6 +14,17 @@ export const CORPORATE_EXCLUDED_SLUGS = new Set<string>([
   "orders.manage",
 ]);
 
+/** Excluded from internal partner businesses: POS and product catalogue. Sales categories stay. */
+export const INTERNAL_PARTNER_HIDDEN_CATALOG_SLUGS = new Set<string>([
+  "pos.access",
+  "products.view",
+  "products.barcode",
+  "products.create",
+  "products.edit",
+  "products.delete",
+  "products.manage",
+]);
+
 const BUSINESS_PRO_ENTITLEMENT_SLUGS: string[] = [
   "subscriptions.billings",
   "subscriptions.invoices",

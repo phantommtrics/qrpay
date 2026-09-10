@@ -149,6 +149,8 @@ export interface Organization {
   membershipStatus?: BusinessMembershipStatus
   /** Petrol: branch this login is limited to; omitted/null = all stations. */
   assignedStationId?: string | null
+  /** Provisioned via the internal partner API; catalogue SKUs live in the partner system. */
+  isInternalPartner?: boolean
   createdAt: string
 }
 

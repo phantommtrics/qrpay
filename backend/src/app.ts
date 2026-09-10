@@ -5533,7 +5533,7 @@ app.delete(
 app.get(
   "/api/businesses/:businessId/menu-categories",
   authenticateToken,
-  requireEntitlement("products.view"),
+  requireAnyEntitlement(["products.view", "products.categories"]),
   async (req, res, next) => {
     try {
       const { businessId } = req.params;
@@ -6402,9 +6402,15 @@ function formatAccessibleBusinessResponse(entry: {
   assignedStationId: string | null;
 }) {
   const { subscriptions: _subscriptions, ...business } = entry.business;
+  const partnerExternalId = (
+    business as { partnerProvisioningExternalUserId?: string | null }
+  ).partnerProvisioningExternalUserId;
 
   return {
-    business,
+    business: {
+      ...business,
+      isInternalPartner: Boolean(partnerExternalId?.trim()),
+    },
     currentSubscription: entry.currentSubscription
       ? formatSubscriptionResponse(entry.currentSubscription)
       : null,
@@ -6633,7 +6639,10 @@ app.get(
 
       response.json({
         data: {
-          business,
+          business: {
+            ...business,
+            isInternalPartner: Boolean(result.business.partnerProvisioningExternalUserId?.trim()),
+          },
           currentSubscription: result.currentSubscription
             ? formatSubscriptionResponse(result.currentSubscription)
             : null,

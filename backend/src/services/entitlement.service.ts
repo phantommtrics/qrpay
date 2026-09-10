@@ -1,7 +1,7 @@
 import { BusinessMembershipStatus, SubscriptionStatus } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
-import { CORPORATE_EXCLUDED_SLUGS } from "../config/plan-entitlement-matrix.js";
+import { CORPORATE_EXCLUDED_SLUGS, INTERNAL_PARTNER_HIDDEN_CATALOG_SLUGS } from "../config/plan-entitlement-matrix.js";
 import { isCorporateIndustry } from "../utils/corporate-industry.js";
 
 const ACTIVE_SUBSCRIPTION_STATUSES: SubscriptionStatus[] = [
@@ -29,6 +29,17 @@ export async function getCurrentSubscriptionForBusiness(businessId: string) {
   });
 }
 
+function applyInternalPartnerEntitlementPolicy(slugs: string[], isPartner: boolean): string[] {
+  if (!isPartner) {
+    return slugs;
+  }
+  const next = slugs.filter((slug) => !INTERNAL_PARTNER_HIDDEN_CATALOG_SLUGS.has(slug));
+  if (!next.includes("products.categories")) {
+    next.push("products.categories");
+  }
+  return next;
+}
+
 /** All entitlement slugs included in the business's current plan (ignores per-user assignments). */
 export async function getEntitlementSlugsForBusiness(businessId: string): Promise<string[]> {
   const biz = await prisma.business.findUnique({
@@ -36,8 +47,10 @@ export async function getEntitlementSlugsForBusiness(businessId: string): Promis
     select: {
       industry: true,
       corporateEntitlementSystemProductIds: true,
+      partnerProvisioningExternalUserId: true,
     },
   });
+  const isPartner = Boolean(biz?.partnerProvisioningExternalUserId?.trim());
   if (
     biz &&
     isCorporateIndustry(biz.industry) &&
@@ -48,7 +61,7 @@ export async function getEntitlementSlugsForBusiness(businessId: string): Promis
       select: { slug: true },
     });
     const slugs = products.map((p) => p.slug).filter(Boolean);
-    return Array.from(new Set(slugs));
+    return applyInternalPartnerEntitlementPolicy(Array.from(new Set(slugs)), isPartner);
   }
 
   let sub = await getCurrentSubscriptionForBusiness(businessId);
@@ -69,7 +82,7 @@ export async function getEntitlementSlugsForBusiness(businessId: string): Promis
   }
 
   if (!sub) {
-    return [];
+    return applyInternalPartnerEntitlementPolicy([], isPartner);
   }
 
   const slugs = sub.plan.planSystemProducts
@@ -84,7 +97,7 @@ export async function getEntitlementSlugsForBusiness(businessId: string): Promis
   ) {
     merged = merged.filter((slug) => !CORPORATE_EXCLUDED_SLUGS.has(slug));
   }
-  return merged;
+  return applyInternalPartnerEntitlementPolicy(merged, isPartner);
 }
 
 /**
@@ -256,11 +269,12 @@ export async function getBusinessNavigationMenu(
 
   const business = await prisma.business.findUnique({
     where: { id: businessId },
-    select: { industry: true },
+    select: { industry: true, partnerProvisioningExternalUserId: true },
   });
   const industryNorm = (business?.industry ?? "").trim().toLowerCase();
+  const isPartner = Boolean(business?.partnerProvisioningExternalUserId?.trim());
   /** Retail catalog uses "Categories"; restaurants use Menu setup instead (same underlying table). */
-  if (industryNorm === "restaurant") {
+  if (industryNorm === "restaurant" && !isPartner) {
     for (const g of byService.values()) {
       g.items = g.items.filter((item) => item.slug !== "products.categories");
     }

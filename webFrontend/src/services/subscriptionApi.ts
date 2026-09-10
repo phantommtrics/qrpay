@@ -32,6 +32,9 @@ export type BackendBusiness = {
   ownerName: string
   ownerEmail: string
   createdAt: string
+  /** True when this tenant was provisioned through the internal partner API. */
+  isInternalPartner?: boolean
+  partnerProvisioningExternalUserId?: string | null
 }
 
 export type BackendInvoice = {
@@ -265,12 +268,16 @@ export function mapAccessibleBusinessToOrganization(entry: BackendAccessibleBusi
   /** Subscription row uses Business Pro for corporate; surface `corporate` in the UI when industry matches. */
   const planId =
     industryNorm === 'corporate' ? ('corporate' as PlanId) : rawPlanId
+  const isInternalPartner = Boolean(
+    entry.business.isInternalPartner ||
+      entry.business.partnerProvisioningExternalUserId?.trim(),
+  )
 
   return {
     id: entry.business.id,
     name: entry.business.name,
     slug: entry.business.slug,
-    industry: entry.business.industry?.trim() || 'Retail',
+    industry: entry.business.industry?.trim() || (isInternalPartner ? '' : 'Retail'),
     planId,
     staffCount: currentSubscription?.plan.staffLimit ?? 1,
     ownerName: entry.business.ownerName,
@@ -286,6 +293,7 @@ export function mapAccessibleBusinessToOrganization(entry: BackendAccessibleBusi
     isOwner: entry.isOwner,
     membershipStatus: entry.membershipStatus,
     assignedStationId: entry.assignedStationId ?? null,
+    isInternalPartner,
     createdAt: entry.business.createdAt,
   }
 }

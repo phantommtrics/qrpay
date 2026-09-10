@@ -14,19 +14,24 @@ export function ProductCatalogCategoriesPage() {
   const { currentOrganization, canAccess, user } = useAuth()
   const businessId = currentOrganization?.id
   const industry = currentOrganization?.industry
+  const isPartner = Boolean(currentOrganization?.isInternalPartner)
   const retailLike = Boolean(
     currentOrganization &&
       (isRetailOrWholesaleIndustry(industry) || isPetrolStationIndustry(industry)),
   )
   const isRestaurant = Boolean(currentOrganization && isRestaurantIndustry(industry))
-  const allowed = retailLike && canAccess('products.categories')
+  const allowed =
+    Boolean(currentOrganization) &&
+    (retailLike || isPartner) &&
+    canAccess('products.categories')
   const canExportReports = canAccess('reports.export')
-  const canCreate = canAccess('products.create')
+  const canCreate = canAccess('products.create') && !isPartner
 
   const showWrongIndustry =
     Boolean(currentOrganization) &&
     !retailLike &&
     !isRestaurant &&
+    !isPartner &&
     !user?.isPlatformOwner &&
     !user?.isPlatformAdmin
 
@@ -36,7 +41,8 @@ export function ProductCatalogCategoriesPage() {
     !user?.isPlatformOwner &&
     !user?.isPlatformAdmin
 
-  const showPlanGate = retailLike && !canAccess('products.categories')
+  const showPlanGate =
+    (retailLike || isPartner) && !canAccess('products.categories')
 
   return (
     <PageTransition className="mx-auto max-w-6xl space-y-8 px-4 py-6">
@@ -44,7 +50,7 @@ export function ProductCatalogCategoriesPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Categories</h1>
         </div>
-        {allowed ? (
+        {allowed && !isPartner ? (
           <Link
             to={APP_PATHS.products}
             className="shrink-0 text-sm font-medium text-teal-600 hover:text-teal-700 hover:underline"

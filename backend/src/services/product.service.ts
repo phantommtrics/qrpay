@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
+import { NOT_INTERNAL_PARTNER_CHECKOUT_PRODUCT } from "../lib/internal-partner-checkout.js";
 import { inferBarcodeType } from "./barcode-type.service.js";
 import { assertMenuCategoryIsLeafForBusiness } from "./menu-category.service.js";
 
@@ -72,7 +73,9 @@ async function assertWithinProductLimit(businessId: string): Promise<void> {
     return;
   }
 
-  const count = await prisma.product.count({ where: { businessId } });
+  const count = await prisma.product.count({
+    where: { businessId, ...NOT_INTERNAL_PARTNER_CHECKOUT_PRODUCT },
+  });
   if (count >= subscription.plan.productLimit) {
     throw new HttpError(
       403,
@@ -357,7 +360,7 @@ function buildProductListWhere(
   businessId: string,
   filters: { q?: string; menuCategoryId?: string },
 ): Prisma.ProductWhereInput {
-  const where: Prisma.ProductWhereInput = { businessId };
+  const where: Prisma.ProductWhereInput = { businessId, ...NOT_INTERNAL_PARTNER_CHECKOUT_PRODUCT };
 
   if (filters.q?.trim()) {
     const term = filters.q.trim();
@@ -382,7 +385,7 @@ function buildProductListWhere(
 
 export async function listProductsForBusiness(businessId: string) {
   return prisma.product.findMany({
-    where: { businessId },
+    where: { businessId, ...NOT_INTERNAL_PARTNER_CHECKOUT_PRODUCT },
     orderBy: productCatalogOrderBy,
   });
 }
@@ -421,7 +424,7 @@ export async function getPublicBusinessMenu(businessId: string) {
   }
 
   const products = await prisma.product.findMany({
-    where: { businessId },
+    where: { businessId, ...NOT_INTERNAL_PARTNER_CHECKOUT_PRODUCT },
     orderBy: { name: "asc" },
   });
 

@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
+import { NOT_INTERNAL_PARTNER_CHECKOUT_PRODUCT } from "../lib/internal-partner-checkout.js";
 import { isRestaurantIndustry } from "./product.service.js";
 import { createOrder } from "./sale.service.js";
 
@@ -64,7 +65,7 @@ export async function buildRestaurantMenuTree(businessId: string): Promise<{
   });
 
   const products = await prisma.product.findMany({
-    where: { businessId },
+    where: { businessId, ...NOT_INTERNAL_PARTNER_CHECKOUT_PRODUCT },
     orderBy: { name: "asc" },
   });
 

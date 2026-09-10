@@ -20,6 +20,7 @@ import {
   listOrderCheckoutWallets,
   startGatewayWalletCheckout,
 } from "./order-wallet-checkout.service.js";
+import { INTERNAL_PARTNER_CHECKOUT_BARCODE } from "../lib/internal-partner-checkout.js";
 import { assertInternalPartnerProvisionedBusiness } from "./internal-partner-guard.service.js";
 import { ensureMenuCategoryByNameForBusiness } from "./menu-category.service.js";
 import {
@@ -316,7 +317,6 @@ function parsePublicCodeSequence(code: string | null | undefined): number {
   return match ? Number(match[1]) : 0;
 }
 
-const INTERNAL_PARTNER_CHECKOUT_BARCODE = "__EASYPAY_INTERNAL_PARTNER_CHECKOUT__";
 const INTERNAL_PARTNER_ORDER_CATEGORY_MAX_LEN = 120;
 
 function normalizeInternalPartnerOrderCategory(raw: string | undefined): string | undefined {
@@ -334,7 +334,8 @@ function normalizeInternalPartnerOrderCategory(raw: string | undefined): string 
 }
 
 /**
- * Ensures a hidden catalogue SKU exists for internal partner wallet checkouts (large stock pool).
+ * Ensures a hidden checkout SKU exists so partner wallet orders can reserve stock.
+ * Partners do not manage this product; it is excluded from catalogues and POS.
  */
 export async function ensureInternalPartnerCheckoutProduct(businessId: string): Promise<{ id: string }> {
   const existing = await prisma.product.findFirst({
@@ -474,7 +475,7 @@ export async function createInternalPartnerCheckoutOrder(input: {
           lines: {
             create: [
               {
-                product: { connect: { id: product.id } },
+                productId: product.id,
                 productName: category ? `${product.name} — ${category}` : product.name,
                 quantity: new Prisma.Decimal(1),
                 unitPrice: amountDec,

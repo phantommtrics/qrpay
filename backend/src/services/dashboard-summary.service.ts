@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 import { OrderStatus, PaymentStatus } from "../lib/prisma-sales-enums.js";
+import { NOT_INTERNAL_PARTNER_CHECKOUT_PRODUCT } from "../lib/internal-partner-checkout.js";
 import {
   isPetrolStationIndustry,
   isRestaurantIndustry,
@@ -139,7 +140,7 @@ export async function getDashboardSummaryForBusiness(businessId: string): Promis
   let lowStockCount: number | null = null;
   if (catalogEnabled) {
     const products = await prisma.product.findMany({
-      where: { businessId },
+      where: { businessId, ...NOT_INTERNAL_PARTNER_CHECKOUT_PRODUCT },
       select: { stock: true, reservedStock: true },
     });
     productCount = products.length;
