@@ -141,6 +141,9 @@ function paymentMethodDisplay(input: CustomerSaleJournalInput): string {
  * **Wave reserved self-settlement checkout fee** — {@link recordMerchantSelfSettlementCheckoutFeeJournalAndLedger}
  * posts the amount reserved from the aggregated balance before payout (independent of WALLET_FEE).
  *
+ * **Wave checkout refund** — {@link reverseMerchantSalesJournalsForPayment} reverses CUSTOMER_SALE,
+ * WALLET_FEE, and reserved checkout-fee journals and marks those sales-ledger rows REVERSED.
+ *
  * Idempotent per payment via `SalesLedgerEntry` unique (`paymentId`, `type`).
  */
 export type CustomerSaleJournalInput = {
@@ -562,17 +565,51 @@ export async function recordMerchantSelfSettlementCheckoutFeeJournalAndLedger(
   });
 }
 
+type MerchantSalesJournalReversalSpec = {
+  sourceType: JournalSourceType;
+  ledgerType: SalesLedgerEntryType;
+  reversalSourceType: JournalSourceType;
+  fallbackMemo: (paymentId: string) => string;
+  fallbackLineDescription: string;
+};
+
+const CUSTOMER_SALE_REVERSAL_SPEC: MerchantSalesJournalReversalSpec = {
+  sourceType: JournalSourceType.CUSTOMER_SALE_PAYMENT,
+  ledgerType: SalesLedgerEntryType.CUSTOMER_SALE,
+  reversalSourceType: JournalSourceType.MANUAL_JOURNAL_REVERSAL,
+  fallbackMemo: (paymentId) => `Reversal of customer sale (${paymentId})`,
+  fallbackLineDescription: "Reversal of customer sale",
+};
+
+const WALLET_FEE_REVERSAL_SPEC: MerchantSalesJournalReversalSpec = {
+  sourceType: JournalSourceType.CUSTOMER_SALE_WALLET_FEE,
+  ledgerType: SalesLedgerEntryType.WALLET_FEE,
+  reversalSourceType: JournalSourceType.MANUAL_JOURNAL_REVERSAL,
+  fallbackMemo: (paymentId) => `Reversal of wallet processing fee (${paymentId})`,
+  fallbackLineDescription: "Reversal of wallet processing fee",
+};
+
+const CHECKOUT_FEE_REVERSAL_SPEC: MerchantSalesJournalReversalSpec = {
+  sourceType: JournalSourceType.CUSTOMER_SALE_SELF_SETTLEMENT_CHECKOUT_FEE,
+  ledgerType: SalesLedgerEntryType.SELF_SETTLEMENT_CHECKOUT_FEE,
+  reversalSourceType: JournalSourceType.MANUAL_JOURNAL_REVERSAL,
+  fallbackMemo: (paymentId) => `Reversal of reserved Wave checkout fee (${paymentId})`,
+  fallbackLineDescription: "Reversal of reserved Wave checkout fee",
+};
+
 /**
- * Undo the reserved Wave checkout-fee journal when Wave reverses the self-settlement payout
- * (Wave returns fees). Idempotent. Does not reverse the original customer-sale journal.
+ * Posts a swapped-line reversal journal and marks the matching sales-ledger row REVERSED.
+ * Idempotent. `postedAt` should be the original refund time when backfilling.
  */
-export async function reverseMerchantSelfSettlementCheckoutFeeJournal(
+async function reverseMerchantJournalAndSalesLedger(
   tx: Prisma.TransactionClient,
   paymentId: string,
+  spec: MerchantSalesJournalReversalSpec,
+  postedAt?: Date | null,
 ): Promise<string | null> {
   const original = await tx.journalEntry.findFirst({
     where: {
-      sourceType: JournalSourceType.CUSTOMER_SALE_SELF_SETTLEMENT_CHECKOUT_FEE,
+      sourceType: spec.sourceType,
       sourceId: paymentId,
       reversesJournalEntryId: null,
     },
@@ -582,17 +619,29 @@ export async function reverseMerchantSelfSettlementCheckoutFeeJournal(
     },
   });
   if (!original) {
-    return null;
-  }
-  if (original.reversedByEntry) {
     await tx.salesLedgerEntry.updateMany({
       where: {
         paymentId,
-        type: SalesLedgerEntryType.SELF_SETTLEMENT_CHECKOUT_FEE,
+        type: spec.ledgerType,
         status: SalesLedgerStatus.SUCCEEDED,
       },
       data: { status: SalesLedgerStatus.REVERSED },
     });
+    return null;
+  }
+
+  const markLedgerReversed = () =>
+    tx.salesLedgerEntry.updateMany({
+      where: {
+        paymentId,
+        type: spec.ledgerType,
+        status: SalesLedgerStatus.SUCCEEDED,
+      },
+      data: { status: SalesLedgerStatus.REVERSED },
+    });
+
+  if (original.reversedByEntry) {
+    await markLedgerReversed();
     return original.reversedByEntry.id;
   }
 
@@ -601,30 +650,24 @@ export async function reverseMerchantSelfSettlementCheckoutFeeJournal(
     select: { id: true },
   });
   if (existingReversal) {
-    await tx.salesLedgerEntry.updateMany({
-      where: {
-        paymentId,
-        type: SalesLedgerEntryType.SELF_SETTLEMENT_CHECKOUT_FEE,
-        status: SalesLedgerStatus.SUCCEEDED,
-      },
-      data: { status: SalesLedgerStatus.REVERSED },
-    });
+    await markLedgerReversed();
     return existingReversal.id;
   }
 
   if (!original.lines.length) {
+    await markLedgerReversed();
     return null;
   }
 
   const reversal = await tx.journalEntry.create({
     data: {
       businessId: original.businessId,
-      postedAt: new Date(),
+      postedAt: postedAt ?? new Date(),
       memo: original.memo?.trim()
         ? `Reversal of ${original.memo.trim()}`
-        : `Reversal of reserved Wave checkout fee (${paymentId})`,
+        : spec.fallbackMemo(paymentId),
       reference: original.reference,
-      sourceType: JournalSourceType.MANUAL_JOURNAL_REVERSAL,
+      sourceType: spec.reversalSourceType,
       sourceId: original.id,
       reversesJournalEntryId: original.id,
       journalApprovalExempt: true,
@@ -632,7 +675,7 @@ export async function reverseMerchantSelfSettlementCheckoutFeeJournal(
         create: original.lines.map((ln) => {
           const desc = ln.description?.trim()
             ? `Reversal: ${ln.description.trim()}`
-            : "Reversal of reserved Wave checkout fee";
+            : spec.fallbackLineDescription;
           return {
             chartOfAccountId: ln.chartOfAccountId,
             debitAmount: ln.creditAmount,
@@ -648,14 +691,58 @@ export async function reverseMerchantSelfSettlementCheckoutFeeJournal(
     select: { id: true },
   });
 
-  await tx.salesLedgerEntry.updateMany({
-    where: {
-      paymentId,
-      type: SalesLedgerEntryType.SELF_SETTLEMENT_CHECKOUT_FEE,
-      status: SalesLedgerStatus.SUCCEEDED,
-    },
-    data: { status: SalesLedgerStatus.REVERSED },
-  });
-
+  await markLedgerReversed();
   return reversal.id;
+}
+
+/**
+ * Undo the reserved Wave checkout-fee journal when Wave reverses the self-settlement payout
+ * (Wave returns fees). Idempotent. Does not reverse the original customer-sale journal.
+ */
+export async function reverseMerchantSelfSettlementCheckoutFeeJournal(
+  tx: Prisma.TransactionClient,
+  paymentId: string,
+  postedAt?: Date | null,
+): Promise<string | null> {
+  return reverseMerchantJournalAndSalesLedger(tx, paymentId, CHECKOUT_FEE_REVERSAL_SPEC, postedAt);
+}
+
+export type ReverseMerchantSalesJournalsResult = {
+  customerSaleJournalReversalId: string | null;
+  walletFeeJournalReversalId: string | null;
+  checkoutFeeJournalReversalId: string | null;
+};
+
+/**
+ * Reverse CUSTOMER_SALE, WALLET_FEE, and reserved checkout-fee journals/ledger rows for a
+ * Wave checkout refund. Idempotent.
+ */
+export async function reverseMerchantSalesJournalsForPayment(
+  tx: Prisma.TransactionClient,
+  paymentId: string,
+  postedAt?: Date | null,
+): Promise<ReverseMerchantSalesJournalsResult> {
+  const customerSaleJournalReversalId = await reverseMerchantJournalAndSalesLedger(
+    tx,
+    paymentId,
+    CUSTOMER_SALE_REVERSAL_SPEC,
+    postedAt,
+  );
+  const walletFeeJournalReversalId = await reverseMerchantJournalAndSalesLedger(
+    tx,
+    paymentId,
+    WALLET_FEE_REVERSAL_SPEC,
+    postedAt,
+  );
+  const checkoutFeeJournalReversalId = await reverseMerchantJournalAndSalesLedger(
+    tx,
+    paymentId,
+    CHECKOUT_FEE_REVERSAL_SPEC,
+    postedAt,
+  );
+  return {
+    customerSaleJournalReversalId,
+    walletFeeJournalReversalId,
+    checkoutFeeJournalReversalId,
+  };
 }

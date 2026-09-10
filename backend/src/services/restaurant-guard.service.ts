@@ -28,15 +28,16 @@ function isMenuCategoryCatalogIndustry(industry: string | null | undefined): boo
 export async function assertMenuCategoryCatalogBusiness(businessId: string): Promise<void> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
-    select: { industry: true },
+    select: { industry: true, partnerProvisioningExternalUserId: true },
   });
   if (!business) {
     throw new HttpError(404, "Business not found.");
   }
-  if (!isMenuCategoryCatalogIndustry(business.industry)) {
+  const isPartner = Boolean(business.partnerProvisioningExternalUserId?.trim());
+  if (!isMenuCategoryCatalogIndustry(business.industry) && !isPartner) {
     throw new HttpError(
       403,
-      "Categories are only available for Restaurant, Retail, Wholesale, Pharmacy, or Petrol station businesses.",
+      "Categories are only available for Restaurant, Retail, Wholesale, Pharmacy, Petrol station, or internal partner businesses.",
     );
   }
 }

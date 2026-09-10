@@ -150,7 +150,7 @@ Merchant wallet credentials (APS / Wave / Yonna) are entered by the **Easypay pl
 | `partnerExternalBookingId` | yes | Your booking / checkout id (idempotency key while unpaid). |
 | `amountGmd` | yes | Positive number. |
 | `currency` | no | Defaults to `GMD`. |
-| `category` | no | Optional label for the order type (e.g. `"Pitch rental"`, `"Tournament fee"`). Max 120 characters. Stored on the Easypay order and echoed in API responses and payment webhooks. Omitted on idempotent **200** replay of an existing pending order (category is only set when the order is first created). |
+| `category` | no | Optional label for the order type (e.g. `"Pitch rental"`, `"Tournament fee"`). Max 120 characters. Trimmed, collapsed whitespace, and stored in **capital letters** (e.g. `"PITCH RENTAL"`). If no matching catalogue category exists for that business, Easypay creates one and binds it to the order line so **category sales summary** groups the payment. Echoed in API responses and payment webhooks. Omitted on idempotent **200** replay of an existing pending order (category is only set when the order is first created). |
 
 ```typescript
 async function createEasypayOrder(
@@ -190,7 +190,7 @@ async function createEasypayOrder(
 
 ### API update — optional `category` (partner apps)
 
-When creating an order at checkout time, you may include an optional **`category`** string in the JSON body of `POST …/businesses/{businessId}/orders`. Use it to tag what the payment is for in your own taxonomy (booking type, product line, etc.). Easypay persists it on the order, returns it as `category` on the order object, and includes `category` on outbound webhooks (`payment.completed`, `payment.cancelled`, `payment.failed`) when set. No change is required if you do not need segmentation — existing integrations without `category` continue to work.
+When creating an order at checkout time, you may include an optional **`category`** string in the JSON body of `POST …/businesses/{businessId}/orders`. Use it to tag what the payment is for in your own taxonomy (booking type, product line, etc.). Easypay uppercases the text, finds or creates a matching catalogue category, binds it to the order (and therefore the payment), returns it as `category` on the order object, and includes `category` on outbound webhooks (`payment.completed`, `payment.cancelled`, `payment.failed`) when set. No change is required if you do not need segmentation — existing integrations without `category` continue to work.
 
 ---
 

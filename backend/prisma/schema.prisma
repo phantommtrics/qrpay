@@ -203,6 +203,24 @@ enum JournalSourceType {
    * Opposite debits/credits to undo a prior journal (audit trail).
    */
   MANUAL_JOURNAL_REVERSAL
+  /**
+   * Wave self-settlement payout received on the merchant books (pairs with SalesLedger SETTLEMENT_PAYOUT).
+   */
+  WAVE_SELF_SETTLEMENT_PAYOUT
+  /**
+   * Swapped debits/credits to undo a WAVE_SELF_SETTLEMENT_PAYOUT entry.
+   */
+  WAVE_SELF_SETTLEMENT_PAYOUT_REVERSAL
+  /**
+   * Wave Operations payout received by this merchant (pairs with SalesLedger WAVE_OPS_PAYOUT).
+   * Dr WAVE_MERCHANT_PAYOUTS (asset / money in) · Cr other revenue for net receive after Wave fee.
+   * Platform books the payout as expense.
+   */
+  WAVE_OPS_MERCHANT_PAYOUT
+  /**
+   * Swapped debits/credits to undo a WAVE_OPS_MERCHANT_PAYOUT entry.
+   */
+  WAVE_OPS_MERCHANT_PAYOUT_REVERSAL
 }
 
 /**
@@ -258,6 +276,10 @@ enum SalesLedgerEntryType {
   WALLET_FEE
   /** Wave checkout fee reserved from aggregated balance before self-settlement payout. */
   SELF_SETTLEMENT_CHECKOUT_FEE
+  /** Wave self-settlement payout received (mobile money in, withhold/fee out of clearing). */
+  SETTLEMENT_PAYOUT
+  /** Wave Operations payout received (net to merchant; pairs with Journal WAVE_OPS_MERCHANT_PAYOUT). */
+  WAVE_OPS_PAYOUT
 }
 
 enum SalesLedgerDirection {
@@ -1055,6 +1077,8 @@ model WaveOpsPayout {
   platformSupplierId String?
   platformBillId     String?
   businessId         String?
+  /** Wave aggregated merchant id used on the payout request (platform or business sub-merchant). */
+  aggregatedMerchantId String?
   errorCode          String?
   errorMessage       String?             @db.Text
   waveTimestamp      DateTime?
@@ -1075,6 +1099,7 @@ model WaveOpsPayout {
   @@index([clientReference])
   @@index([batchId])
   @@index([businessId])
+  @@index([aggregatedMerchantId])
 }
 
 model PlatformBillLine {
@@ -1164,6 +1189,7 @@ model MenuCategory {
   parent     MenuCategory?  @relation("MenuCategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
   children   MenuCategory[] @relation("MenuCategoryHierarchy")
   products   Product[]
+  orderLines OrderLine[]
 
   @@index([businessId, parentId])
 }
@@ -1653,7 +1679,7 @@ model Order {
    * Booking / checkout id from an internal partner app (server-to-server). Used for outbound webhooks.
    */
   partnerExternalBookingId String?
-  /** Optional category label from internal partner at order creation (e.g. booking type). */
+  /** Optional category label from internal partner at order creation (stored uppercase). */
   partnerOrderCategory     String?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
@@ -1677,18 +1703,22 @@ model Order {
 }
 
 model OrderLine {
-  id          String  @id @default(cuid())
-  orderId     String
-  productId   String
-  productName String
+  id             String  @id @default(cuid())
+  orderId        String
+  productId      String
+  productName    String
   /** Whole units (retail/restaurant) or liters for petrol (fractional). */
-  quantity    Decimal @db.Decimal(18, 6)
-  unitPrice   Decimal @db.Decimal(10, 2)
-  lineTotal   Decimal @db.Decimal(10, 2)
-  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product     Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity       Decimal @db.Decimal(18, 6)
+  unitPrice      Decimal @db.Decimal(10, 2)
+  lineTotal      Decimal @db.Decimal(10, 2)
+  /** Snapshot for category-sales-summary; partner checkouts set this when `category` is sent. */
+  menuCategoryId String?
+  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  menuCategory   MenuCategory? @relation(fields: [menuCategoryId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
+  @@index([menuCategoryId])
 }
 
 model Payment {

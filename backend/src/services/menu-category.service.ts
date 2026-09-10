@@ -1,12 +1,65 @@
-import { prisma } from "../lib/prisma.js";
+import { type Prisma } from "@prisma/client";
+
 import { HttpError } from "../lib/http-error.js";
+import { prisma } from "../lib/prisma.js";
 import { assertMenuCategoryCatalogBusiness } from "./restaurant-guard.service.js";
+
+type Tx = Prisma.TransactionClient | typeof prisma;
 
 export async function listMenuCategoriesFlat(businessId: string) {
   await assertMenuCategoryCatalogBusiness(businessId);
   return prisma.menuCategory.findMany({
     where: { businessId },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+  });
+}
+
+/**
+ * Find a business category by name (case-insensitive) or create a root category.
+ * Partner order `category` values are stored uppercase so sales-by-category grouping stays consistent.
+ */
+export async function ensureMenuCategoryByNameForBusiness(
+  client: Tx,
+  businessId: string,
+  name: string,
+): Promise<{ id: string; name: string }> {
+  const existingRoot = await client.menuCategory.findFirst({
+    where: {
+      businessId,
+      parentId: null,
+      name: { equals: name, mode: "insensitive" },
+    },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true },
+  });
+  const existing =
+    existingRoot ??
+    (await client.menuCategory.findFirst({
+      where: {
+        businessId,
+        name: { equals: name, mode: "insensitive" },
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, name: true },
+    }));
+  if (existing) {
+    if (existing.name === name) {
+      return existing;
+    }
+    return client.menuCategory.update({
+      where: { id: existing.id },
+      data: { name },
+      select: { id: true, name: true },
+    });
+  }
+  return client.menuCategory.create({
+    data: {
+      businessId,
+      name,
+      parentId: null,
+      sortOrder: 0,
+    },
+    select: { id: true, name: true },
   });
 }
 

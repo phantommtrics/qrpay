@@ -21,6 +21,7 @@ import {
   startGatewayWalletCheckout,
 } from "./order-wallet-checkout.service.js";
 import { assertInternalPartnerProvisionedBusiness } from "./internal-partner-guard.service.js";
+import { ensureMenuCategoryByNameForBusiness } from "./menu-category.service.js";
 import {
   queueInternalPartnerPaymentCancelledForPaymentIds,
   queueInternalPartnerPaymentCompleted,
@@ -319,7 +320,7 @@ const INTERNAL_PARTNER_CHECKOUT_BARCODE = "__EASYPAY_INTERNAL_PARTNER_CHECKOUT__
 const INTERNAL_PARTNER_ORDER_CATEGORY_MAX_LEN = 120;
 
 function normalizeInternalPartnerOrderCategory(raw: string | undefined): string | undefined {
-  const trimmed = raw?.trim();
+  const trimmed = raw?.trim().replace(/\s+/g, " ");
   if (!trimmed) {
     return undefined;
   }
@@ -329,7 +330,7 @@ function normalizeInternalPartnerOrderCategory(raw: string | undefined): string 
       `category must be at most ${INTERNAL_PARTNER_ORDER_CATEGORY_MAX_LEN} characters.`,
     );
   }
-  return trimmed;
+  return trimmed.toUpperCase();
 }
 
 /**
@@ -369,7 +370,7 @@ export async function createInternalPartnerCheckoutOrder(input: {
   partnerExternalBookingId: string;
   amountGmd: number;
   currency?: string;
-  /** Optional label for partner reporting (stored on the order). */
+  /** Optional label for partner reporting (uppercased and bound to a catalogue category). */
   category?: string;
 }) {
   await assertInternalPartnerProvisionedBusiness(input.businessId);
@@ -439,6 +440,26 @@ export async function createInternalPartnerCheckoutOrder(input: {
 
       const publicCode = await nextOrderPublicCode(tx, input.businessId, business.name);
 
+      let menuCategoryId: string | null = null;
+      if (category) {
+        const menuCategory = await ensureMenuCategoryByNameForBusiness(
+          tx,
+          input.businessId,
+          category,
+        );
+        menuCategoryId = menuCategory.id;
+        await tx.orderLine.updateMany({
+          where: {
+            menuCategoryId: null,
+            order: {
+              businessId: input.businessId,
+              partnerOrderCategory: { equals: category, mode: "insensitive" },
+            },
+          },
+          data: { menuCategoryId },
+        });
+      }
+
       return tx.order.create({
         data: {
           businessId: input.businessId,
@@ -458,6 +479,7 @@ export async function createInternalPartnerCheckoutOrder(input: {
                 quantity: new Prisma.Decimal(1),
                 unitPrice: amountDec,
                 lineTotal: amountDec,
+                menuCategoryId,
               },
             ],
           },

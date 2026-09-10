@@ -20,6 +20,8 @@ import {
 } from "./wave-ops-transactions.util.js";
 import { loadWaveMerchantBusinessLinks } from "./wave-aggregated-merchant.service.js";
 import { syncPlatformJournalForWaveOpsSupplierPayout } from "./platform-wave-ops-payout-journal.service.js";
+import { syncMerchantJournalForWaveOpsPayout } from "./merchant-payout-journal.service.js";
+import { notifyBusinessOwnersOfPayout } from "./business-owner-push.service.js";
 import type { WavePayout, WavePayoutRequest, WaveTransaction } from "./wave-payment.service.js";
 
 /** Normalize to E.164-ish mobile for Wave (`+` prefix required). */
@@ -95,26 +97,43 @@ function payoutNeedsWaveStatusRefresh(row: {
   return Date.now() - anchor.getTime() < WAVE_OPS_STATUS_REFRESH_WINDOW_MS;
 }
 
-async function syncStandaloneWaveOpsPayoutJournal(row: {
-  id: string;
-  businessId: string | null;
-  platformBillId?: string | null;
-  status: string;
-  reversedAt: Date | null;
-  platformJournalEntryId?: string | null;
-}): Promise<void> {
+async function syncStandaloneWaveOpsPayoutJournal(
+  row: {
+    id: string;
+    businessId: string | null;
+    platformBillId?: string | null;
+    status: string;
+    reversedAt: Date | null;
+    platformJournalEntryId?: string | null;
+  },
+  options?: { notify?: boolean },
+) {
   if (row.businessId || row.platformBillId) {
-    return;
+    return null;
   }
   const status = row.status.trim().toLowerCase();
   const reversed = status === "reversed" || Boolean(row.reversedAt);
   if (status === "succeeded" && row.platformJournalEntryId && !reversed) {
-    return;
+    // Platform GL already posted; still try merchant GL in case this is the first merchant sync.
+  } else if (status !== "succeeded" && !reversed) {
+    return null;
+  } else {
+    await syncPlatformJournalForWaveOpsSupplierPayout(row.id);
   }
-  if (status !== "succeeded" && !reversed) {
-    return;
+  const merchant = await syncMerchantJournalForWaveOpsPayout(row.id);
+  if (options?.notify !== false && merchant?.created && !merchant.reversed) {
+    void notifyBusinessOwnersOfPayout({
+      businessId: merchant.businessId,
+      payoutId: row.id,
+      amount: merchant.receiveAmount,
+      currency: merchant.currency,
+      kind: "ops",
+      supplierName: merchant.name,
+    }).catch((err) => {
+      console.error("[web-push] Failed to notify business owner of Wave ops payout:", err);
+    });
   }
-  await syncPlatformJournalForWaveOpsSupplierPayout(row.id);
+  return merchant;
 }
 
 async function applySelfSettlementReverseFromWaveOps(row: {
@@ -494,6 +513,7 @@ export async function createWaveOpsPayout(input: {
       idempotencyKey,
       platformSupplierId: supplier.id,
       platformBillId: input.platformBillId?.trim() || null,
+      aggregatedMerchantId,
     },
   });
 
@@ -604,6 +624,7 @@ export async function createWaveOpsPayoutBulk(input: {
           idempotencyKey: p.rowIdempotencyKey,
           platformSupplierId: p.supplierId,
           platformBillId: p.platformBillId,
+          aggregatedMerchantId,
         })),
       },
     },
@@ -623,7 +644,10 @@ export async function createWaveOpsPayoutBulk(input: {
       },
     });
 
-    // Match Wave payouts to local rows by mobile+amount+order when ids arrive later via poll.
+    const createdByBusiness = new Map<
+      string,
+      { amount: number; currency: string; count: number }
+    >();
     const localRows = [...batch.payouts].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
     const waveRows = waveBatch.payouts ?? [];
     for (let i = 0; i < localRows.length; i++) {
@@ -633,7 +657,34 @@ export async function createWaveOpsPayoutBulk(input: {
         where: { id: localRows[i].id },
         data: mapWavePayoutFields(wr),
       });
-      await syncStandaloneWaveOpsPayoutJournal(updated);
+      const merchant = await syncStandaloneWaveOpsPayoutJournal(updated, { notify: false });
+      if (merchant?.created && !merchant.reversed) {
+        const prev = createdByBusiness.get(merchant.businessId);
+        const amt = Number(merchant.receiveAmount) || 0;
+        if (prev) {
+          prev.amount += amt;
+          prev.count += 1;
+        } else {
+          createdByBusiness.set(merchant.businessId, {
+            amount: amt,
+            currency: merchant.currency,
+            count: 1,
+          });
+        }
+      }
+    }
+
+    for (const [businessId, agg] of createdByBusiness) {
+      void notifyBusinessOwnersOfPayout({
+        businessId,
+        payoutId: batch.id,
+        amount: agg.amount,
+        currency: agg.currency,
+        kind: "ops_bulk",
+        count: agg.count,
+      }).catch((err) => {
+        console.error("[web-push] Failed to notify business owner of Wave ops bulk payout:", err);
+      });
     }
 
     return getWaveOpsPayoutBatch(batch.id);
@@ -799,7 +850,10 @@ export async function reverseWaveOpsPayout(id: string) {
     where: { id: row.id },
     data: { reversedAt: new Date(), status: "reversed" },
   });
-  await syncPlatformJournalForWaveOpsSupplierPayout(row.id);
+  await syncStandaloneWaveOpsPayoutJournal(
+    { ...row, status: "reversed", reversedAt: new Date() },
+    { notify: false },
+  );
 
   return getWaveOpsPayout(id);
 }
@@ -974,6 +1028,7 @@ export async function sendWavePayoutForBill(input: {
   const idempotencyKey = randomUUID();
   const clientReference = input.clientReference?.trim() || null;
 
+  const aggregatedMerchantId = await resolveOpsPayoutAggregatedMerchantId();
   const local = await prisma.waveOpsPayout.create({
     data: {
       status: "processing",
@@ -985,6 +1040,7 @@ export async function sendWavePayoutForBill(input: {
       idempotencyKey,
       platformSupplierId: input.supplierId,
       platformBillId: input.platformBillId,
+      aggregatedMerchantId,
     },
   });
 
@@ -994,7 +1050,7 @@ export async function sendWavePayoutForBill(input: {
       receive_amount: receiveAmount,
       name: input.supplierName,
       mobile,
-      aggregated_merchant_id: await resolveOpsPayoutAggregatedMerchantId(),
+      aggregated_merchant_id: aggregatedMerchantId,
       ...(clientReference ? { client_reference: clientReference } : {}),
     },
     idempotencyKey,

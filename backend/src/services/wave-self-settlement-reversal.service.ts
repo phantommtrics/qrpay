@@ -4,6 +4,10 @@ import { prisma } from "../lib/prisma.js";
 import { ACTIVITY_EVENT, appendActivityLog } from "./activity-log.service.js";
 import { postPlatformJournalReversalForSelfSettlementPayout } from "./platform-self-settlement-journal.service.js";
 import { reverseMerchantSelfSettlementCheckoutFeeJournal } from "./sale-accounting.service.js";
+import {
+  postMerchantJournalForSelfSettlementPayout,
+  reverseMerchantJournalForSelfSettlementPayout,
+} from "./merchant-payout-journal.service.js";
 import { isPlatformWaveCheckoutConfigured, waveServiceFromEnv } from "./wave-client-env.js";
 
 const SUCCEEDED_REVERSE_POLL_MS = 5 * 60 * 1000;
@@ -71,6 +75,21 @@ export async function applyWaveSelfSettlementPayoutReversed(input: {
         tx,
         row.paymentId,
       );
+      await postMerchantJournalForSelfSettlementPayout(tx, {
+        id: row.id,
+        businessId: row.businessId,
+        paymentId: row.paymentId,
+        currency: row.currency,
+        receiveAmount: row.receiveAmount,
+        withholdAmount: row.withholdAmount,
+        fee: row.fee,
+        name: row.name,
+      });
+      const merchantPayoutJournalReversal = await reverseMerchantJournalForSelfSettlementPayout(
+        tx,
+        row.id,
+        row.paymentId,
+      );
 
       const original = await tx.platformJournalEntry.findFirst({
         where: {
@@ -130,6 +149,7 @@ export async function applyWaveSelfSettlementPayoutReversed(input: {
             fee: row.fee,
             platformJournalReversalId,
             merchantFeeJournalReversalId,
+            merchantPayoutJournalReversalId: merchantPayoutJournalReversal?.id ?? null,
           },
         });
       }

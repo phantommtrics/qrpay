@@ -37,6 +37,8 @@ import {
   pollSucceededSelfSettlementPayoutsForReverse,
 } from "./wave-self-settlement-reversal.service.js";
 import { recordMerchantSelfSettlementCheckoutFeeJournalAndLedger } from "./sale-accounting.service.js";
+import { postMerchantJournalForSelfSettlementPayout } from "./merchant-payout-journal.service.js";
+import { notifyBusinessOwnersOfPayout } from "./business-owner-push.service.js";
 import {
   computeWaveSelfSettlementAmounts,
   inferSettlementBookingUnits,
@@ -523,7 +525,11 @@ async function persistWavePayoutResult(
   return localStatus;
 }
 
-async function recordSucceededSelfSettlementLocalCopy(rowId: string): Promise<void> {
+async function recordSucceededSelfSettlementLocalCopy(
+  rowId: string,
+  options?: { notifyOwner?: boolean },
+): Promise<void> {
+  const notifyOwner = options?.notifyOwner !== false;
   const row = await prisma.waveSelfSettlementPayout.findUnique({
     where: { id: rowId },
   });
@@ -544,7 +550,7 @@ async function recordSucceededSelfSettlementLocalCopy(rowId: string): Promise<vo
       idempotencyKey: `self-settle:${row.idempotencyKey}`,
       waveTimestamp: row.waveTimestamp,
     });
-    const journalId = await prisma.$transaction(async (tx) => {
+    const { merchantJournalCreated, journalId } = await prisma.$transaction(async (tx) => {
       const id = await postPlatformJournalForSelfSettlementPayout(tx, {
         id: row.id,
         businessId: row.businessId,
@@ -553,6 +559,16 @@ async function recordSucceededSelfSettlementLocalCopy(rowId: string): Promise<vo
         receiveAmount: row.receiveAmount,
         withholdAmount: row.withholdAmount,
         fee: row.fee,
+      });
+      const merchant = await postMerchantJournalForSelfSettlementPayout(tx, {
+        id: row.id,
+        businessId: row.businessId,
+        paymentId: row.paymentId,
+        currency: row.currency,
+        receiveAmount: row.receiveAmount,
+        withholdAmount: row.withholdAmount,
+        fee: row.fee,
+        name: row.name,
       });
       await tx.waveSelfSettlementPayout.update({
         where: { id: row.id },
@@ -575,10 +591,22 @@ async function recordSucceededSelfSettlementLocalCopy(rowId: string): Promise<vo
           fee: row.fee,
           waveOpsPayoutId: opsId,
           platformJournalEntryId: id,
+          merchantJournalEntryId: merchant?.id ?? null,
         },
       });
-      return id;
+      return { merchantJournalCreated: Boolean(merchant?.created), journalId: id };
     });
+    if (notifyOwner && merchantJournalCreated) {
+      void notifyBusinessOwnersOfPayout({
+        businessId: row.businessId,
+        payoutId: row.id,
+        amount: row.receiveAmount,
+        currency: row.currency,
+        kind: "settlement",
+      }).catch((err) => {
+        console.error("[web-push] Failed to notify business owner of settlement payout:", err);
+      });
+    }
     console.info("[wave-self-settlement] local copy recorded", {
       payoutId: row.id,
       waveOpsPayoutId: opsId,
@@ -601,7 +629,7 @@ async function backfillSucceededSelfSettlementLocalCopies(): Promise<void> {
     orderBy: { createdAt: "asc" },
   });
   for (const row of rows) {
-    await recordSucceededSelfSettlementLocalCopy(row.id);
+    await recordSucceededSelfSettlementLocalCopy(row.id, { notifyOwner: false });
   }
   if (rows.length) {
     console.info("[wave-self-settlement] backfilled local copies", { count: rows.length });
@@ -753,6 +781,28 @@ async function runWaveSelfSettlementJobs(limit = 10): Promise<number> {
   return touched;
 }
 
+async function backfillMerchantLedgersOnStartup(): Promise<void> {
+  const { backfillMerchantLedgersForReversedPayments } = await import(
+    "./wave-merchant-payment-reversal.service.js"
+  );
+  const { backfillMerchantJournalsForSelfSettlementPayouts } = await import(
+    "./merchant-payout-journal.service.js"
+  );
+  const maxBatches = 10;
+  for (let i = 0; i < maxBatches; i++) {
+    const r = await backfillMerchantLedgersForReversedPayments(100);
+    if (!r.scanned) {
+      break;
+    }
+  }
+  for (let i = 0; i < maxBatches; i++) {
+    const r = await backfillMerchantJournalsForSelfSettlementPayouts(100);
+    if (!r.scanned) {
+      break;
+    }
+  }
+}
+
 export function startWaveSelfSettlementWorker(): void {
   if (workerStarted) {
     return;
@@ -762,6 +812,7 @@ export function startWaveSelfSettlementWorker(): void {
   const ms = Number.isFinite(raw) && raw >= 5000 ? raw : 15_000;
   void processWaveSelfSettlementJobs(25)
     .then(() => backfillSucceededSelfSettlementLocalCopies())
+    .then(() => backfillMerchantLedgersOnStartup())
     .then(() => pollSucceededSelfSettlementPayoutsForReverse())
     .catch((err) => {
       console.error("[wave-self-settlement] worker initial run error:", err);

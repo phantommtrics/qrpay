@@ -6,6 +6,9 @@ import { prisma } from "../lib/prisma.js";
 /** Primary sales revenue account (customer sale journals credit this). */
 export const CHART_CODE_SALES = "200";
 
+/** Other revenue (Wave Ops payout income credits this). */
+export const CHART_CODE_OTHER_REVENUE = "260";
+
 /**
  * Clearing asset: QR wallet / card rails — cash in transit until settled to the bank.
  * Debit on digital sale; pair with Cr Sales revenue.
@@ -17,6 +20,12 @@ export const CHART_CODE_QR_WALLET_PROCESSING_FEES = "QR_WALLET_FEES";
 
 /** Physical cash and immediate counter collections (POS cash, upfront pay). */
 export const CHART_CODE_CASH_ON_HAND = "CASH_ON_HAND";
+
+/** Wave / mobile money received when self-settlement payout succeeds. */
+export const CHART_CODE_MOBILE_MONEY = "MOBILE_MONEY";
+
+/** Money in: net Wave Operations payout received from platform (after Wave payout fee). */
+export const CHART_CODE_WAVE_MERCHANT_PAYOUTS = "WAVE_MERCHANT_PAYOUTS";
 
 const DEFAULT_ACCOUNTS: Array<{
   code: string;
@@ -47,6 +56,22 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Estimated fees charged by Wave, Yonna, or similar on customer wallet payments (orders/POS). Easypay debits this and credits digital clearing when a rate is configured per business or server default.",
     category: ChartAccountCategory.EXPENSE,
+    isSystem: true,
+  },
+  {
+    code: CHART_CODE_MOBILE_MONEY,
+    name: "Mobile money — Wave settlement received",
+    description:
+      "Cash received on the merchant Wave / mobile money number when Easypay self-settlement payout succeeds. Debited when the payout lands; not POS till cash.",
+    category: ChartAccountCategory.ASSET,
+    isSystem: true,
+  },
+  {
+    code: CHART_CODE_WAVE_MERCHANT_PAYOUTS,
+    name: "Wave operations payouts received",
+    description:
+      "Money in from platform Wave Operations payouts to this business. Debited for the net receive amount after Wave's payout fee; the fee is a platform cost. Pairs with other revenue.",
+    category: ChartAccountCategory.ASSET,
     isSystem: true,
   },
   {
@@ -98,7 +123,7 @@ const DEFAULT_ACCOUNTS: Array<{
     isSystem: true,
   },
   {
-    code: "260",
+    code: CHART_CODE_OTHER_REVENUE,
     name: "other Revenue",
     description:
       "Income outside normal product sales: interest received, scrap sales, grants, or one-off items.",
@@ -167,6 +192,7 @@ export async function ensureDefaultChartOfAccountsForBusiness(
       update: {
         name: def.name,
         description: def.description,
+        category: def.category,
       },
     });
   }

@@ -106,7 +106,8 @@ function combineAggRows(parts: RawAggRow[]): RawAggRow[] {
 /**
  * Allocates each completed order payment to order lines by line share of order total,
  * and estimated QR wallet processing fees ({@link SalesLedgerEntryType.WALLET_FEE}) by the same ratio
- * as deductions (negative amounts), grouped by date (UTC day), channel, recorder, and menu category.
+ * as deductions (negative amounts), grouped by date (UTC day), channel, recorder, and menu category
+ * (order-line snapshot, falling back to the product's category).
  */
 export async function getCategorySalesSummaryReport(
   businessId: string,
@@ -127,7 +128,7 @@ export async function getCategorySalesSummaryReport(
       NULLIF(TRIM(COALESCE(p."gatewayCode", '')), '') AS "gatewayCode",
       p."recordedByUserId" AS "recordedByUserId",
       u."name" AS "recordedByName",
-      pr."menuCategoryId" AS "menuCategoryId",
+      COALESCE(ol."menuCategoryId", pr."menuCategoryId") AS "menuCategoryId",
       COALESCE(
         SUM((ol."lineTotal"::numeric) * (p."amount"::numeric / NULLIF(o."total"::numeric, 0))),
         0
@@ -151,7 +152,7 @@ export async function getCategorySalesSummaryReport(
       NULLIF(TRIM(COALESCE(p."gatewayCode", '')), ''),
       p."recordedByUserId",
       u."name",
-      pr."menuCategoryId"
+      COALESCE(ol."menuCategoryId", pr."menuCategoryId")
   `);
 
   /** Wallet fee ledger rows: allocate fee to categories by same line share as gross (negative = deduction). */
@@ -163,7 +164,7 @@ export async function getCategorySalesSummaryReport(
       NULLIF(TRIM(COALESCE(p."gatewayCode", '')), '') AS "gatewayCode",
       p."recordedByUserId" AS "recordedByUserId",
       u."name" AS "recordedByName",
-      pr."menuCategoryId" AS "menuCategoryId",
+      COALESCE(ol."menuCategoryId", pr."menuCategoryId") AS "menuCategoryId",
       COALESCE(
         SUM(
           -(sle."amount"::numeric) * (ol."lineTotal"::numeric / NULLIF(o."total"::numeric, 0))
@@ -193,7 +194,7 @@ export async function getCategorySalesSummaryReport(
       NULLIF(TRIM(COALESCE(p."gatewayCode", '')), ''),
       p."recordedByUserId",
       u."name",
-      pr."menuCategoryId"
+      COALESCE(ol."menuCategoryId", pr."menuCategoryId")
   `);
 
   const merged = combineAggRows([...grossRows, ...feeRows]);

@@ -1178,7 +1178,7 @@ const internalPartnerCreateOrderBodySchema = z.object({
   partnerExternalBookingId: z.string().min(1),
   amountGmd: z.number().positive(),
   currency: z.string().min(1).max(8).optional(),
-  /** Optional label for the booking/order type (e.g. "Pitch rental", "Tournament fee"). */
+  /** Optional label for the booking/order type (e.g. "Pitch rental"). Stored uppercase and bound to a menu category. */
   category: z.string().min(1).max(120).optional(),
 });
 
@@ -5673,12 +5673,13 @@ app.get(
       if (!req.user!.isPlatformOwner) {
         const business = await prisma.business.findUnique({
           where: { id: businessId as string },
-          select: { industry: true },
+          select: { industry: true, partnerProvisioningExternalUserId: true },
         });
         const restaurant = isRestaurantIndustry(business?.industry);
+        const partner = Boolean(business?.partnerProvisioningExternalUserId?.trim());
         const categoriesOk = await userHasEntitlement(uid, businessId as string, "products.categories");
         const productsViewOk = await userHasEntitlement(uid, businessId as string, "products.view");
-        if (!(categoriesOk || (restaurant && productsViewOk))) {
+        if (!(categoriesOk || (restaurant && productsViewOk) || partner)) {
           throw new HttpError(403, "You do not have access to this report for this business.");
         }
       }

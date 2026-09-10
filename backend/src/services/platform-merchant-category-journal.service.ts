@@ -222,7 +222,7 @@ export async function getPlatformMerchantCategoryJournal(
         NULLIF(TRIM(COALESCE(p."gatewayCode", '')), '') AS "gatewayCode",
         p."recordedByUserId" AS "recordedByUserId",
         u."name" AS "recordedByName",
-        pr."menuCategoryId" AS "menuCategoryId",
+        COALESCE(ol."menuCategoryId", pr."menuCategoryId") AS "menuCategoryId",
         COALESCE(
           SUM((ol."lineTotal"::numeric) * (p."amount"::numeric / NULLIF(o."total"::numeric, 0))),
           0
@@ -249,7 +249,7 @@ export async function getPlatformMerchantCategoryJournal(
         NULLIF(TRIM(COALESCE(p."gatewayCode", '')), ''),
         p."recordedByUserId",
         u."name",
-        pr."menuCategoryId"
+        COALESCE(ol."menuCategoryId", pr."menuCategoryId")
     `)
       : Promise.resolve([]),
     wantJournal
@@ -263,7 +263,7 @@ export async function getPlatformMerchantCategoryJournal(
         NULLIF(TRIM(COALESCE(p."gatewayCode", '')), '') AS "gatewayCode",
         p."recordedByUserId" AS "recordedByUserId",
         u."name" AS "recordedByName",
-        pr."menuCategoryId" AS "menuCategoryId",
+        COALESCE(ol."menuCategoryId", pr."menuCategoryId") AS "menuCategoryId",
         COALESCE(
           SUM(
             -(sle."amount"::numeric) * (ol."lineTotal"::numeric / NULLIF(o."total"::numeric, 0))
@@ -296,7 +296,7 @@ export async function getPlatformMerchantCategoryJournal(
         NULLIF(TRIM(COALESCE(p."gatewayCode", '')), ''),
         p."recordedByUserId",
         u."name",
-        pr."menuCategoryId"
+        COALESCE(ol."menuCategoryId", pr."menuCategoryId")
     `)
       : Promise.resolve([]),
     wantFee

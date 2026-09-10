@@ -75,20 +75,8 @@ export async function deleteBusinessOwnerPushSubscription(endpoint: string) {
   `;
 }
 
-export async function notifyBusinessOwnersOfPayment(input: {
-  businessId: string;
-  orderPublicCode?: string | null;
-  paymentPublicCode: string;
-  amount: Prisma.Decimal | number | string;
-  currency: string;
-  methodLabel: string;
-  receiptPublicCode?: string | null;
-}) {
-  if (!vapidConfigured) {
-    return;
-  }
-
-  const subscriptions = await prisma.$queryRaw<OwnerPushSubscriptionRow[]>`
+async function loadOwnerPushSubscriptions(businessId: string): Promise<OwnerPushSubscriptionRow[]> {
+  return prisma.$queryRaw<OwnerPushSubscriptionRow[]>`
     SELECT s."endpoint", s."p256dh", s."auth"
     FROM "businessOwnerPushSubscriptions" s
     INNER JOIN "BusinessMembership" m
@@ -96,27 +84,19 @@ export async function notifyBusinessOwnersOfPayment(input: {
       AND m."userId" = s."userId"
       AND m."isOwner" = true
       AND m."status" = ${BusinessMembershipStatus.ACTIVE}::"BusinessMembershipStatus"
-    WHERE s."businessId" = ${input.businessId}
+    WHERE s."businessId" = ${businessId}
   `;
-  if (subscriptions.length === 0) {
+}
+
+async function sendOwnerPushPayload(businessId: string, payload: string, logLabel: string) {
+  if (!vapidConfigured) {
     return;
   }
 
-  const amount = `${input.currency} ${Number(input.amount).toFixed(2)}`;
-  const bodyParts = [
-    `${input.methodLabel} payment received: ${amount}`,
-    input.receiptPublicCode ? `Receipt ${input.receiptPublicCode}` : null,
-    input.orderPublicCode ? `Order ${input.orderPublicCode}` : null,
-  ].filter((part): part is string => Boolean(part));
-
-  const payload = JSON.stringify({
-    title: "Payment processed",
-    body: bodyParts.join(" - "),
-    icon: "/app_logo.png",
-    badge: "/favicon-32x32.png",
-    tag: `directpay-owner-payment-${input.paymentPublicCode}`,
-    url: "/#/payments",
-  });
+  const subscriptions = await loadOwnerPushSubscriptions(businessId);
+  if (subscriptions.length === 0) {
+    return;
+  }
 
   await Promise.all(
     subscriptions.map(async (row) => {
@@ -147,8 +127,73 @@ export async function notifyBusinessOwnersOfPayment(input: {
           return;
         }
 
-        console.error("[web-push] Failed to send owner payment notification:", error);
+        console.error(`[web-push] Failed to send ${logLabel}:`, error);
       }
     }),
   );
+}
+
+function formatMoney(currency: string, amount: Prisma.Decimal | number | string): string {
+  return `${currency} ${Number(amount).toFixed(2)}`;
+}
+
+export async function notifyBusinessOwnersOfPayment(input: {
+  businessId: string;
+  orderPublicCode?: string | null;
+  paymentPublicCode: string;
+  amount: Prisma.Decimal | number | string;
+  currency: string;
+  methodLabel: string;
+  receiptPublicCode?: string | null;
+}) {
+  const amount = formatMoney(input.currency, input.amount);
+  const bodyParts = [
+    `${input.methodLabel} payment received: ${amount}`,
+    input.receiptPublicCode ? `Receipt ${input.receiptPublicCode}` : null,
+    input.orderPublicCode ? `Order ${input.orderPublicCode}` : null,
+  ].filter((part): part is string => Boolean(part));
+
+  const payload = JSON.stringify({
+    title: "Payment processed",
+    body: bodyParts.join(" - "),
+    icon: "/app_logo.png",
+    badge: "/favicon-32x32.png",
+    tag: `directpay-owner-payment-${input.paymentPublicCode}`,
+    url: "/#/payments",
+  });
+
+  await sendOwnerPushPayload(input.businessId, payload, "owner payment notification");
+}
+
+export async function notifyBusinessOwnersOfPayout(input: {
+  businessId: string;
+  payoutId: string;
+  amount: Prisma.Decimal | number | string;
+  currency: string;
+  kind: "settlement" | "ops" | "ops_bulk";
+  count?: number;
+  supplierName?: string | null;
+}) {
+  const amount = formatMoney(input.currency, input.amount);
+  let body: string;
+  if (input.kind === "settlement") {
+    body = `Settlement payout sent: ${amount}`;
+  } else if (input.kind === "ops_bulk") {
+    const n = input.count && input.count > 1 ? input.count : 1;
+    body = `${n} Wave payout${n === 1 ? "" : "s"} totaling ${amount}`;
+  } else {
+    const to = input.supplierName?.trim();
+    body = to ? `Wave payout: ${amount} to ${to}` : `Wave payout: ${amount}`;
+  }
+
+  const payload = JSON.stringify({
+    title: "Payout processed",
+    body,
+    icon: "/app_logo.png",
+    badge: "/favicon-32x32.png",
+    tag: `directpay-owner-payout-${input.payoutId}`,
+    url: "/#/accounting/transaction-journal",
+  });
+
+  await sendOwnerPushPayload(input.businessId, payload, "owner payout notification");
 }
