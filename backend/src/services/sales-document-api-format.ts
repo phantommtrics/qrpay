@@ -99,7 +99,7 @@ export function formatSalesInvoiceApi(inv: {
     publicToken: string;
     frequency: string;
     intervalDays: number | null;
-    customDates: unknown;
+    customDates: Prisma.JsonValue | null;
     nextIssueAt: Date;
     generateHour?: number | null;
     generateMinute?: number | null;

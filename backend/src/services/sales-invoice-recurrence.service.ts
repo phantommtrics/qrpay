@@ -432,8 +432,10 @@ export async function ensureRecurrenceInvoicesDue(recurrenceId: string, now = ne
     nextIssueAt = nextFromSchedule(nextIssueAt, rec);
   }
 
-  const stillActive = Boolean(nextIssueAt) &&
-    (!rec.endDate || (nextIssueAt && calendarDateAtNoonUtc(rec.endDate).getTime() >= calendarDateAtNoonUtc(nextIssueAt).getTime()));
+  const stillActive =
+    nextIssueAt != null &&
+    (!rec.endDate ||
+      calendarDateAtNoonUtc(rec.endDate).getTime() >= calendarDateAtNoonUtc(nextIssueAt).getTime());
 
   await prisma.salesInvoiceRecurrence.update({
     where: { id: rec.id },
