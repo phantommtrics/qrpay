@@ -27,6 +27,9 @@ export const CHART_CODE_MOBILE_MONEY = "MOBILE_MONEY";
 /** Money in: net Wave Operations payout received from platform (after Wave payout fee). */
 export const CHART_CODE_WAVE_MERCHANT_PAYOUTS = "WAVE_MERCHANT_PAYOUTS";
 
+/** Money in: platform admin fund transfer (bank / manual settlement, not a Wave payout). */
+export const CHART_CODE_PLATFORM_FUND_TRANSFERS = "PLATFORM_FUND_TRANSFERS";
+
 const DEFAULT_ACCOUNTS: Array<{
   code: string;
   name: string;
@@ -71,6 +74,14 @@ const DEFAULT_ACCOUNTS: Array<{
     name: "Wave operations payouts received",
     description:
       "Money in from platform Wave Operations payouts to this business. Debited for the net receive amount after Wave's payout fee; the fee is a platform cost. Pairs with other revenue.",
+    category: ChartAccountCategory.ASSET,
+    isSystem: true,
+  },
+  {
+    code: CHART_CODE_PLATFORM_FUND_TRANSFERS,
+    name: "DirectPay settlement received",
+    description:
+      "Money in when DirectPay credits this business from operator books (bank or manual settlement) without a Wave payout. Pairs with other revenue.",
     category: ChartAccountCategory.ASSET,
     isSystem: true,
   },

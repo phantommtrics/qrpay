@@ -154,6 +154,8 @@ export const JOURNAL_SOURCE_FILTER_OPTIONS: Array<{ value: string; label: string
   { value: 'WAVE_SELF_SETTLEMENT_PAYOUT_REVERSAL', label: 'Self-settlement payout reversal' },
   { value: 'WAVE_OPS_MERCHANT_PAYOUT', label: 'Wave operations payout received' },
   { value: 'WAVE_OPS_MERCHANT_PAYOUT_REVERSAL', label: 'Wave operations payout reversal' },
+  { value: 'PLATFORM_FUND_TRANSFER', label: 'DirectPay settlement received' },
+  { value: 'PLATFORM_FUND_TRANSFER_REVERSAL', label: 'DirectPay settlement reversal' },
   { value: 'MANUAL_MONEY_IN', label: 'Money in' },
   { value: 'MANUAL_MONEY_OUT', label: 'Money out' },
   { value: 'MANUAL_BANK_TRANSFER', label: 'Bank transfer' },

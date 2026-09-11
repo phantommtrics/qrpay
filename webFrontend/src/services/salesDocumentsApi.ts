@@ -56,6 +56,9 @@ export type SalesInvoiceRow = {
   contact: SalesQuotationContact
   sourceQuotation: { id: string; publicCode: string } | null
   journalEntry: { id: string; postedAt: string } | null
+  /** Public guest pay page; present after the invoice is approved. */
+  guestPayUrl?: string | null
+  recurrence?: SalesInvoiceRecurrenceInfo | null
   lines: SalesDocumentLine[]
 }
 
@@ -102,6 +105,30 @@ export type CreateSalesQuotationBody = {
 
 export type PatchSalesQuotationBody = Partial<CreateSalesQuotationBody>
 
+export type SalesInvoiceRecurrenceFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'CUSTOM'
+
+export type SalesInvoiceRecurrenceInfo = {
+  id: string
+  frequency: SalesInvoiceRecurrenceFrequency
+  intervalDays: number | null
+  customDates: string[]
+  nextIssueAt: string
+  generateHour?: number | null
+  generateMinute?: number | null
+  endDate: string | null
+  active: boolean
+  publicUrl: string
+}
+
+export type SalesInvoiceRecurrencePayload = {
+  frequency: SalesInvoiceRecurrenceFrequency
+  intervalDays?: number | null
+  customDates?: string[] | null
+  endDate?: string | null
+  generateHour?: number | null
+  generateMinute?: number | null
+}
+
 export type CreateSalesInvoiceBody = {
   contactId: string
   issueDate: string
@@ -111,6 +138,7 @@ export type CreateSalesInvoiceBody = {
   /** Bank/cash asset where wallet / online invoice proceeds are posted when paid. */
   settlementChartAccountId?: string | null
   lines: SalesDocumentLinePayload[]
+  recurrence?: SalesInvoiceRecurrencePayload | null
 }
 
 export type PatchSalesInvoiceBody = Partial<CreateSalesInvoiceBody>
@@ -120,7 +148,7 @@ export type MarkSalesInvoicePaidBody = {
   postedAt: string
 }
 
-export type CreateBillBody = CreateSalesInvoiceBody
+export type CreateBillBody = Omit<CreateSalesInvoiceBody, 'recurrence'>
 export type PatchBillBody = Partial<CreateBillBody>
 export type MarkBillPaidBody = MarkSalesInvoicePaidBody
 
@@ -275,6 +303,65 @@ export async function voidSalesInvoice(
   return res.data
 }
 
+export type RecurringInvoiceCalendarItem = {
+  kind: 'upcoming' | 'issued'
+  recurrenceId: string
+  invoiceId: string | null
+  contactName: string
+  amount: number
+  currency: string
+  frequency: string
+  at: string
+  status: string | null
+  publicCode: string | null
+}
+
+export type RecurringInvoiceCalendarDay = {
+  date: string
+  upcomingCount: number
+  issuedCount: number
+  items: RecurringInvoiceCalendarItem[]
+}
+
+export type RecurringInvoiceCalendarPayload = {
+  year: number
+  month: number
+  days: RecurringInvoiceCalendarDay[]
+}
+
+export async function fetchSalesInvoiceRecurrenceCalendar(
+  businessId: string,
+  year: number,
+  month: number,
+): Promise<RecurringInvoiceCalendarPayload> {
+  const res = await apiRequest<{ data: RecurringInvoiceCalendarPayload }>(
+    `/businesses/${businessId}/sales-invoices/recurrences/calendar?year=${year}&month=${month}`,
+    { method: 'GET', businessId },
+  )
+  return res.data
+}
+
+export type SalesInvoiceShareBundleResult = {
+  publicUrl: string
+  invoiceCount: number
+}
+
+export async function createSalesInvoiceShareBundle(
+  businessId: string,
+  invoiceIds: string[],
+  recurrence?: SalesInvoiceRecurrencePayload | null,
+): Promise<SalesInvoiceShareBundleResult> {
+  const res = await apiRequest<{ data: SalesInvoiceShareBundleResult }>(
+    `/businesses/${businessId}/sales-invoices/share-bundles`,
+    {
+      method: 'POST',
+      businessId,
+      body: JSON.stringify({ invoiceIds, ...(recurrence ? { recurrence } : {}) }),
+    },
+  )
+  return res.data
+}
+
 function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = globalThis.document.createElement('a')
@@ -285,12 +372,20 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-export async function downloadSalesInvoicePdf(businessId: string, invoiceId: string): Promise<void> {
+export async function fetchSalesInvoicePdfBlob(
+  businessId: string,
+  invoiceId: string,
+): Promise<{ blob: Blob; filename: string }> {
   const { blob, filename } = await apiFetchBinary(
     `/businesses/${businessId}/sales-invoices/${invoiceId}/pdf`,
     { method: 'GET', businessId },
   )
-  triggerBlobDownload(blob, filename ?? `invoice-${invoiceId.slice(0, 8)}.pdf`)
+  return { blob, filename: filename ?? `invoice-${invoiceId.slice(0, 8)}.pdf` }
+}
+
+export async function downloadSalesInvoicePdf(businessId: string, invoiceId: string): Promise<void> {
+  const { blob, filename } = await fetchSalesInvoicePdfBlob(businessId, invoiceId)
+  triggerBlobDownload(blob, filename)
 }
 
 export async function downloadSalesQuotationPdf(

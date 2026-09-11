@@ -41,7 +41,12 @@ export async function listPlatformJournalEntries(pagination: {
   const where: Prisma.PlatformJournalEntryWhereInput = {};
   if (scope === "operator") {
     where.sourceType = {
-      in: [PlatformJournalSourceType.MANUAL, PlatformJournalSourceType.MANUAL_JOURNAL_REVERSAL],
+      in: [
+        PlatformJournalSourceType.MANUAL,
+        PlatformJournalSourceType.MANUAL_JOURNAL_REVERSAL,
+        PlatformJournalSourceType.MERCHANT_FUND_TRANSFER,
+        PlatformJournalSourceType.MERCHANT_FUND_TRANSFER_REVERSAL,
+      ],
     };
   }
   if (pagination.from?.trim() || pagination.to?.trim()) {

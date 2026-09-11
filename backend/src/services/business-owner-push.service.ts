@@ -140,16 +140,20 @@ function formatMoney(currency: string, amount: Prisma.Decimal | number | string)
 export async function notifyBusinessOwnersOfPayment(input: {
   businessId: string;
   orderPublicCode?: string | null;
+  invoicePublicCode?: string | null;
   paymentPublicCode: string;
   amount: Prisma.Decimal | number | string;
   currency: string;
   methodLabel: string;
   receiptPublicCode?: string | null;
+  /** Deep link when the owner taps the notification (HashRouter). */
+  url?: string | null;
 }) {
   const amount = formatMoney(input.currency, input.amount);
   const bodyParts = [
     `${input.methodLabel} payment received: ${amount}`,
     input.receiptPublicCode ? `Receipt ${input.receiptPublicCode}` : null,
+    input.invoicePublicCode ? `Invoice ${input.invoicePublicCode}` : null,
     input.orderPublicCode ? `Order ${input.orderPublicCode}` : null,
   ].filter((part): part is string => Boolean(part));
 
@@ -159,7 +163,9 @@ export async function notifyBusinessOwnersOfPayment(input: {
     icon: "/app_logo.png",
     badge: "/favicon-32x32.png",
     tag: `directpay-owner-payment-${input.paymentPublicCode}`,
-    url: "/#/payments",
+    url:
+      input.url?.trim() ||
+      (input.invoicePublicCode ? "/#/sales/invoices" : "/#/payments"),
   });
 
   await sendOwnerPushPayload(input.businessId, payload, "owner payment notification");
@@ -196,4 +202,33 @@ export async function notifyBusinessOwnersOfPayout(input: {
   });
 
   await sendOwnerPushPayload(input.businessId, payload, "owner payout notification");
+}
+
+export async function notifyBusinessOwnersOfFundTransfer(input: {
+  businessId: string;
+  transferId: string;
+  amount: Prisma.Decimal | number | string;
+  currency: string;
+  kind?: "received" | "reversed";
+}) {
+  const amount = formatMoney(input.currency, input.amount);
+  const reversed = input.kind === "reversed";
+  const payload = JSON.stringify({
+    title: reversed ? "Funds reversed" : "Funds received",
+    body: reversed
+      ? `DirectPay reversed a ${amount} settlement on your books`
+      : `DirectPay credited ${amount} to your books (bank / manual settlement)`,
+    icon: "/app_logo.png",
+    badge: "/favicon-32x32.png",
+    tag: reversed
+      ? `directpay-owner-fund-transfer-reversal-${input.transferId}`
+      : `directpay-owner-fund-transfer-${input.transferId}`,
+    url: "/#/accounting/transaction-journal",
+  });
+
+  await sendOwnerPushPayload(
+    input.businessId,
+    payload,
+    reversed ? "owner fund-transfer reversal notification" : "owner fund-transfer notification",
+  );
 }

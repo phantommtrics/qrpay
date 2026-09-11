@@ -12,8 +12,11 @@ import { useAuth } from '../../features/auth/AuthContext'
 import {
   ApiError,
   fetchPlatformAccountingChart,
+  fetchPlatformBusinessesList,
   fetchPlatformJournalEntries,
   postPlatformManualJournal,
+  postPlatformMerchantFundTransfer,
+  type PlatformBusinessListRow,
   type PlatformChartAccountDetail,
   type PlatformJournalEntryRow,
 } from '../../services/subscriptionApi'
@@ -89,8 +92,43 @@ export function PlatformOperatorJournalsPage() {
   const [formError, setFormError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null)
 
+  const [tab, setTab] = useState<'journal' | 'transfer'>('journal')
+  const [merchants, setMerchants] = useState<PlatformBusinessListRow[]>([])
+  const [transferBusinessId, setTransferBusinessId] = useState('')
+  const [transferAmount, setTransferAmount] = useState('')
+  const [transferCurrency, setTransferCurrency] = useState('GMD')
+  const [transferPostedAt, setTransferPostedAt] = useState(() => new Date().toISOString().slice(0, 10))
+  const [transferMemo, setTransferMemo] = useState('')
+  const [transferReference, setTransferReference] = useState('')
+  const [transferCreditAccountId, setTransferCreditAccountId] = useState('')
+  const [transferSubmitting, setTransferSubmitting] = useState(false)
+  const [transferError, setTransferError] = useState<string | null>(null)
+
   const dismissToast = useCallback(() => setToast(null), [])
   const lineSelectOptions = useMemo(() => accountOptions(accounts), [accounts])
+  const creditAccountOptions = useMemo(
+    () =>
+      accountOptions(
+        accounts.filter((a) => a.category === 'ASSET' || a.kind === 'BANK'),
+      ),
+    [accounts],
+  )
+  const merchantOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      merchants
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((m) => ({
+          value: m.id,
+          label: m.name,
+          hint: [m.ownerEmail, m.slug].filter(Boolean).join(' · '),
+        })),
+    [merchants],
+  )
+  const selectedMerchant = useMemo(
+    () => merchants.find((m) => m.id === transferBusinessId) ?? null,
+    [merchants, transferBusinessId],
+  )
   const totalDebit = useMemo(() => lines.reduce((sum, l) => sum + parseNum(l.debit), 0), [lines])
   const totalCredit = useMemo(() => lines.reduce((sum, l) => sum + parseNum(l.credit), 0), [lines])
   const outOfBalance = Math.abs(totalDebit - totalCredit) >= 0.005
@@ -116,6 +154,20 @@ export function PlatformOperatorJournalsPage() {
   useEffect(() => {
     loadAccounts()
   }, [loadAccounts])
+
+  useEffect(() => {
+    void fetchPlatformBusinessesList({ page: 1, pageSize: 500 })
+      .then((res) => setMerchants(res.data))
+      .catch(() => setMerchants([]))
+  }, [])
+
+  useEffect(() => {
+    if (transferCreditAccountId || accounts.length === 0) return
+    const waveClearing = accounts.find((a) => a.code === 'P-1200')
+    const firstAsset = accounts.find((a) => a.category === 'ASSET' || a.kind === 'BANK')
+    const pick = waveClearing ?? firstAsset
+    if (pick) setTransferCreditAccountId(pick.id)
+  }, [accounts, transferCreditAccountId])
 
   useEffect(() => {
     loadEntries()
@@ -191,6 +243,58 @@ export function PlatformOperatorJournalsPage() {
     }
   }
 
+  const submitTransfer = async (e: FormEvent) => {
+    e.preventDefault()
+    setTransferError(null)
+    setToast(null)
+    const amount = parseNum(transferAmount)
+    if (!transferBusinessId) {
+      const message = 'Select a merchant.'
+      setTransferError(message)
+      setToast({ message, variant: 'error' })
+      return
+    }
+    if (!transferCreditAccountId) {
+      const message = 'Select the platform account to credit.'
+      setTransferError(message)
+      setToast({ message, variant: 'error' })
+      return
+    }
+    if (amount <= 0) {
+      const message = 'Amount must be greater than zero.'
+      setTransferError(message)
+      setToast({ message, variant: 'error' })
+      return
+    }
+    setTransferSubmitting(true)
+    try {
+      await postPlatformMerchantFundTransfer({
+        businessId: transferBusinessId,
+        amount,
+        currency: transferCurrency.trim() || 'GMD',
+        postedAt: transferPostedAt,
+        memo: transferMemo.trim() || null,
+        reference: transferReference.trim() || null,
+        platformCreditAccountId: transferCreditAccountId,
+      })
+      const merchantName = selectedMerchant?.name?.trim() || 'the merchant'
+      setTransferAmount('')
+      setTransferMemo('')
+      setTransferReference('')
+      setToast({
+        message: `Settlement posted to ${merchantName}. The owner was notified.`,
+        variant: 'success',
+      })
+      loadEntries()
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not post the transfer.'
+      setTransferError(message)
+      setToast({ message, variant: 'error' })
+    } finally {
+      setTransferSubmitting(false)
+    }
+  }
+
   const fieldClass =
     'w-full rounded-sm border border-qb-border bg-white px-3 py-2 text-sm text-qb-heading placeholder:text-qb-muted/60 focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35'
 
@@ -250,9 +354,176 @@ export function PlatformOperatorJournalsPage() {
               .
             </p>
           </div>
+          {canCreate ? (
+            <div className="flex flex-wrap gap-0 border-b border-qb-border">
+              {(
+                [
+                  ['journal', 'Journal posting'],
+                  ['transfer', 'Transfer funds to a merchant'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    setTab(id)
+                    setFormError(null)
+                    setTransferError(null)
+                    setToast(null)
+                  }}
+                  className={`relative -mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+                    tab === id
+                      ? 'border-qb-primary text-qb-heading'
+                      : 'border-transparent text-qb-muted hover:border-qb-border hover:text-qb-heading'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </PageCard>
 
-        {canCreate ? (
+        {canCreate && tab === 'transfer' ? (
+          <PageCard
+            variant="default"
+            className="space-y-6 rounded-md border-qb-border p-5 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
+          >
+            <form noValidate onSubmit={(e) => void submitTransfer(e)} className="space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold text-qb-heading">Transfer funds to a merchant</h2>
+                <p className="mt-1 text-sm text-qb-muted">
+                  Credits a platform account you choose and debits that merchant&apos;s dedicated
+                  DirectPay settlement asset. Use this when you settle a merchant by bank and Wave
+                  payout is not available. The business owner is notified by push.
+                </p>
+              </div>
+
+              {transferError ? (
+                <div className="rounded-md border border-red-200 bg-red-50/80 p-3">
+                  <p className="text-sm font-medium text-red-800">{transferError}</p>
+                </div>
+              ) : null}
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <label className="block space-y-1.5 sm:col-span-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                    Merchant
+                  </span>
+                  <SearchableSelect
+                    value={transferBusinessId}
+                    onChange={setTransferBusinessId}
+                    options={merchantOptions}
+                    placeholder="Search merchant"
+                    emptyMessage="No merchants"
+                    noResultsMessage="No match"
+                    buttonClassName={QB_SELECT_TABLE}
+                    listMaxHeightClass={ACCOUNT_LIST_MAX}
+                    dropdownClassName={QB_DROPDOWN}
+                    listWindowInitial={20}
+                  />
+                  {selectedMerchant ? (
+                    <p className="rounded-sm border border-qb-border bg-qb-surface/60 px-2.5 py-2 text-xs text-qb-heading">
+                      Posts to <span className="font-semibold">{selectedMerchant.name}</span>
+                      {selectedMerchant.ownerEmail ? (
+                        <>
+                          {' '}
+                          · owner {selectedMerchant.ownerEmail}
+                        </>
+                      ) : null}
+                      {selectedMerchant.slug ? (
+                        <span className="text-qb-muted"> · {selectedMerchant.slug}</span>
+                      ) : null}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-qb-muted">
+                      Search by name or owner email and confirm the exact business before posting.
+                    </p>
+                  )}
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                    Credit platform account
+                  </span>
+                  <SearchableSelect
+                    value={transferCreditAccountId}
+                    onChange={setTransferCreditAccountId}
+                    options={creditAccountOptions}
+                    placeholder="Account to credit"
+                    emptyMessage="No accounts"
+                    noResultsMessage="No match"
+                    buttonClassName={QB_SELECT_TABLE}
+                    listMaxHeightClass={ACCOUNT_LIST_MAX}
+                    dropdownClassName={QB_DROPDOWN}
+                  />
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">Amount</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value)}
+                    className={fieldClass}
+                    placeholder="0.00"
+                  />
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                    Currency
+                  </span>
+                  <input
+                    value={transferCurrency}
+                    onChange={(e) => setTransferCurrency(e.target.value.toUpperCase())}
+                    className={fieldClass}
+                    maxLength={8}
+                  />
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">Date</span>
+                  <input
+                    type="date"
+                    value={transferPostedAt}
+                    onChange={(e) => setTransferPostedAt(e.target.value)}
+                    className={fieldClass}
+                  />
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                    Reference
+                  </span>
+                  <input
+                    value={transferReference}
+                    onChange={(e) => setTransferReference(e.target.value)}
+                    className={fieldClass}
+                    placeholder="Bank ref (optional)"
+                  />
+                </label>
+                <label className="block space-y-1.5 sm:col-span-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">Memo</span>
+                  <input
+                    value={transferMemo}
+                    onChange={(e) => setTransferMemo(e.target.value)}
+                    className={fieldClass}
+                    placeholder="Optional — defaults to a settlement memo"
+                  />
+                </label>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={transferSubmitting}
+                  className="rounded-sm border border-qb-border bg-white px-6 py-2.5 text-sm font-semibold text-qb-heading shadow-sm hover:bg-qb-surface disabled:opacity-50"
+                >
+                  {transferSubmitting ? 'Posting…' : 'Post settlement'}
+                </button>
+              </div>
+            </form>
+          </PageCard>
+        ) : null}
+
+        {canCreate && tab === 'journal' ? (
           <PageCard
             variant="default"
             className="space-y-6 rounded-md border-qb-border p-5 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
@@ -456,6 +727,7 @@ export function PlatformOperatorJournalsPage() {
                       <span className="rounded bg-white px-1.5 py-0.5">{e.sourceType}</span>
                     ) : null}
                     {e.memo ? <span>{e.memo}</span> : null}
+                    {e.business?.name ? <span>{e.business.name}</span> : null}
                     {e.reference ? <span className="font-mono">ref {e.reference}</span> : null}
                     {e.hasReversal ? (
                       <span className="text-amber-800">Reversed</span>

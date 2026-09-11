@@ -679,6 +679,57 @@ export async function fetchGuestInvoice(guestToken: string): Promise<GuestInvoic
   return (payload as { data: GuestInvoicePayload }).data
 }
 
+export type GuestInvoiceShareItem = {
+  id: string
+  publicCode: string
+  contactName: string
+  amount: number
+  currency: string
+  issueDate?: string | null
+  status: string
+  paidAt: string | null
+  canPay: boolean
+  guestToken: string | null
+}
+
+export type GuestInvoiceSharePayload = {
+  businessName: string
+  createdAt: string
+  recurrence?: {
+    id: string
+    frequency: string
+    intervalDays: number | null
+    customDates: string[]
+    nextIssueAt: string
+    endDate: string | null
+    active: boolean
+    publicUrl: string
+  } | null
+  invoices: GuestInvoiceShareItem[]
+}
+
+export async function fetchGuestInvoiceShareBundle(
+  shareToken: string,
+): Promise<GuestInvoiceSharePayload> {
+  const response = await fetch(
+    `${API_BASE_URL}/public/guest/invoice-share/${encodeURIComponent(shareToken)}`,
+  )
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    const errorMessage =
+      payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'Request failed.'
+    throw new ApiError(errorMessage, response.status)
+  }
+  return (payload as { data: GuestInvoiceSharePayload }).data
+}
+
 export async function fetchGuestInvoiceWallets(guestToken: string): Promise<OrderCheckoutWalletRow[]> {
   const response = await fetch(
     `${API_BASE_URL}/public/guest/invoice/${encodeURIComponent(guestToken)}/wallets`,
@@ -833,6 +884,10 @@ export type GuestPlatformBillPayload = {
   supplierName: string
   paidAt: string | null
   lines: GuestPlatformBillLine[]
+}
+
+export function guestInvoicePdfApiUrl(guestToken: string): string {
+  return `${API_BASE_URL}/public/guest/invoice/${encodeURIComponent(guestToken)}/pdf`
 }
 
 /** Public PDF download for platform purchase bill (no auth). */

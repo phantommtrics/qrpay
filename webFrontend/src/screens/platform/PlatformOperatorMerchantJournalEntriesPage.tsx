@@ -33,7 +33,7 @@ function platformEntryDebitTotal(e: PlatformJournalEntryRow): number {
 
 function canReversePlatformEntry(e: PlatformJournalEntryRow): boolean {
   return (
-    e.sourceType === 'MANUAL' &&
+    (e.sourceType === 'MANUAL' || e.sourceType === 'MERCHANT_FUND_TRANSFER') &&
     !e.reversesPlatformJournalEntryId &&
     !e.hasReversal &&
     !e.billPayment

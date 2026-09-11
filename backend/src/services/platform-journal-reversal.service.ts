@@ -1,10 +1,15 @@
-import { PlatformJournalSourceType, Prisma } from "@prisma/client";
+import { PlatformJournalSourceType, Prisma, SalesLedgerEntryType } from "@prisma/client";
 
 import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
+import { notifyBusinessOwnersOfFundTransfer } from "./business-owner-push.service.js";
+import { reverseMerchantJournalForPlatformFundTransfer } from "./merchant-payout-journal.service.js";
 
 function canReversePlatformSourceType(st: PlatformJournalSourceType | null): boolean {
-  return st === PlatformJournalSourceType.MANUAL;
+  return (
+    st === PlatformJournalSourceType.MANUAL ||
+    st === PlatformJournalSourceType.MERCHANT_FUND_TRANSFER
+  );
 }
 
 export async function getPlatformJournalEntryForReversalDetail(journalEntryId: string) {
@@ -33,7 +38,7 @@ export async function getPlatformJournalEntryForReversalDetail(journalEntryId: s
       "Entries linked to a platform purchase bill payment cannot be reversed here. Use supplier bill workflows.";
   } else if (!canReversePlatformSourceType(row.sourceType)) {
     blockReason =
-      "Only manual platform journals can be reversed here. Automated subscription and checkout entries use other workflows.";
+      "Only manual journals and merchant fund transfers can be reversed here. Automated subscription and checkout entries use other workflows.";
   }
 
   let dr = new Prisma.Decimal(0);
@@ -77,7 +82,7 @@ export async function reversePlatformJournalEntry(
     throw new HttpError(400, "Invalid posted date.");
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const original = await tx.platformJournalEntry.findUnique({
       where: { id: journalEntryId },
       include: {
@@ -104,7 +109,7 @@ export async function reversePlatformJournalEntry(
       );
     }
     if (!canReversePlatformSourceType(original.sourceType)) {
-      throw new HttpError(400, "Only manual platform journals can be reversed here.");
+      throw new HttpError(400, "Only manual journals and merchant fund transfers can be reversed here.");
     }
 
     const existingReversal = await tx.platformJournalEntry.findFirst({
@@ -124,13 +129,18 @@ export async function reversePlatformJournalEntry(
       original.memo?.trim() ? `Original memo: ${original.memo.trim()}` : null,
     ].filter(Boolean);
 
+    const isFundTransfer =
+      original.sourceType === PlatformJournalSourceType.MERCHANT_FUND_TRANSFER;
     const reversal = await tx.platformJournalEntry.create({
       data: {
         postedAt,
         memo: memoParts.join(" | "),
         reference: original.reference?.trim() || null,
-        sourceType: PlatformJournalSourceType.MANUAL_JOURNAL_REVERSAL,
+        sourceType: isFundTransfer
+          ? PlatformJournalSourceType.MERCHANT_FUND_TRANSFER_REVERSAL
+          : PlatformJournalSourceType.MANUAL_JOURNAL_REVERSAL,
         sourceId: original.id,
+        businessId: original.businessId,
         reversesPlatformJournalEntryId: original.id,
         lines: {
           create: original.lines.map((ln) => {
@@ -156,6 +166,40 @@ export async function reversePlatformJournalEntry(
       },
     });
 
-    return reversal;
+    if (isFundTransfer) {
+      await reverseMerchantJournalForPlatformFundTransfer(tx, original.id, postedAt);
+    }
+
+    const transferAmount = original.lines.reduce((max, ln) => {
+      return ln.debitAmount.gt(max) ? ln.debitAmount : max;
+    }, new Prisma.Decimal(0));
+
+    return {
+      reversal,
+      fundTransferNotify:
+        isFundTransfer && original.businessId
+          ? { businessId: original.businessId, amount: transferAmount, originalId: original.id }
+          : null,
+    };
   });
+
+  if (result.fundTransferNotify) {
+    const ledger = await prisma.salesLedgerEntry.findFirst({
+      where: {
+        businessId: result.fundTransferNotify.businessId,
+        type: SalesLedgerEntryType.PLATFORM_FUND_TRANSFER,
+        providerPaymentRef: result.fundTransferNotify.originalId,
+      },
+      select: { amount: true, currency: true },
+    });
+    void notifyBusinessOwnersOfFundTransfer({
+      businessId: result.fundTransferNotify.businessId,
+      transferId: result.reversal.id,
+      amount: ledger?.amount ?? result.fundTransferNotify.amount,
+      currency: ledger?.currency ?? "GMD",
+      kind: "reversed",
+    });
+  }
+
+  return result.reversal;
 }

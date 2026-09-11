@@ -274,7 +274,7 @@ export async function acceptSalesQuotation(businessId: string, quotationId: stri
         },
       },
       include: {
-        contact: { select: { id: true, name: true, email: true } },
+        contact: { select: { id: true, name: true, email: true, phone: true } },
         sourceQuotation: { select: { id: true, publicCode: true } },
         journalEntry: { select: { id: true, postedAt: true } },
         lines: {

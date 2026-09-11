@@ -29,6 +29,8 @@ export const PLATFORM_CHART_SELF_SETTLEMENT_WITHHOLD = "P-4010";
 export const PLATFORM_CHART_SELF_SETTLEMENT_PAYOUTS = "P-4920";
 /** Wave Operations supplier payouts (single/bulk) plus Wave payout fee. */
 export const PLATFORM_CHART_WAVE_OPS_PAYOUTS = "P-4930";
+/** Admin bank / manual settlement to a merchant (no Wave payout). */
+export const PLATFORM_CHART_MERCHANT_FUND_TRANSFERS = "P-4940";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -115,6 +117,14 @@ const DEFAULT_PLATFORM_ACCOUNTS: Array<{
     name: "Wave operations payouts",
     description:
       "Direct cost of Wave Operations supplier payouts (single or bulk), including Wave payout fees.",
+    category: ChartAccountCategory.EXPENSE,
+    isSystem: true,
+  },
+  {
+    code: PLATFORM_CHART_MERCHANT_FUND_TRANSFERS,
+    name: "Merchant bank / manual settlements",
+    description:
+      "Direct cost when platform admin moves funds to a merchant on the books (bank transfer or other settlement) without a Wave payout.",
     category: ChartAccountCategory.EXPENSE,
     isSystem: true,
   },

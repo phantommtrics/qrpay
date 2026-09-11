@@ -5,6 +5,8 @@ import {
   Check,
   ChevronDown,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
 } from 'lucide-react'
@@ -16,9 +18,13 @@ import { useAuth } from '../features/auth/AuthContext'
 export function Header({
   title,
   onMenuClick,
+  collapsed,
+  onToggleCollapsed,
 }: {
   title: string
   onMenuClick: () => void
+  collapsed: boolean
+  onToggleCollapsed: () => void
 }) {
   const navigate = useNavigate()
   const {
@@ -74,6 +80,15 @@ export function Header({
           className="mr-3 -ml-2 rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden"
         >
           <Menu className="h-6 w-6" />
+        </button>
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          title={collapsed ? 'Show menu labels' : 'Hide menu labels'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="mr-3 -ml-2 hidden rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:inline-flex"
+        >
+          {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
         </button>
         <h1 className="text-xl font-semibold text-slate-800">{title}</h1>
       </div>

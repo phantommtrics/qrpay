@@ -1,5 +1,8 @@
 import type { Prisma } from "@prisma/client";
 
+import { guestInvoiceUrl } from "../lib/public-guest-urls.js";
+import { formatRecurrenceApi } from "./sales-invoice-recurrence.service.js";
+
 function decNum(v: Prisma.Decimal | number): number {
   return typeof v === "number" ? v : Number(v.toString());
 }
@@ -87,9 +90,22 @@ export function formatSalesInvoiceApi(inv: {
   paidAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
-  contact: { id: string; name: string; email: string | null };
+  contact: { id: string; name: string; email: string | null; phone?: string | null };
   sourceQuotation: { id: string; publicCode: string } | null;
   journalEntry?: { id: string; postedAt: Date } | null;
+  guestToken?: string | null;
+  recurrence?: {
+    id: string;
+    publicToken: string;
+    frequency: string;
+    intervalDays: number | null;
+    customDates: unknown;
+    nextIssueAt: Date;
+    generateHour?: number | null;
+    generateMinute?: number | null;
+    endDate: Date | null;
+    active: boolean;
+  } | null;
   lines: Array<{
     id: string;
     chartOfAccountId: string;
@@ -119,11 +135,18 @@ export function formatSalesInvoiceApi(inv: {
     paidAt: inv.paidAt?.toISOString() ?? null,
     createdAt: inv.createdAt.toISOString(),
     updatedAt: inv.updatedAt.toISOString(),
-    contact: inv.contact,
+    contact: {
+      id: inv.contact.id,
+      name: inv.contact.name,
+      email: inv.contact.email,
+      phone: inv.contact.phone ?? null,
+    },
     sourceQuotation: inv.sourceQuotation,
     journalEntry: inv.journalEntry
       ? { id: inv.journalEntry.id, postedAt: inv.journalEntry.postedAt.toISOString() }
       : null,
+    guestPayUrl: inv.guestToken?.trim() ? guestInvoiceUrl(inv.guestToken.trim()) : null,
+    recurrence: formatRecurrenceApi(inv.recurrence ?? null),
     lines: inv.lines.map(formatSalesLineRow),
   };
 }

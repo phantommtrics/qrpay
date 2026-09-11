@@ -10,6 +10,7 @@ import {
 } from "./order-wallet-checkout.service.js";
 import { formatSalesInvoiceApi, formatSalesQuotationApi } from "./sales-document-api-format.js";
 import { acceptSalesQuotation, rejectSalesQuotation } from "./sales-quotation.service.js";
+import { renderSalesInvoicePdfDownload } from "./sales-document-pdf.service.js";
 
 const quotationGuestInclude = {
   contact: { select: { id: true, name: true, email: true } },
@@ -22,7 +23,7 @@ const quotationGuestInclude = {
 } as const;
 
 const invoiceGuestInclude = {
-  contact: { select: { id: true, name: true, email: true } },
+  contact: { select: { id: true, name: true, email: true, phone: true } },
   sourceQuotation: { select: { id: true, publicCode: true } },
   journalEntry: { select: { id: true, postedAt: true } },
   lines: {
@@ -182,4 +183,22 @@ export async function startGuestInvoiceWalletCheckout(
     req,
   });
   return { ...result, invoicePublicCode: inv.publicCode };
+}
+
+export async function renderGuestSalesInvoicePdf(guestToken: string): Promise<{
+  buffer: Buffer;
+  filename: string;
+}> {
+  const t = guestToken?.trim();
+  if (!t) {
+    throw new HttpError(400, "Invalid link.");
+  }
+  const inv = await prisma.salesInvoice.findUnique({
+    where: { guestToken: t },
+    select: { id: true, businessId: true },
+  });
+  if (!inv) {
+    throw new HttpError(404, "Invoice not found.");
+  }
+  return renderSalesInvoicePdfDownload(inv.businessId, inv.id);
 }

@@ -5,6 +5,7 @@ import { newGuestToken } from "../lib/guest-token.js";
 import { prisma } from "../lib/prisma.js";
 import { allocateInvoicePublicCode } from "./sales-document-code.service.js";
 import { queueSalesInvoiceApprovedEmail } from "./sales-invoice-email.service.js";
+import { attachRecurrenceToNewInvoice, type SalesInvoiceRecurrenceInput } from "./sales-invoice-recurrence.service.js";
 import {
   type ManualJournalLineInput,
   postMoneyInJournalForSalesInvoice,
@@ -40,9 +41,23 @@ function linesToJournalInput(
 }
 
 const invoiceInclude = {
-  contact: { select: { id: true, name: true, email: true } },
+  contact: { select: { id: true, name: true, email: true, phone: true } },
   sourceQuotation: { select: { id: true, publicCode: true } },
   journalEntry: { select: { id: true, postedAt: true } },
+  recurrence: {
+    select: {
+      id: true,
+      publicToken: true,
+      frequency: true,
+      intervalDays: true,
+      customDates: true,
+      nextIssueAt: true,
+      generateHour: true,
+      generateMinute: true,
+      endDate: true,
+      active: true,
+    },
+  },
   lines: {
     orderBy: { sortOrder: "asc" as const },
     include: { chartOfAccount: { select: { id: true, code: true, name: true } } },
@@ -79,10 +94,11 @@ export async function createSalesInvoice(
     /** Bank/cash asset where online wallet proceeds should be recorded when the invoice is paid. */
     settlementChartAccountId?: string | null;
     lines: SalesLineInput[];
+    recurrence?: SalesInvoiceRecurrenceInput | null;
   },
 ) {
   assertLines(input.lines);
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const contact = await tx.businessContact.findFirst({
       where: { id: input.contactId, businessId },
     });
@@ -127,16 +143,20 @@ export async function createSalesInvoice(
           })),
         },
       },
-      include: {
-        contact: { select: { id: true, name: true, email: true } },
-        sourceQuotation: { select: { id: true, publicCode: true } },
-        lines: {
-          orderBy: { sortOrder: "asc" },
-          include: { chartOfAccount: { select: { id: true, code: true, name: true } } },
-        },
-      },
+      include: invoiceInclude,
     });
   });
+  if (input.recurrence) {
+    await attachRecurrenceToNewInvoice({
+      businessId,
+      invoiceId: created.id,
+      issueDate: input.issueDate,
+      dueDate: input.dueDate ?? null,
+      recurrence: input.recurrence,
+    });
+    return getSalesInvoiceById(businessId, created.id);
+  }
+  return created;
 }
 
 export async function updateSalesInvoiceDraft(
@@ -224,19 +244,12 @@ export async function updateSalesInvoiceDraft(
             }
           : {}),
       },
-      include: {
-        contact: { select: { id: true, name: true, email: true } },
-        sourceQuotation: { select: { id: true, publicCode: true } },
-        lines: {
-          orderBy: { sortOrder: "asc" },
-          include: { chartOfAccount: { select: { id: true, code: true, name: true } } },
-        },
-      },
+      include: invoiceInclude,
     });
   });
 }
 
-/** Approve / issue invoice — emails the business contact (requires contact email). GL is not posted until paid. */
+/** Approve / issue invoice — mints a guest pay link. Emails the contact when an address is on file. */
 export async function approveSalesInvoice(businessId: string, invoiceId: string) {
   const inv = await prisma.salesInvoice.findFirst({
     where: { id: invoiceId, businessId },
@@ -251,13 +264,6 @@ export async function approveSalesInvoice(businessId: string, invoiceId: string)
   if (!inv.lines.length) {
     throw new HttpError(400, "Invoice has no lines.");
   }
-  const email = inv.contact.email?.trim();
-  if (!email) {
-    throw new HttpError(
-      400,
-      "The invoice contact must have an email address before you can approve and notify them.",
-    );
-  }
 
   const updated = await prisma.salesInvoice.update({
     where: { id: invoiceId },
@@ -266,14 +272,7 @@ export async function approveSalesInvoice(businessId: string, invoiceId: string)
       approvedAt: new Date(),
       guestToken: inv.guestToken ?? newGuestToken(),
     },
-    include: {
-      contact: { select: { id: true, name: true, email: true } },
-      sourceQuotation: { select: { id: true, publicCode: true } },
-      lines: {
-        orderBy: { sortOrder: "asc" },
-        include: { chartOfAccount: { select: { id: true, code: true, name: true } } },
-      },
-    },
+    include: invoiceInclude,
   });
 
   queueSalesInvoiceApprovedEmail(invoiceId);
@@ -342,7 +341,7 @@ export async function markSalesInvoicePaid(
     return tx.salesInvoice.findFirstOrThrow({
       where: { id: inv.id },
       include: {
-        contact: { select: { id: true, name: true, email: true } },
+        contact: { select: { id: true, name: true, email: true, phone: true } },
         sourceQuotation: { select: { id: true, publicCode: true } },
         journalEntry: { select: { id: true, postedAt: true } },
         lines: {
@@ -454,7 +453,7 @@ export async function voidSalesInvoice(businessId: string, invoiceId: string) {
     where: { id: invoiceId },
     data: { status: SalesInvoiceStatus.VOID },
     include: {
-      contact: { select: { id: true, name: true, email: true } },
+      contact: { select: { id: true, name: true, email: true, phone: true } },
       sourceQuotation: { select: { id: true, publicCode: true } },
       lines: {
         orderBy: { sortOrder: "asc" },

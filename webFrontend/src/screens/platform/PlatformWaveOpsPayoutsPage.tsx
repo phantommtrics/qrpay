@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { generatePath, Link, useNavigate } from 'react-router-dom'
-import { Loader2, Plus, Search, Trash2, Waves } from 'lucide-react'
+import { Download, Loader2, Plus, Search, Trash2, Upload, Waves } from 'lucide-react'
 
 import { PageCard } from '../../components/ui/PageCard'
 import { PageTransition } from '../../components/ui/PageTransition'
@@ -9,21 +9,40 @@ import { APP_PATHS } from '../../config/navigation'
 import { useAuth } from '../../features/auth/AuthContext'
 import {
   ApiError,
+  applyWaveOpsPayoutCsv,
   createWaveOpsPayout,
   createWaveOpsPayoutBulk,
   fetchPlatformSuppliers,
   fetchWaveOpsAggregatedMerchants,
   fetchWaveOpsPayouts,
+  previewWaveOpsPayoutCsv,
   searchWaveOpsPayouts,
   type PlatformSupplierRow,
   type WaveOpsAggregatedMerchant,
+  type WaveOpsPayoutCsvPreview,
   type WaveOpsPayoutRow,
 } from '../../services/subscriptionApi'
 import { isPlatformOperator } from '../../utils/platformOperator'
 
-type Tab = 'single' | 'bulk' | 'history'
+type Tab = 'single' | 'bulk' | 'csv' | 'history'
 
 type BulkRow = { key: string; supplierId: string; receiveAmount: string; clientReference: string }
+
+function csvCell(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`
+}
+
+const CSV_TEMPLATE_HEADERS = ['name', 'phone', 'amount', 'email', 'client_reference'] as const
+
+const CSV_TEMPLATE_ROWS: string[][] = [
+  ['Jane Doe', '+2201234567', '1500', 'jane@example.com', 'September payout'],
+  ['Kebba Jallow', '+2207654321', '250', '', ''],
+]
+
+/** Quoted cells + UTF-8 BOM so Excel keeps +220 phones as text. */
+const CSV_TEMPLATE = `\uFEFF${[CSV_TEMPLATE_HEADERS, ...CSV_TEMPLATE_ROWS]
+  .map((row) => row.map(csvCell).join(','))
+  .join('\r\n')}\r\n`
 
 const fieldInput =
   'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600/30'
@@ -76,6 +95,10 @@ export function PlatformWaveOpsPayoutsPage() {
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([
     { key: '1', supplierId: '', receiveAmount: '', clientReference: '' },
   ])
+  const [csvFileName, setCsvFileName] = useState<string | null>(null)
+  const [csvText, setCsvText] = useState('')
+  const [csvPreview, setCsvPreview] = useState<WaveOpsPayoutCsvPreview | null>(null)
+  const [csvBusy, setCsvBusy] = useState(false)
 
   const supplierOptions = useMemo(
     () => [...suppliers].sort((a, b) => a.name.localeCompare(b.name)),
@@ -184,6 +207,69 @@ export function PlatformWaveOpsPayoutsPage() {
     }
   }
 
+  const submitCsv = async () => {
+    if (!aggregatedMerchantId) {
+      setError('Choose a Wave aggregated merchant (platform or business) to debit.')
+      return
+    }
+    if (!csvPreview || csvPreview.errorCount > 0) {
+      setError('Fix CSV row errors before submitting the batch.')
+      return
+    }
+    if (csvPreview.validCount < 1 || !csvText.trim()) {
+      setError('CSV has no valid payout rows.')
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const batch = await applyWaveOpsPayoutCsv({
+        csv: csvText,
+        aggregatedMerchantId,
+      })
+      navigate(generatePath(APP_PATHS.platformWaveOpsPayoutBatchDetail, { batchId: batch.id }))
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'CSV bulk payout failed.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const downloadCsvTemplate = () => {
+    const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'wave-payout-template.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const clearCsv = () => {
+    setCsvFileName(null)
+    setCsvText('')
+    setCsvPreview(null)
+    setCsvBusy(false)
+  }
+
+  const onCsvFile = async (file: File | null) => {
+    if (!file) return
+    setCsvBusy(true)
+    setError(null)
+    try {
+      const text = await file.text()
+      const preview = await previewWaveOpsPayoutCsv(text)
+      setCsvFileName(file.name)
+      setCsvText(text)
+      setCsvPreview(preview)
+    } catch (e) {
+      clearCsv()
+      setError(e instanceof ApiError ? e.message : 'Could not preview CSV.')
+    } finally {
+      setCsvBusy(false)
+    }
+  }
+
   const runSearch = async () => {
     if (!searchRef.trim()) return
     setLoading(true)
@@ -215,6 +301,7 @@ export function PlatformWaveOpsPayoutsPage() {
       ? ([
           ['single', 'Single payout'],
           ['bulk', 'Bulk payout'],
+          ['csv', 'Upload CSV'],
         ] as [Tab, string][])
       : []),
   ]
@@ -511,6 +598,191 @@ export function PlatformWaveOpsPayoutsPage() {
                   {loading ? 'Submitting…' : 'Submit batch'}
                 </button>
               </div>
+            </div>
+          ) : null}
+
+          {tab === 'csv' && canManage ? (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Upload a CSV to preview recipients, then submit as one Wave payout batch. New recipients are added to Contacts;
+                existing matches update name, phone, and email.
+              </p>
+              <label className="block max-w-xl text-sm">
+                <span className="mb-1.5 block font-medium text-slate-700">
+                  Aggregated merchant
+                </span>
+                <SearchableSelect
+                  value={aggregatedMerchantId}
+                  onChange={setAggregatedMerchantId}
+                  options={merchantOptions}
+                  placeholder="Select platform or business merchant…"
+                  emptyMessage="No aggregated merchants"
+                  noResultsMessage="No matching merchant"
+                  ariaLabel="Aggregated merchant for CSV payout"
+                  matchOptionValue
+                  listWindowInitial={6}
+                  listWindowStep={6}
+                  buttonClassName="rounded-lg px-3 py-2 text-sm"
+                />
+              </label>
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-4 sm:p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="max-w-xl space-y-1">
+                    <p className="text-sm font-medium text-slate-800">Download template, then upload</p>
+                    <p className="text-sm text-slate-600">
+                      Required columns: name, phone, amount. Optional: email, client_reference. Keep
+                      phones in international format (e.g. +220…). Amounts must be whole numbers                      to 100 payouts.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={downloadCsvTemplate}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+                    >
+                      <Download className="h-4 w-4" />
+                      Download template
+                    </button>
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-teal-700 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-teal-800">
+                      {csvBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="h-4 w-4" />
+                      )}
+                      {csvFileName ?? 'Upload filled CSV'}
+                      <input
+                        type="file"
+                        accept=".csv,text/csv"
+                        className="sr-only"
+                        disabled={csvBusy || loading}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] ?? null
+                          e.target.value = ''
+                          void onCsvFile(file)
+                        }}
+                      />
+                    </label>
+                    {csvPreview ? (
+                      <button
+                        type="button"
+                        onClick={clearCsv}
+                        className="rounded-xl px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-800"
+                      >
+                        Clear
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                  <table className="min-w-full text-left text-xs">
+                    <thead className="bg-white text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      <tr>
+                        {CSV_TEMPLATE_HEADERS.map((h) => (
+                          <th key={h} className="px-3 py-2 font-mono font-medium">
+                            {h}
+                            {h === 'email' || h === 'client_reference' ? (
+                              <span className="ml-1 font-sans font-normal normal-case tracking-normal text-slate-400">
+                                optional
+                              </span>
+                            ) : null}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-600">
+                      {CSV_TEMPLATE_ROWS.map((row, i) => (
+                        <tr key={i}>
+                          {row.map((cell, j) => (
+                            <td key={j} className="px-3 py-2 font-mono">
+                              {cell || '—'}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              {csvPreview ? (
+                <div>
+                  <p className="mb-2 text-xs text-slate-600">
+                    {csvPreview.validCount} ready · {csvPreview.createCount} new contacts ·{' '}
+                    {csvPreview.updateCount} updates
+                    {csvPreview.errorCount > 0
+                      ? ` · ${csvPreview.errorCount} row${csvPreview.errorCount === 1 ? '' : 's'} with errors`
+                      : ''}
+                  </p>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2">Line</th>
+                          <th className="px-3 py-2">Contact</th>
+                          <th className="px-3 py-2">Phone</th>
+                          <th className="px-3 py-2">Amount</th>
+                          <th className="px-3 py-2">Reference</th>
+                          <th className="px-3 py-2">Contact action</th>
+                          <th className="px-3 py-2">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {csvPreview.rows.map((row) => (
+                          <tr key={row.line} className={row.error ? 'bg-rose-50/70' : undefined}>
+                            <td className="px-3 py-2 tabular-nums text-slate-500">{row.line}</td>
+                            <td className="px-3 py-2 text-slate-800">
+                              {row.name || '—'}
+                              {row.email ? (
+                                <span className="mt-0.5 block text-xs text-slate-500">{row.email}</span>
+                              ) : null}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs text-slate-700">{row.phone || '—'}</td>
+                            <td className="px-3 py-2 tabular-nums text-slate-800">{row.amount ?? '—'}</td>
+                            <td className="px-3 py-2 text-xs text-slate-600">{row.clientReference || '—'}</td>
+                            <td className="px-3 py-2">
+                              {row.contactAction === 'create' ? (
+                                <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-800">
+                                  New contact
+                                </span>
+                              ) : null}
+                              {row.contactAction === 'update' ? (
+                                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">
+                                  Update contact
+                                </span>
+                              ) : null}
+                              {row.contactAction === 'match' ? (
+                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                                  Existing
+                                </span>
+                              ) : null}
+                              {row.matchedSupplierName && row.contactAction === 'update' ? (
+                                <span className="mt-1 block text-xs text-slate-500">
+                                  Was {row.matchedSupplierName}
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-rose-700">{row.error ?? ''}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null}
+              <button
+                type="button"
+                disabled={
+                  loading ||
+                  csvBusy ||
+                  !aggregatedMerchantId ||
+                  !csvPreview ||
+                  csvPreview.errorCount > 0 ||
+                  csvPreview.validCount < 1
+                }
+                onClick={() => void submitCsv()}
+                className="inline-flex rounded-xl bg-teal-700 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-teal-800 disabled:opacity-50"
+              >
+                {loading ? 'Submitting…' : 'Submit batch'}
+              </button>
             </div>
           ) : null}
 

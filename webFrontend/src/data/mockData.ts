@@ -826,22 +826,6 @@ export const REVENUE_DATA = [
   { name: 'Sun', revenue: 8200 },
 ]
 
-export const CATEGORY_DATA = [
-  { name: 'Beverages', value: 4500 },
-  { name: 'Mains', value: 3200 },
-  { name: 'Snacks', value: 1800 },
-  { name: 'Household', value: 2950 },
-]
-
-export const TOP_PRODUCTS = [
-  { name: 'Coca-Cola 500ml', sales: 120 },
-  { name: 'Grilled Chicken', sales: 85 },
-  { name: 'Local Rice 5kg', sales: 64 },
-  { name: 'Bottled Water', sales: 210 },
-]
-
-export const COLORS = ['#0D9488', '#F59E0B', '#3B82F6', '#8B5CF6']
-
 export const CASH_ACCOUNT_BALANCES: CashAccountBalance[] = [
   {
     id: 'cash-b1-bank',

@@ -3,6 +3,8 @@ import { ArrowLeft, FileDown, Loader2, Printer } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 
 import { SalesDocumentPaper } from '../components/sales/SalesDocumentPaper'
+import { ShareGuestInvoiceControls } from '../components/sales/ShareGuestInvoiceControls'
+import { recurrenceSummary } from '../components/sales/InvoiceRecurrenceFields'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { APP_PATHS } from '../config/navigation'
@@ -108,6 +110,36 @@ export function SalesInvoiceDetailPage() {
               Export PDF
             </button>
           </div>
+          {row?.guestPayUrl ? (
+            <ShareGuestInvoiceControls
+              businessId={businessId}
+              invoiceId={row.id}
+              publicCode={row.publicCode}
+              businessName={businessName}
+              currency={row.currency}
+              total={row.lines.reduce((s, l) => s + l.quantity * l.unitAmount + l.taxAmount, 0)}
+              guestPayUrl={row.guestPayUrl}
+              contactPhone={row.contact.phone}
+            />
+          ) : null}
+          {row?.recurrence ? (
+            <div className="rounded-md border border-qb-border bg-qb-surface/50 px-4 py-3 text-sm">
+              <p className="font-medium text-qb-heading">{recurrenceSummary(row.recurrence)}</p>
+              {row.recurrence.nextIssueAt ? (
+                <p className="mt-1 text-xs text-qb-muted">
+                  Next invoice {new Date(row.recurrence.nextIssueAt).toLocaleDateString()}
+                </p>
+              ) : null}
+              <a
+                href={row.recurrence.publicUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block font-medium text-teal-800 hover:text-teal-900"
+              >
+                Open series share link
+              </a>
+            </div>
+          ) : null}
         </PageCard>
 
         {loading ? (

@@ -5,6 +5,7 @@ import {
   CHART_CODE_CASH_ON_HAND,
   CHART_CODE_MERCHANT_WALLET_CLEARING,
   CHART_CODE_MOBILE_MONEY,
+  CHART_CODE_PLATFORM_FUND_TRANSFERS,
   CHART_CODE_WAVE_MERCHANT_PAYOUTS,
   ensureDefaultChartOfAccountsForBusiness,
 } from "./chart-of-accounts.service.js";
@@ -148,6 +149,7 @@ export async function getAccountingSummaryForBusiness(businessId: string) {
     CHART_CODE_MERCHANT_WALLET_CLEARING,
     CHART_CODE_MOBILE_MONEY,
     CHART_CODE_WAVE_MERCHANT_PAYOUTS,
+    CHART_CODE_PLATFORM_FUND_TRANSFERS,
   ]);
   const cashPositions = accounts.filter((a) => cashCodeSet.has(a.code));
   const cashTotal = cashPositions.reduce((s, a) => s + a.balance, 0);

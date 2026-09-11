@@ -5,6 +5,7 @@ import { useAuth } from '../features/auth/AuthContext'
 import { getPageTitle } from '../config/navigation'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
+import { persistSidebarCollapsed, readSidebarCollapsed } from './sidebarCollapse'
 
 function AppMainContent({ children }: { children: ReactNode }) {
   const { user, currentOrganization, organizations, setActiveOrganization } = useAuth()
@@ -66,17 +67,40 @@ export function AppLayout({
   children: ReactNode
 }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(readSidebarCollapsed)
   const location = useLocation()
 
   const title = useMemo(() => getPageTitle(location.pathname), [location.pathname])
 
+  function toggleSidebarCollapsed() {
+    setIsSidebarCollapsed((current) => {
+      const next = !current
+      persistSidebarCollapsed(next)
+      return next
+    })
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 print:min-h-0 print:h-auto print:overflow-visible print:bg-white">
-      <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
+      <Sidebar
+        isOpen={isSidebarOpen}
+        setIsOpen={setIsSidebarOpen}
+        collapsed={isSidebarCollapsed}
+        onToggleCollapsed={toggleSidebarCollapsed}
+      />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden print:overflow-visible">
-        <Header title={title} onMenuClick={() => setIsSidebarOpen(true)} />
+        <Header
+          title={title}
+          onMenuClick={() => setIsSidebarOpen(true)}
+          collapsed={isSidebarCollapsed}
+          onToggleCollapsed={toggleSidebarCollapsed}
+        />
         <main className="flex-1 overflow-y-auto p-4 lg:p-8 print:overflow-visible print:p-6">
-          <div className="mx-auto h-full max-w-7xl print:max-w-none">
+          <div
+            className={`mx-auto h-full print:max-w-none ${
+              isSidebarCollapsed ? 'max-w-[90rem]' : 'max-w-7xl'
+            }`}
+          >
             <AppMainContent>{children}</AppMainContent>
           </div>
         </main>

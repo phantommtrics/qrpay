@@ -1755,6 +1755,7 @@ export type PlatformInvoiceDetail = PlatformInvoiceRow & {
     currentPeriodEnd: string
     createdAt: string
   }
+  guestPayUrl?: string | null
 }
 
 export async function fetchPlatformInvoiceDetail(invoiceId: string) {
@@ -1762,6 +1763,45 @@ export async function fetchPlatformInvoiceDetail(invoiceId: string) {
     `/platform/invoices/${invoiceId}`,
   )
   return response.data
+}
+
+export async function fetchPlatformInvoicePdfBlob(
+  invoiceId: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const token = getStoredToken()
+  const headers = new Headers()
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  const response = await fetch(`${API_BASE_URL}/platform/invoices/${invoiceId}/pdf`, { headers })
+  if (!response.ok) {
+    throw new ApiError('Could not download invoice PDF.', response.status)
+  }
+  const blob = await response.blob()
+  let filename = `invoice-${invoiceId.slice(0, 8)}.pdf`
+  const cd = response.headers.get('Content-Disposition')
+  if (cd) {
+    const m = /filename\*?=(?:UTF-8''|")?([^";\n]+)/i.exec(cd)
+    if (m) {
+      try {
+        filename = decodeURIComponent(m[1].replace(/"/g, '').trim())
+      } catch {
+        filename = m[1].replace(/"/g, '').trim()
+      }
+    }
+  }
+  return { blob, filename }
+}
+
+export async function downloadPlatformInvoicePdf(invoiceId: string): Promise<void> {
+  const { blob, filename } = await fetchPlatformInvoicePdfBlob(invoiceId)
+  const url = URL.createObjectURL(blob)
+  const a = globalThis.document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.rel = 'noopener'
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 export type ManualRefundReviewStatus =
@@ -3143,6 +3183,24 @@ export async function postPlatformManualJournal(body: {
   return res.data
 }
 
+export async function postPlatformMerchantFundTransfer(body: {
+  businessId: string
+  amount: number
+  currency?: string
+  postedAt: string
+  memo?: string | null
+  reference?: string | null
+  platformCreditAccountId: string
+}) {
+  const res = await apiRequest<{
+    data: { id: string; merchantJournalId: string }
+  }>('/platform/accounting/journal-entries/merchant-fund-transfer', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  return res.data
+}
+
 export type PlatformChartAccountDetail = {
   id: string
   code: string
@@ -3715,6 +3773,48 @@ export async function createWaveOpsPayoutBulk(body: {
 }): Promise<WaveOpsPayoutBatchRow> {
   const res = await apiRequest<{ data: WaveOpsPayoutBatchRow }>(
     '/platform/wave-operations/payouts/bulk',
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+  return res.data
+}
+
+export type WaveOpsPayoutCsvContactAction = 'create' | 'update' | 'match'
+
+export type WaveOpsPayoutCsvPreviewRow = {
+  line: number
+  name: string
+  phone: string
+  email: string | null
+  amount: string | null
+  clientReference: string | null
+  contactAction: WaveOpsPayoutCsvContactAction | null
+  matchedSupplierId: string | null
+  matchedSupplierName: string | null
+  error: string | null
+}
+
+export type WaveOpsPayoutCsvPreview = {
+  rows: WaveOpsPayoutCsvPreviewRow[]
+  validCount: number
+  errorCount: number
+  createCount: number
+  updateCount: number
+}
+
+export async function previewWaveOpsPayoutCsv(csv: string): Promise<WaveOpsPayoutCsvPreview> {
+  const res = await apiRequest<{ data: WaveOpsPayoutCsvPreview }>(
+    '/platform/wave-operations/payouts/bulk/csv-preview',
+    { method: 'POST', body: JSON.stringify({ csv }) },
+  )
+  return res.data
+}
+
+export async function applyWaveOpsPayoutCsv(body: {
+  csv: string
+  aggregatedMerchantId?: string | null
+}): Promise<WaveOpsPayoutBatchRow> {
+  const res = await apiRequest<{ data: WaveOpsPayoutBatchRow }>(
+    '/platform/wave-operations/payouts/bulk/csv',
     { method: 'POST', body: JSON.stringify(body) },
   )
   return res.data

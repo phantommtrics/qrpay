@@ -12,6 +12,7 @@ import {
   CHART_CODE_MERCHANT_WALLET_CLEARING,
   CHART_CODE_MOBILE_MONEY,
   CHART_CODE_OTHER_REVENUE,
+  CHART_CODE_PLATFORM_FUND_TRANSFERS,
   CHART_CODE_QR_WALLET_PROCESSING_FEES,
   CHART_CODE_WAVE_MERCHANT_PAYOUTS,
   ensureDefaultChartOfAccountsForBusiness,
@@ -395,6 +396,117 @@ export async function postMerchantJournalForWaveOpsPayout(
   });
 
   return { id: journal.id, created: true };
+}
+
+/**
+ * Merchant books when platform admin moves funds without a Wave payout:
+ *   Dr PLATFORM_FUND_TRANSFERS   amount (dedicated money-in asset)
+ *   Cr other revenue (260)       amount
+ */
+export async function postMerchantJournalForPlatformFundTransfer(
+  tx: Tx,
+  row: {
+    platformJournalId: string;
+    businessId: string;
+    currency: string;
+    amount: Prisma.Decimal | string | number;
+    memo?: string | null;
+    reference?: string | null;
+  },
+  postedAt?: Date | null,
+): Promise<MerchantPayoutJournalResult | null> {
+  const existing = await tx.journalEntry.findFirst({
+    where: {
+      sourceType: JournalSourceType.PLATFORM_FUND_TRANSFER,
+      sourceId: row.platformJournalId,
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    return { id: existing.id, created: false };
+  }
+
+  await ensureDefaultChartOfAccountsForBusiness(tx, row.businessId);
+  const [moneyIn, payoutRevenue] = await Promise.all([
+    getChartAccountByCode(tx, row.businessId, CHART_CODE_PLATFORM_FUND_TRANSFERS),
+    getChartAccountByCode(tx, row.businessId, CHART_CODE_OTHER_REVENUE),
+  ]);
+  if (!moneyIn || !payoutRevenue) {
+    throw new Error("Chart accounts missing for platform fund transfer.");
+  }
+
+  const amount = money(row.amount);
+  if (amount.lte(0)) {
+    return null;
+  }
+
+  const zero = new Prisma.Decimal(0);
+  const journal = await tx.journalEntry.create({
+    data: {
+      postedAt: postedAt ?? new Date(),
+      businessId: row.businessId,
+      memo: row.memo?.trim() || `DirectPay settlement received (${row.currency})`,
+      reference: row.reference?.trim() || null,
+      sourceType: JournalSourceType.PLATFORM_FUND_TRANSFER,
+      sourceId: row.platformJournalId,
+      journalApprovalExempt: true,
+      lines: {
+        create: [
+          {
+            chartOfAccountId: moneyIn.id,
+            debitAmount: amount,
+            creditAmount: zero,
+            description: "DirectPay settlement received (bank / manual)",
+          },
+          {
+            chartOfAccountId: payoutRevenue.id,
+            debitAmount: zero,
+            creditAmount: amount,
+            description: "DirectPay settlement income",
+          },
+        ],
+      },
+    },
+    select: { id: true },
+  });
+
+  await tx.salesLedgerEntry.create({
+    data: {
+      businessId: row.businessId,
+      orderId: null,
+      paymentId: null,
+      journalEntryId: journal.id,
+      type: SalesLedgerEntryType.PLATFORM_FUND_TRANSFER,
+      direction: SalesLedgerDirection.MONEY_IN,
+      status: SalesLedgerStatus.SUCCEEDED,
+      amount,
+      currency: row.currency,
+      provider: "directpay",
+      providerPaymentRef: row.platformJournalId,
+      metadata: {
+        amount: amount.toString(),
+        debitAccountCode: CHART_CODE_PLATFORM_FUND_TRANSFERS,
+        creditAccountCode: CHART_CODE_OTHER_REVENUE,
+      },
+    },
+  });
+
+  return { id: journal.id, created: true };
+}
+
+export async function reverseMerchantJournalForPlatformFundTransfer(
+  tx: Tx,
+  platformJournalId: string,
+  postedAt?: Date | null,
+): Promise<MerchantPayoutJournalResult | null> {
+  return reverseMerchantJournalBySource(tx, {
+    sourceType: JournalSourceType.PLATFORM_FUND_TRANSFER,
+    reversalSourceType: JournalSourceType.PLATFORM_FUND_TRANSFER_REVERSAL,
+    sourceId: platformJournalId,
+    ledgerType: SalesLedgerEntryType.PLATFORM_FUND_TRANSFER,
+    postedAt,
+    fallbackMemo: `Reversal of DirectPay settlement (${platformJournalId})`,
+  });
 }
 
 export async function reverseMerchantJournalForWaveOpsPayout(

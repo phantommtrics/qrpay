@@ -4,6 +4,7 @@ import QRCode from 'react-qr-code'
 import { Check, Copy, ExternalLink, FileDown, Loader2, X } from 'lucide-react'
 
 import { EasypayLogoMark } from '../components/branding/EasypayLogoMark'
+import { GuestSubscriptionInvoiceMobileCard } from '../components/sales/GuestSubscriptionInvoiceMobileCard'
 import { CenteredModal } from '../components/ui/CenteredModal'
 import { ModalOverlay } from '../components/ui/ModalOverlay'
 import {
@@ -322,11 +323,30 @@ export function GuestSubscriptionInvoicePage() {
   const amountStr = `${formatMoney(inv.amount)} ${inv.currency}`
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4 sm:p-8">
+    <div className="min-h-screen bg-slate-100 p-4 pb-28 sm:p-8 lg:pb-8">
       <div className="mx-auto flex max-w-3xl flex-col gap-6">
         {error ? <p className="text-center text-sm text-red-600">{error}</p> : null}
 
-        <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="lg:hidden">
+          <GuestSubscriptionInvoiceMobileCard
+            businessName={payload.businessName}
+            ownerName={biz.ownerName}
+            ownerEmail={biz.ownerEmail}
+            invoiceCode={inv.externalReference?.trim() || inv.id}
+            status={inv.status}
+            isPaid={isPaid}
+            amount={inv.amount}
+            currency={inv.currency}
+            issueDate={inv.createdAt}
+            dueDate={inv.dueDate}
+            planName={inv.planName}
+            lineTitle={lineTitle}
+            lineSub={lineSub}
+            pdfUrl={guestToken ? guestSubscriptionInvoicePdfApiUrl(guestToken) : null}
+          />
+        </div>
+
+        <article className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:block">
           <div className="p-6 sm:p-10">
             <div className="mb-8 flex flex-col gap-4 border-b border-slate-100 pb-6 sm:flex-row sm:items-start sm:justify-between">
               <EasypayLogoMark className="h-10 w-auto max-w-[min(100%,260px)] object-contain" />
@@ -445,6 +465,21 @@ export function GuestSubscriptionInvoicePage() {
           <p className="text-center font-medium text-emerald-700">This invoice is paid. Thank you.</p>
         ) : null}
       </div>
+
+      {!isPaid && isPending && payload.canPay && !payModalOpen ? (
+        <div
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 pt-3 backdrop-blur lg:hidden"
+          style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+        >
+          <button
+            type="button"
+            onClick={() => void openPayModal()}
+            className="w-full rounded-2xl bg-teal-600 py-3.5 text-base font-semibold text-white shadow-lg shadow-teal-600/20"
+          >
+            Pay {amountStr}
+          </button>
+        </div>
+      ) : null}
 
       {payModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

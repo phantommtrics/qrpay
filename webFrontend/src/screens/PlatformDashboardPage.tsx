@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ArrowRight,
-  Banknote,
   Building2,
   ClipboardList,
   CreditCard,
@@ -127,13 +126,6 @@ export function PlatformDashboardPage() {
         description: 'Refunds and manual review',
         icon: ClipboardList,
         ok: canAccess('platform.billing_review.view'),
-      },
-      {
-        to: APP_PATHS.payments,
-        title: 'Payments',
-        description: 'Incoming wallet and gateway activity',
-        icon: Banknote,
-        ok: canAccess('payments.view'),
       },
       {
         to: APP_PATHS.platformBillings,

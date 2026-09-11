@@ -353,8 +353,8 @@ export const SYSTEM_CATALOG_PRODUCTS: Array<{
     name: "Reports",
     description: "View reports",
     sortOrder: 0,
-    navPath: "/reports",
-    navLabel: "Reports",
+    navPath: null,
+    navLabel: null,
   },
   {
     id: "sp_re",

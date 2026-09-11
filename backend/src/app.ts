@@ -14,6 +14,7 @@ import {
   ManualRefundReviewStatus,
   PlanCode,
   Prisma,
+  SalesInvoiceRecurrenceFrequency,
   SubscriptionStatus,
   UserRole,
   WaveAggregatedMerchantProvisionTrigger,
@@ -255,6 +256,7 @@ import {
   reversePlatformJournalEntry,
 } from "./services/platform-journal-reversal.service.js";
 import { createPlatformManualJournal, listPlatformJournalEntries } from "./services/platform-journal.service.js";
+import { createPlatformMerchantFundTransfer } from "./services/platform-merchant-fund-transfer.service.js";
 import { getAccountingSummaryForBusiness } from "./services/accounting-summary.service.js";
 import {
   createBusinessContact,
@@ -327,8 +329,14 @@ import {
   getGuestQuotationByToken,
   guestRespondQuotation,
   listGuestInvoiceWallets,
+  renderGuestSalesInvoicePdf,
   startGuestInvoiceWalletCheckout,
 } from "./services/sales-public.service.js";
+import {
+  createSalesInvoiceShareBundle,
+  getGuestInvoiceShareBundle,
+} from "./services/sales-invoice-share-bundle.service.js";
+import { listSalesInvoiceRecurrenceCalendar } from "./services/sales-invoice-recurrence.service.js";
 import {
   getGuestPlatformBillPayload,
   renderGuestPlatformBillPdf,
@@ -337,6 +345,8 @@ import {
   getGuestSubscriptionInvoiceByToken,
   listGuestSubscriptionInvoiceWallets,
   renderGuestSubscriptionInvoicePdf,
+  renderPlatformSubscriptionInvoicePdf,
+  ensureSubscriptionInvoiceGuestToken,
   startGuestSubscriptionInvoiceWalletCheckout,
 } from "./services/subscription-guest-public.service.js";
 import {
@@ -370,6 +380,10 @@ import {
   reverseWaveOpsPayout,
   searchWaveOpsPayoutsByClientReference,
 } from "./services/wave-ops.service.js";
+import {
+  applyWaveOpsPayoutCsv,
+  previewWaveOpsPayoutCsvFromText,
+} from "./services/wave-ops-payout-csv.service.js";
 import { getWaveMerchantTransactionSummary } from "./services/wave-merchant-tx-summary.js";
 import {
   getDigitalOceanBalance,
@@ -1628,6 +1642,7 @@ app.get(
   async (req, res, next) => {
     try {
       const inv = await getPlatformInvoiceDetail(req.params.invoiceId as string);
+      const guestToken = await ensureSubscriptionInvoiceGuestToken(inv.id);
       res.json({
         data: {
           id: inv.id,
@@ -1644,6 +1659,7 @@ app.get(
           externalReference: inv.externalReference,
           createdAt: inv.createdAt.toISOString(),
           updatedAt: inv.updatedAt.toISOString(),
+          guestPayUrl: guestToken ? guestSubscriptionInvoiceUrl(guestToken) : null,
           business: {
             id: inv.business.id,
             name: inv.business.name,
@@ -1672,6 +1688,25 @@ app.get(
           },
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/invoices/:invoiceId/pdf",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.INVOICES, "view"),
+  async (req, res, next) => {
+    try {
+      const { buffer, filename } = await renderPlatformSubscriptionInvoicePdf(
+        req.params.invoiceId as string,
+      );
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename.replace(/"/g, "")}"`);
+      res.send(buffer);
     } catch (error) {
       next(error);
     }
@@ -2841,6 +2876,16 @@ const platformManualJournalBodySchema = z.object({
     .min(2),
 });
 
+const platformMerchantFundTransferBodySchema = z.object({
+  businessId: z.string().trim().min(1),
+  amount: z.number().positive(),
+  currency: z.string().trim().min(1).max(8).optional(),
+  postedAt: z.string().trim().min(1),
+  memo: z.string().trim().max(4000).optional().nullable(),
+  reference: z.string().trim().max(200).optional().nullable(),
+  platformCreditAccountId: z.string().trim().min(1),
+});
+
 const platformChartAccountCreateBodySchema = z.object({
   code: z.string().trim().min(1).max(64),
   name: z.string().trim().min(1).max(200),
@@ -3157,6 +3202,55 @@ app.post(
           reference: created.reference,
           sourceType: created.sourceType,
           lines: created.lines.map((ln) => ({
+            id: ln.id,
+            chartOfAccountId: ln.chartOfAccountId,
+            debit: Number(ln.debitAmount),
+            credit: Number(ln.creditAmount),
+            description: ln.description,
+          })),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/accounting/journal-entries/merchant-fund-transfer",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformManualJournalPostGates),
+  async (req, res, next) => {
+    try {
+      const body = platformMerchantFundTransferBodySchema.parse(req.body);
+      const created = await createPlatformMerchantFundTransfer(body);
+      if (req.user?.id) {
+        await appendActivityLog(prisma, {
+          businessId: created.platformJournal.businessId,
+          actorUserId: req.user.id,
+          actorKind: ActivityActorKind.USER,
+          eventType: ACTIVITY_EVENT.PLATFORM_MERCHANT_FUND_TRANSFER_POSTED,
+          resourceType: "platform_journal_entry",
+          resourceId: created.platformJournal.id,
+          metadata: {
+            merchantJournalId: created.merchantJournalId,
+            businessId: created.platformJournal.businessId,
+          },
+        });
+      }
+      res.status(201).json({
+        data: {
+          id: created.platformJournal.id,
+          merchantJournalId: created.merchantJournalId,
+          postedAt: created.platformJournal.postedAt.toISOString(),
+          memo: created.platformJournal.memo,
+          reference: created.platformJournal.reference,
+          sourceType: created.platformJournal.sourceType,
+          business: created.platformJournal.business
+            ? { id: created.platformJournal.business.id, name: created.platformJournal.business.name }
+            : null,
+          lines: created.platformJournal.lines.map((ln) => ({
             id: ln.id,
             chartOfAccountId: ln.chartOfAccountId,
             debit: Number(ln.debitAmount),
@@ -4164,6 +4258,41 @@ app.post(
       const data = await createWaveOpsPayoutBulk({
         aggregatedMerchantId: body.aggregatedMerchantId,
         items: body.items,
+      });
+      res.status(201).json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/wave-operations/payouts/bulk/csv-preview",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = waveOpsPayoutCsvBodySchema.pick({ csv: true }).parse(req.body);
+      const data = await previewWaveOpsPayoutCsvFromText(body.csv);
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/wave-operations/payouts/bulk/csv",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.WAVE_OPERATIONS, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = waveOpsPayoutCsvBodySchema.parse(req.body);
+      const data = await applyWaveOpsPayoutCsv({
+        csv: body.csv,
+        aggregatedMerchantId: body.aggregatedMerchantId,
       });
       res.status(201).json({ data });
     } catch (e) {
@@ -7093,6 +7222,30 @@ app.get("/api/public/guest/invoice/:guestToken", guestReadLimiter, async (reques
   }
 });
 
+app.get("/api/public/guest/invoice-share/:shareToken", guestReadLimiter, async (request, response, next) => {
+  try {
+    const data = await getGuestInvoiceShareBundle(request.params.shareToken as string);
+    response.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get(
+  "/api/public/guest/invoice/:guestToken/pdf",
+  guestPdfLimiter,
+  async (request, response, next) => {
+  try {
+    const { buffer, filename } = await renderGuestSalesInvoicePdf(request.params.guestToken as string);
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader("Content-Disposition", `inline; filename="${filename.replace(/"/g, "")}"`);
+    response.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+  },
+);
+
 app.get(
   "/api/public/guest/invoice/:guestToken/wallets",
   guestReadLimiter,
@@ -8839,6 +8992,15 @@ const salesQuotationCreateBodySchema = z.object({
 
 const salesQuotationPatchBodySchema = salesQuotationCreateBodySchema.partial();
 
+const salesInvoiceRecurrenceBodySchema = z.object({
+  frequency: z.nativeEnum(SalesInvoiceRecurrenceFrequency),
+  intervalDays: z.number().int().min(1).max(3650).optional().nullable(),
+  customDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(120).optional().nullable(),
+  endDate: z.string().min(1).optional().nullable(),
+  generateHour: z.number().int().min(0).max(23).optional().nullable(),
+  generateMinute: z.number().int().min(0).max(59).optional().nullable(),
+});
+
 const salesInvoiceCreateBodySchema = z.object({
   contactId: z.string().min(1),
   issueDate: z.string().min(1),
@@ -8848,13 +9010,19 @@ const salesInvoiceCreateBodySchema = z.object({
   /** Bank/cash asset for recording wallet / online invoice proceeds when paid. */
   settlementChartAccountId: z.string().trim().min(1).optional().nullable(),
   lines: z.array(manualJournalLineSchema).min(1),
+  recurrence: salesInvoiceRecurrenceBodySchema.optional().nullable(),
 });
 
-const salesInvoicePatchBodySchema = salesInvoiceCreateBodySchema.partial();
+const salesInvoicePatchBodySchema = salesInvoiceCreateBodySchema.omit({ recurrence: true }).partial();
 
 const salesInvoiceMarkPaidBodySchema = z.object({
   settlementChartAccountId: z.string().min(1),
   postedAt: z.string().min(1),
+});
+
+const salesInvoiceShareBundleBodySchema = z.object({
+  invoiceIds: z.array(z.string().min(1)).min(1).max(200),
+  recurrence: salesInvoiceRecurrenceBodySchema.optional().nullable(),
 });
 
 const billCreateBodySchema = z.object({
@@ -8921,6 +9089,11 @@ const waveOpsPayoutCreateBodySchema = waveOpsPayoutItemSchema;
 const waveOpsPayoutBulkBodySchema = z.object({
   aggregatedMerchantId: z.string().trim().min(1).max(128).optional().nullable(),
   items: z.array(waveOpsPayoutItemSchema).min(1).max(100),
+});
+
+const waveOpsPayoutCsvBodySchema = z.object({
+  csv: z.string().trim().min(1).max(500_000),
+  aggregatedMerchantId: z.string().trim().min(1).max(128).optional().nullable(),
 });
 
 const platformJournalReverseBodySchema = z.object({
@@ -9605,6 +9778,64 @@ app.get(
   },
 );
 
+app.get(
+  "/api/businesses/:businessId/sales-invoices/recurrences/calendar",
+  authenticateToken,
+  requireEntitlement("sales.invoice"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const year = Number(request.query.year);
+      const month = Number(request.query.month);
+      const data = await listSalesInvoiceRecurrenceCalendar(businessId as string, year, month);
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/sales-invoices/share-bundles",
+  authenticateToken,
+  requireEntitlement("sales.invoice"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const body = salesInvoiceShareBundleBodySchema.parse(request.body);
+      const data = await createSalesInvoiceShareBundle(
+        businessId as string,
+        body.invoiceIds,
+        body.recurrence
+          ? {
+              frequency: body.recurrence.frequency,
+              intervalDays: body.recurrence.intervalDays ?? null,
+              customDates: body.recurrence.customDates ?? null,
+              endDate: parseOptionalIsoDate(body.recurrence.endDate),
+              generateHour: body.recurrence.generateHour ?? 8,
+              generateMinute: body.recurrence.generateMinute ?? 0,
+            }
+          : null,
+      );
+      response.status(201).json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 app.post(
   "/api/businesses/:businessId/sales-invoices",
   authenticateToken,
@@ -9627,6 +9858,16 @@ app.post(
         currency: body.currency ?? undefined,
         settlementChartAccountId: body.settlementChartAccountId ?? undefined,
         lines: mapSalesLineInputs(body.lines),
+        recurrence: body.recurrence
+          ? {
+              frequency: body.recurrence.frequency,
+              intervalDays: body.recurrence.intervalDays ?? null,
+              customDates: body.recurrence.customDates ?? null,
+              endDate: parseOptionalIsoDate(body.recurrence.endDate),
+              generateHour: body.recurrence.generateHour ?? 8,
+              generateMinute: body.recurrence.generateMinute ?? 0,
+            }
+          : null,
       });
       response.status(201).json({ data: formatSalesInvoiceApi(row) });
     } catch (error) {

@@ -8,6 +8,7 @@ const PAGE_SIZE = 50
 
 const EVENT_LABELS: Record<string, string> = {
   'platform.journal.manual_posted': 'Manual journal posted',
+  'platform.journal.merchant_fund_transfer_posted': 'Merchant fund transfer posted',
   'platform.journal.reversed': 'Journal reversed',
   'platform.bill.paid': 'Supplier bill marked paid',
   'wave.self_settlement.succeeded': 'Wave self-settlement succeeded',
@@ -91,6 +92,9 @@ export function PlatformActivityLogPage() {
                 <option value="">All events</option>
                 <option value="platform.journal.manual_posted">
                   {eventLabel('platform.journal.manual_posted')}
+                </option>
+                <option value="platform.journal.merchant_fund_transfer_posted">
+                  {eventLabel('platform.journal.merchant_fund_transfer_posted')}
                 </option>
                 <option value="platform.journal.reversed">{eventLabel('platform.journal.reversed')}</option>
                 <option value="platform.bill.paid">{eventLabel('platform.bill.paid')}</option>

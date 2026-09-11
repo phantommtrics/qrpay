@@ -23,6 +23,7 @@
 
 - POS/order checkout still sends Web Push to business owners (`notifyBusinessOwnersOfPayment`).
 - Self-settlement success and Wave Ops payouts attributed to a linked business merchant send `notifyBusinessOwnersOfPayout` (bulk: one summary per business). Backfills never send push.
+- Platform admin bank / manual fund transfers send `notifyBusinessOwnersOfFundTransfer`. Reversing that transfer sends another owner push (`kind: reversed`).
 
 ## Platform accounting
 
@@ -32,6 +33,7 @@
 - Self-settlement on Wave payout reverse (`WAVE_SELF_SETTLEMENT_REVERSAL`): Wave returns the payout **including fees**. DirectPay swaps every line of the original platform journal (undo P-4920 cost, P-4010 withhold, P-1200 clearing), reverses the merchant reserved checkout-fee journal (`CUSTOMER_SALE_SELF_SETTLEMENT_CHECKOUT_FEE` / sales ledger `SELF_SETTLEMENT_CHECKOUT_FEE`), and reverses the merchant settlement journal (`WAVE_SELF_SETTLEMENT_PAYOUT`) when it exists. Checkout **refunds** reverse the original customer-sale and wallet-fee journals on the merchant books. Detection is Wave payout poll, Wave Operations payout refresh, or `api_payout_reversal` on the transaction list — not the Wave Operations reverse button.
 - Wave Operations supplier payouts (`WAVE_OPS_PAYOUT`): standalone single or bulk payouts (not self-settlement, not bill-linked) post **Dr P-4930** (receive + Wave fee) · **Cr P-1200** (aggregator Wave clearing). The supplier name is on the journal memo. Bill-linked payouts keep `PURCHASE_BILL_PAYMENT` only. Self-settlement keeps `WAVE_SELF_SETTLEMENT`.
 - Wave Operations supplier payout reverse (`WAVE_OPS_PAYOUT_REVERSAL`): swaps the original P-4930 / P-1200 lines after Wave reports reversed (Ops reverse button, payout refresh, or batch/list sync).
+- **Platform admin fund transfer (no Wave payout)** — When a merchant is settled by bank (or Wave payout cannot run), operator journals **Transfer funds to a merchant** posts `MERCHANT_FUND_TRANSFER`: **Dr P-4940** · **Cr** a platform account the admin selects (default P-1200). Merchant books (`PLATFORM_FUND_TRANSFER` / sales ledger `PLATFORM_FUND_TRANSFER` MONEY_IN): **Dr PLATFORM_FUND_TRANSFERS** (dedicated asset) · **Cr other revenue (260)**. Owners receive Web Push (`notifyBusinessOwnersOfFundTransfer`). Reversing the platform entry also reverses the merchant journal (`MERCHANT_FUND_TRANSFER_REVERSAL` / `PLATFORM_FUND_TRANSFER_REVERSAL`) and sends a second owner push. No `WaveOpsPayout` row is created.
 
 ## Platform reports
 

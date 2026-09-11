@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import QRCode from 'react-qr-code'
+import { ArrowLeft } from 'lucide-react'
 
 import { SalesDocumentPaper } from '../components/sales/SalesDocumentPaper'
+import { GuestInvoiceMobileCard } from '../components/sales/GuestInvoiceMobileCard'
+import { guestInvoiceSharePath } from '../config/navigation'
 import {
   authorizeGuestInvoiceApsWalletCheckout,
   completeGuestInvoiceApsWalletCheckout,
   fetchGuestInvoice,
   fetchGuestInvoiceWallets,
+  guestInvoicePdfApiUrl,
   startGuestInvoiceWalletCheckout,
   type OrderCheckoutWalletRow,
 } from '../services/salesApi'
@@ -17,6 +21,8 @@ import { formatMoney } from '../utils/formatMoney'
 
 export function GuestInvoicePage() {
   const { guestToken } = useParams<{ guestToken: string }>()
+  const [searchParams] = useSearchParams()
+  const shareToken = searchParams.get('share')?.trim() || null
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [payload, setPayload] = useState<Awaited<ReturnType<typeof fetchGuestInvoice>> | null>(null)
@@ -79,6 +85,7 @@ export function GuestInvoicePage() {
       setPayOpen(false)
     } finally {
       setWalletsLoading(false)
+      document.getElementById('guest-invoice-pay')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }
 
@@ -207,14 +214,23 @@ export function GuestInvoicePage() {
     (s, l) => s + l.quantity * l.unitAmount + l.taxAmount,
     0,
   )
-  const isPaid = doc.status === 'paid'
+  const isPaid = doc.status.toLowerCase() === 'paid'
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4 sm:p-8">
+    <div className="min-h-screen bg-slate-100 p-4 pb-28 sm:p-8 lg:pb-8">
       <div className="mx-auto flex max-w-3xl flex-col gap-6">
-        <header className="text-center">
-          <h1 className="text-lg font-semibold text-slate-900">{payload.businessName}</h1>
-          <p className="mt-1 text-sm text-slate-500">Invoice</p>
+        {shareToken ? (
+          <Link
+            to={guestInvoiceSharePath(shareToken)}
+            className="inline-flex items-center gap-2 text-sm font-medium text-teal-700 hover:text-teal-800"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to contacts
+          </Link>
+        ) : null}
+        <header className="text-center lg:block">
+          <h1 className="hidden text-lg font-semibold text-slate-900 lg:block">{payload.businessName}</h1>
+          <p className="mt-1 hidden text-sm text-slate-500 lg:block">Invoice</p>
         </header>
 
         {error ? <p className="text-center text-sm text-red-600">{error}</p> : null}
@@ -223,10 +239,25 @@ export function GuestInvoicePage() {
           <p className="text-center font-medium text-emerald-700">This invoice is paid. Thank you.</p>
         ) : null}
 
-        <SalesDocumentPaper variant="invoice" document={doc} businessName={payload.businessName} />
+        <div className="lg:hidden">
+          <GuestInvoiceMobileCard
+            document={doc}
+            businessName={payload.businessName}
+            isPaid={isPaid}
+            pdfUrl={guestToken ? guestInvoicePdfApiUrl(guestToken) : null}
+          />
+        </div>
+        <div className="mx-auto hidden w-full max-w-[210mm] lg:block">
+          <SalesDocumentPaper variant="invoice" document={doc} businessName={payload.businessName} />
+        </div>
 
         {!isPaid && payload.canPay ? (
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div
+            id="guest-invoice-pay"
+            className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${
+              payOpen ? '' : 'hidden lg:block'
+            }`}
+          >
             {!payOpen ? (
               <div className="flex flex-col items-center gap-2">
                 <p className="text-sm text-slate-600">
@@ -238,7 +269,7 @@ export function GuestInvoicePage() {
                 <button
                   type="button"
                   onClick={() => void openPay()}
-                  className="mt-2 rounded-xl bg-teal-600 px-8 py-3 font-semibold text-white hover:bg-teal-700"
+                  className="mt-2 hidden rounded-xl bg-teal-600 px-8 py-3 font-semibold text-white hover:bg-teal-700 lg:inline-flex"
                 >
                   Pay
                 </button>
@@ -441,6 +472,20 @@ export function GuestInvoicePage() {
           </div>
         ) : null}
       </div>
+      {!isPaid && payload.canPay && !payOpen ? (
+        <div
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 pt-3 backdrop-blur lg:hidden"
+          style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+        >
+          <button
+            type="button"
+            onClick={() => void openPay()}
+            className="w-full rounded-2xl bg-teal-600 py-3.5 text-base font-semibold text-white shadow-lg shadow-teal-600/20"
+          >
+            Pay {formatMoney(total)} {doc.currency}
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }

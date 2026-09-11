@@ -97,11 +97,6 @@ const ActivityLogPage = lazy(() =>
     default: module.ActivityLogPage,
   })),
 )
-const ReportsPage = lazy(() =>
-  import('../screens/ReportsPage').then((module) => ({
-    default: module.ReportsPage,
-  })),
-)
 const SubscriptionBillingActivityPage = lazy(() =>
   import('../screens/SubscriptionBillingActivityPage').then((module) => ({
     default: module.SubscriptionBillingActivityPage,
@@ -385,6 +380,11 @@ const GuestQuotationPage = lazy(() =>
 const GuestInvoicePage = lazy(() =>
   import('../screens/GuestInvoicePage').then((module) => ({
     default: module.GuestInvoicePage,
+  })),
+)
+const GuestInvoiceSharePage = lazy(() =>
+  import('../screens/GuestInvoiceSharePage').then((module) => ({
+    default: module.GuestInvoiceSharePage,
   })),
 )
 const PlatformSecurityRolesPage = lazy(() =>
@@ -921,12 +921,6 @@ export function AppRoutes() {
       anyOfPermissions: ['activity.log', 'platform.activity.log'] satisfies PermissionKey[],
     },
     {
-      path: APP_PATHS.reports,
-      element: <ReportsPage />,
-      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.reports)!.roles,
-      permission: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.reports)!.permission,
-    },
-    {
       path: APP_PATHS.subscriptionsBillingActivity,
       element: <SubscriptionBillingActivityPage />,
       roles: BUSINESS_BILLING_ROLES,
@@ -1171,6 +1165,7 @@ export function AppRoutes() {
         <Route path="/p/:productId" element={<ProductPublicPage />} />
         <Route path="/pay/:publicToken" element={<PublicPayPage />} />
         <Route path="/guest/quotation/:guestToken" element={<GuestQuotationPage />} />
+        <Route path="/guest/invoice-share/:shareToken" element={<GuestInvoiceSharePage />} />
         <Route path="/guest/invoice/:guestToken" element={<GuestInvoicePage />} />
         <Route path="/guest/platform-bill/:guestToken" element={<GuestPlatformBillPage />} />
         <Route

@@ -1280,7 +1280,7 @@ async function completeSalesInvoiceWalletPaymentCore(
     throw new HttpError(400, "Payment cannot be completed.");
   }
 
-  return prisma.$transaction(
+  const result = await prisma.$transaction(
     async (tx) => {
       if (options?.externalEventId) {
         try {
@@ -1372,10 +1372,36 @@ async function completeSalesInvoiceWalletPaymentCore(
         orderId: null as string | null,
         receiptId: null as string | null,
         salesInvoiceId: fresh.salesInvoiceId,
+        ownerNotification: {
+          businessId: fresh.businessId,
+          invoicePublicCode: fresh.salesInvoice.publicCode,
+          paymentPublicCode: fresh.publicCode,
+          amount: fresh.amount,
+          currency: fresh.currency,
+          methodLabel: "QR Wallet",
+          url: `/#/sales/invoices/${encodeURIComponent(fresh.salesInvoice.id)}`,
+        },
       };
     },
     { maxWait: 10_000, timeout: 15_000 },
   );
+
+  if (
+    !result.duplicate &&
+    "ownerNotification" in result &&
+    result.ownerNotification &&
+    (await shouldSendOwnerPaymentPushSafely(
+      result.ownerNotification.businessId,
+      options?.settledByStaffUserId,
+      "sales invoice wallet payment",
+    ))
+  ) {
+    void notifyBusinessOwnersOfPayment(result.ownerNotification).catch((err) => {
+      console.error("[web-push] Failed to notify business owner of sales invoice payment:", err);
+    });
+  }
+
+  return result;
 }
 
 export async function completeWalletPaymentByPublicToken(

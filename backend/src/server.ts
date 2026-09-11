@@ -7,6 +7,7 @@ import { syncSystemCatalogAndPlanEntitlements } from "./services/system-catalog-
 import { startPartnerOutboundWebhookWorker } from "./services/internal-partner-webhook-queue.service.js";
 import { startWaveSelfSettlementWorker } from "./services/wave-self-settlement.service.js";
 import { runSubscriptionRenewalInvoiceSweepOnce } from "./services/subscription.service.js";
+import { runSalesInvoiceRecurrenceSweepOnce } from "./services/sales-invoice-recurrence.service.js";
 import { isDigitalOceanBillingConfigured } from "./config/digitalocean-env.js";
 import { syncDigitalOceanInvoices } from "./services/digitalocean-billing.service.js";
 
@@ -32,6 +33,19 @@ ensurePlatformModulesSeeded()
           console.error("[subscription-renewal-sweep]", err),
         );
       }, sweepMs);
+
+      const invoiceRecurrenceMs = Math.max(
+        30_000,
+        Number(process.env.SALES_INVOICE_RECURRENCE_SWEEP_MS ?? "60000") || 60_000,
+      );
+      void runSalesInvoiceRecurrenceSweepOnce().catch((err) =>
+        console.error("[sales-invoice-recurrence-sweep]", err),
+      );
+      setInterval(() => {
+        void runSalesInvoiceRecurrenceSweepOnce().catch((err) =>
+          console.error("[sales-invoice-recurrence-sweep]", err),
+        );
+      }, invoiceRecurrenceMs);
 
       const doSyncRaw = Number(process.env.DIGITALOCEAN_INVOICE_SYNC_MS ?? "0") || 0;
       if (isDigitalOceanBillingConfigured() && doSyncRaw >= 60_000) {

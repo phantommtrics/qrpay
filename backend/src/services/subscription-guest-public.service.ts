@@ -2,6 +2,7 @@ import { InvoiceStatus } from "@prisma/client";
 import type { Request } from "express";
 
 import { HttpError } from "../lib/http-error.js";
+import { newGuestToken } from "../lib/guest-token.js";
 import { prisma } from "../lib/prisma.js";
 import {
   createSubscriptionInvoiceGuestCheckout,
@@ -12,6 +13,35 @@ import { generateSubscriptionInvoicePdf } from "./subscription-invoice-pdf.servi
 function safeGuestInvoicePdfFilename(ref: string) {
   const cleaned = ref.replace(/[^a-zA-Z0-9-_]+/g, "-").slice(0, 80);
   return cleaned.length > 0 ? `invoice-${cleaned}.pdf` : "subscription-invoice.pdf";
+}
+
+export async function ensureSubscriptionInvoiceGuestToken(invoiceId: string): Promise<string | null> {
+  const row = await prisma.subscriptionInvoice.findUnique({
+    where: { id: invoiceId },
+    select: { id: true, guestToken: true },
+  });
+  if (!row) {
+    return null;
+  }
+  const existing = row.guestToken?.trim() || null;
+  if (existing) {
+    return existing;
+  }
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const candidate = newGuestToken();
+    const clash = await prisma.subscriptionInvoice.findFirst({
+      where: { guestToken: candidate },
+      select: { id: true },
+    });
+    if (!clash) {
+      await prisma.subscriptionInvoice.update({
+        where: { id: row.id },
+        data: { guestToken: candidate },
+      });
+      return candidate;
+    }
+  }
+  return null;
 }
 
 export async function getGuestSubscriptionInvoiceByToken(guestToken: string) {
@@ -108,6 +138,23 @@ export async function renderGuestSubscriptionInvoicePdf(guestToken: string): Pro
   }
   const row = await prisma.subscriptionInvoice.findFirst({
     where: { guestToken: t },
+    include: { business: true, plan: true, subscription: true },
+  });
+  if (!row) {
+    throw new HttpError(404, "Invoice not found.");
+  }
+  const buffer = await generateSubscriptionInvoicePdf(row);
+  const ref = row.externalReference?.trim() || row.id;
+  const filename = safeGuestInvoicePdfFilename(ref);
+  return { buffer, filename };
+}
+
+export async function renderPlatformSubscriptionInvoicePdf(invoiceId: string): Promise<{
+  buffer: Buffer;
+  filename: string;
+}> {
+  const row = await prisma.subscriptionInvoice.findUnique({
+    where: { id: invoiceId },
     include: { business: true, plan: true, subscription: true },
   });
   if (!row) {

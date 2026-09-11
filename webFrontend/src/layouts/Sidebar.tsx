@@ -1,21 +1,30 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  BarChart3,
   BookOpenText,
   Briefcase,
   Building2,
   Check,
   ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
   Cog,
   Fuel,
+  LayoutDashboard,
   LayoutGrid,
   LibraryBig,
   ListTree,
   LockKeyhole,
   LogOut,
+  Package,
   Plus,
+  Settings2,
   Shield,
+  ShoppingBag,
   Store,
+  Users,
   Waves,
+  type LucideIcon,
 } from 'lucide-react'
 import { generatePath, NavLink, useLocation, useNavigate } from 'react-router-dom'
 
@@ -47,6 +56,18 @@ import {
   type NavigationMenuService,
 } from '../services/subscriptionApi'
 import { isPetrolStationIndustry, isRestaurantIndustry } from '../utils/businessIndustry'
+import { CollapsedSection, NavSection, SidebarIconLink } from './sidebarUi'
+
+const PLAN_SERVICE_ICONS: Record<string, LucideIcon> = {
+  svc_core: LayoutDashboard,
+  svc_catalog: Package,
+  svc_sales: ShoppingBag,
+  svc_insights: BarChart3,
+  svc_finance: BookOpenText,
+  svc_org: Users,
+  svc_subscriptions: Settings2,
+  svc_merchant: Store,
+}
 
 const BUSINESS_SECTION_STORAGE_KEY = 'qrpay.sidebar.businesses.open.v1'
 const PLATFORM_BUSINESSES_SECTION_KEY = 'qrpay.sidebar.platform-businesses.open.v1'
@@ -59,9 +80,13 @@ const PLATFORM_CORPORATE_SECTION_KEY = 'qrpay.sidebar.platform-corporate.open.v1
 export function Sidebar({
   isOpen,
   setIsOpen,
+  collapsed,
+  onToggleCollapsed,
 }: {
   isOpen: boolean
   setIsOpen: (open: boolean) => void
+  collapsed: boolean
+  onToggleCollapsed: () => void
 }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -529,84 +554,176 @@ export function Sidebar({
       ) : null}
 
       <aside
-        className={`print:hidden fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-slate-900 text-slate-300 transition-transform duration-300 lg:static ${
+        className={`print:hidden fixed inset-y-0 left-0 z-50 flex shrink-0 flex-col overflow-hidden bg-slate-900 text-slate-300 transition-[width,transform] duration-300 ease-in-out lg:static ${
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        }`}
+        } ${collapsed ? 'w-64 lg:w-[4.5rem]' : 'w-64'}`}
       >
-        <div className="flex h-20 items-center border-b border-slate-800 px-4">
+        <div
+          className={`flex border-b border-slate-800 ${
+            collapsed
+              ? 'h-20 items-center px-4 lg:h-auto lg:flex-col lg:justify-center lg:gap-2 lg:px-2 lg:py-3'
+              : 'h-20 items-center px-4'
+          }`}
+        >
           <img
             src="/logos/Direct%20Pay-02.png"
             alt="DirectPay"
-            className="h-16 w-auto max-w-[8.5rem] object-contain"
+            className={`object-contain ${
+              collapsed
+                ? 'h-16 w-auto max-w-[8.5rem] lg:h-10 lg:max-w-[2.5rem]'
+                : 'h-16 w-auto max-w-[8.5rem]'
+            }`}
             width={136}
             height={64}
           />
-          <span className="ml-3 text-xl font-bold tracking-tight text-white">DirectPay</span>
+          <span
+            className={`ml-3 text-xl font-bold tracking-tight text-white ${
+              collapsed ? 'lg:hidden' : ''
+            }`}
+          >
+            DirectPay
+          </span>
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            title={collapsed ? 'Show menu labels' : 'Hide menu labels'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={`hidden rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white lg:inline-flex ${
+              collapsed ? '' : 'ml-auto'
+            }`}
+          >
+            {collapsed ? (
+              <ChevronsRight className="h-5 w-5" />
+            ) : (
+              <ChevronsLeft className="h-5 w-5" />
+            )}
+          </button>
         </div>
 
-        <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-6">
+        <div
+          className={`flex flex-1 flex-col gap-1 overflow-y-auto py-6 ${
+            collapsed ? 'px-3 lg:px-1.5' : 'px-3'
+          }`}
+        >
           {!user.isPlatformOwner && organizations.length > 0 ? (
             <>
-              <button
-                onClick={() => setIsBusinessSectionOpen((current) => !current)}
-                className="mb-2 flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
-              >
-                <span className="truncate">
-                  Businesses
-                  {currentOrganization ? ` · ${currentOrganization.name}` : ''}
-                </span>
-                <ChevronDown
-                  className={`h-4 w-4 transition-transform ${
-                    isBusinessSectionOpen ? 'rotate-0' : '-rotate-90'
-                  }`}
-                />
-              </button>
-              {isBusinessSectionOpen ? (
-                <div className="mb-4 space-y-1 px-1">
-                  {organizations.map((organization) => {
-                    const isActive = organization.id === currentOrganization?.id
-
-                    return (
-                      <button
-                        key={organization.id}
-                        onClick={() => {
-                          setActiveOrganization(organization.id)
-                          setIsOpen(false)
-                        }}
-                        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
-                          isActive
-                            ? 'bg-teal-500/10 text-teal-300'
-                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                        }`}
-                      >
-                        <span
-                          className={`h-2.5 w-2.5 rounded-full ${
-                            isActive ? 'bg-teal-400' : 'bg-slate-600'
-                          }`}
-                        />
-                        <span className="min-w-0 flex-1 truncate font-medium">
-                          {organization.name}
-                        </span>
-                        {isActive ? <Check className="h-4 w-4 shrink-0" /> : null}
-                      </button>
-                    )
-                  })}
-                  <button
-                    onClick={() => {
-                      setIsOpen(false)
-                      navigate(APP_PATHS.businesses)
-                    }}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-teal-300 transition-colors hover:bg-slate-800 hover:text-teal-200"
+              {collapsed ? (
+                <div className="mb-2 hidden lg:block">
+                  <CollapsedSection
+                    icon={Building2}
+                    label={
+                      currentOrganization
+                        ? `Businesses · ${currentOrganization.name}`
+                        : 'Businesses'
+                    }
+                    active
                   >
-                    <Plus className="h-4 w-4" />
-                    Add business
-                  </button>
+                    {organizations.map((organization) => {
+                      const isActive = organization.id === currentOrganization?.id
+                      return (
+                        <button
+                          key={organization.id}
+                          onClick={() => {
+                            setActiveOrganization(organization.id)
+                            setIsOpen(false)
+                          }}
+                          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
+                            isActive
+                              ? 'bg-teal-500/10 text-teal-300'
+                              : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                          }`}
+                        >
+                          <span
+                            className={`h-2.5 w-2.5 rounded-full ${
+                              isActive ? 'bg-teal-400' : 'bg-slate-600'
+                            }`}
+                          />
+                          <span className="min-w-0 flex-1 truncate font-medium">
+                            {organization.name}
+                          </span>
+                          {isActive ? <Check className="h-4 w-4 shrink-0" /> : null}
+                        </button>
+                      )
+                    })}
+                    <button
+                      onClick={() => {
+                        setIsOpen(false)
+                        navigate(APP_PATHS.businesses)
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-teal-300 transition-colors hover:bg-slate-800 hover:text-teal-200"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add business
+                    </button>
+                  </CollapsedSection>
                 </div>
               ) : null}
+              <div className={collapsed ? 'lg:hidden' : undefined}>
+                <button
+                  onClick={() => setIsBusinessSectionOpen((current) => !current)}
+                  className="mb-2 flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
+                >
+                  <span className="truncate">
+                    Businesses
+                    {currentOrganization ? ` · ${currentOrganization.name}` : ''}
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${
+                      isBusinessSectionOpen ? 'rotate-0' : '-rotate-90'
+                    }`}
+                  />
+                </button>
+                {isBusinessSectionOpen ? (
+                  <div className="mb-4 space-y-1 px-1">
+                    {organizations.map((organization) => {
+                      const isActive = organization.id === currentOrganization?.id
+
+                      return (
+                        <button
+                          key={organization.id}
+                          onClick={() => {
+                            setActiveOrganization(organization.id)
+                            setIsOpen(false)
+                          }}
+                          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
+                            isActive
+                              ? 'bg-teal-500/10 text-teal-300'
+                              : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                          }`}
+                        >
+                          <span
+                            className={`h-2.5 w-2.5 rounded-full ${
+                              isActive ? 'bg-teal-400' : 'bg-slate-600'
+                            }`}
+                          />
+                          <span className="min-w-0 flex-1 truncate font-medium">
+                            {organization.name}
+                          </span>
+                          {isActive ? <Check className="h-4 w-4 shrink-0" /> : null}
+                        </button>
+                      )
+                    })}
+                    <button
+                      onClick={() => {
+                        setIsOpen(false)
+                        navigate(APP_PATHS.businesses)
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-teal-300 transition-colors hover:bg-slate-800 hover:text-teal-200"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add business
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </>
           ) : null}
 
-          <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <div
+            className={`mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+              collapsed ? 'lg:hidden' : ''
+            }`}
+          >
             Main Menu
           </div>
 
@@ -615,341 +732,264 @@ export function Sidebar({
               {platformNavItems
                 .filter((item) => item.path === APP_PATHS.dashboard)
                 .map((item) => (
-                  <NavLink
+                  <SidebarIconLink
                     key={item.path}
                     to={item.path}
-                    onClick={() => setIsOpen(false)}
-                    className={({ isActive }) =>
-                      `flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors ${
-                        isActive
-                          ? 'border-teal-500 bg-teal-500/10 text-teal-400'
-                          : 'border-transparent hover:bg-slate-800 hover:text-white'
-                      }`
-                    }
-                  >
-                    <item.icon className="mr-3 h-5 w-5" />
-                    <span className="font-medium">{item.name}</span>
-                  </NavLink>
+                    collapsed={collapsed}
+                    icon={item.icon}
+                    label={item.name}
+                    onNavigate={() => setIsOpen(false)}
+                  />
                 ))}
               {PLATFORM_FINANCE_SUBNAV.some((item) =>
                 platformBusinessesSubnavAllowed(item, canAccess),
               ) ? (
-                <div className="mb-1 mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setIsPlatformFinanceOpen((o) => !o)}
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
-                  >
-                    <span className="flex items-center gap-2 truncate">
-                      <BookOpenText className="h-4 w-4 shrink-0 text-teal-500/90" />
-                      Finance
-                    </span>
-                    <ChevronDown
-                      className={`h-4 w-4 shrink-0 transition-transform ${
-                        isPlatformFinanceOpen ? 'rotate-0' : '-rotate-90'
-                      }`}
-                    />
-                  </button>
-                  {isPlatformFinanceOpen ? (
-                    <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
-                      {PLATFORM_FINANCE_SUBNAV.filter((item) =>
-                        platformBusinessesSubnavAllowed(item, canAccess),
-                      ).map((item) => {
-                        const subActive = isPlatformFinanceSubActive(item.path)
-                        return (
-                          <NavLink
-                            key={item.path}
-                            to={item.path}
-                            onClick={() => setIsOpen(false)}
-                            className={`flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
-                              subActive
-                                ? 'bg-teal-500/10 text-teal-300'
-                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                            }`}
-                          >
-                            <span className="font-medium">{item.title}</span>
-                          </NavLink>
-                        )
-                      })}
-                    </div>
-                  ) : null}
-                </div>
+                <NavSection
+                  collapsed={collapsed}
+                  icon={BookOpenText}
+                  label="Finance"
+                  open={isPlatformFinanceOpen}
+                  onToggle={() => setIsPlatformFinanceOpen((o) => !o)}
+                  sectionActive={PLATFORM_FINANCE_SUBNAV.filter((item) =>
+                    platformBusinessesSubnavAllowed(item, canAccess),
+                  ).some((item) => isPlatformFinanceSubActive(item.path))}
+                >
+                  {PLATFORM_FINANCE_SUBNAV.filter((item) =>
+                    platformBusinessesSubnavAllowed(item, canAccess),
+                  ).map((item) => {
+                    const subActive = isPlatformFinanceSubActive(item.path)
+                    return (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        onClick={() => setIsOpen(false)}
+                        className={`flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
+                          subActive
+                            ? 'bg-teal-500/10 text-teal-300'
+                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        <span className="font-medium">{item.title}</span>
+                      </NavLink>
+                    )
+                  })}
+                </NavSection>
               ) : null}
               {PLATFORM_WAVE_OPERATIONS_SUBNAV.some((item) =>
                 platformBusinessesSubnavAllowed(item, canAccess),
               ) ? (
-                <div className="mb-1 mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setIsPlatformWaveOpsOpen((o) => !o)}
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
-                  >
-                    <span className="flex items-center gap-2 truncate">
-                      <Waves className="h-4 w-4 shrink-0 text-teal-500/90" />
-                      Wave operations
-                    </span>
-                    <ChevronDown
-                      className={`h-4 w-4 shrink-0 transition-transform ${
-                        isPlatformWaveOpsOpen ? 'rotate-0' : '-rotate-90'
-                      }`}
-                    />
-                  </button>
-                  {isPlatformWaveOpsOpen ? (
-                    <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
-                      {PLATFORM_WAVE_OPERATIONS_SUBNAV.filter((item) =>
-                        platformBusinessesSubnavAllowed(item, canAccess),
-                      ).map((item) => {
-                        const subActive = isPlatformWaveOpsSubActive(item.path)
-                        return (
-                          <NavLink
-                            key={item.path}
-                            to={item.path}
-                            onClick={() => setIsOpen(false)}
-                            className={`flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
-                              subActive
-                                ? 'bg-teal-500/10 text-teal-300'
-                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                            }`}
-                          >
-                            <span className="font-medium">{item.title}</span>
-                          </NavLink>
-                        )
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              <div className="mb-1 mt-1">
-                <button
-                  type="button"
-                  onClick={() => setIsPlatformBusinessesOpen((o) => !o)}
-                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
+                <NavSection
+                  collapsed={collapsed}
+                  icon={Waves}
+                  label="Wave operations"
+                  open={isPlatformWaveOpsOpen}
+                  onToggle={() => setIsPlatformWaveOpsOpen((o) => !o)}
+                  sectionActive={PLATFORM_WAVE_OPERATIONS_SUBNAV.filter((item) =>
+                    platformBusinessesSubnavAllowed(item, canAccess),
+                  ).some((item) => isPlatformWaveOpsSubActive(item.path))}
                 >
-                  <span className="flex items-center gap-2 truncate">
-                    <Building2 className="h-4 w-4 shrink-0 text-teal-500/90" />
-                    Businesses
-                  </span>
-                  <ChevronDown
-                    className={`h-4 w-4 shrink-0 transition-transform ${
-                      isPlatformBusinessesOpen ? 'rotate-0' : '-rotate-90'
-                    }`}
-                  />
-                </button>
-                {isPlatformBusinessesOpen ? (
-                  <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
-                    {PLATFORM_BUSINESSES_SUBNAV.filter((item) =>
-                      platformBusinessesSubnavAllowed(item, canAccess),
-                    ).map(
-                      (item) => {
-                        const subActive = isPlatformBusinessesSubActive(item.path)
-                        return (
-                          <NavLink
-                            key={item.path}
-                            to={item.path}
-                            onClick={() => setIsOpen(false)}
-                            className={`flex items-center rounded-lg px-2 py-2 text-sm capitalize transition-colors ${
-                              subActive
-                                ? 'bg-teal-500/10 text-teal-300'
-                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                            }`}
-                          >
-                            <span className="font-medium">{item.title}</span>
-                          </NavLink>
-                        )
-                      },
-                    )}
-                  </div>
-                ) : null}
-              </div>
+                  {PLATFORM_WAVE_OPERATIONS_SUBNAV.filter((item) =>
+                    platformBusinessesSubnavAllowed(item, canAccess),
+                  ).map((item) => {
+                    const subActive = isPlatformWaveOpsSubActive(item.path)
+                    return (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        onClick={() => setIsOpen(false)}
+                        className={`flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
+                          subActive
+                            ? 'bg-teal-500/10 text-teal-300'
+                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        <span className="font-medium">{item.title}</span>
+                      </NavLink>
+                    )
+                  })}
+                </NavSection>
+              ) : null}
+              <NavSection
+                collapsed={collapsed}
+                icon={Building2}
+                label="Businesses"
+                open={isPlatformBusinessesOpen}
+                onToggle={() => setIsPlatformBusinessesOpen((o) => !o)}
+                sectionActive={PLATFORM_BUSINESSES_SUBNAV.filter((item) =>
+                  platformBusinessesSubnavAllowed(item, canAccess),
+                ).some((item) => isPlatformBusinessesSubActive(item.path))}
+              >
+                {PLATFORM_BUSINESSES_SUBNAV.filter((item) =>
+                  platformBusinessesSubnavAllowed(item, canAccess),
+                ).map((item) => {
+                  const subActive = isPlatformBusinessesSubActive(item.path)
+                  return (
+                    <NavLink
+                      key={item.path}
+                      to={item.path}
+                      onClick={() => setIsOpen(false)}
+                      className={`flex items-center rounded-lg px-2 py-2 text-sm capitalize transition-colors ${
+                        subActive
+                          ? 'bg-teal-500/10 text-teal-300'
+                          : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <span className="font-medium">{item.title}</span>
+                    </NavLink>
+                  )
+                })}
+              </NavSection>
               {PLATFORM_BUSINESS_MERCHANTS_SUBNAV.some((item) =>
                 platformBusinessesSubnavAllowed(item, canAccess),
               ) ? (
-                <div className="mb-1 mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setIsPlatformBusinessMerchantsOpen((o) => !o)}
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
-                  >
-                    <span className="flex items-center gap-2 truncate">
-                      <Store className="h-4 w-4 shrink-0 text-teal-500/90" />
-                      Business Merchants
-                    </span>
-                    <ChevronDown
-                      className={`h-4 w-4 shrink-0 transition-transform ${
-                        isPlatformBusinessMerchantsOpen ? 'rotate-0' : '-rotate-90'
-                      }`}
-                    />
-                  </button>
-                  {isPlatformBusinessMerchantsOpen ? (
-                    <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
-                      {PLATFORM_BUSINESS_MERCHANTS_SUBNAV.filter((item) =>
-                        platformBusinessesSubnavAllowed(item, canAccess),
-                      ).map((item) => {
-                        const subActive = isPlatformBusinessMerchantsSubActive(item.path)
-                        return (
-                          <NavLink
-                            key={item.path}
-                            to={item.path}
-                            onClick={() => setIsOpen(false)}
-                            className={`flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
-                              subActive
-                                ? 'bg-teal-500/10 text-teal-300'
-                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                            }`}
-                          >
-                            <span className="font-medium">{item.title}</span>
-                          </NavLink>
-                        )
-                      })}
-                    </div>
-                  ) : null}
-                </div>
+                <NavSection
+                  collapsed={collapsed}
+                  icon={Store}
+                  label="Business Merchants"
+                  open={isPlatformBusinessMerchantsOpen}
+                  onToggle={() => setIsPlatformBusinessMerchantsOpen((o) => !o)}
+                  sectionActive={PLATFORM_BUSINESS_MERCHANTS_SUBNAV.filter((item) =>
+                    platformBusinessesSubnavAllowed(item, canAccess),
+                  ).some((item) => isPlatformBusinessMerchantsSubActive(item.path))}
+                >
+                  {PLATFORM_BUSINESS_MERCHANTS_SUBNAV.filter((item) =>
+                    platformBusinessesSubnavAllowed(item, canAccess),
+                  ).map((item) => {
+                    const subActive = isPlatformBusinessMerchantsSubActive(item.path)
+                    return (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        onClick={() => setIsOpen(false)}
+                        className={`flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
+                          subActive
+                            ? 'bg-teal-500/10 text-teal-300'
+                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        <span className="font-medium">{item.title}</span>
+                      </NavLink>
+                    )
+                  })}
+                </NavSection>
               ) : null}
               {PLATFORM_CORPORATE_SUBNAV.some((item) =>
                 platformBusinessesSubnavAllowed(item, canAccess),
               ) ? (
-                <div className="mb-1 mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setIsPlatformCorporateOpen((o) => !o)}
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
-                  >
-                    <span className="flex items-center gap-2 truncate">
-                      <Briefcase className="h-4 w-4 shrink-0 text-teal-500/90" />
-                      Corporate
-                    </span>
-                    <ChevronDown
-                      className={`h-4 w-4 shrink-0 transition-transform ${
-                        isPlatformCorporateOpen ? 'rotate-0' : '-rotate-90'
-                      }`}
-                    />
-                  </button>
-                  {isPlatformCorporateOpen ? (
-                    <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
-                      {PLATFORM_CORPORATE_SUBNAV.filter((item) =>
-                        platformBusinessesSubnavAllowed(item, canAccess),
-                      ).map((item) => {
-                        const subActive = isPlatformCorporateSubActive(item.path)
-                        return (
-                          <NavLink
-                            key={item.path}
-                            to={item.path}
-                            onClick={() => setIsOpen(false)}
-                            className={`flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
-                              subActive
-                                ? 'bg-teal-500/10 text-teal-300'
-                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                            }`}
-                          >
-                            <span className="font-medium">{item.title}</span>
-                          </NavLink>
-                        )
-                      })}
-                    </div>
-                  ) : null}
-                </div>
+                <NavSection
+                  collapsed={collapsed}
+                  icon={Briefcase}
+                  label="Corporate"
+                  open={isPlatformCorporateOpen}
+                  onToggle={() => setIsPlatformCorporateOpen((o) => !o)}
+                  sectionActive={PLATFORM_CORPORATE_SUBNAV.filter((item) =>
+                    platformBusinessesSubnavAllowed(item, canAccess),
+                  ).some((item) => isPlatformCorporateSubActive(item.path))}
+                >
+                  {PLATFORM_CORPORATE_SUBNAV.filter((item) =>
+                    platformBusinessesSubnavAllowed(item, canAccess),
+                  ).map((item) => {
+                    const subActive = isPlatformCorporateSubActive(item.path)
+                    return (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        onClick={() => setIsOpen(false)}
+                        className={`flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
+                          subActive
+                            ? 'bg-teal-500/10 text-teal-300'
+                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        <span className="font-medium">{item.title}</span>
+                      </NavLink>
+                    )
+                  })}
+                </NavSection>
               ) : null}
               {platformNavItems
                 .filter((item) => item.path !== APP_PATHS.dashboard)
                 .map((item) => (
-                  <NavLink
+                  <SidebarIconLink
                     key={item.path}
                     to={item.path}
-                    onClick={() => setIsOpen(false)}
-                    className={({ isActive }) =>
-                      `flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors ${
-                        isActive
-                          ? 'border-teal-500 bg-teal-500/10 text-teal-400'
-                          : 'border-transparent hover:bg-slate-800 hover:text-white'
-                      }`
-                    }
-                  >
-                    <item.icon className="mr-3 h-5 w-5" />
-                    <span className="font-medium">{item.name}</span>
-                  </NavLink>
+                    collapsed={collapsed}
+                    icon={item.icon}
+                    label={item.name}
+                    onNavigate={() => setIsOpen(false)}
+                  />
                 ))}
             </>
           ) : planMenuLoading ? (
-            <p className="px-3 text-sm text-slate-500">Loading menu…</p>
+            <p className={`px-3 text-sm text-slate-500 ${collapsed ? 'lg:hidden' : ''}`}>
+              Loading menu…
+            </p>
           ) : usePlanMenu ? (
             planMenu.map((svc) => {
               const open = openServiceIds[svc.id] === true
+              const ServiceIcon = PLAN_SERVICE_ICONS[svc.id] ?? LayoutGrid
               return (
-                <div key={svc.id} className="mb-1">
-                  <button
-                    type="button"
-                    onClick={() => toggleService(svc.id)}
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
-                  >
-                    <span className="truncate">{svc.name}</span>
-                    <ChevronDown
-                      className={`h-4 w-4 shrink-0 transition-transform ${
-                        open ? 'rotate-0' : '-rotate-90'
-                      }`}
-                    />
-                  </button>
-                  {open ? (
-                    <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
-                      {svc.items.map((item) => (
-                          <NavLink
-                            key={item.slug}
-                            to={item.navPath}
-                            onClick={() => setIsOpen(false)}
-                            className={({ isActive }) =>
-                              `flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
-                                isActive
-                                  ? 'bg-teal-500/10 text-teal-300'
-                                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                              }`
-                            }
-                          >
-                            <span className="font-medium">{item.navLabel}</span>
-                          </NavLink>
-                        ))}
-                    </div>
-                  ) : null}
-                </div>
+                <NavSection
+                  key={svc.id}
+                  collapsed={collapsed}
+                  icon={ServiceIcon}
+                  label={svc.name}
+                  open={open}
+                  onToggle={() => toggleService(svc.id)}
+                  sectionActive={svc.items.some(
+                    (item) =>
+                      location.pathname === item.navPath ||
+                      location.pathname.startsWith(`${item.navPath}/`),
+                  )}
+                >
+                  {svc.items.map((item) => (
+                    <NavLink
+                      key={item.slug}
+                      to={item.navPath}
+                      onClick={() => setIsOpen(false)}
+                      className={({ isActive }) =>
+                        `flex items-center rounded-lg px-2 py-2 text-sm transition-colors ${
+                          isActive
+                            ? 'bg-teal-500/10 text-teal-300'
+                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`
+                      }
+                    >
+                      <span className="font-medium">{item.navLabel}</span>
+                    </NavLink>
+                  ))}
+                </NavSection>
               )
             })
           ) : (
             staticFallbackItems.map((item) => (
-              <NavLink
+              <SidebarIconLink
                 key={item.path}
                 to={item.path}
-                onClick={() => setIsOpen(false)}
-                className={({ isActive }) =>
-                  `flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors ${
-                    isActive
-                      ? 'border-teal-500 bg-teal-500/10 text-teal-400'
-                      : 'border-transparent hover:bg-slate-800 hover:text-white'
-                  }`
-                }
-              >
-                <item.icon className="mr-3 h-5 w-5" />
-                <span className="font-medium">{item.name}</span>
-              </NavLink>
+                collapsed={collapsed}
+                icon={item.icon}
+                label={item.name}
+                onNavigate={() => setIsOpen(false)}
+              />
             ))
           )}
 
           {isPlatformOperator && canAccess('platform.system.view') ? (
             <>
-              <div className="mt-6 mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <div
+                className={`mt-6 mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                  collapsed ? 'lg:hidden' : ''
+                }`}
+              >
                 Platform
               </div>
-              <NavLink
+              <SidebarIconLink
                 to={APP_PATHS.platformSystemConfiguration}
-                onClick={() => setIsOpen(false)}
-                className={({ isActive }) =>
-                  `flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors ${
-                    isActive
-                      ? 'border-teal-500 bg-teal-500/10 text-teal-400'
-                      : 'border-transparent hover:bg-slate-800 hover:text-white'
-                  }`
-                }
-              >
-                <Cog className="mr-3 h-5 w-5" />
-                <span className="font-medium">System configuration</span>
-              </NavLink>
+                collapsed={collapsed}
+                icon={Cog}
+                label="System configuration"
+                onNavigate={() => setIsOpen(false)}
+              />
             </>
           ) : null}
 
@@ -961,109 +1001,83 @@ export function Sidebar({
             'platform.security.move_users.view',
             'platform.security.partnership_config.view',
           ]) ? (
-            <>
-              <div className="mt-4 mb-1">
-                <button
-                  type="button"
-                  onClick={() => setIsPlatformSecurityOpen((o) => !o)}
-                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-300"
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    <Shield className="h-4 w-4 shrink-0 text-teal-500/90" />
-                    Security
-                  </span>
-                  <ChevronDown
-                    className={`h-4 w-4 shrink-0 transition-transform ${
-                      isPlatformSecurityOpen ? 'rotate-0' : '-rotate-90'
+            <NavSection
+              collapsed={collapsed}
+              icon={Shield}
+              label="Security"
+              open={isPlatformSecurityOpen}
+              onToggle={() => setIsPlatformSecurityOpen((o) => !o)}
+              sectionActive={PLATFORM_SECURITY_SUBNAV.filter((item) =>
+                item.path === APP_PATHS.platformSecurityMoveUsers
+                  ? canAccess('platform.security.move_users.view') ||
+                    canAccess('platform.security.users.view')
+                  : canAccess(item.permission),
+              ).some((item) => isPlatformSecuritySubActive(item.path))}
+            >
+              {PLATFORM_SECURITY_SUBNAV.filter((item) =>
+                item.path === APP_PATHS.platformSecurityMoveUsers
+                  ? canAccess('platform.security.move_users.view') ||
+                    canAccess('platform.security.users.view')
+                  : canAccess(item.permission),
+              ).map((item) => {
+                const subActive = isPlatformSecuritySubActive(item.path)
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    onClick={() => setIsOpen(false)}
+                    className={`flex items-center rounded-lg px-2 py-2 text-sm capitalize transition-colors ${
+                      subActive
+                        ? 'bg-teal-500/10 text-teal-300'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                     }`}
-                  />
-                </button>
-                {isPlatformSecurityOpen ? (
-                  <div className="ml-1 space-y-0.5 border-l border-slate-700/80 pl-2">
-                    {PLATFORM_SECURITY_SUBNAV.filter((item) =>
-                      item.path === APP_PATHS.platformSecurityMoveUsers
-                        ? canAccess('platform.security.move_users.view') ||
-                          canAccess('platform.security.users.view')
-                        : canAccess(item.permission),
-                    ).map((item) => {
-                      const subActive = isPlatformSecuritySubActive(item.path)
-                      return (
-                        <NavLink
-                          key={item.path}
-                          to={item.path}
-                          onClick={() => setIsOpen(false)}
-                          className={`flex items-center rounded-lg px-2 py-2 text-sm capitalize transition-colors ${
-                            subActive
-                              ? 'bg-teal-500/10 text-teal-300'
-                              : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                          }`}
-                        >
-                          <span className="font-medium">{item.title}</span>
-                        </NavLink>
-                      )
-                    })}
-                  </div>
-                ) : null}
-              </div>
-            </>
+                  >
+                    <span className="font-medium">{item.title}</span>
+                  </NavLink>
+                )
+              })}
+            </NavSection>
           ) : null}
 
           {user.role !== 'cashier' &&
           currentOrganization &&
           isRestaurantIndustry(currentOrganization.industry) ? (
             <>
-              <div className="mt-6 mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <div
+                className={`mt-6 mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                  collapsed ? 'lg:hidden' : ''
+                }`}
+              >
                 Restaurant
               </div>
               {canReadProducts ? (
                 <>
-                  <NavLink
+                  <SidebarIconLink
                     to={APP_PATHS.restaurantTables}
-                    onClick={() => setIsOpen(false)}
-                    className={({ isActive }) =>
-                      `mb-0.5 flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white ${
-                        isActive
-                          ? 'border-teal-500 bg-teal-500/10 text-teal-400'
-                          : 'border-transparent'
-                      }`
-                    }
-                  >
-                    <LayoutGrid className="mr-3 h-5 w-5" />
-                    <span className="font-medium">Dining tables</span>
-                  </NavLink>
-                  <NavLink
+                    collapsed={collapsed}
+                    icon={LayoutGrid}
+                    label="Dining tables"
+                    onNavigate={() => setIsOpen(false)}
+                  />
+                  <SidebarIconLink
                     to={APP_PATHS.restaurantMenuSetup}
-                    onClick={() => setIsOpen(false)}
-                    className={({ isActive }) =>
-                      `mb-0.5 flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white ${
-                        isActive
-                          ? 'border-teal-500 bg-teal-500/10 text-teal-400'
-                          : 'border-transparent'
-                      }`
-                    }
-                  >
-                    <ListTree className="mr-3 h-5 w-5" />
-                    <span className="font-medium">Menu setup</span>
-                  </NavLink>
+                    collapsed={collapsed}
+                    icon={ListTree}
+                    label="Menu setup"
+                    onNavigate={() => setIsOpen(false)}
+                  />
                 </>
               ) : null}
               {canUseProductBarcode ? (
-                <NavLink
+                <SidebarIconLink
                   to={APP_PATHS.restaurantManualMenu}
-                  onClick={() => setIsOpen(false)}
-                  className={({ isActive }) =>
-                    `mb-0.5 flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white ${
-                      isActive
-                        ? 'border-teal-500 bg-teal-500/10 text-teal-400'
-                        : 'border-transparent'
-                    }`
-                  }
-                >
-                  <LibraryBig className="mr-3 h-5 w-5" />
-                  <span className="font-medium">Manual Menu</span>
-                </NavLink>
+                  collapsed={collapsed}
+                  icon={LibraryBig}
+                  label="Manual Menu"
+                  onNavigate={() => setIsOpen(false)}
+                />
               ) : null}
-              <NavLink
+              <SidebarIconLink
                 to={
                   restaurantPreviewToken
                     ? generatePath(APP_PATHS.restaurantGuestMenu, {
@@ -1072,12 +1086,11 @@ export function Sidebar({
                       })
                     : APP_PATHS.restaurantTables
                 }
-                onClick={() => setIsOpen(false)}
-                className="flex items-center rounded-lg border-l-2 border-transparent px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white"
-              >
-                <RESTAURANT_NAV_ITEM.icon className="mr-3 h-5 w-5" />
-                <span className="font-medium">{RESTAURANT_NAV_ITEM.name}</span>
-              </NavLink>
+                collapsed={collapsed}
+                icon={RESTAURANT_NAV_ITEM.icon}
+                label={RESTAURANT_NAV_ITEM.name}
+                onNavigate={() => setIsOpen(false)}
+              />
             </>
           ) : null}
 
@@ -1085,35 +1098,39 @@ export function Sidebar({
           currentOrganization &&
           isPetrolStationIndustry(currentOrganization.industry) ? (
             <>
-              <div className="mt-6 mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <div
+                className={`mt-6 mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                  collapsed ? 'lg:hidden' : ''
+                }`}
+              >
                 Petrol
               </div>
               {canAccess('products.view') ? (
-                <NavLink
+                <SidebarIconLink
                   to={APP_PATHS.petrolStations}
-                  onClick={() => setIsOpen(false)}
-                  className={({ isActive }) =>
-                    `mb-0.5 flex items-center rounded-lg border-l-2 px-3 py-2.5 transition-colors hover:bg-slate-800 hover:text-white ${
-                      isActive
-                        ? 'border-teal-500 bg-teal-500/10 text-teal-400'
-                        : 'border-transparent'
-                    }`
-                  }
-                >
-                  <Fuel className="mr-3 h-5 w-5" />
-                  <span className="font-medium">Stations &amp; pumps</span>
-                </NavLink>
+                  collapsed={collapsed}
+                  icon={Fuel}
+                  label="Stations & pumps"
+                  onNavigate={() => setIsOpen(false)}
+                />
               ) : null}
             </>
           ) : null}
         </div>
 
-        <div className="border-t border-slate-800 p-4">
-          <div className="mb-4 flex items-center px-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-600 font-bold text-white">
+        <div className={`border-t border-slate-800 ${collapsed ? 'p-4 lg:p-2' : 'p-4'}`}>
+          <div
+            className={`mb-4 flex items-center ${
+              collapsed ? 'px-2 lg:mb-2 lg:justify-center lg:px-0' : 'px-2'
+            }`}
+          >
+            <div
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-600 font-bold text-white"
+              title={user.name}
+            >
               {user.name.charAt(0)}
             </div>
-            <div className="ml-3 overflow-hidden">
+            <div className={`ml-3 overflow-hidden ${collapsed ? 'lg:hidden' : ''}`}>
               <p className="truncate text-sm font-medium text-white">{user.name}</p>
               <p className="text-xs text-slate-400">
                 {user.isPlatformOwner
@@ -1141,17 +1158,23 @@ export function Sidebar({
               setIsOpen(false)
               navigate(APP_PATHS.changePassword)
             }}
-            className="mb-1 flex w-full items-center rounded-lg px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+            title="Change Password"
+            className={`mb-1 flex w-full items-center rounded-lg py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white ${
+              collapsed ? 'px-3 lg:justify-center lg:px-0' : 'px-3'
+            }`}
           >
-            <LockKeyhole className="mr-3 h-4 w-4" />
-            Change Password
+            <LockKeyhole className={`h-4 w-4 shrink-0 ${collapsed ? 'mr-3 lg:mr-0' : 'mr-3'}`} />
+            <span className={collapsed ? 'truncate lg:hidden' : 'truncate'}>Change Password</span>
           </button>
           <button
             onClick={logout}
-            className="flex w-full items-center rounded-lg px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+            title="Sign Out"
+            className={`flex w-full items-center rounded-lg py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white ${
+              collapsed ? 'px-3 lg:justify-center lg:px-0' : 'px-3'
+            }`}
           >
-            <LogOut className="mr-3 h-4 w-4" />
-            Sign Out
+            <LogOut className={`h-4 w-4 shrink-0 ${collapsed ? 'mr-3 lg:mr-0' : 'mr-3'}`} />
+            <span className={collapsed ? 'truncate lg:hidden' : 'truncate'}>Sign Out</span>
           </button>
         </div>
       </aside>

@@ -1,7 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import {
   BookOpenText,
-  BarChart3,
   ClipboardList,
   CreditCard,
   History,
@@ -33,7 +32,6 @@ export const APP_PATHS = {
   payments: '/payments',
   /** Staff / system audit trail (payment events, etc.) */
   activityLog: '/activity-log',
-  reports: '/reports',
   subscriptionsBillingActivity: '/subscriptions/billing-activity',
   salesQuotations: '/sales/quotations',
   salesInvoices: '/sales/invoices',
@@ -145,6 +143,15 @@ export function salesQuotationDetailPath(quotationId: string) {
 
 export function salesInvoiceDetailPath(invoiceId: string) {
   return `/sales/invoices/${encodeURIComponent(invoiceId)}`
+}
+
+export function guestInvoiceSharePath(shareToken: string) {
+  return `/guest/invoice-share/${encodeURIComponent(shareToken)}`
+}
+
+export function guestInvoiceFromSharePath(guestToken: string, shareToken: string) {
+  const q = new URLSearchParams({ share: shareToken })
+  return `/guest/invoice/${encodeURIComponent(guestToken)}?${q.toString()}`
 }
 
 export function salesBillDetailPath(billId: string) {
@@ -504,7 +511,7 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     name: 'Payments',
     path: APP_PATHS.payments,
     icon: CreditCard,
-    roles: ['platform_owner', 'platform_admin', 'admin', 'merchant', 'cashier'],
+    roles: ['admin', 'merchant', 'cashier'],
     title: 'Payments',
     permission: 'payments.view',
   },
@@ -516,14 +523,6 @@ export const MAIN_NAV_ITEMS: NavigationItem[] = [
     roles: ['platform_owner', 'platform_admin', 'admin', 'merchant', 'cashier'],
     title: 'Activity log',
     permission: 'activity.log',
-  },
-  {
-    name: 'Reports',
-    path: APP_PATHS.reports,
-    icon: BarChart3,
-    roles: ['platform_owner', 'platform_admin', 'admin', 'merchant', 'cashier'],
-    title: 'Reports',
-    permission: 'reports.view',
   },
   {
     name: 'Accounting',

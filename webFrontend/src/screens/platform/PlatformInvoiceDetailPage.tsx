@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Download } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 
 import { EasypayLogoMark } from '../../components/branding/EasypayLogoMark'
+import { InvoiceExportShareMenu } from '../../components/invoices/InvoiceExportShareMenu'
 import { PageCard } from '../../components/ui/PageCard'
 import { PageTransition } from '../../components/ui/PageTransition'
 import { APP_PATHS } from '../../config/navigation'
 import { useAuth } from '../../features/auth/AuthContext'
 import {
   ApiError,
+  downloadPlatformInvoicePdf,
   fetchPlatformInvoiceDetail,
+  fetchPlatformInvoicePdfBlob,
   type PlatformInvoiceDetail,
 } from '../../services/subscriptionApi'
 import { isPlatformOperator } from '../../utils/platformOperator'
+import { invoiceShareMessage, shareLinkAndPdf, whatsappShareHref } from '../../utils/shareGuestInvoice'
 
 function formatLongDate(iso: string) {
   try {
@@ -30,6 +34,9 @@ export function PlatformInvoiceDetailPage() {
   const [inv, setInv] = useState<PlatformInvoiceDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [exportBusy, setExportBusy] = useState(false)
+  const [shareBusy, setShareBusy] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isPlatformOperator(user) || !invoiceId) {
@@ -65,8 +72,56 @@ export function PlatformInvoiceDetailPage() {
     return null
   }
 
-  const handleExportPdf = () => {
-    window.print()
+  const guestPayUrl = inv?.guestPayUrl?.trim() || null
+  const publicCode = inv?.externalReference?.trim() || inv?.id.slice(0, 8) || invoiceId || 'invoice'
+  const amountLabel = inv ? `${inv.amount} ${inv.currency}` : ''
+
+  const handleExportPdf = async () => {
+    if (!invoiceId) {
+      return
+    }
+    setExportBusy(true)
+    setActionError(null)
+    try {
+      await downloadPlatformInvoicePdf(invoiceId)
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.message : 'Could not download PDF. Try print instead.')
+      window.print()
+    } finally {
+      setExportBusy(false)
+    }
+  }
+
+  const handleShareWhatsApp = async () => {
+    if (!invoiceId || !inv || !guestPayUrl) {
+      return
+    }
+    const text = invoiceShareMessage({
+      businessName: inv.business.name,
+      publicCode,
+      amountLabel,
+      guestPayUrl,
+    })
+    const href = whatsappShareHref(text)
+    setShareBusy(true)
+    setActionError(null)
+    try {
+      const { blob, filename } = await fetchPlatformInvoicePdfBlob(invoiceId)
+      const file = new File([blob], filename, { type: 'application/pdf' })
+      const result = await shareLinkAndPdf({
+        title: `${inv.business.name} invoice ${publicCode}`,
+        text,
+        url: guestPayUrl,
+        file,
+      })
+      if (result === 'aborted') {
+        return
+      }
+    } catch {
+      window.open(href, '_blank', 'noopener,noreferrer')
+    } finally {
+      setShareBusy(false)
+    }
   }
 
   return (
@@ -79,19 +134,15 @@ export function PlatformInvoiceDetailPage() {
           <ArrowLeft className="h-4 w-4" />
           Back to invoices
         </Link>
-        <button
-          type="button"
-          onClick={handleExportPdf}
-          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
-        >
-          <Download className="h-4 w-4" />
-          Export PDF
-        </button>
+        <InvoiceExportShareMenu
+          onExportPdf={() => void handleExportPdf()}
+          onShareWhatsApp={() => void handleShareWhatsApp()}
+          exportBusy={exportBusy}
+          shareBusy={shareBusy}
+          shareDisabled={!guestPayUrl}
+        />
       </div>
-      <p className="print:hidden text-xs text-slate-500">
-        Export PDF uses your browser’s print dialog — choose &quot;Save as PDF&quot; as the
-        destination.
-      </p>
+      {actionError ? <p className="print:hidden text-xs text-amber-800">{actionError}</p> : null}
 
       {loading ? (
         <p className="text-sm text-slate-500">Loading invoice…</p>

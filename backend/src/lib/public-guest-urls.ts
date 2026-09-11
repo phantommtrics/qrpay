@@ -33,6 +33,13 @@ export function guestInvoiceUrl(guestToken: string): string {
   return spaHashRoute(getPublicWebAppBaseUrl(), `/guest/invoice/${encodeURIComponent(guestToken)}`);
 }
 
+export function guestInvoiceShareUrl(shareToken: string): string {
+  return spaHashRoute(
+    getPublicWebAppBaseUrl(),
+    `/guest/invoice-share/${encodeURIComponent(shareToken)}`,
+  );
+}
+
 export function guestSubscriptionInvoiceUrl(guestToken: string): string {
   return spaHashRoute(
     getPublicWebAppBaseUrl(),
