@@ -47,7 +47,8 @@ export function PlatformBusinessDetailPage() {
   const canEditMerchantApi =
     Boolean(user?.isPlatformOwner) || canAccess('platform.businesses.merchant_api.edit')
   const canEditBusiness =
-    Boolean(user?.isPlatformOwner) || canAccess('platform.businesses.manage')
+    Boolean(user?.isPlatformOwner) ||
+    Boolean(user?.platformPermissions?.['platform.businesses']?.edit)
   const [detail, setDetail] = useState<PlatformBusinessDetail | null>(null)
   const [membershipsPage, setMembershipsPage] = useState(1)
   const [subscriptionsPage, setSubscriptionsPage] = useState(1)

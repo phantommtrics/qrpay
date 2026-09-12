@@ -29,13 +29,17 @@ export interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
 }
 
+function isPlatformOperatorUser(user: AuthenticatedUser): boolean {
+  return Boolean(user.isPlatformOwner || user.role === UserRole.PLATFORM_ADMIN);
+}
+
 export function requireEntitlement(slug: string) {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       if (!req.user) {
         throw new HttpError(401, "Authentication required");
       }
-      if (req.user.isPlatformOwner) {
+      if (isPlatformOperatorUser(req.user)) {
         next();
         return;
       }
@@ -55,14 +59,14 @@ export function requireEntitlement(slug: string) {
   };
 }
 
-/** Passes if the user has any of the listed entitlements (platform owners always pass). */
+/** Passes if the user has any of the listed entitlements (platform operators always pass). */
 export function requireAnyEntitlement(slugs: string[]) {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       if (!req.user) {
         throw new HttpError(401, "Authentication required");
       }
-      if (req.user.isPlatformOwner) {
+      if (isPlatformOperatorUser(req.user)) {
         next();
         return;
       }

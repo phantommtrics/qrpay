@@ -27,14 +27,15 @@ function isWhitelistedReadForRestrictedMembership(req: Pick<Request, "method" | 
 /**
  * Throws 403 when the user may not use this business context for API calls (non-owner blocked/suspended/terminated).
  * Some GET endpoints are allowed so the UI can load org context and show messaging.
+ * Platform operators (owner + system users) are not required to be business members.
  */
 export async function assertBusinessMembershipAllowsApiAccess(
   userId: string,
   businessId: string,
-  isPlatformOwner: boolean,
+  isPlatformOperator: boolean,
   req?: Pick<Request, "method" | "path">,
 ): Promise<void> {
-  if (isPlatformOwner) {
+  if (isPlatformOperator) {
     return;
   }
 

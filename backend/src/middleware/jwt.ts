@@ -108,7 +108,7 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
       await assertBusinessMembershipAllowsApiAccess(
         user.id,
         businessContextId,
-        user.role === UserRole.PLATFORM_OWNER,
+        isPlatformOperator,
         req,
       );
       await assertBusinessOperationalAllowsApiAccess(

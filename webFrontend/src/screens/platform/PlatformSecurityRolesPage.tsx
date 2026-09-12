@@ -325,6 +325,26 @@ export function PlatformSecurityRolesPage() {
     })
   }, [canEditTpl])
 
+  const setAllPermissions = useCallback(
+    (nextVal: boolean) => {
+      if (!canEditTpl) return
+      setMatrix((rows) =>
+        rows.map((row) => {
+          const next = { ...row }
+          for (const { key } of actionLabels) {
+            next[key] = nextVal
+          }
+          return next
+        }),
+      )
+    },
+    [canEditTpl],
+  )
+
+  const allPermissionsOn =
+    matrix.length > 0 &&
+    matrix.every((row) => actionLabels.every(({ key }) => row[key]))
+
   const moduleById = new Map(modules.map((m) => [m.id, m]))
 
   return (
@@ -471,20 +491,31 @@ export function PlatformSecurityRolesPage() {
                       <div>
                         <h4 className="text-lg font-semibold text-slate-900">{selected.name}</h4>
                         <p className="text-sm text-slate-600">
-                          Drag across the grid to paint a row, column, or block. Click a module name to
-                          toggle an entire row, or a column header to toggle that column. Then save.
+                          Use Set all to grant every module and action, or Clear all to reset. Drag
+                          across the grid to paint a block; click a module name or column header to
+                          toggle a row or column. Then save.
                         </p>
                       </div>
                       {canEditTpl ? (
-                        <button
-                          type="button"
-                          disabled={saving}
-                          onClick={() => void handleSaveMatrix()}
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-500 disabled:opacity-50"
-                        >
-                          <Save className="h-4 w-4" />
-                          {saving ? 'Saving…' : 'Save'}
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={saving || matrix.length === 0}
+                            onClick={() => setAllPermissions(!allPermissionsOn)}
+                            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+                          >
+                            {allPermissionsOn ? 'Clear all' : 'Set all'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => void handleSaveMatrix()}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-500 disabled:opacity-50"
+                          >
+                            <Save className="h-4 w-4" />
+                            {saving ? 'Saving…' : 'Save'}
+                          </button>
+                        </div>
                       ) : null}
                     </div>
 
