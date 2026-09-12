@@ -4,9 +4,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
+
+import type { BusinessSwitchFeedback } from '../../components/ui/BusinessSwitchOverlay'
 
 import {
   INITIAL_PLAN_PERMISSIONS,
@@ -25,6 +28,7 @@ import {
   fetchBusinessEntitlements,
   fetchBusinessUsers,
   fetchBusinessSubscription,
+  fetchAccessibleBusinesses,
   fetchPlans,
   forgotPassword as forgotPasswordRequest,
   hasStoredToken,
@@ -103,6 +107,8 @@ type AuthContextValue = {
   createStaffAccount: (payload: CreateStaffPayload) => Promise<AuthActionResult>
   logout: () => void
   setActiveOrganization: (organizationId: string) => void
+  /** Shown while switching businesses (sidebar / header / businesses page). */
+  businessSwitchFeedback: BusinessSwitchFeedback | null
   /** Patch fields on a cached organization (e.g. logoUrl after profile upload). */
   patchOrganization: (organizationId: string, patch: Partial<Organization>) => void
   canAccess: (permission: PermissionKey) => boolean
@@ -222,6 +228,11 @@ function mergeOrganizations(
   })
 }
 
+/** Soft-deleted businesses must never appear in merchant switchers. */
+function isUsableMerchantOrganization(organization: Organization): boolean {
+  return organization.operationalStatus !== 'TERMINATED'
+}
+
 function isStaffCountValid(plan: SubscriptionPlan, staffCount: number) {
   if (staffCount < plan.minStaff) {
     return false
@@ -268,6 +279,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [businessProducts, setBusinessProducts] = useState<Product[]>([])
   const [businessProductsLoading, setBusinessProductsLoading] = useState(false)
   const [businessProductsError, setBusinessProductsError] = useState<string | null>(null)
+  const [businessSwitchFeedback, setBusinessSwitchFeedback] =
+    useState<BusinessSwitchFeedback | null>(null)
+  const businessSwitchTimeoutRef = useRef<number | null>(null)
+
+  const clearBusinessSwitchFeedback = useCallback(() => {
+    if (businessSwitchTimeoutRef.current != null) {
+      window.clearTimeout(businessSwitchTimeoutRef.current)
+      businessSwitchTimeoutRef.current = null
+    }
+    setBusinessSwitchFeedback(null)
+  }, [])
 
   const clearSessionState = () => {
     clearToken()
@@ -279,6 +301,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setBusinessProducts([])
     setBusinessProductsError(null)
     setBusinessProductsLoading(false)
+    clearBusinessSwitchFeedback()
   }
 
   useEffect(() => {
@@ -298,7 +321,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [accounts])
 
   useEffect(() => {
-    writeStorage(STORAGE_KEYS.organizations, organizations)
+    writeStorage(
+      STORAGE_KEYS.organizations,
+      organizations.filter(isUsableMerchantOrganization),
+    )
   }, [organizations])
 
   useEffect(() => {
@@ -308,6 +334,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     writeStorage(STORAGE_KEYS.planPermissions, planPermissions)
   }, [planPermissions])
+
+  useEffect(() => {
+    return () => {
+      if (businessSwitchTimeoutRef.current != null) {
+        window.clearTimeout(businessSwitchTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const refreshPlans = useCallback(async () => {
     try {
@@ -338,34 +372,86 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const activeOrganizationId = useMemo(
     () => {
-      if (!organizations.length) {
+      const usable = organizations.filter(isUsableMerchantOrganization)
+      if (!usable.length) {
         return null
       }
 
       if (
         storedActiveOrganizationId &&
-        organizations.some((organization) => organization.id === storedActiveOrganizationId)
+        usable.some((organization) => organization.id === storedActiveOrganizationId)
       ) {
         return storedActiveOrganizationId
       }
 
-      return organizations[0].id
+      return usable[0].id
     },
     [organizations, storedActiveOrganizationId],
   )
 
   const currentOrganization = useMemo(
-    () =>
-      activeOrganizationId
-        ? organizations.find((organization) => organization.id === activeOrganizationId) ?? null
-        : organizations[0] ?? null,
+    () => {
+      const usable = organizations.filter(isUsableMerchantOrganization)
+      if (!activeOrganizationId) {
+        return usable[0] ?? null
+      }
+      return usable.find((organization) => organization.id === activeOrganizationId) ?? usable[0] ?? null
+    },
     [activeOrganizationId, organizations],
+  )
+
+  /** Orgs shown in sidebar / header / businesses page (never TERMINATED). */
+  const visibleOrganizations = useMemo(
+    () => organizations.filter(isUsableMerchantOrganization),
+    [organizations],
   )
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.activeOrganizationId, activeOrganizationId)
   }, [activeOrganizationId])
 
+  /** Reconcile merchant org list with server (drops soft-deleted businesses from switchers). */
+  const refreshAccessibleOrganizations = useCallback(async () => {
+    if (
+      !user?.id ||
+      user.isPlatformOwner ||
+      user.isPlatformAdmin ||
+      !hasStoredToken()
+    ) {
+      return
+    }
+    try {
+      const payload = await fetchAccessibleBusinesses()
+      const nextOrganizations = payload.accessibleBusinesses
+        .map(mapAccessibleBusinessToOrganization)
+        .filter(isUsableMerchantOrganization)
+      setOrganizations((current) => mergeOrganizations(current, nextOrganizations))
+      setEntitlementsByBusinessId((prev) => ({
+        ...prev,
+        ...Object.fromEntries(
+          payload.accessibleBusinesses.map((e) => [
+            e.business.id,
+            e.entitlements ?? prev[e.business.id] ?? [],
+          ]),
+        ),
+      }))
+      if (payload.accountNotice?.message) {
+        setAccountNotice(payload.accountNotice.message)
+      }
+      setStoredActiveOrganizationId((current) => {
+        if (current && nextOrganizations.some((o) => o.id === current)) {
+          return current
+        }
+        return payload.activeBusinessId ?? nextOrganizations[0]?.id ?? null
+      })
+    } catch {
+      // Keep cached orgs if offline; visibleOrganizations still hides TERMINATED locally.
+    }
+  }, [user?.id, user?.isPlatformOwner, user?.isPlatformAdmin])
+
+  useEffect(() => {
+    void refreshAccessibleOrganizations()
+  }, [refreshAccessibleOrganizations])
   const currentPlan = useMemo(
     () =>
       currentOrganization
@@ -462,6 +548,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         const payload = await fetchBusinessSubscription(businessId)
+        if (payload.business.operationalStatus === 'TERMINATED') {
+          setOrganizations((current) => current.filter((o) => o.id !== businessId))
+          setStoredActiveOrganizationId((current) => (current === businessId ? null : current))
+          return
+        }
+
         if (payload.currentSubscription?.plan) {
           const mappedPlan = mapBackendPlanToSubscriptionPlan(payload.currentSubscription.plan)
           setPlans((current) => {
@@ -489,8 +581,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               )
             : current,
         )
-      } catch {
-        // Keep cached organization; entitlements already refreshed above.
+      } catch (error) {
+        const message = error instanceof ApiError ? error.message : ''
+        if (
+          error instanceof ApiError &&
+          error.statusCode === 403 &&
+          /deleted|terminated|no longer available/i.test(message)
+        ) {
+          setOrganizations((current) => current.filter((o) => o.id !== businessId))
+          setStoredActiveOrganizationId((current) => (current === businessId ? null : current))
+        }
+        // Keep cached organization on other failures; entitlements already refreshed above.
       }
     },
     [refreshBusinessEntitlements, user?.isPlatformAdmin, user?.isPlatformOwner],
@@ -532,7 +633,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     fetchBusinessSubscription(businessIdForApi)
       .then((payload) => {
-        if (cancelled || !payload.currentSubscription) {
+        if (cancelled) {
+          return
+        }
+
+        if (payload.business.operationalStatus === 'TERMINATED') {
+          setOrganizations((current) =>
+            current.filter((organization) => organization.id !== businessIdForApi),
+          )
+          setStoredActiveOrganizationId((current) =>
+            current === businessIdForApi ? null : current,
+          )
+          return
+        }
+
+        if (!payload.currentSubscription) {
           return
         }
 
@@ -563,8 +678,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ),
         )
       })
-      .catch(() => {
-        // Mock organizations are not expected to exist in the backend yet.
+      .catch((error) => {
+        if (cancelled) return
+        const message = error instanceof ApiError ? error.message : ''
+        if (
+          error instanceof ApiError &&
+          error.statusCode === 403 &&
+          /deleted|terminated|no longer available/i.test(message)
+        ) {
+          setOrganizations((current) =>
+            current.filter((organization) => organization.id !== businessIdForApi),
+          )
+          setStoredActiveOrganizationId((current) =>
+            current === businessIdForApi ? null : current,
+          )
+        }
       })
 
     return () => {
@@ -632,19 +760,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [businessIdForApi, user?.isPlatformOwner, user?.isPlatformAdmin])
 
   useEffect(() => {
-    if (!businessIdForApi || user?.isPlatformOwner || user?.isPlatformAdmin) {
+    if (!user?.id || user.isPlatformOwner || user.isPlatformAdmin) {
       return
     }
 
     const onVisible = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState !== 'visible') {
+        return
+      }
+      void refreshAccessibleOrganizations()
+      if (businessIdForApi) {
         void refreshBusinessEntitlements(businessIdForApi)
       }
     }
 
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [businessIdForApi, user?.isPlatformOwner, user?.isPlatformAdmin, refreshBusinessEntitlements])
+  }, [
+    businessIdForApi,
+    user?.id,
+    user?.isPlatformOwner,
+    user?.isPlatformAdmin,
+    refreshAccessibleOrganizations,
+    refreshBusinessEntitlements,
+  ])
+
+  const BUSINESS_SWITCH_FEEDBACK_MS = 2800
+
+  const setActiveOrganization = useCallback(
+    (organizationId: string) => {
+      if (organizationId === activeOrganizationId) {
+        return
+      }
+
+      const toOrganization = organizations.find((organization) => organization.id === organizationId)
+      if (!toOrganization) {
+        setStoredActiveOrganizationId(organizationId)
+        return
+      }
+
+      const fromName =
+        currentOrganization?.name?.trim() ||
+        organizations.find((organization) => organization.id === activeOrganizationId)?.name?.trim() ||
+        'Previous business'
+      const toName = toOrganization.name.trim() || 'Selected business'
+
+      if (businessSwitchTimeoutRef.current != null) {
+        window.clearTimeout(businessSwitchTimeoutRef.current)
+      }
+      setBusinessSwitchFeedback({ fromName, toName })
+      setStoredActiveOrganizationId(organizationId)
+      businessSwitchTimeoutRef.current = window.setTimeout(() => {
+        setBusinessSwitchFeedback(null)
+        businessSwitchTimeoutRef.current = null
+      }, BUSINESS_SWITCH_FEEDBACK_MS)
+    },
+    [activeOrganizationId, currentOrganization?.name, organizations],
+  )
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -654,7 +826,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       currentPlan,
       subscriptionStatus: subscriptionMeta.status,
       subscriptionDaysLeft: subscriptionMeta.daysLeft,
-      organizations,
+      organizations: visibleOrganizations,
       organizationMembers,
       plans,
       permissionDefinitions: PERMISSION_DEFINITIONS,
@@ -676,7 +848,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             mapAccessibleBusinessToOrganization,
           )
 
-          setOrganizations((current) => mergeOrganizations(current, nextOrganizations))
+          setOrganizations((current) =>
+            mergeOrganizations(current, nextOrganizations).filter(isUsableMerchantOrganization),
+          )
           setEntitlementsByBusinessId((prev) => ({
             ...prev,
             ...Object.fromEntries(
@@ -686,16 +860,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               ]),
             ),
           }))
-          setStoredActiveOrganizationId(
-            payload.activeBusinessId ?? nextOrganizations[0]?.id ?? null,
-          )
+          const preferredActive =
+            payload.activeBusinessId &&
+            nextOrganizations.some((o) => o.id === payload.activeBusinessId)
+              ? payload.activeBusinessId
+              : nextOrganizations.filter(isUsableMerchantOrganization)[0]?.id ?? null
+          setStoredActiveOrganizationId(preferredActive)
           setAccounts([])
           const notice = payload.accountNotice?.message?.trim() || null
           setAccountNotice(notice)
 
+          const usableCount = nextOrganizations.filter(isUsableMerchantOrganization).length
           const redirectPath = nextUser.mustChangePassword
             ? APP_PATHS.changePassword
-            : notice && nextOrganizations.length === 0
+            : notice && usableCount === 0
               ? APP_PATHS.businesses
               : getDefaultProtectedPath(nextUser.role)
 
@@ -934,9 +1112,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearSessionState()
         setAccountNotice(null)
       },
-      setActiveOrganization: (organizationId) => {
-        setStoredActiveOrganizationId(organizationId)
-      },
+      setActiveOrganization,
+      businessSwitchFeedback,
       patchOrganization: (organizationId, patch) => {
         setOrganizations((current) =>
           current.map((org) => (org.id === organizationId ? { ...org, ...patch } : org)),
@@ -1246,11 +1423,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       businessProducts,
       businessProductsError,
       businessProductsLoading,
+      businessSwitchFeedback,
       entitlementsByBusinessId,
       currentOrganization,
       currentPlan,
       organizationMembers,
-      organizations,
+      visibleOrganizations,
       plans,
       planPermissions,
       accountNotice,
@@ -1259,6 +1437,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshBusinessSubscriptionSnapshot,
       refreshOrganizationMembers,
       refreshPlans,
+      setActiveOrganization,
       subscriptionMeta,
       user,
     ],

@@ -28,6 +28,7 @@ import {
   changePassword,
   createBusinessUser,
   forgotPassword,
+  listAccessibleBusinessesForUser,
   listBusinessUsers,
   loginUser,
   registerBusinessOwner,
@@ -6893,6 +6894,47 @@ app.post("/api/auth/login", authWriteLimiter, async (request, response, next) =>
         ),
         activeBusinessId: result.activeBusinessId,
         accountNotice: result.accountNotice,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** Refresh merchant org list (excludes soft-deleted / TERMINATED businesses). */
+app.get("/api/auth/accessible-businesses", authenticateToken, async (request, response, next) => {
+  try {
+    const user = request.user!;
+    if (
+      user.role === UserRole.PLATFORM_OWNER ||
+      user.role === UserRole.PLATFORM_ADMIN ||
+      user.role === UserRole.ADMIN
+    ) {
+      response.json({
+        data: {
+          accessibleBusinesses: [],
+          activeBusinessId: null,
+          accountNotice: null,
+        },
+      });
+      return;
+    }
+
+    const access = await listAccessibleBusinessesForUser(user.id);
+    response.json({
+      data: {
+        accessibleBusinesses: await accessibleBusinessesWithEntitlements(
+          user.id,
+          access.businesses,
+        ),
+        activeBusinessId: access.activeBusinessId,
+        accountNotice: access.hadTerminatedBusinessOnly
+          ? {
+              code: "BUSINESS_TERMINATED",
+              message:
+                "Your business has been deleted. Your user account is still active — contact DirectPay if you need a new organization.",
+            }
+          : null,
       },
     });
   } catch (error) {

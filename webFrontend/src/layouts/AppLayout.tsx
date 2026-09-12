@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { useAuth } from '../features/auth/AuthContext'
+import { BusinessSwitchOverlay } from '../components/ui/BusinessSwitchOverlay'
 import { getPageTitle } from '../config/navigation'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
@@ -69,6 +70,7 @@ export function AppLayout({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(readSidebarCollapsed)
   const location = useLocation()
+  const { businessSwitchFeedback } = useAuth()
 
   const title = useMemo(() => getPageTitle(location.pathname), [location.pathname])
 
@@ -82,6 +84,7 @@ export function AppLayout({
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 print:min-h-0 print:h-auto print:overflow-visible print:bg-white">
+      <BusinessSwitchOverlay feedback={businessSwitchFeedback} />
       <Sidebar
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}

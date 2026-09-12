@@ -151,6 +151,15 @@ export type AccessibleBusinessEntry = {
   assignedStationId: string | null;
 };
 
+export async function listAccessibleBusinessesForUser(userId: string): Promise<{
+  businesses: AccessibleBusinessEntry[];
+  activeBusinessId: string | null;
+  /** True when the user only has soft-deleted (TERMINATED) businesses left. */
+  hadTerminatedBusinessOnly: boolean;
+}> {
+  return listAccessibleBusinesses(userId);
+}
+
 async function listAccessibleBusinesses(userId: string): Promise<{
   businesses: AccessibleBusinessEntry[];
   activeBusinessId: string | null;

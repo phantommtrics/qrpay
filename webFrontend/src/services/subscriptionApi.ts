@@ -705,6 +705,18 @@ export async function login(payload: { email: string; password: string }) {
   return response.data
 }
 
+/** Live org list for the signed-in merchant (excludes TERMINATED businesses). */
+export async function fetchAccessibleBusinesses() {
+  const response = await apiRequest<{
+    data: {
+      accessibleBusinesses: BackendAccessibleBusiness[]
+      activeBusinessId: string | null
+      accountNotice?: { code: string; message: string } | null
+    }
+  }>('/auth/accessible-businesses', { method: 'GET' })
+  return response.data
+}
+
 export async function changePassword(payload: {
   email: string
   currentPassword: string
