@@ -164,6 +164,7 @@ import {
 import {
   clampPage,
   clampPageSize,
+  blockPlatformBusiness,
   getPlatformBusinessDetail,
   getPlatformInvoiceDetail,
   getPlatformDashboardSummary,
@@ -174,7 +175,10 @@ import {
   parseDateFilterDayEnd,
   parseDateFilterDayStart,
   patchSubscriptionInvoiceManualRefundReview,
+  restorePlatformBusiness,
   subscriptionDaysRemaining,
+  terminatePlatformBusiness,
+  unblockPlatformBusiness,
   utcTodayIsoDate,
 } from "./services/platform-admin.service.js";
 import {
@@ -1404,6 +1408,8 @@ app.get(
           ...rest,
           createdAt: rest.createdAt.toISOString(),
           updatedAt: rest.updatedAt.toISOString(),
+          statusChangedAt: rest.statusChangedAt?.toISOString() ?? null,
+          isInternalPartner: Boolean(rest.partnerProvisioningExternalUserId?.trim()),
           membershipsTotal,
           subscriptionsTotal,
           membershipsPage: clampPage(q.membershipsPage),
@@ -1427,6 +1433,90 @@ app.get(
           _count: business._count,
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+const platformBusinessLifecycleBodySchema = z.object({
+  reason: z.string().trim().max(500).optional().nullable(),
+});
+
+app.post(
+  "/api/platform/businesses/:businessId/block",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = platformBusinessLifecycleBodySchema.parse(req.body ?? {});
+      const data = await blockPlatformBusiness({
+        businessId: req.params.businessId as string,
+        actorUserId: req.user!.id,
+        reason: body.reason,
+      });
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/businesses/:businessId/unblock",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = platformBusinessLifecycleBodySchema.parse(req.body ?? {});
+      const data = await unblockPlatformBusiness({
+        businessId: req.params.businessId as string,
+        actorUserId: req.user!.id,
+        reason: body.reason,
+      });
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/businesses/:businessId/terminate",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = platformBusinessLifecycleBodySchema.parse(req.body ?? {});
+      const data = await terminatePlatformBusiness({
+        businessId: req.params.businessId as string,
+        actorUserId: req.user!.id,
+        reason: body.reason,
+      });
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/businesses/:businessId/restore",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = platformBusinessLifecycleBodySchema.parse(req.body ?? {});
+      const data = await restorePlatformBusiness({
+        businessId: req.params.businessId as string,
+        actorUserId: req.user!.id,
+        reason: body.reason,
+      });
+      res.json({ data });
     } catch (error) {
       next(error);
     }
@@ -6689,6 +6779,8 @@ function formatAccessibleBusinessResponse(entry: {
     ownerEmail: string;
     createdAt: Date;
     updatedAt: Date;
+    logoUrl?: string | null;
+    operationalStatus?: string;
     subscriptions?: unknown[];
   };
   currentSubscription: Parameters<typeof formatSubscriptionResponse>[0] | null;
@@ -6704,6 +6796,7 @@ function formatAccessibleBusinessResponse(entry: {
   return {
     business: {
       ...business,
+      operationalStatus: business.operationalStatus ?? "ACTIVE",
       isInternalPartner: Boolean(partnerExternalId?.trim()),
     },
     currentSubscription: entry.currentSubscription
@@ -6799,6 +6892,7 @@ app.post("/api/auth/login", authWriteLimiter, async (request, response, next) =>
           result.accessibleBusinesses,
         ),
         activeBusinessId: result.activeBusinessId,
+        accountNotice: result.accountNotice,
       },
     });
   } catch (error) {

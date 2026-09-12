@@ -154,17 +154,30 @@ export type AccessibleBusinessEntry = {
 async function listAccessibleBusinesses(userId: string): Promise<{
   businesses: AccessibleBusinessEntry[];
   activeBusinessId: string | null;
+  /** True when the user only has soft-deleted (TERMINATED) businesses left. */
+  hadTerminatedBusinessOnly: boolean;
 }> {
   const memberships = await prisma.businessMembership.findMany({
     where: {
       userId,
       status: { not: "TERMINATED" },
     },
+    include: {
+      business: { select: { id: true, operationalStatus: true, name: true } },
+    },
     orderBy: [{ isOwner: "desc" }, { createdAt: "desc" }],
   });
 
+  const terminatedOnly =
+    memberships.length > 0 &&
+    memberships.every((m) => m.business.operationalStatus === "TERMINATED");
+
+  const usableMemberships = memberships.filter(
+    (m) => m.business.operationalStatus !== "TERMINATED",
+  );
+
   const businesses: AccessibleBusinessEntry[] = await Promise.all(
-    memberships.map(async (membership) => {
+    usableMemberships.map(async (membership) => {
       const subscriptionContext = await getBusinessSubscription(membership.businessId);
 
       return {
@@ -177,11 +190,19 @@ async function listAccessibleBusinesses(userId: string): Promise<{
     }),
   );
 
-  const usableFirst = businesses.find((b) => b.isOwner || b.membershipStatus === "ACTIVE");
+  const usableFirst =
+    businesses.find(
+      (b) =>
+        (b.isOwner || b.membershipStatus === "ACTIVE") &&
+        b.business.operationalStatus === "ACTIVE",
+    ) ??
+    businesses.find((b) => b.isOwner || b.membershipStatus === "ACTIVE") ??
+    businesses[0];
 
   return {
     businesses,
-    activeBusinessId: usableFirst?.business.id ?? businesses[0]?.business.id ?? null,
+    activeBusinessId: usableFirst?.business.id ?? null,
+    hadTerminatedBusinessOnly: terminatedOnly && businesses.length === 0,
   };
 }
 
@@ -441,14 +462,15 @@ export async function loginUser(input: LoginInput) {
     user.role === UserRole.ADMIN ||
     user.role === UserRole.PLATFORM_OWNER ||
     user.role === UserRole.PLATFORM_ADMIN
-      ? { businesses: [], activeBusinessId: null }
+      ? { businesses: [], activeBusinessId: null, hadTerminatedBusinessOnly: false }
       : await listAccessibleBusinesses(user.id);
 
   if (
     user.role !== UserRole.PLATFORM_OWNER &&
     user.role !== UserRole.PLATFORM_ADMIN &&
     user.role !== UserRole.ADMIN &&
-    access.businesses.length === 0
+    access.businesses.length === 0 &&
+    !access.hadTerminatedBusinessOnly
   ) {
     throw new HttpError(404, "User not found.");
   }
@@ -463,6 +485,13 @@ export async function loginUser(input: LoginInput) {
     accessibleBusinesses: access.businesses,
     activeBusinessId: access.activeBusinessId,
     platformPermissions,
+    accountNotice: access.hadTerminatedBusinessOnly
+      ? {
+          code: "BUSINESS_TERMINATED" as const,
+          message:
+            "Your business has been deleted. Your user account is still active — contact DirectPay if you need a new organization.",
+        }
+      : null,
   };
 }
 

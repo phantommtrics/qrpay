@@ -34,6 +34,7 @@ export type BackendBusiness = {
   createdAt: string
   /** Merchant document logo URL. */
   logoUrl?: string | null
+  operationalStatus?: 'ACTIVE' | 'BLOCKED' | 'TERMINATED'
   /** True when this tenant was provisioned through the internal partner API. */
   isInternalPartner?: boolean
   partnerProvisioningExternalUserId?: string | null
@@ -294,6 +295,7 @@ export function mapAccessibleBusinessToOrganization(entry: BackendAccessibleBusi
     subscriptionBillingInterval: currentSubscription?.billingInterval,
     isOwner: entry.isOwner,
     membershipStatus: entry.membershipStatus,
+    operationalStatus: entry.business.operationalStatus ?? 'ACTIVE',
     assignedStationId: entry.assignedStationId ?? null,
     isInternalPartner,
     logoUrl: entry.business.logoUrl ?? null,
@@ -689,6 +691,7 @@ export async function login(payload: { email: string; password: string }) {
       token: string
       accessibleBusinesses: BackendAccessibleBusiness[]
       activeBusinessId: string | null
+      accountNotice?: { code: string; message: string } | null
     }
   }>('/auth/login', {
     method: 'POST',
@@ -1514,6 +1517,9 @@ export type PlatformBusinessListRow = {
   ownerEmail: string
   createdAt: string
   updatedAt: string
+  operationalStatus?: 'ACTIVE' | 'BLOCKED' | 'TERMINATED'
+  statusReason?: string | null
+  statusChangedAt?: string | null
   _count: { memberships: number }
   subscriptions: Array<{
     id: string
@@ -1684,6 +1690,81 @@ export type PlatformBusinessDetail = Omit<
   membershipsPageSize: number
   subscriptionsPage: number
   subscriptionsPageSize: number
+  isInternalPartner?: boolean
+  platformBillingWaived?: boolean
+  partnerProvisioningExternalUserId?: string | null
+}
+
+export async function postPlatformBusinessBlock(
+  businessId: string,
+  reason?: string | null,
+) {
+  const res = await apiRequest<{
+    data: {
+      id: string
+      operationalStatus: string
+      statusReason: string | null
+      statusChangedAt: string | null
+    }
+  }>(`/platform/businesses/${businessId}/block`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: reason ?? null }),
+  })
+  return res.data
+}
+
+export async function postPlatformBusinessUnblock(
+  businessId: string,
+  reason?: string | null,
+) {
+  const res = await apiRequest<{
+    data: {
+      id: string
+      operationalStatus: string
+      statusReason: string | null
+      statusChangedAt: string | null
+    }
+  }>(`/platform/businesses/${businessId}/unblock`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: reason ?? null }),
+  })
+  return res.data
+}
+
+export async function postPlatformBusinessTerminate(
+  businessId: string,
+  reason?: string | null,
+) {
+  const res = await apiRequest<{
+    data: {
+      id: string
+      operationalStatus: string
+      statusReason: string | null
+      statusChangedAt: string | null
+    }
+  }>(`/platform/businesses/${businessId}/terminate`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: reason ?? null }),
+  })
+  return res.data
+}
+
+export async function postPlatformBusinessRestore(
+  businessId: string,
+  reason?: string | null,
+) {
+  const res = await apiRequest<{
+    data: {
+      id: string
+      operationalStatus: string
+      statusReason: string | null
+      statusChangedAt: string | null
+    }
+  }>(`/platform/businesses/${businessId}/restore`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: reason ?? null }),
+  })
+  return res.data
 }
 
 export async function fetchPlatformBusinessDetail(

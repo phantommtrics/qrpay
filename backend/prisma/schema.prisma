@@ -340,6 +340,17 @@ enum BusinessMembershipStatus {
   TERMINATED
 }
 
+/**
+ * Platform-managed tenant lifecycle (independent of subscription / membership staff status).
+ * TERMINATED = soft-deleted (hidden from merchant login org list).
+ * BLOCKED = still visible but cannot use the product (same UX as expired subscription).
+ */
+enum BusinessOperationalStatus {
+  ACTIVE
+  BLOCKED
+  TERMINATED
+}
+
 enum SalesQuotationStatus {
   DRAFT
   SENT
@@ -409,6 +420,13 @@ model Business {
    */
   platformBillingWaived         Boolean                        @default(false)
   /**
+   * Platform lifecycle: ACTIVE (normal), BLOCKED (access frozen), TERMINATED (soft-deleted).
+   */
+  operationalStatus             BusinessOperationalStatus      @default(ACTIVE)
+  statusReason                  String?
+  statusChangedAt               DateTime?
+  statusChangedByUserId         String?
+  /**
    * Stable id from the connecting app (e.g. 7-aside user id). Unique when set.
    */
   partnerProvisioningExternalUserId String?                  @unique
@@ -454,6 +472,8 @@ model Business {
   bills                         Bill[]
   merchantSettlementRequests    MerchantSettlementRequest[]
   activityLogs                  ActivityLog[]
+
+  @@index([operationalStatus])
 }
 
 enum BusinessPaymentMethodStatus {

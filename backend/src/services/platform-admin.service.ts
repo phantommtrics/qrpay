@@ -2,6 +2,7 @@ import {
   BillStatus,
   BillingLedgerEntryType,
   BillingLedgerStatus,
+  BusinessOperationalStatus,
   ChartAccountCategory,
   ChartAccountKind,
   DigitalOceanInvoiceStatus,
@@ -185,6 +186,11 @@ export async function getPlatformBusinessDetail(
       ownerEmail: true,
       createdAt: true,
       updatedAt: true,
+      operationalStatus: true,
+      statusReason: true,
+      statusChangedAt: true,
+      platformBillingWaived: true,
+      partnerProvisioningExternalUserId: true,
       _count: {
         select: { memberships: true, products: true },
       },
@@ -1098,4 +1104,121 @@ export async function getPlatformDashboardSummary(): Promise<PlatformDashboardSu
     })),
     finance,
   };
+}
+
+async function setBusinessOperationalStatus(input: {
+  businessId: string;
+  status: BusinessOperationalStatus;
+  reason?: string | null;
+  actorUserId: string;
+  allowedFrom: BusinessOperationalStatus[];
+  errorIfInvalid: string;
+}) {
+  const existing = await prisma.business.findUnique({
+    where: { id: input.businessId },
+    select: {
+      id: true,
+      name: true,
+      operationalStatus: true,
+      partnerProvisioningExternalUserId: true,
+    },
+  });
+  if (!existing) {
+    throw new HttpError(404, "Business not found.");
+  }
+  if (!input.allowedFrom.includes(existing.operationalStatus)) {
+    throw new HttpError(400, input.errorIfInvalid);
+  }
+
+  const updated = await prisma.business.update({
+    where: { id: input.businessId },
+    data: {
+      operationalStatus: input.status,
+      statusReason: input.reason?.trim() || null,
+      statusChangedAt: new Date(),
+      statusChangedByUserId: input.actorUserId,
+    },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      operationalStatus: true,
+      statusReason: true,
+      statusChangedAt: true,
+      partnerProvisioningExternalUserId: true,
+    },
+  });
+
+  return {
+    ...updated,
+    isInternalPartner: Boolean(updated.partnerProvisioningExternalUserId?.trim()),
+    statusChangedAt: updated.statusChangedAt?.toISOString() ?? null,
+  };
+}
+
+/** Freeze merchant + partner API access; reversible via unblock. */
+export async function blockPlatformBusiness(input: {
+  businessId: string;
+  actorUserId: string;
+  reason?: string | null;
+}) {
+  return setBusinessOperationalStatus({
+    businessId: input.businessId,
+    status: BusinessOperationalStatus.BLOCKED,
+    reason: input.reason,
+    actorUserId: input.actorUserId,
+    allowedFrom: [BusinessOperationalStatus.ACTIVE],
+    errorIfInvalid: "Only an active business can be blocked.",
+  });
+}
+
+/** Return a blocked business to ACTIVE. */
+export async function unblockPlatformBusiness(input: {
+  businessId: string;
+  actorUserId: string;
+  reason?: string | null;
+}) {
+  return setBusinessOperationalStatus({
+    businessId: input.businessId,
+    status: BusinessOperationalStatus.ACTIVE,
+    reason: input.reason ?? "Unblocked by platform admin",
+    actorUserId: input.actorUserId,
+    allowedFrom: [BusinessOperationalStatus.BLOCKED],
+    errorIfInvalid: "Only a blocked business can be unblocked.",
+  });
+}
+
+/**
+ * Soft-delete the business. Owner user accounts remain; the org disappears from login
+ * when they have no other non-terminated businesses.
+ */
+export async function terminatePlatformBusiness(input: {
+  businessId: string;
+  actorUserId: string;
+  reason?: string | null;
+}) {
+  return setBusinessOperationalStatus({
+    businessId: input.businessId,
+    status: BusinessOperationalStatus.TERMINATED,
+    reason: input.reason,
+    actorUserId: input.actorUserId,
+    allowedFrom: [BusinessOperationalStatus.ACTIVE, BusinessOperationalStatus.BLOCKED],
+    errorIfInvalid: "This business is already terminated.",
+  });
+}
+
+/** Restore a soft-deleted business to ACTIVE. */
+export async function restorePlatformBusiness(input: {
+  businessId: string;
+  actorUserId: string;
+  reason?: string | null;
+}) {
+  return setBusinessOperationalStatus({
+    businessId: input.businessId,
+    status: BusinessOperationalStatus.ACTIVE,
+    reason: input.reason ?? "Restored by platform admin",
+    actorUserId: input.actorUserId,
+    allowedFrom: [BusinessOperationalStatus.TERMINATED],
+    errorIfInvalid: "Only a terminated business can be restored.",
+  });
 }

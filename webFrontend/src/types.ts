@@ -19,6 +19,8 @@ export type SubscriptionBillingInterval =
 
 export type BusinessMembershipStatus = 'ACTIVE' | 'BLOCKED' | 'SUSPENDED' | 'TERMINATED'
 
+export type BusinessOperationalStatus = 'ACTIVE' | 'BLOCKED' | 'TERMINATED'
+
 export type SubscriptionStatus = 'trialing' | 'active' | 'expiring_soon' | 'past_due' | 'expired'
 
 export type PermissionKey =
@@ -149,6 +151,8 @@ export interface Organization {
   isOwner?: boolean
   /** Staff access state for this login; owners are always ACTIVE in API responses. */
   membershipStatus?: BusinessMembershipStatus
+  /** Platform lifecycle: blocked freezes access; terminated orgs are omitted from login. */
+  operationalStatus?: BusinessOperationalStatus
   /** Petrol: branch this login is limited to; omitted/null = all stations. */
   assignedStationId?: string | null
   /** Provisioned via the internal partner API; catalogue SKUs live in the partner system. */

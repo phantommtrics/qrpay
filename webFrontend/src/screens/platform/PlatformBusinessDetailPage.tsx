@@ -9,6 +9,7 @@ import {
   type BusinessGatewayCredentialStatusRow,
 } from '../../services/subscriptionApi'
 import { TablePagination } from '../../components/ui/TablePagination'
+import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { PageCard } from '../../components/ui/PageCard'
 import { PageTransition } from '../../components/ui/PageTransition'
 import { APP_PATHS } from '../../config/navigation'
@@ -16,6 +17,10 @@ import { useAuth } from '../../features/auth/AuthContext'
 import {
   ApiError,
   fetchPlatformBusinessDetail,
+  postPlatformBusinessBlock,
+  postPlatformBusinessRestore,
+  postPlatformBusinessTerminate,
+  postPlatformBusinessUnblock,
   type PlatformBusinessDetail,
 } from '../../services/subscriptionApi'
 import { isPlatformOperator } from '../../utils/platformOperator'
@@ -41,11 +46,17 @@ export function PlatformBusinessDetailPage() {
     canAccess('platform.businesses.merchant_api.edit')
   const canEditMerchantApi =
     Boolean(user?.isPlatformOwner) || canAccess('platform.businesses.merchant_api.edit')
+  const canEditBusiness =
+    Boolean(user?.isPlatformOwner) || canAccess('platform.businesses.manage')
   const [detail, setDetail] = useState<PlatformBusinessDetail | null>(null)
   const [membershipsPage, setMembershipsPage] = useState(1)
   const [subscriptionsPage, setSubscriptionsPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [lifecycleBusy, setLifecycleBusy] = useState(false)
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null)
+  const [lifecycleReason, setLifecycleReason] = useState('')
+  const [terminateModalOpen, setTerminateModalOpen] = useState(false)
   const [waveCredPack, setWaveCredPack] = useState<{
     platformWaveConfigured: boolean
     waveRow: BusinessGatewayCredentialStatusRow | null
@@ -124,9 +135,40 @@ export function PlatformBusinessDetailPage() {
     }
   }, [user?.isPlatformOwner, user?.isPlatformAdmin, businessId, membershipsPage, subscriptionsPage])
 
+  const runLifecycle = useCallback(
+    async (action: 'block' | 'unblock' | 'terminate' | 'restore') => {
+      if (!businessId) return
+      const reason = lifecycleReason.trim() || null
+      setLifecycleBusy(true)
+      setLifecycleError(null)
+      try {
+        if (action === 'block') await postPlatformBusinessBlock(businessId, reason)
+        else if (action === 'unblock') await postPlatformBusinessUnblock(businessId, reason)
+        else if (action === 'terminate') await postPlatformBusinessTerminate(businessId, reason)
+        else await postPlatformBusinessRestore(businessId, reason)
+        const data = await fetchPlatformBusinessDetail(businessId, {
+          membershipsPage,
+          membershipsPageSize: PAGE_SIZE,
+          subscriptionsPage,
+          subscriptionsPageSize: PAGE_SIZE,
+        })
+        setDetail(data)
+        setLifecycleReason('')
+        setTerminateModalOpen(false)
+      } catch (e) {
+        setLifecycleError(e instanceof ApiError ? e.message : 'Lifecycle action failed.')
+      } finally {
+        setLifecycleBusy(false)
+      }
+    },
+    [businessId, lifecycleReason, membershipsPage, subscriptionsPage],
+  )
+
   if (!isPlatformOperator(user)) {
     return null
   }
+
+  const status = detail?.operationalStatus ?? 'ACTIVE'
 
   return (
     <PageTransition className="space-y-6" withSlide>
@@ -162,6 +204,19 @@ export function PlatformBusinessDetailPage() {
                 <span className="font-medium text-slate-800">
                   {detail.industry?.trim() || '—'}
                 </span>
+                {' · '}
+                Status:{' '}
+                <span
+                  className={
+                    status === 'ACTIVE'
+                      ? 'font-semibold text-emerald-700'
+                      : status === 'BLOCKED'
+                        ? 'font-semibold text-amber-700'
+                        : 'font-semibold text-rose-700'
+                  }
+                >
+                  {status}
+                </span>
               </p>
             </div>
             <div className="flex flex-wrap gap-3 text-sm">
@@ -175,6 +230,104 @@ export function PlatformBusinessDetailPage() {
               </span>
             </div>
           </div>
+
+          {canEditBusiness ? (
+            <PageCard className="p-6">
+              <h2 className="text-lg font-semibold text-slate-900">Lifecycle</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Block freezes merchant and internal-partner API access (like an expired subscription).
+                Terminate soft-deletes the business; user accounts remain.
+              </p>
+              {detail.statusReason ? (
+                <p className="mt-3 text-sm text-slate-600">
+                  Last reason: <span className="font-medium">{detail.statusReason}</span>
+                  {detail.statusChangedAt
+                    ? ` · ${formatShortDate(detail.statusChangedAt)}`
+                    : null}
+                </p>
+              ) : null}
+              <label className="mt-4 block">
+                <span className="mb-1 block text-xs font-medium text-slate-600">
+                  Reason (optional)
+                </span>
+                <input
+                  value={lifecycleReason}
+                  onChange={(e) => setLifecycleReason(e.target.value)}
+                  className="w-full max-w-xl rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                  placeholder="e.g. Chargeback / test tenant / fraud review"
+                />
+              </label>
+              {lifecycleError ? (
+                <p className="mt-3 text-sm text-red-600">{lifecycleError}</p>
+              ) : null}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {status === 'ACTIVE' ? (
+                  <button
+                    type="button"
+                    disabled={lifecycleBusy}
+                    onClick={() => void runLifecycle('block')}
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    Block
+                  </button>
+                ) : null}
+                {status === 'BLOCKED' ? (
+                  <button
+                    type="button"
+                    disabled={lifecycleBusy}
+                    onClick={() => void runLifecycle('unblock')}
+                    className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    Unblock (activate)
+                  </button>
+                ) : null}
+                {status !== 'TERMINATED' ? (
+                  <button
+                    type="button"
+                    disabled={lifecycleBusy}
+                    onClick={() => {
+                      setLifecycleError(null)
+                      setTerminateModalOpen(true)
+                    }}
+                    className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-900 hover:bg-rose-100 disabled:opacity-50"
+                  >
+                    Terminate
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={lifecycleBusy}
+                    onClick={() => void runLifecycle('restore')}
+                    className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-900 hover:bg-teal-100 disabled:opacity-50"
+                  >
+                    Restore
+                  </button>
+                )}
+              </div>
+            </PageCard>
+          ) : null}
+
+          <ConfirmModal
+            open={terminateModalOpen}
+            title={`Terminate ${detail.name}?`}
+            confirmLabel="Terminate business"
+            cancelLabel="Cancel"
+            variant="danger"
+            loading={lifecycleBusy}
+            onCancel={() => {
+              if (!lifecycleBusy) setTerminateModalOpen(false)
+            }}
+            onConfirm={() => void runLifecycle('terminate')}
+          >
+            <p>
+              This soft-deletes the business. Owner and staff user accounts stay active. The
+              organization disappears from login unless they belong to another business.
+            </p>
+            <p className="mt-2">
+              Internal partner API calls for this tenant will be rejected. You can restore it later
+              from this page.
+            </p>
+          </ConfirmModal>
 
           <div className="grid gap-6 lg:grid-cols-2">
             <PageCard className="p-6">

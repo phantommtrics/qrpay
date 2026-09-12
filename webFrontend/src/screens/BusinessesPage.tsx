@@ -27,6 +27,8 @@ export function BusinessesPage() {
     registerOrganization,
     setActiveOrganization,
     user,
+    accountNotice,
+    clearAccountNotice,
   } = useAuth()
   const [form, setForm] = useState({
     ownerName: user?.name ?? '',
@@ -86,6 +88,25 @@ export function BusinessesPage() {
 
   return (
     <PageTransition className="space-y-6" withSlide>
+      {accountNotice ? (
+        <PageCard className="border-amber-200 bg-amber-50 p-5">
+          <div className="flex gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-amber-950">Business deleted</p>
+              <p className="mt-1 text-sm text-amber-900/90">{accountNotice}</p>
+              <button
+                type="button"
+                onClick={() => clearAccountNotice()}
+                className="mt-3 text-sm font-semibold text-amber-900 underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </PageCard>
+      ) : null}
+
       {subscriptionBlockModalOpen ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <ModalOverlay
@@ -160,6 +181,7 @@ export function BusinessesPage() {
             {organizations.map((organization) => {
               const isActive = organization.id === currentOrganization?.id
               const plan = plans.find((item) => item.id === organization.planId)
+              const blocked = organization.operationalStatus === 'BLOCKED'
 
               return (
                 <button
@@ -178,6 +200,11 @@ export function BusinessesPage() {
                         {organization.isOwner ? (
                           <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
                             Owner
+                          </span>
+                        ) : null}
+                        {blocked ? (
+                          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+                            Blocked
                           </span>
                         ) : null}
                       </div>

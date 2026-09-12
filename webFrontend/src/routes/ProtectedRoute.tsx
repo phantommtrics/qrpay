@@ -54,6 +54,36 @@ export function ProtectedRoute({
   if (
     !user.isPlatformOwner &&
     !user.isPlatformAdmin &&
+    currentOrganization?.operationalStatus === 'BLOCKED' &&
+    !billingRecovery
+  ) {
+    return (
+      <AppLayout>
+        <div className="flex min-h-full items-center justify-center">
+          <div className="w-full max-w-2xl rounded-3xl border border-rose-200 bg-white p-8 shadow-sm">
+            <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-100 text-rose-600">
+              <AlertTriangle className="h-7 w-7" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900">
+              {currentOrganization.name} is blocked
+            </h2>
+            <p className="mt-3 text-slate-600">
+              DirectPay has blocked this organization. Tools and APIs are unavailable until a
+              platform admin reactivates it.
+            </p>
+            <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+              Your user account is still valid. Switch to another organization if you have one, or
+              contact DirectPay support.
+            </div>
+          </div>
+        </div>
+      </AppLayout>
+    )
+  }
+
+  if (
+    !user.isPlatformOwner &&
+    !user.isPlatformAdmin &&
     (subscriptionStatus === 'expired' || subscriptionStatus === 'past_due') &&
     !billingRecovery
   ) {

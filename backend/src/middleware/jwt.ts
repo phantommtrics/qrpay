@@ -5,6 +5,7 @@ import { HttpError } from '../lib/http-error.js';
 import { UserRole } from '@prisma/client';
 import { AuthenticatedRequest, requireEntitlement } from '../middleware/auth.js';
 import { assertBusinessMembershipAllowsApiAccess } from '../services/membership-access.service.js';
+import { assertBusinessOperationalAllowsApiAccess } from '../services/business-operational-access.service.js';
 import { getMergedPlatformPermissionsForUser } from '../services/platform-security.service.js';
 import { env } from '../config/env.js';
 import type { PlatformAccessFlags } from './auth.js';
@@ -102,10 +103,17 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
     };
 
     if (businessContextId) {
+      const isPlatformOperator =
+        user.role === UserRole.PLATFORM_OWNER || user.role === UserRole.PLATFORM_ADMIN;
       await assertBusinessMembershipAllowsApiAccess(
         user.id,
         businessContextId,
         user.role === UserRole.PLATFORM_OWNER,
+        req,
+      );
+      await assertBusinessOperationalAllowsApiAccess(
+        businessContextId,
+        isPlatformOperator,
         req,
       );
     }

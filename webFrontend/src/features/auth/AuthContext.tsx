@@ -88,7 +88,13 @@ type AuthContextValue = {
   plans: SubscriptionPlan[]
   permissionDefinitions: PermissionDefinition[]
   planPermissions: PlanPermissions
-  loginWithCredentials: (email: string, password: string) => Promise<AuthActionResult>
+  loginWithCredentials: (
+    email: string,
+    password: string,
+  ) => Promise<AuthActionResult & { accountNotice?: string | null }>
+  /** Shown after login when the only businesses were soft-deleted. */
+  accountNotice: string | null
+  clearAccountNotice: () => void
   changePassword: (currentPassword: string, newPassword: string) => Promise<AuthActionResult>
   forgotPassword: (email: string) => Promise<AuthActionResult>
   registerOrganization: (
@@ -248,6 +254,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [organizations, setOrganizations] = useState<Organization[]>(() =>
     readStorage<Organization[]>(STORAGE_KEYS.organizations, []),
   )
+  const [accountNotice, setAccountNotice] = useState<string | null>(null)
   const [plans, setPlans] = useState<SubscriptionPlan[]>(() =>
     withCorporatePlanFromCatalog(readStorage(STORAGE_KEYS.plans, SUBSCRIPTION_PLANS)),
   )
@@ -652,6 +659,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       plans,
       permissionDefinitions: PERMISSION_DEFINITIONS,
       planPermissions,
+      accountNotice,
+      clearAccountNotice: () => setAccountNotice(null),
       loginWithCredentials: async (email, password) => {
         const normalizedEmail = email.trim().toLowerCase()
 
@@ -681,13 +690,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             payload.activeBusinessId ?? nextOrganizations[0]?.id ?? null,
           )
           setAccounts([])
+          const notice = payload.accountNotice?.message?.trim() || null
+          setAccountNotice(notice)
+
+          const redirectPath = nextUser.mustChangePassword
+            ? APP_PATHS.changePassword
+            : notice && nextOrganizations.length === 0
+              ? APP_PATHS.businesses
+              : getDefaultProtectedPath(nextUser.role)
 
           return {
             ok: true,
             mustChangePassword: nextUser.mustChangePassword,
-            redirectPath: nextUser.mustChangePassword
-              ? APP_PATHS.changePassword
-              : getDefaultProtectedPath(nextUser.role),
+            redirectPath,
+            accountNotice: notice,
           }
         } catch (error) {
           if (error instanceof ApiError) {
@@ -916,6 +932,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       logout: () => {
         clearSessionState()
+        setAccountNotice(null)
       },
       setActiveOrganization: (organizationId) => {
         setStoredActiveOrganizationId(organizationId)
@@ -1236,6 +1253,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       organizations,
       plans,
       planPermissions,
+      accountNotice,
       refreshBusinessProducts,
       refreshBusinessEntitlements,
       refreshBusinessSubscriptionSnapshot,
