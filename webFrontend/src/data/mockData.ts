@@ -54,7 +54,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     minStaff: 1,
     maxStaff: null,
     description:
-      'Corporate industry default: full operations except POS, products, orders, and catalogue categories; pricing is set by platform staff.',
+      'Corporate industry default: full operations except POS, products, and orders (categories stay available); pricing is set by platform staff.',
   },
 ]
 

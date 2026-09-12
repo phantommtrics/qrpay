@@ -30,6 +30,20 @@ export function isPetrolStationIndustry(industry: string | null | undefined): bo
   return n === "petrol station" || n === "petrol_station";
 }
 
+export function isCorporateIndustry(industry: string | null | undefined): boolean {
+  return normalizeIndustryLabel(industry) === "corporate";
+}
+
+/** Industries that may use the product catalogue (SKUs + menu categories). */
+export function isProductCatalogIndustry(industry: string | null | undefined): boolean {
+  return (
+    isRetailOrWholesaleIndustry(industry) ||
+    isRestaurantIndustry(industry) ||
+    isPetrolStationIndustry(industry) ||
+    isCorporateIndustry(industry)
+  );
+}
+
 function productPublicPath(productId: string): string {
   return `/p/${productId}`;
 }
@@ -147,10 +161,11 @@ export async function createProduct(input: CreateProductInput) {
   const isRetailWholesale = isRetailOrWholesaleIndustry(business.industry);
   const isRestaurant = isRestaurantIndustry(business.industry);
   const isPetrol = isPetrolStationIndustry(business.industry);
-  if (!isRetailWholesale && !isRestaurant && !isPetrol) {
+  const isCorporate = isCorporateIndustry(business.industry);
+  if (!isRetailWholesale && !isRestaurant && !isPetrol && !isCorporate) {
     throw new HttpError(
       403,
-      "Products are only available for Retail, Wholesale, Pharmacy, Petrol station, or Restaurant businesses.",
+      "Products are only available for Retail, Wholesale, Pharmacy, Petrol station, Restaurant, or Corporate businesses.",
     );
   }
 
@@ -181,7 +196,7 @@ export async function createProduct(input: CreateProductInput) {
   }
 
   const trimmedBarcode = input.barcodeValue?.trim();
-  if (isRetailWholesale || isPetrol) {
+  if (isRetailWholesale || isPetrol || isCorporate) {
     if (trimmedBarcode && !/^[A-Za-z0-9]{4,48}$/.test(trimmedBarcode)) {
       throw new HttpError(400, "Barcode must be 4–48 alphanumeric characters (A–Z, a–z, 0–9).");
     }
@@ -271,10 +286,11 @@ export async function updateProduct(input: UpdateProductInput) {
   const isRetailWholesale = isRetailOrWholesaleIndustry(product.business.industry);
   const isRestaurant = isRestaurantIndustry(product.business.industry);
   const isPetrol = isPetrolStationIndustry(product.business.industry);
-  if (!isRetailWholesale && !isRestaurant && !isPetrol) {
+  const isCorporate = isCorporateIndustry(product.business.industry);
+  if (!isRetailWholesale && !isRestaurant && !isPetrol && !isCorporate) {
     throw new HttpError(
       403,
-      "Products are only available for Retail, Wholesale, Pharmacy, Petrol station, or Restaurant businesses.",
+      "Products are only available for Retail, Wholesale, Pharmacy, Petrol station, Restaurant, or Corporate businesses.",
     );
   }
 
@@ -292,7 +308,7 @@ export async function updateProduct(input: UpdateProductInput) {
   if (input.name !== undefined) {
     data.name = input.name.trim();
   }
-  if (input.menuCategoryId !== undefined && (isRestaurant || isRetailWholesale || isPetrol)) {
+  if (input.menuCategoryId !== undefined && (isRestaurant || isRetailWholesale || isPetrol || isCorporate)) {
     if (input.menuCategoryId === null) {
       if (isRestaurant) {
         throw new HttpError(400, "menuCategoryId cannot be cleared for restaurant items.");
@@ -315,7 +331,7 @@ export async function updateProduct(input: UpdateProductInput) {
     if (isRestaurant) {
       throw new HttpError(400, "Use menuCategoryId to change category for restaurant items.");
     }
-    if ((isRetailWholesale || isPetrol) && product.menuCategoryId) {
+    if ((isRetailWholesale || isPetrol || isCorporate) && product.menuCategoryId) {
       throw new HttpError(
         400,
         "Use menuCategoryId to change category. Manage categories under Catalog → Categories.",
@@ -448,7 +464,8 @@ export async function getPublicProductById(productId: string) {
   if (
     !isRetailOrWholesaleIndustry(product.business.industry) &&
     !isRestaurantIndustry(product.business.industry) &&
-    !isPetrolStationIndustry(product.business.industry)
+    !isPetrolStationIndustry(product.business.industry) &&
+    !isCorporateIndustry(product.business.industry)
   ) {
     throw new HttpError(404, "Product not found.");
   }

@@ -5,6 +5,7 @@ import { PageTransition } from '../components/ui/PageTransition'
 import { APP_PATHS } from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
 import {
+  isCorporateIndustry,
   isPetrolStationIndustry,
   isRetailOrWholesaleIndustry,
   isRestaurantIndustry,
@@ -17,7 +18,9 @@ export function ProductCatalogCategoriesPage() {
   const isPartner = Boolean(currentOrganization?.isInternalPartner)
   const retailLike = Boolean(
     currentOrganization &&
-      (isRetailOrWholesaleIndustry(industry) || isPetrolStationIndustry(industry)),
+      (isRetailOrWholesaleIndustry(industry) ||
+        isPetrolStationIndustry(industry) ||
+        isCorporateIndustry(industry)),
   )
   const isRestaurant = Boolean(currentOrganization && isRestaurantIndustry(industry))
   const allowed =
@@ -25,7 +28,8 @@ export function ProductCatalogCategoriesPage() {
     (retailLike || isPartner) &&
     canAccess('products.categories')
   const canExportReports = canAccess('reports.export')
-  const canCreate = canAccess('products.create') && !isPartner
+  const canCreate =
+    (canAccess('products.create') || canAccess('products.categories')) && !isPartner
 
   const showWrongIndustry =
     Boolean(currentOrganization) &&
@@ -62,7 +66,8 @@ export function ProductCatalogCategoriesPage() {
 
       {showWrongIndustry ? (
         <div className="border-b border-amber-200 bg-amber-50/90 py-3 text-sm text-amber-900">
-          Categories are available for Retail, Wholesale, Pharmacy, and Petrol station businesses.
+          Categories are available for Retail, Wholesale, Pharmacy, Petrol station, and Corporate
+          businesses.
         </div>
       ) : null}
 

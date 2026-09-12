@@ -2,6 +2,10 @@ export function normalizeIndustryLabel(value: string | null | undefined): string
   return (value ?? '').trim().toLowerCase()
 }
 
+export function isCorporateIndustry(industry: string | null | undefined): boolean {
+  return normalizeIndustryLabel(industry) === 'corporate'
+}
+
 /** Retail-style catalogue: category + barcode flow (excludes restaurant menu). */
 export function isRetailOrWholesaleIndustry(industry: string | null | undefined): boolean {
   const n = normalizeIndustryLabel(industry)
@@ -22,10 +26,7 @@ export function isProductCatalogIndustry(industry: string | null | undefined): b
   return (
     isRetailOrWholesaleIndustry(industry) ||
     isRestaurantIndustry(industry) ||
-    isPetrolStationIndustry(industry)
+    isPetrolStationIndustry(industry) ||
+    isCorporateIndustry(industry)
   )
-}
-
-export function isCorporateIndustry(industry: string | null | undefined): boolean {
-  return normalizeIndustryLabel(industry) === 'corporate'
 }

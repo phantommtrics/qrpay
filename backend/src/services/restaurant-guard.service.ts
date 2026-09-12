@@ -16,12 +16,17 @@ function isPetrolStationIndustryValue(industry: string | null | undefined): bool
   return n === "petrol station" || n === "petrol_station";
 }
 
-/** Restaurant, retail, wholesale, pharmacy, and petrol station share the same `MenuCategory` / `menuCategoryId` model. */
+function isCorporateIndustryValue(industry: string | null | undefined): boolean {
+  return (industry ?? "").trim().toLowerCase() === "corporate";
+}
+
+/** Restaurant, retail, wholesale, pharmacy, petrol station, and Corporate share `MenuCategory`. */
 function isMenuCategoryCatalogIndustry(industry: string | null | undefined): boolean {
   return (
     (industry ?? "").trim().toLowerCase() === "restaurant" ||
     isRetailOrWholesaleIndustryValue(industry) ||
-    isPetrolStationIndustryValue(industry)
+    isPetrolStationIndustryValue(industry) ||
+    isCorporateIndustryValue(industry)
   );
 }
 
@@ -37,7 +42,7 @@ export async function assertMenuCategoryCatalogBusiness(businessId: string): Pro
   if (!isMenuCategoryCatalogIndustry(business.industry) && !isPartner) {
     throw new HttpError(
       403,
-      "Categories are only available for Restaurant, Retail, Wholesale, Pharmacy, Petrol station, or internal partner businesses.",
+      "Categories are only available for Restaurant, Retail, Wholesale, Pharmacy, Petrol station, Corporate, or internal partner businesses.",
     );
   }
 }

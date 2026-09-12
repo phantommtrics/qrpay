@@ -89,7 +89,8 @@ export function PlatformCorporateBusinessesPage() {
           <h1 className="mt-2 text-3xl font-bold text-slate-900">Corporate businesses</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-600">
             Organizations with industry <span className="font-medium text-slate-800">Corporate</span> use the
-            Corporate plan (default entitlements exclude POS, products, orders, and categories) with custom
+            Corporate plan (default entitlements exclude POS, products, and orders; categories stay
+            available) with custom
             billing. Assign a template, billing cycle, and optional entitlement overrides per business.
           </p>
         </div>
@@ -309,36 +310,79 @@ function AssignCorporateModal({
             </select>
           </label>
           <div>
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm font-medium text-slate-700">Entitlements (optional)</span>
-              <button
-                type="button"
-                onClick={usePlanDefaults}
-                className="text-xs font-semibold text-teal-600 hover:text-teal-700"
-              >
-                Use Corporate plan defaults
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next: Record<string, boolean> = {}
+                    for (const item of catalog) next[item.id] = true
+                    setSelected(next)
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={usePlanDefaults}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Clear all
+                </button>
+              </div>
             </div>
             <p className="mt-1 text-xs text-slate-500">
               Leave all unchecked for the default Corporate plan entitlements. Select one or more products
               to restrict this business to only those modules. POS, products, and orders can be selected for
               corporates that need retail-style access.
             </p>
-            <div className="mt-3 max-h-48 space-y-2 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-              {catalog.map((item) => (
-                <label key={item.id} className="flex cursor-pointer items-start gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(selected[item.id])}
-                    onChange={() => toggleProduct(item.id)}
-                    className="mt-1 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-                  />
-                  <span>
-                    <span className="font-medium text-slate-800">{item.name}</span>
-                    <span className="ml-1 text-xs text-slate-500">({item.serviceName})</span>
-                  </span>
-                </label>
-              ))}
+            <div className="mt-3 overflow-hidden rounded-xl border border-slate-100">
+              <label className="flex cursor-pointer items-center gap-2 border-b border-slate-100 bg-slate-50/80 px-3 py-2 text-xs font-semibold text-slate-600">
+                <input
+                  type="checkbox"
+                  className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                  checked={catalog.length > 0 && catalog.every((item) => selected[item.id])}
+                  ref={(el) => {
+                    if (!el) return
+                    const n = catalog.filter((item) => selected[item.id]).length
+                    el.indeterminate = n > 0 && n < catalog.length
+                  }}
+                  onChange={() => {
+                    const allOn = catalog.length > 0 && catalog.every((item) => selected[item.id])
+                    if (allOn) {
+                      usePlanDefaults()
+                      return
+                    }
+                    const next: Record<string, boolean> = {}
+                    for (const item of catalog) next[item.id] = true
+                    setSelected(next)
+                  }}
+                />
+                <span>
+                  {catalog.filter((item) => selected[item.id]).length} of {catalog.length} selected
+                </span>
+              </label>
+              <div className="max-h-48 space-y-1.5 overflow-y-auto bg-slate-50/50 p-3">
+                {catalog.map((item) => (
+                  <label
+                    key={item.id}
+                    className="flex cursor-pointer items-start gap-2 rounded-lg px-1 py-1 text-sm hover:bg-white"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selected[item.id])}
+                      onChange={() => toggleProduct(item.id)}
+                      className="mt-1 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                    />
+                    <span>
+                      <span className="font-medium text-slate-800">{item.name}</span>
+                      <span className="ml-1 text-xs text-slate-500">({item.serviceName})</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
         </div>

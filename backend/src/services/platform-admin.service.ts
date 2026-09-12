@@ -191,6 +191,12 @@ export async function getPlatformBusinessDetail(
       statusChangedAt: true,
       platformBillingWaived: true,
       partnerProvisioningExternalUserId: true,
+      corporateBillingPlanId: true,
+      corporateBillingInterval: true,
+      corporateEntitlementSystemProductIds: true,
+      corporateBillingPlan: {
+        select: { id: true, name: true },
+      },
       _count: {
         select: { memberships: true, products: true },
       },

@@ -273,7 +273,8 @@ export function SignupPage() {
                 <p className="font-semibold text-teal-900">Custom billing (Corporate plan)</p>
                 <p className="mt-1 text-teal-900/90">
                   DirectPay will send an invoice and set up your corporate needs. Your subscription uses the
-                  Corporate plan (without POS, products, orders, or categories); platform staff will assign
+                  Corporate plan (without POS, products, or orders; categories stay available); platform
+                  staff will assign
                   your pricing and billing cycle after onboarding.
                 </p>
               </div>

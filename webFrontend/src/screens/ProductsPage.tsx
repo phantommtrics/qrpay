@@ -219,9 +219,10 @@ export function ProductsPage() {
       {showIndustryGate ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           The product catalog is enabled for <strong>Retail</strong>, <strong>Wholesale</strong>,{' '}
-          <strong>Pharmacy</strong>, <strong>Petrol station</strong>, and <strong>Restaurant</strong>{' '}
-          businesses. Your organization industry is “{currentOrganization?.industry ?? '—'}”. Update the
-          business industry or register a matching business to use this feature.
+          <strong>Pharmacy</strong>, <strong>Petrol station</strong>, <strong>Restaurant</strong>, and{' '}
+          <strong>Corporate</strong> businesses. Your organization industry is “
+          {currentOrganization?.industry ?? '—'}”. Update the business industry or register a matching
+          business to use this feature.
         </div>
       ) : null}
 

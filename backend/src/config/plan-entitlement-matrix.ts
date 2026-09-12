@@ -1,10 +1,9 @@
 import { PlanCode } from "@prisma/client";
 
-/** Excluded from the Corporate plan: POS, product catalogue, and orders (categories = `products.categories`). */
+/** Excluded from the Corporate plan: POS, product catalogue SKUs, and orders. Categories stay available. */
 export const CORPORATE_EXCLUDED_SLUGS = new Set<string>([
   "pos.access",
   "products.view",
-  "products.categories",
   "products.barcode",
   "products.create",
   "products.edit",

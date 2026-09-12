@@ -70,6 +70,7 @@ import {
   listCorporateBusinesses,
   listCorporateBillingPlansForPlatform,
   updateCorporateBillingPlan,
+  upgradeBusinessToCorporate,
 } from "./services/corporate-billing.service.js";
 import {
   buildCorporateInvitationLetterText,
@@ -1423,6 +1424,15 @@ app.get(
           updatedAt: rest.updatedAt.toISOString(),
           statusChangedAt: rest.statusChangedAt?.toISOString() ?? null,
           isInternalPartner: Boolean(rest.partnerProvisioningExternalUserId?.trim()),
+          corporateBillingPlanId: rest.corporateBillingPlanId,
+          corporateBillingInterval: rest.corporateBillingInterval,
+          corporateEntitlementSystemProductIds: rest.corporateEntitlementSystemProductIds,
+          corporateBillingPlan: rest.corporateBillingPlan
+            ? {
+                id: rest.corporateBillingPlan.id,
+                name: rest.corporateBillingPlan.name,
+              }
+            : null,
           membershipsTotal,
           subscriptionsTotal,
           membershipsPage: clampPage(q.membershipsPage),
@@ -2830,6 +2840,33 @@ app.patch(
           subscriptionId: result.subscription.id,
           invoiceId: result.invoice.id,
           invoiceAmount: formatMoney(result.invoice.amount),
+        },
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/businesses/:businessId/upgrade-to-corporate",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = assignCorporateBusinessBodySchema.parse(req.body);
+      const result = await upgradeBusinessToCorporate({
+        businessId: req.params.businessId as string,
+        ...body,
+      });
+      res.json({
+        data: {
+          subscriptionId: result.subscription.id,
+          invoiceId: result.invoice.id,
+          invoiceAmount: formatMoney(result.invoice.amount),
+          industry: "Corporate",
+          planCode: result.subscription.plan.code,
         },
       });
     } catch (e) {
@@ -5941,7 +5978,7 @@ app.get(
 app.post(
   "/api/businesses/:businessId/menu-categories",
   authenticateToken,
-  requireEntitlement("products.create"),
+  requireAnyEntitlement(["products.create", "products.categories"]),
   async (req, res, next) => {
     try {
       const { businessId } = req.params;
@@ -5977,7 +6014,7 @@ app.post(
 app.patch(
   "/api/businesses/:businessId/menu-categories/:categoryId",
   authenticateToken,
-  requireEntitlement("products.edit"),
+  requireAnyEntitlement(["products.edit", "products.categories"]),
   async (req, res, next) => {
     try {
       const { businessId, categoryId } = req.params;
@@ -6014,8 +6051,8 @@ app.patch(
 app.delete(
   "/api/businesses/:businessId/menu-categories/:categoryId",
   authenticateToken,
-  /** Same gate as POST menu-categories: editing the tree is part of menu setup, not product SKU delete. */
-  requireEntitlement("products.create"),
+  /** Category tree edits: product create OR Categories module (Corporate defaults). */
+  requireAnyEntitlement(["products.create", "products.categories"]),
   async (req, res, next) => {
     try {
       const { businessId, categoryId } = req.params;

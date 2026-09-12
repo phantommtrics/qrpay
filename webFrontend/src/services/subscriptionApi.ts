@@ -552,6 +552,29 @@ export async function patchCorporateBusinessSettings(
   })
 }
 
+export async function upgradePlatformBusinessToCorporate(
+  businessId: string,
+  body: {
+    corporateBillingPlanId: string
+    billingInterval: SubscriptionBillingInterval
+    corporateEntitlementSystemProductIds?: string[]
+  },
+) {
+  const response = await apiRequest<{
+    data: {
+      subscriptionId: string
+      invoiceId: string
+      invoiceAmount: string
+      industry: string
+      planCode: string
+    }
+  }>(`/platform/businesses/${encodeURIComponent(businessId)}/upgrade-to-corporate`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  return response.data
+}
+
 export type CorporateInvitationLetterPayload = {
   templateMode?: 'default' | 'manual'
   organizationName: string
@@ -1860,6 +1883,10 @@ export type PlatformBusinessDetail = Omit<
   isInternalPartner?: boolean
   platformBillingWaived?: boolean
   partnerProvisioningExternalUserId?: string | null
+  corporateBillingPlanId?: string | null
+  corporateBillingInterval?: SubscriptionBillingInterval | null
+  corporateEntitlementSystemProductIds?: string[]
+  corporateBillingPlan?: { id: string; name: string } | null
 }
 
 export async function postPlatformBusinessBlock(

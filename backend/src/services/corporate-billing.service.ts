@@ -483,3 +483,176 @@ export async function assignCorporateBusinessSettings(input: {
   queueSubscriptionInvoiceOwnerEmail(result.invoice.id);
   return result;
 }
+
+/**
+ * Platform admin: convert a Basic / Pro / Business Pro (or any non-corporate) tenant
+ * to Corporate industry + Business Pro subscription row + custom corporate billing template.
+ * Matches the path used for Corporate signups (industry Corporate, plan BUSINESS_PRO).
+ */
+export async function upgradeBusinessToCorporate(input: {
+  businessId: string;
+  corporateBillingPlanId: string;
+  billingInterval: BillingInterval;
+  corporateEntitlementSystemProductIds?: string[];
+}) {
+  const business = await prisma.business.findUnique({
+    where: { id: input.businessId },
+    include: {
+      subscriptions: {
+        where: {
+          status: {
+            in: [
+              SubscriptionStatus.TRIALING,
+              SubscriptionStatus.ACTIVE,
+              SubscriptionStatus.PAST_DUE,
+              SubscriptionStatus.EXPIRED,
+              SubscriptionStatus.CANCELLED,
+            ],
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: { plan: true },
+      },
+    },
+  });
+  if (!business) {
+    throw new HttpError(404, "Business not found.");
+  }
+  if (isCorporateIndustry(business.industry)) {
+    throw new HttpError(
+      400,
+      "This business is already Corporate. Assign or update billing under Corporate → Businesses.",
+    );
+  }
+
+  const planRow = await prisma.corporateBillingPlan.findFirst({
+    where: { id: input.corporateBillingPlanId, isActive: true },
+  });
+  if (!planRow) {
+    throw new HttpError(404, "Corporate billing plan not found.");
+  }
+  assertCorporateTemplateHasPriceForInterval(planRow, input.billingInterval);
+
+  const entitlementIds = input.corporateEntitlementSystemProductIds;
+  if (entitlementIds && entitlementIds.length > 0) {
+    const found = await prisma.systemProduct.findMany({
+      where: { id: { in: entitlementIds } },
+      select: { id: true },
+    });
+    if (found.length !== entitlementIds.length) {
+      throw new HttpError(400, "One or more entitlement products are invalid.");
+    }
+  }
+
+  const sub = business.subscriptions[0];
+  if (!sub) {
+    throw new HttpError(
+      400,
+      "No subscription found for this business. Cannot upgrade without an existing subscription.",
+    );
+  }
+
+  const businessProPlan = await prisma.plan.findUnique({
+    where: { code: PlanCode.BUSINESS_PRO },
+  });
+  if (!businessProPlan || !businessProPlan.isActive) {
+    throw new HttpError(
+      503,
+      "Business Pro plan is missing from the database. From the backend folder run: npx prisma db seed",
+    );
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.business.update({
+      where: { id: business.id },
+      data: {
+        industry: "Corporate",
+        corporateBillingPlanId: input.corporateBillingPlanId,
+        corporateBillingInterval: input.billingInterval,
+        corporateEntitlementSystemProductIds: entitlementIds ?? [],
+      },
+    });
+
+    const now = new Date();
+    const needsReactivationPeriod =
+      sub.status === SubscriptionStatus.EXPIRED ||
+      sub.status === SubscriptionStatus.CANCELLED ||
+      !sub.currentPeriodEnd ||
+      sub.currentPeriodEnd.getTime() <= now.getTime();
+    const periodStart = needsReactivationPeriod
+      ? nextBillingPeriodStart(sub.currentPeriodEnd, now)
+      : sub.currentPeriodStart;
+    const periodEnd = needsReactivationPeriod
+      ? billingPeriodEndFromStart(periodStart, input.billingInterval)
+      : (sub.currentPeriodEnd ??
+        billingPeriodEndFromStart(sub.currentPeriodStart, input.billingInterval));
+
+    await tx.subscription.update({
+      where: { id: sub.id },
+      data: {
+        planId: businessProPlan.id,
+        billingInterval: input.billingInterval,
+        ...(needsReactivationPeriod
+          ? {
+              status: SubscriptionStatus.PAST_DUE,
+              currentPeriodStart: periodStart,
+              currentPeriodEnd: periodEnd,
+            }
+          : {}),
+        ...(input.billingInterval === BillingInterval.CONTRACT_INFINITE
+          ? { contractPerpetual: false }
+          : {}),
+      },
+    });
+
+    const refreshed = await tx.subscription.findUniqueOrThrow({
+      where: { id: sub.id },
+      include: { plan: true },
+    });
+
+    const pendingToVoid = await tx.subscriptionInvoice.findMany({
+      where: { subscriptionId: sub.id, status: InvoiceStatus.PENDING },
+      select: { id: true },
+    });
+    for (const row of pendingToVoid) {
+      await cancelPendingInvoicePaymentLedgers(tx, row.id);
+    }
+    await tx.subscriptionInvoice.updateMany({
+      where: { subscriptionId: sub.id, status: InvoiceStatus.PENDING },
+      data: {
+        status: InvoiceStatus.VOID,
+        checkoutSessionId: null,
+        checkoutProvider: null,
+      },
+    });
+
+    const { amount, currency: invoiceCurrency } = await resolveSubscriptionInvoiceAmount(
+      tx,
+      business.id,
+      refreshed.plan,
+      input.billingInterval,
+    );
+
+    const invoice = await tx.subscriptionInvoice.create({
+      data: {
+        businessId: business.id,
+        subscriptionId: refreshed.id,
+        planId: refreshed.planId,
+        amount,
+        currency: invoiceCurrency,
+        status: InvoiceStatus.PENDING,
+        billingPeriodStart: periodStart,
+        billingPeriodEnd: periodEnd,
+        dueDate: dueInDays(now, 7),
+        externalReference: createInvoiceReference(),
+        guestToken: newGuestToken(),
+      },
+    });
+
+    return { subscription: refreshed, invoice };
+  });
+
+  queueSubscriptionInvoiceOwnerEmail(result.invoice.id);
+  return result;
+}
