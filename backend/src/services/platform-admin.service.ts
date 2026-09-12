@@ -218,6 +218,8 @@ export async function getPlatformBusinessDetail(
               role: true,
               isActive: true,
               createdAt: true,
+              totpSecret: true,
+              totpEnabledAt: true,
             },
           },
         },

@@ -54,6 +54,9 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
     }
 
     const decoded = jwt.verify(token, env.JWT_SECRET) as any;
+    if (decoded?.preAuth) {
+      throw new HttpError(401, 'Complete authenticator verification first.');
+    }
 
     // Platform admin routes use :businessId for the *resource* (e.g. tenant being viewed), not the
     // caller's selected merchant context. Treating it as context runs membership checks against

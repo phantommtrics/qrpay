@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Loader2, X } from 'lucide-react'
+import { Loader2, Shield, X } from 'lucide-react'
 
+import { OtpInput } from '../components/ui/OtpInput'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { Toast, type ToastVariant } from '../components/ui/Toast'
@@ -13,7 +14,13 @@ import {
   uploadMerchantBusinessLogo,
   type MerchantProfile,
 } from '../services/merchantProfileApi'
-import { ApiError } from '../services/subscriptionApi'
+import {
+  ApiError,
+  disableMfaAuthenticated,
+  enableMfaAuthenticated,
+  fetchMfaStatus,
+  setupMfaAuthenticated,
+} from '../services/subscriptionApi'
 
 const fieldClass =
   'w-full rounded-md border border-qb-border bg-white px-3 py-2 text-sm text-qb-heading outline-none focus:border-qb-heading'
@@ -34,6 +41,14 @@ export function MerchantProfilePage() {
   const [passwordBusy, setPasswordBusy] = useState(false)
   const [passwordError, setPasswordError] = useState<string | null>(null)
 
+  const [totpEnrolled, setTotpEnrolled] = useState(false)
+  const [totpRequired, setTotpRequired] = useState(false)
+  const [mfaBusy, setMfaBusy] = useState(false)
+  const [mfaSetup, setMfaSetup] = useState<{ secret: string; qrDataUrl: string } | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
+  const [disablePassword, setDisablePassword] = useState('')
+  const [mfaError, setMfaError] = useState<string | null>(null)
+
   const load = useCallback(async () => {
     if (!businessId) return
     setLoading(true)
@@ -52,6 +67,67 @@ export function MerchantProfilePage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!user || user.isPlatformOwner || user.isPlatformAdmin) return
+    void (async () => {
+      try {
+        const status = await fetchMfaStatus()
+        setTotpEnrolled(status.totpEnrolled)
+        setTotpRequired(status.totpRequired)
+      } catch {
+        /* optional section */
+      }
+    })()
+  }, [user])
+
+  async function startOptionalMfa() {
+    setMfaError(null)
+    setMfaBusy(true)
+    try {
+      const data = await setupMfaAuthenticated()
+      setMfaSetup({ secret: data.secret, qrDataUrl: data.qrDataUrl })
+      setMfaCode('')
+    } catch (err) {
+      setMfaError(err instanceof ApiError ? err.message : 'Could not start setup.')
+    } finally {
+      setMfaBusy(false)
+    }
+  }
+
+  async function confirmOptionalMfa(code?: string) {
+    const value = code ?? mfaCode
+    if (!mfaSetup || value.length !== 6) return
+    setMfaBusy(true)
+    setMfaError(null)
+    try {
+      await enableMfaAuthenticated({ secret: mfaSetup.secret, code: value })
+      setTotpEnrolled(true)
+      setMfaSetup(null)
+      setMfaCode('')
+      setToast({ message: 'Authenticator enabled.', variant: 'success' })
+    } catch (err) {
+      setMfaError(err instanceof ApiError ? err.message : 'Invalid code.')
+      setMfaCode('')
+    } finally {
+      setMfaBusy(false)
+    }
+  }
+
+  async function disableOptionalMfa() {
+    setMfaBusy(true)
+    setMfaError(null)
+    try {
+      await disableMfaAuthenticated({ password: disablePassword })
+      setTotpEnrolled(false)
+      setDisablePassword('')
+      setToast({ message: 'Authenticator disabled.', variant: 'success' })
+    } catch (err) {
+      setMfaError(err instanceof ApiError ? err.message : 'Could not disable.')
+    } finally {
+      setMfaBusy(false)
+    }
+  }
 
   function applyLogoUrl(logoUrl: string | null) {
     if (!businessId) return
@@ -308,6 +384,117 @@ export function MerchantProfilePage() {
                 Change password
               </button>
             </PageCard>
+
+            {!user?.isPlatformOwner && !user?.isPlatformAdmin && !totpRequired ? (
+              <PageCard variant="plain" className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
+                    <Shield className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-qb-muted">
+                      Two-factor authentication
+                    </h2>
+                    <p className="mt-1 text-sm text-qb-muted">
+                      Optional. When enabled, you will enter a code from your authenticator app after
+                      your password on every sign-in.
+                    </p>
+                  </div>
+                </div>
+
+                {totpEnrolled && !mfaSetup ? (
+                  <div className="space-y-3 rounded-md border border-qb-border bg-qb-surface/30 p-4">
+                    <p className="text-sm font-medium text-qb-heading">Authenticator is enabled</p>
+                    <label className="block">
+                      <span className="mb-1.5 block text-sm font-medium text-qb-heading">
+                        Password to disable
+                      </span>
+                      <input
+                        type="password"
+                        value={disablePassword}
+                        onChange={(e) => setDisablePassword(e.target.value)}
+                        className={fieldClass}
+                        disabled={mfaBusy}
+                        autoComplete="current-password"
+                      />
+                    </label>
+                    {mfaError ? <p className="text-sm text-red-600">{mfaError}</p> : null}
+                    <button
+                      type="button"
+                      disabled={mfaBusy || !disablePassword}
+                      onClick={() => void disableOptionalMfa()}
+                      className="inline-flex h-10 items-center rounded-md border border-red-200 bg-white px-4 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-45"
+                    >
+                      {mfaBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Disable 2FA
+                    </button>
+                  </div>
+                ) : mfaSetup ? (
+                  <div className="space-y-4">
+                    <img
+                      src={mfaSetup.qrDataUrl}
+                      alt="Authenticator QR code"
+                      className="mx-auto h-44 w-44 rounded-lg border border-qb-border"
+                    />
+                    <div className="rounded-md bg-qb-surface/40 p-3">
+                      <p className="text-xs font-medium uppercase tracking-wide text-qb-muted">
+                        Manual entry key
+                      </p>
+                      <p className="mt-1 break-all font-mono text-sm text-qb-heading">
+                        {mfaSetup.secret}
+                      </p>
+                    </div>
+                    <OtpInput
+                      value={mfaCode}
+                      onChange={(v) => {
+                        setMfaCode(v)
+                        if (mfaError) setMfaError(null)
+                      }}
+                      onComplete={confirmOptionalMfa}
+                      disabled={mfaBusy}
+                      error={Boolean(mfaError)}
+                      autoFocus
+                    />
+                    {mfaError ? <p className="text-sm text-red-600">{mfaError}</p> : null}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={mfaBusy || mfaCode.length !== 6}
+                        onClick={() => void confirmOptionalMfa()}
+                        className="inline-flex h-10 items-center rounded-md bg-qb-heading px-4 text-sm font-semibold text-white disabled:opacity-45"
+                      >
+                        Confirm and enable
+                      </button>
+                      <button
+                        type="button"
+                        disabled={mfaBusy}
+                        onClick={() => {
+                          setMfaSetup(null)
+                          setMfaCode('')
+                          setMfaError(null)
+                        }}
+                        className="inline-flex h-10 items-center rounded-md border border-qb-border bg-white px-4 text-sm font-semibold text-qb-heading"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    {mfaError ? <p className="mb-3 text-sm text-red-600">{mfaError}</p> : null}
+                    <button
+                      type="button"
+                      disabled={mfaBusy}
+                      onClick={() => void startOptionalMfa()}
+                      className="inline-flex h-10 items-center gap-2 rounded-md border border-qb-border bg-white px-4 text-sm font-semibold text-qb-heading hover:bg-qb-surface disabled:opacity-45"
+                    >
+                      {mfaBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
+                      Enable authenticator
+                    </button>
+                  </div>
+                )}
+              </PageCard>
+            ) : null}
 
             <PageCard variant="plain" className="space-y-4">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-qb-muted">

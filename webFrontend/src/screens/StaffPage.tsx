@@ -6,7 +6,12 @@ import { APP_PATHS } from '../config/navigation'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { useAuth } from '../features/auth/AuthContext'
-import { ApiError, fetchBusinessStations, type BusinessStationRow } from '../services/subscriptionApi'
+import {
+  ApiError,
+  fetchBusinessStations,
+  resetBusinessMemberMfa,
+  type BusinessStationRow,
+} from '../services/subscriptionApi'
 import type { BusinessMembershipStatus, UserRole } from '../types'
 import { isPetrolStationIndustry } from '../utils/businessIndustry'
 
@@ -27,6 +32,7 @@ export function StaffPage() {
     currentOrganization,
     currentPlan,
     organizationMembers,
+    refreshOrganizationMembers,
   } = useAuth()
   const [form, setForm] = useState({
     name: '',
@@ -41,6 +47,7 @@ export function StaffPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [resettingMfaId, setResettingMfaId] = useState<string | null>(null)
 
   const canOpenStatusPage = canAccess('status.change.view')
   const seatLimit = currentPlan?.maxStaff ?? null
@@ -138,6 +145,33 @@ export function StaffPage() {
       })
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleResetMemberMfa = async (memberId: string, email: string) => {
+    if (!currentOrganization || resettingMfaId) return
+    if (memberId === user?.id) {
+      setError('Use Profile to manage your own authenticator.')
+      return
+    }
+    if (
+      !window.confirm(
+        `Reset authenticator for ${email}? They can set up 2FA again from Profile after signing in.`,
+      )
+    ) {
+      return
+    }
+    setError(null)
+    setSuccess(null)
+    setResettingMfaId(memberId)
+    try {
+      await resetBusinessMemberMfa(currentOrganization.id, memberId)
+      await refreshOrganizationMembers()
+      setSuccess(`Authenticator reset for ${email}.`)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not reset authenticator.')
+    } finally {
+      setResettingMfaId(null)
     }
   }
 
@@ -358,10 +392,10 @@ export function StaffPage() {
                   <NavLink to={APP_PATHS.staffStatus} className="font-medium text-teal-700 underline-offset-2 hover:underline">
                     staff access status
                   </NavLink>
-                  .
+                  . Reset 2FA below if a member loses their authenticator app.
                 </>
               ) : (
-                'Access status is shown below for reference.'
+                'Access status is shown below. Reset 2FA if a member loses their authenticator app.'
               )}
             </p>
           </div>
@@ -370,6 +404,8 @@ export function StaffPage() {
               const status = member.membershipStatus ?? 'ACTIVE'
               const statusLabel =
                 MEMBERSHIP_STATUS_OPTIONS.find((o) => o.value === status)?.label ?? status
+              const canResetMfa =
+                Boolean(member.totpEnrolled) && member.id !== user?.id && status !== 'TERMINATED'
 
               return (
                 <div key={member.id} className="flex items-center justify-between gap-4 p-4">
@@ -395,6 +431,21 @@ export function StaffPage() {
                     >
                       {statusLabel}
                     </div>
+                    {member.totpEnrolled ? (
+                      <div className="mt-2 inline-block rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-800">
+                        2FA on
+                      </div>
+                    ) : null}
+                    {canResetMfa ? (
+                      <button
+                        type="button"
+                        disabled={resettingMfaId === member.id}
+                        onClick={() => void handleResetMemberMfa(member.id, member.email)}
+                        className="mt-2 block w-full text-xs font-semibold text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-red-700 disabled:opacity-50"
+                      >
+                        {resettingMfaId === member.id ? 'Resetting…' : 'Reset 2FA'}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               )

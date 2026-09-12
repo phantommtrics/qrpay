@@ -31,8 +31,19 @@ import {
   listAccessibleBusinessesForUser,
   listBusinessUsers,
   loginUser,
+  buildLoginSessionForUserId,
   registerBusinessOwner,
 } from "./services/auth.service.js";
+import {
+  beginMfaSetupForUser,
+  confirmMfaEnrollment,
+  disableMfaForSelf,
+  getMfaStatus,
+  resetBusinessMemberMfa,
+  resetUserMfaByAdmin,
+  verifyMfaLoginCode,
+  verifyMfaPreAuthToken,
+} from "./services/mfa.service.js";
 import { setBusinessMemberStatus } from "./services/membership-status.service.js";
 import {
   buildAllBillingLedgerCsv,
@@ -439,6 +450,7 @@ import {
   listFunctionGroups,
   listFunctionGroupsPaginated,
   listPlatformModules,
+  listPlatformOwners,
   listPlatformStaffUsersPaginated,
   listRoleTemplateSummaries,
   listRoleTemplatesPaginated,
@@ -1426,8 +1438,13 @@ app.get(
             createdAt: m.createdAt.toISOString(),
             updatedAt: m.updatedAt.toISOString(),
             user: {
-              ...m.user,
+              id: m.user.id,
+              name: m.user.name,
+              email: m.user.email,
+              role: m.user.role,
+              isActive: m.user.isActive,
               createdAt: m.user.createdAt.toISOString(),
+              totpEnrolled: Boolean(m.user.totpEnabledAt && m.user.totpSecret),
             },
           })),
           subscriptions: subscriptions.map((s) => formatSubscriptionResponse(s)),
@@ -2270,16 +2287,7 @@ app.get(
         functionGroupId ? { platformFunctionGroupId: functionGroupId } : undefined,
       );
       res.json({
-        data: rows.map((u) => ({
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          isActive: u.isActive,
-          mustChangePassword: u.mustChangePassword,
-          createdAt: u.createdAt.toISOString(),
-          platformFunctionGroupId: u.platformFunctionGroupId,
-          platformFunctionGroup: u.platformFunctionGroup,
-        })),
+        data: rows.map(formatStaffUserRow),
         total,
         page: p,
         pageSize: ps,
@@ -5065,14 +5073,7 @@ app.post(
       const user = await createPlatformStaffUser(body);
       res.status(201).json({
         data: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          isActive: user.isActive,
-          mustChangePassword: user.mustChangePassword,
-          createdAt: user.createdAt.toISOString(),
-          platformFunctionGroupId: user.platformFunctionGroupId,
-          platformFunctionGroup: user.platformFunctionGroup,
+          ...formatStaffUserRow({ ...user, totpSecret: null, totpEnabledAt: null }),
         },
       });
     } catch (e) {
@@ -5091,16 +5092,7 @@ app.patch(
       const body = platformStaffUserPatchSchema.parse(req.body);
       const user = await updatePlatformStaffUser(req.params.userId as string, body);
       res.json({
-        data: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          isActive: user.isActive,
-          mustChangePassword: user.mustChangePassword,
-          createdAt: user.createdAt.toISOString(),
-          platformFunctionGroupId: user.platformFunctionGroupId,
-          platformFunctionGroup: user.platformFunctionGroup,
-        },
+        data: formatStaffUserRow(user),
       });
     } catch (e) {
       next(e);
@@ -6490,6 +6482,7 @@ function formatUserResponse(user: {
   membershipStatus?: BusinessMembershipStatus;
   assignedStationId?: string | null;
   assignedStationName?: string | null;
+  totpEnrolled?: boolean;
 }) {
   return {
     id: user.id,
@@ -6500,9 +6493,35 @@ function formatUserResponse(user: {
     mustChangePassword: user.mustChangePassword,
     createdAt: user.createdAt.toISOString(),
     isOwner: user.isOwner,
+    ...(user.totpEnrolled !== undefined ? { totpEnrolled: user.totpEnrolled } : {}),
     ...(user.membershipStatus !== undefined ? { membershipStatus: user.membershipStatus } : {}),
     ...(user.assignedStationId !== undefined ? { assignedStationId: user.assignedStationId } : {}),
     ...(user.assignedStationName !== undefined ? { assignedStationName: user.assignedStationName } : {}),
+  };
+}
+
+function formatStaffUserRow(u: {
+  id: string;
+  name: string;
+  email: string;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  createdAt: Date;
+  platformFunctionGroupId: string | null;
+  platformFunctionGroup: { id: string; name: string } | null;
+  totpSecret?: string | null;
+  totpEnabledAt?: Date | null;
+}) {
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    isActive: u.isActive,
+    mustChangePassword: u.mustChangePassword,
+    createdAt: u.createdAt.toISOString(),
+    platformFunctionGroupId: u.platformFunctionGroupId,
+    platformFunctionGroup: u.platformFunctionGroup,
+    totpEnrolled: Boolean(u.totpEnabledAt && u.totpSecret),
   };
 }
 
@@ -6877,10 +6896,30 @@ app.post("/api/auth/login", authWriteLimiter, async (request, response, next) =>
   try {
     const payload = loginSchema.parse(request.body);
     const result = await loginUser(payload);
+
+    if (result.mfaRequired) {
+      response.json({
+        data: {
+          mfaRequired: true,
+          preAuthToken: result.preAuthToken,
+          totpEnrolled: result.totpEnrolled,
+          totpRequired: result.totpRequired,
+          user: {
+            id: result.user.id,
+            email: result.user.email,
+            name: result.user.name,
+            role: result.user.role.toLowerCase(),
+          },
+        },
+      });
+      return;
+    }
+
     const token = generateToken(result.user);
 
     response.json({
       data: {
+        mfaRequired: false,
         user: {
           ...formatUserResponse(result.user),
           ...(result.platformPermissions !== undefined
@@ -6900,6 +6939,228 @@ app.post("/api/auth/login", authWriteLimiter, async (request, response, next) =>
     next(error);
   }
 });
+
+const mfaCodeSchema = z.object({
+  code: z.string().length(6).regex(/^\d+$/),
+});
+
+const mfaConfirmSchema = mfaCodeSchema.extend({
+  secret: z.string().min(16).max(128),
+});
+
+const mfaDisableSchema = z
+  .object({
+    password: z.string().min(1).optional(),
+    code: z.string().length(6).regex(/^\d+$/).optional(),
+  })
+  .refine((v) => Boolean(v.password || v.code), {
+    message: "Password or authenticator code is required.",
+  });
+
+function readBearerToken(req: express.Request): string | null {
+  const header = req.headers.authorization;
+  if (!header?.startsWith("Bearer ")) return null;
+  return header.slice(7);
+}
+
+async function respondWithLoginSession(
+  response: express.Response,
+  userId: string,
+) {
+  const result = await buildLoginSessionForUserId(userId);
+  const token = generateToken(result.user);
+  response.json({
+    data: {
+      mfaRequired: false,
+      user: {
+        ...formatUserResponse(result.user),
+        ...(result.platformPermissions !== undefined
+          ? { platformPermissions: result.platformPermissions }
+          : {}),
+      },
+      token,
+      accessibleBusinesses: await accessibleBusinessesWithEntitlements(
+        result.user.id,
+        result.accessibleBusinesses,
+      ),
+      activeBusinessId: result.activeBusinessId,
+      accountNotice: result.accountNotice,
+    },
+  });
+}
+
+app.post("/api/auth/mfa/setup", authWriteLimiter, async (request, response, next) => {
+  try {
+    const token = readBearerToken(request);
+    if (!token) {
+      throw new HttpError(401, "Verification session required.");
+    }
+    const preAuth = verifyMfaPreAuthToken(token);
+    const data = await beginMfaSetupForUser(preAuth.id, preAuth.email);
+    response.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/mfa/confirm", authWriteLimiter, async (request, response, next) => {
+  try {
+    const token = readBearerToken(request);
+    if (!token) {
+      throw new HttpError(401, "Verification session required.");
+    }
+    const preAuth = verifyMfaPreAuthToken(token);
+    const body = mfaConfirmSchema.parse(request.body);
+    const userId = await confirmMfaEnrollment({
+      userId: preAuth.id,
+      secret: body.secret,
+      code: body.code,
+    });
+    await respondWithLoginSession(response, userId);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/mfa/verify", authWriteLimiter, async (request, response, next) => {
+  try {
+    const token = readBearerToken(request);
+    if (!token) {
+      throw new HttpError(401, "Verification session required.");
+    }
+    const preAuth = verifyMfaPreAuthToken(token);
+    const body = mfaCodeSchema.parse(request.body);
+    const userId = await verifyMfaLoginCode({ userId: preAuth.id, code: body.code });
+    await respondWithLoginSession(response, userId);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/auth/mfa/status", authenticateToken, async (request, response, next) => {
+  try {
+    const data = await getMfaStatus(request.user!.id);
+    response.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** Authenticated merchant (or any non-required role) starts optional MFA enrollment. */
+app.post("/api/auth/mfa/setup-authenticated", authenticateToken, async (request, response, next) => {
+  try {
+    const data = await beginMfaSetupForUser(request.user!.id, request.user!.email);
+    response.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/mfa/enable", authenticateToken, async (request, response, next) => {
+  try {
+    const body = mfaConfirmSchema.parse(request.body);
+    await confirmMfaEnrollment({
+      userId: request.user!.id,
+      secret: body.secret,
+      code: body.code,
+    });
+    response.json({ data: { totpEnrolled: true } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/mfa/disable", authenticateToken, async (request, response, next) => {
+  try {
+    const body = mfaDisableSchema.parse(request.body ?? {});
+    const data = await disableMfaForSelf({
+      userId: request.user!.id,
+      password: body.password,
+      code: body.code,
+    });
+    response.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post(
+  "/api/platform/security/staff-users/:userId/reset-mfa",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.SECURITY_SYSTEM_USERS, "edit"),
+  async (req, res, next) => {
+    try {
+      const data = await resetUserMfaByAdmin({
+        actorUserId: req.user!.id,
+        targetUserId: req.params.userId as string,
+      });
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/security/platform-owners",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.SECURITY_SYSTEM_USERS, "view"),
+  async (_req, res, next) => {
+    try {
+      const rows = await listPlatformOwners();
+      res.json({
+        data: rows.map((u) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          isActive: u.isActive,
+          createdAt: u.createdAt.toISOString(),
+          totpEnrolled: Boolean(u.totpEnabledAt && u.totpSecret),
+        })),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/security/platform-owners/:userId/reset-mfa",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.SECURITY_SYSTEM_USERS, "edit"),
+  async (req, res, next) => {
+    try {
+      const data = await resetUserMfaByAdmin({
+        actorUserId: req.user!.id,
+        targetUserId: req.params.userId as string,
+      });
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/members/:targetUserId/reset-mfa",
+  authenticateToken,
+  requireBusinessOwnerOrPlatform(),
+  async (req, res, next) => {
+    try {
+      const data = await resetBusinessMemberMfa({
+        actorUserId: req.user!.id,
+        businessId: req.params.businessId as string,
+        targetUserId: req.params.targetUserId as string,
+      });
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 /** Refresh merchant org list (excludes soft-deleted / TERMINATED businesses). */
 app.get("/api/auth/accessible-businesses", authenticateToken, async (request, response, next) => {

@@ -21,6 +21,7 @@ import {
   postPlatformBusinessRestore,
   postPlatformBusinessTerminate,
   postPlatformBusinessUnblock,
+  resetBusinessMemberMfa,
   type PlatformBusinessDetail,
 } from '../../services/subscriptionApi'
 import { isPlatformOperator } from '../../utils/platformOperator'
@@ -58,6 +59,9 @@ export function PlatformBusinessDetailPage() {
   const [lifecycleError, setLifecycleError] = useState<string | null>(null)
   const [lifecycleReason, setLifecycleReason] = useState('')
   const [terminateModalOpen, setTerminateModalOpen] = useState(false)
+  const [resettingMfaUserId, setResettingMfaUserId] = useState<string | null>(null)
+  const [mfaMessage, setMfaMessage] = useState<string | null>(null)
+  const [mfaError, setMfaError] = useState<string | null>(null)
   const [waveCredPack, setWaveCredPack] = useState<{
     platformWaveConfigured: boolean
     waveRow: BusinessGatewayCredentialStatusRow | null
@@ -85,6 +89,8 @@ export function PlatformBusinessDetailPage() {
       await Promise.resolve()
       setMembershipsPage(1)
       setSubscriptionsPage(1)
+      setMfaMessage(null)
+      setMfaError(null)
     })()
   }, [businessId])
 
@@ -163,6 +169,38 @@ export function PlatformBusinessDetailPage() {
       }
     },
     [businessId, lifecycleReason, membershipsPage, subscriptionsPage],
+  )
+
+  const handleResetMemberMfa = useCallback(
+    async (memberUserId: string, email: string) => {
+      if (!businessId || resettingMfaUserId) return
+      if (
+        !window.confirm(
+          `Reset authenticator for ${email}? They can sign in with password again and re-enable 2FA from Profile.`,
+        )
+      ) {
+        return
+      }
+      setMfaError(null)
+      setMfaMessage(null)
+      setResettingMfaUserId(memberUserId)
+      try {
+        await resetBusinessMemberMfa(businessId, memberUserId)
+        const data = await fetchPlatformBusinessDetail(businessId, {
+          membershipsPage,
+          membershipsPageSize: PAGE_SIZE,
+          subscriptionsPage,
+          subscriptionsPageSize: PAGE_SIZE,
+        })
+        setDetail(data)
+        setMfaMessage(`Authenticator reset for ${email}.`)
+      } catch (e) {
+        setMfaError(e instanceof ApiError ? e.message : 'Could not reset authenticator.')
+      } finally {
+        setResettingMfaUserId(null)
+      }
+    },
+    [businessId, membershipsPage, resettingMfaUserId, subscriptionsPage],
   )
 
   if (!isPlatformOperator(user)) {
@@ -392,47 +430,93 @@ export function PlatformBusinessDetailPage() {
           <PageCard className="overflow-hidden p-0">
             <div className="p-6 pb-4">
               <h2 className="text-lg font-semibold text-slate-900">Team memberships</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Reset 2FA if a member loses access to their authenticator app.
+              </p>
+              {mfaMessage ? (
+                <p className="mt-3 rounded-lg bg-teal-50 px-3 py-2 text-sm font-medium text-teal-800">
+                  {mfaMessage}
+                </p>
+              ) : null}
+              {mfaError ? (
+                <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
+                  {mfaError}
+                </p>
+              ) : null}
             </div>
             {detail.membershipsTotal === 0 ? (
               <p className="px-6 pb-6 text-sm text-slate-500">No members.</p>
             ) : (
               <>
                 <div className="overflow-x-auto px-6">
-                  <table className="w-full min-w-[640px] text-left text-sm">
+                  <table className="w-full min-w-[720px] text-left text-sm">
                     <thead className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <tr>
                         <th className="py-2 pr-4">User</th>
                         <th className="py-2 pr-4">Role</th>
                         <th className="py-2 pr-4">Access</th>
                         <th className="py-2 pr-4">Owner</th>
+                        <th className="py-2 pr-4">2FA</th>
                         <th className="py-2">Joined</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {detail.memberships.map((m) => (
-                        <tr key={m.id}>
-                          <td className="py-3 pr-4">
-                            <p className="font-medium text-slate-800">{m.user.name}</p>
-                            <p className="text-xs text-slate-500">{m.user.email}</p>
-                          </td>
-                          <td className="py-3 pr-4 text-slate-700">{m.user.role}</td>
-                          <td className="py-3 pr-4">
-                            <span
-                              className={
-                                m.user.isActive
-                                  ? 'text-emerald-700'
-                                  : 'text-slate-400 line-through'
-                              }
-                            >
-                              {m.status}
-                            </span>
-                          </td>
-                          <td className="py-3 pr-4">{m.isOwner ? 'Yes' : '—'}</td>
-                          <td className="py-3 text-slate-600">
-                            {formatShortDate(m.createdAt)}
-                          </td>
-                        </tr>
-                      ))}
+                      {detail.memberships.map((m) => {
+                        const enrolled = Boolean(m.user.totpEnrolled)
+                        const canReset =
+                          canEditBusiness && enrolled && m.user.id !== user?.id
+                        return (
+                          <tr key={m.id}>
+                            <td className="py-3 pr-4">
+                              <p className="font-medium text-slate-800">{m.user.name}</p>
+                              <p className="text-xs text-slate-500">{m.user.email}</p>
+                            </td>
+                            <td className="py-3 pr-4 text-slate-700">{m.user.role}</td>
+                            <td className="py-3 pr-4">
+                              <span
+                                className={
+                                  m.user.isActive
+                                    ? 'text-emerald-700'
+                                    : 'text-slate-400 line-through'
+                                }
+                              >
+                                {m.status}
+                              </span>
+                            </td>
+                            <td className="py-3 pr-4">{m.isOwner ? 'Yes' : '—'}</td>
+                            <td className="py-3 pr-4">
+                              <div className="flex flex-col gap-1.5">
+                                <span
+                                  className={`inline-flex w-fit rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                    enrolled
+                                      ? 'bg-teal-50 text-teal-800'
+                                      : 'bg-slate-100 text-slate-600'
+                                  }`}
+                                >
+                                  {enrolled ? 'Enrolled' : 'Off'}
+                                </span>
+                                {canReset ? (
+                                  <button
+                                    type="button"
+                                    disabled={resettingMfaUserId === m.user.id}
+                                    onClick={() =>
+                                      void handleResetMemberMfa(m.user.id, m.user.email)
+                                    }
+                                    className="text-left text-xs font-semibold text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-red-700 disabled:opacity-50"
+                                  >
+                                    {resettingMfaUserId === m.user.id
+                                      ? 'Resetting…'
+                                      : 'Reset 2FA'}
+                                  </button>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="py-3 text-slate-600">
+                              {formatShortDate(m.createdAt)}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>

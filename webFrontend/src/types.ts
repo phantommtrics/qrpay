@@ -177,6 +177,7 @@ export interface LoginAccount {
   /** Petrol: assigned branch (staff); managers/owners typically unset. */
   assignedStationId?: string | null
   assignedStationName?: string | null
+  totpEnrolled?: boolean
 }
 
 export interface PermissionDefinition {

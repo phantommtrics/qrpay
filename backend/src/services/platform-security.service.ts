@@ -379,6 +379,25 @@ export async function listPlatformStaffUsers() {
       createdAt: true,
       platformFunctionGroupId: true,
       platformFunctionGroup: { select: { id: true, name: true } },
+      totpSecret: true,
+      totpEnabledAt: true,
+    },
+  });
+}
+
+/** DirectPay platform owners — listed so admins can reset MFA if an owner is locked out. */
+export async function listPlatformOwners() {
+  return prisma.user.findMany({
+    where: { role: UserRole.PLATFORM_OWNER },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      isActive: true,
+      createdAt: true,
+      totpSecret: true,
+      totpEnabledAt: true,
     },
   });
 }
@@ -411,6 +430,8 @@ export async function listPlatformStaffUsersPaginated(
         createdAt: true,
         platformFunctionGroupId: true,
         platformFunctionGroup: { select: { id: true, name: true } },
+        totpSecret: true,
+        totpEnabledAt: true,
       },
     }),
     prisma.user.count({ where }),
@@ -573,6 +594,8 @@ export async function updatePlatformStaffUser(
       createdAt: true,
       platformFunctionGroupId: true,
       platformFunctionGroup: { select: { id: true, name: true } },
+      totpSecret: true,
+      totpEnabledAt: true,
     },
   });
 }

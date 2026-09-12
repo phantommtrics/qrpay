@@ -13,9 +13,13 @@ import {
   ApiError,
   createPlatformStaffUserRequest,
   fetchPlatformFunctionGroupsAll,
+  fetchPlatformOwners,
   fetchPlatformStaffUsersList,
+  resetPlatformOwnerMfa,
+  resetPlatformStaffUserMfa,
   updatePlatformStaffUserRequest,
   type PlatformFunctionGroupRow,
+  type PlatformOwnerRow,
   type PlatformStaffUserRow,
 } from '../../services/subscriptionApi'
 
@@ -28,6 +32,7 @@ export function PlatformSecuritySystemUsersPage() {
   const canEdit = Boolean(user?.isPlatformOwner || user?.platformPermissions?.[SU_MODULE]?.edit)
 
   const [rows, setRows] = useState<PlatformStaffUserRow[]>([])
+  const [owners, setOwners] = useState<PlatformOwnerRow[]>([])
   const [usersTotal, setUsersTotal] = useState(0)
   const [listPage, setListPage] = useState(1)
   const [groups, setGroups] = useState<PlatformFunctionGroupRow[]>([])
@@ -45,10 +50,12 @@ export function PlatformSecuritySystemUsersPage() {
     setError(null)
     try {
       let page = pageOverride !== undefined ? pageOverride : listPage
-      const [uPayload, g] = await Promise.all([
+      const [uPayload, g, ownerRows] = await Promise.all([
         fetchPlatformStaffUsersList({ page, pageSize: PAGE_SIZE }),
         fetchPlatformFunctionGroupsAll(),
+        fetchPlatformOwners().catch(() => [] as PlatformOwnerRow[]),
       ])
+      setOwners(ownerRows)
       const totalPages = Math.max(1, Math.ceil(uPayload.total / uPayload.pageSize))
       if (page > totalPages && uPayload.total > 0) {
         page = totalPages
@@ -148,6 +155,48 @@ export function PlatformSecuritySystemUsersPage() {
     }
   }
 
+  async function resetMfa(id: string, email: string) {
+    if (!canEdit) return
+    if (
+      !window.confirm(
+        `Reset authenticator for ${email}? They will set up a new authenticator app on next sign-in.`,
+      )
+    ) {
+      return
+    }
+    setError(null)
+    try {
+      await resetPlatformStaffUserMfa(id)
+      setMessage(`Authenticator reset for ${email}.`)
+      await load()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not reset authenticator.')
+    }
+  }
+
+  async function resetOwnerMfa(id: string, email: string) {
+    if (!canEdit) return
+    if (id === user?.id) {
+      setError('You cannot reset your own authenticator. Ask another platform admin.')
+      return
+    }
+    if (
+      !window.confirm(
+        `Reset authenticator for platform owner ${email}? They must enroll a new authenticator on next sign-in.`,
+      )
+    ) {
+      return
+    }
+    setError(null)
+    try {
+      await resetPlatformOwnerMfa(id)
+      setMessage(`Platform owner authenticator reset for ${email}.`)
+      await load()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not reset authenticator.')
+    }
+  }
+
   const canSubmitCreate =
     canCreate && Boolean(newName.trim() && newEmail.trim() && newGroupId) && !createBlockedReason
 
@@ -157,6 +206,51 @@ export function PlatformSecuritySystemUsersPage() {
         <PageSectionHeader
           title="System users"
         />
+
+        {owners.length > 0 ? (
+          <PageCard className="overflow-hidden p-0">
+            <div className="border-b border-slate-200 bg-slate-50 px-5 py-3">
+              <h3 className="text-sm font-semibold text-slate-900">Platform owners</h3>
+              <p className="mt-0.5 text-xs text-slate-600">
+                If a DirectPay owner loses their authenticator app, another admin with System users
+                edit access can reset 2FA here.
+              </p>
+            </div>
+            <ul className="divide-y divide-slate-100">
+              {owners.map((o) => (
+                <li
+                  key={o.id}
+                  className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
+                >
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900">{o.name}</p>
+                    <p className="truncate text-sm text-slate-600">{o.email}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        o.totpEnrolled
+                          ? 'bg-teal-50 text-teal-800'
+                          : 'bg-amber-50 text-amber-900'
+                      }`}
+                    >
+                      {o.totpEnrolled ? '2FA enrolled' : '2FA pending'}
+                    </span>
+                    {canEdit && o.totpEnrolled && o.id !== user?.id ? (
+                      <button
+                        type="button"
+                        onClick={() => void resetOwnerMfa(o.id, o.email)}
+                        className="text-xs font-semibold text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-red-700"
+                      >
+                        Reset 2FA
+                      </button>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </PageCard>
+        ) : null}
 
         {!canCreate && user?.isPlatformAdmin ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -285,6 +379,9 @@ export function PlatformSecuritySystemUsersPage() {
                     <th className="whitespace-nowrap px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-600">
                       Active
                     </th>
+                    <th className="whitespace-nowrap px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-600">
+                      2FA
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -322,6 +419,28 @@ export function PlatformSecuritySystemUsersPage() {
                         ) : (
                           <span className="font-medium text-slate-700">{r.isActive ? 'Yes' : 'No'}</span>
                         )}
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <span
+                            className={`inline-flex w-fit rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                              r.totpEnrolled
+                                ? 'bg-teal-50 text-teal-800'
+                                : 'bg-amber-50 text-amber-900'
+                            }`}
+                          >
+                            {r.totpEnrolled ? 'Enrolled' : 'Pending'}
+                          </span>
+                          {canEdit && r.totpEnrolled ? (
+                            <button
+                              type="button"
+                              onClick={() => void resetMfa(r.id, r.email)}
+                              className="text-xs font-semibold text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-red-700"
+                            >
+                              Reset 2FA
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   ))}

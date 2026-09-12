@@ -33,6 +33,11 @@ import {
   sendSignUpTemporaryPasswordEmailContent,
 } from "./password-reset.service.js";
 import { getMergedPlatformPermissionsForUser } from "./platform-security.service.js";
+import {
+  isTotpEnrolled,
+  roleRequiresMfa,
+  signMfaPreAuthToken,
+} from "./mfa.service.js";
 import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
 import { isCorporateIndustry } from "../utils/corporate-industry.js";
 import { sendCorporateBusinessCreatedOperatorEmail } from "./corporate-signup-notify.service.js";
@@ -131,6 +136,8 @@ function sanitizeUser(user: {
   isActive: boolean;
   mustChangePassword: boolean;
   createdAt: Date;
+  totpSecret?: string | null;
+  totpEnabledAt?: Date | null;
 }) {
   return {
     id: user.id,
@@ -140,6 +147,7 @@ function sanitizeUser(user: {
     isActive: user.isActive,
     mustChangePassword: user.mustChangePassword,
     createdAt: user.createdAt,
+    totpEnrolled: Boolean(user.totpEnabledAt && user.totpSecret),
   };
 }
 
@@ -466,7 +474,70 @@ export async function loginUser(input: LoginInput) {
     throw new HttpError(403, "This account has been disabled.");
   }
 
+  const totpEnrolled = isTotpEnrolled(user);
+  const mfaRequired = roleRequiresMfa(user.role) || totpEnrolled;
+
+  if (mfaRequired) {
+    return {
+      mfaRequired: true as const,
+      preAuthToken: signMfaPreAuthToken(user),
+      totpEnrolled,
+      totpRequired: roleRequiresMfa(user.role),
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+    };
+  }
+
   // Platform operators operate outside tenant context; do not attach memberships as "their" businesses.
+  const access =
+    user.role === UserRole.ADMIN ||
+    user.role === UserRole.PLATFORM_OWNER ||
+    user.role === UserRole.PLATFORM_ADMIN
+      ? { businesses: [], activeBusinessId: null, hadTerminatedBusinessOnly: false }
+      : await listAccessibleBusinesses(user.id);
+
+  if (
+    user.role !== UserRole.PLATFORM_OWNER &&
+    user.role !== UserRole.PLATFORM_ADMIN &&
+    user.role !== UserRole.ADMIN &&
+    access.businesses.length === 0 &&
+    !access.hadTerminatedBusinessOnly
+  ) {
+    throw new HttpError(404, "User not found.");
+  }
+
+  const platformPermissions =
+    user.role === UserRole.PLATFORM_ADMIN
+      ? await getMergedPlatformPermissionsForUser(user.id)
+      : undefined;
+
+  return {
+    mfaRequired: false as const,
+    user: sanitizeUser(user),
+    accessibleBusinesses: access.businesses,
+    activeBusinessId: access.activeBusinessId,
+    platformPermissions,
+    accountNotice: access.hadTerminatedBusinessOnly
+      ? {
+          code: "BUSINESS_TERMINATED" as const,
+          message:
+            "Your business has been deleted. Your user account is still active — contact DirectPay if you need a new organization.",
+        }
+      : null,
+  };
+}
+
+/** Session payload after MFA verify/confirm (same shape as a non-MFA login success). */
+export async function buildLoginSessionForUserId(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !user.isActive) {
+    throw new HttpError(401, "Invalid or expired verification session.");
+  }
+
   const access =
     user.role === UserRole.ADMIN ||
     user.role === UserRole.PLATFORM_OWNER ||

@@ -22,7 +22,9 @@ import { platformAdminFinancePermission } from '../../utils/platformAdminFinance
 import {
   ApiError,
   changePassword as changePasswordRequest,
+  clearMfaPreAuthToken,
   clearToken,
+  confirmMfaWithPreAuth,
   createBusinessUser,
   fetchBusinessProducts,
   fetchBusinessEntitlements,
@@ -38,6 +40,9 @@ import {
   mapBackendPlanToSubscriptionPlan,
   mapBackendUserToUser,
   registerBusinessOwner,
+  setMfaPreAuthToken,
+  verifyMfaWithPreAuth,
+  type LoginSuccessPayload,
 } from '../../services/subscriptionApi'
 import type {
   LoginAccount,
@@ -78,6 +83,9 @@ type AuthActionResult = {
   message?: string
   mustChangePassword?: boolean
   redirectPath?: string
+  mfaRequired?: boolean
+  totpEnrolled?: boolean
+  totpRequired?: boolean
 }
 
 type AuthContextValue = {
@@ -95,6 +103,13 @@ type AuthContextValue = {
   loginWithCredentials: (
     email: string,
     password: string,
+  ) => Promise<AuthActionResult & { accountNotice?: string | null }>
+  /** Complete MFA after password when authenticator is already enrolled. */
+  completeMfaLogin: (code: string) => Promise<AuthActionResult & { accountNotice?: string | null }>
+  /** Enroll authenticator during required MFA setup, then sign in. */
+  completeMfaSetup: (
+    secret: string,
+    code: string,
   ) => Promise<AuthActionResult & { accountNotice?: string | null }>
   /** Shown after login when the only businesses were soft-deleted. */
   accountNotice: string | null
@@ -293,6 +308,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearSessionState = () => {
     clearToken()
+    clearMfaPreAuthToken()
     setUser(null)
     setStoredActiveOrganizationId(null)
     setAccounts([])
@@ -303,6 +319,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setBusinessProductsLoading(false)
     clearBusinessSwitchFeedback()
   }
+
+  const applyLoginSuccess = useCallback((payload: LoginSuccessPayload) => {
+    const nextUser = mapBackendUserToUser(payload.user)
+    setUser(nextUser)
+    const nextOrganizations = payload.accessibleBusinesses.map(mapAccessibleBusinessToOrganization)
+
+    setOrganizations((current) =>
+      mergeOrganizations(current, nextOrganizations).filter(isUsableMerchantOrganization),
+    )
+    setEntitlementsByBusinessId((prev) => ({
+      ...prev,
+      ...Object.fromEntries(
+        payload.accessibleBusinesses.map((e) => [
+          e.business.id,
+          e.entitlements ?? prev[e.business.id] ?? [],
+        ]),
+      ),
+    }))
+    const preferredActive =
+      payload.activeBusinessId && nextOrganizations.some((o) => o.id === payload.activeBusinessId)
+        ? payload.activeBusinessId
+        : nextOrganizations.filter(isUsableMerchantOrganization)[0]?.id ?? null
+    setStoredActiveOrganizationId(preferredActive)
+    setAccounts([])
+    const notice = payload.accountNotice?.message?.trim() || null
+    setAccountNotice(notice)
+
+    const usableCount = nextOrganizations.filter(isUsableMerchantOrganization).length
+    const redirectPath = nextUser.mustChangePassword
+      ? APP_PATHS.changePassword
+      : notice && usableCount === 0
+        ? APP_PATHS.businesses
+        : getDefaultProtectedPath(nextUser.role)
+
+    return {
+      ok: true as const,
+      mustChangePassword: nextUser.mustChangePassword,
+      redirectPath,
+      accountNotice: notice,
+    }
+  }, [])
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.user, user)
@@ -842,47 +899,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             password,
           })
 
-          const nextUser = mapBackendUserToUser(payload.user)
-          setUser(nextUser)
-          const nextOrganizations = payload.accessibleBusinesses.map(
-            mapAccessibleBusinessToOrganization,
-          )
-
-          setOrganizations((current) =>
-            mergeOrganizations(current, nextOrganizations).filter(isUsableMerchantOrganization),
-          )
-          setEntitlementsByBusinessId((prev) => ({
-            ...prev,
-            ...Object.fromEntries(
-              payload.accessibleBusinesses.map((e) => [
-                e.business.id,
-                e.entitlements ?? prev[e.business.id] ?? [],
-              ]),
-            ),
-          }))
-          const preferredActive =
-            payload.activeBusinessId &&
-            nextOrganizations.some((o) => o.id === payload.activeBusinessId)
-              ? payload.activeBusinessId
-              : nextOrganizations.filter(isUsableMerchantOrganization)[0]?.id ?? null
-          setStoredActiveOrganizationId(preferredActive)
-          setAccounts([])
-          const notice = payload.accountNotice?.message?.trim() || null
-          setAccountNotice(notice)
-
-          const usableCount = nextOrganizations.filter(isUsableMerchantOrganization).length
-          const redirectPath = nextUser.mustChangePassword
-            ? APP_PATHS.changePassword
-            : notice && usableCount === 0
-              ? APP_PATHS.businesses
-              : getDefaultProtectedPath(nextUser.role)
-
-          return {
-            ok: true,
-            mustChangePassword: nextUser.mustChangePassword,
-            redirectPath,
-            accountNotice: notice,
+          if (payload.mfaRequired) {
+            setMfaPreAuthToken(payload.preAuthToken)
+            return {
+              ok: true,
+              mfaRequired: true,
+              totpEnrolled: payload.totpEnrolled,
+              totpRequired: payload.totpRequired,
+            }
           }
+
+          return applyLoginSuccess(payload)
         } catch (error) {
           if (error instanceof ApiError) {
             return {
@@ -895,6 +922,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ok: false,
             error: 'Unable to reach the server.',
           }
+        }
+      },
+      completeMfaLogin: async (code) => {
+        try {
+          const payload = await verifyMfaWithPreAuth({ code })
+          return applyLoginSuccess(payload)
+        } catch (error) {
+          if (error instanceof ApiError) {
+            return { ok: false, error: error.message }
+          }
+          return { ok: false, error: 'Unable to reach the server.' }
+        }
+      },
+      completeMfaSetup: async (secret, code) => {
+        try {
+          const payload = await confirmMfaWithPreAuth({ secret, code })
+          return applyLoginSuccess(payload)
+        } catch (error) {
+          if (error instanceof ApiError) {
+            return { ok: false, error: error.message }
+          }
+          return { ok: false, error: 'Unable to reach the server.' }
         }
       },
       changePassword: async (currentPassword, newPassword) => {

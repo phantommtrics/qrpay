@@ -15,6 +15,12 @@ const envSchema = z.object({
     .string()
     .min(1, "Set JWT_SECRET in your environment (never commit real values)"),
   JWT_EXPIRES_IN: z.string().min(1).default("24h"),
+  /** Optional separate key for encrypting TOTP secrets (falls back to JWT_SECRET). */
+  TOTP_ENCRYPTION_KEY: z.string().min(1).optional(),
+  /** Issuer label shown in authenticator apps. */
+  TOTP_ISSUER: z.string().min(1).default("DirectPay"),
+  /** Short-lived MFA challenge JWT after password (or email) verification. */
+  MFA_PRE_AUTH_EXPIRES_IN: z.string().min(1).default("5m"),
   CORS_ORIGINS: z
     .string()
     .min(1, "Set CORS_ORIGINS to a comma-separated list of allowed browser origins"),

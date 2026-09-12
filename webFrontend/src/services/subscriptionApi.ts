@@ -100,6 +100,33 @@ export type BackendUser = {
   assignedStationId?: string | null
   assignedStationName?: string | null
   platformPermissions?: PlatformPermissionMatrix
+  totpEnrolled?: boolean
+}
+
+export type LoginSuccessPayload = {
+  mfaRequired: false
+  user: BackendUser
+  token: string
+  accessibleBusinesses: BackendAccessibleBusiness[]
+  activeBusinessId: string | null
+  accountNotice?: { code: string; message: string } | null
+}
+
+export type LoginMfaChallengePayload = {
+  mfaRequired: true
+  preAuthToken: string
+  totpEnrolled: boolean
+  totpRequired: boolean
+  user: { id: string; email: string; name: string; role: string }
+}
+
+export type LoginPayload = LoginSuccessPayload | LoginMfaChallengePayload
+
+export type MfaSetupPayload = {
+  secret: string
+  qrDataUrl: string
+  manualEntryKey: string
+  issuer: string
 }
 
 export type BackendAccessibleBusiness = {
@@ -261,6 +288,7 @@ export function mapBackendUserToLoginAccount(
     membershipStatus: user.membershipStatus ?? 'ACTIVE',
     assignedStationId: user.assignedStationId,
     assignedStationName: user.assignedStationName,
+    totpEnrolled: Boolean(user.totpEnrolled),
   }
 }
 
@@ -685,23 +713,149 @@ export async function registerBusinessOwner(payload: {
 }
 
 export async function login(payload: { email: string; password: string }) {
-  const response = await apiRequest<{
-    data: {
-      user: BackendUser
-      token: string
-      accessibleBusinesses: BackendAccessibleBusiness[]
-      activeBusinessId: string | null
-      accountNotice?: { code: string; message: string } | null
-    }
-  }>('/auth/login', {
+  const response = await apiRequest<{ data: LoginPayload }>('/auth/login', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
 
-  if (response.data.token) {
+  if (!response.data.mfaRequired && response.data.token) {
     storeToken(response.data.token)
   }
 
+  return response.data
+}
+
+const STORAGE_KEY_PRE_AUTH = 'qrpay.auth.mfa.preAuth'
+
+export function getMfaPreAuthToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.sessionStorage.getItem(STORAGE_KEY_PRE_AUTH)
+}
+
+export function setMfaPreAuthToken(token: string): void {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.setItem(STORAGE_KEY_PRE_AUTH, token)
+}
+
+export function clearMfaPreAuthToken(): void {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.removeItem(STORAGE_KEY_PRE_AUTH)
+}
+
+async function mfaPreAuthRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const preAuth = getMfaPreAuthToken()
+  if (!preAuth) {
+    throw new ApiError('Verification session expired. Sign in again.', 401)
+  }
+  const headers = new Headers(init?.headers)
+  headers.set('Authorization', `Bearer ${preAuth}`)
+  return apiRequest<T>(path, { ...init, headers })
+}
+
+export async function setupMfaWithPreAuth() {
+  const response = await mfaPreAuthRequest<{ data: MfaSetupPayload }>('/auth/mfa/setup', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+  return response.data
+}
+
+export async function confirmMfaWithPreAuth(payload: { secret: string; code: string }) {
+  const response = await mfaPreAuthRequest<{ data: LoginSuccessPayload }>('/auth/mfa/confirm', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (response.data.token) {
+    storeToken(response.data.token)
+  }
+  clearMfaPreAuthToken()
+  return response.data
+}
+
+export async function verifyMfaWithPreAuth(payload: { code: string }) {
+  const response = await mfaPreAuthRequest<{ data: LoginSuccessPayload }>('/auth/mfa/verify', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (response.data.token) {
+    storeToken(response.data.token)
+  }
+  clearMfaPreAuthToken()
+  return response.data
+}
+
+export async function fetchMfaStatus() {
+  const response = await apiRequest<{ data: { totpEnrolled: boolean; totpRequired: boolean } }>(
+    '/auth/mfa/status',
+  )
+  return response.data
+}
+
+export async function setupMfaAuthenticated() {
+  const response = await apiRequest<{ data: MfaSetupPayload }>('/auth/mfa/setup-authenticated', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+  return response.data
+}
+
+export async function enableMfaAuthenticated(payload: { secret: string; code: string }) {
+  const response = await apiRequest<{ data: { totpEnrolled: boolean } }>('/auth/mfa/enable', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return response.data
+}
+
+export async function disableMfaAuthenticated(payload: { password?: string; code?: string }) {
+  const response = await apiRequest<{ data: { totpEnrolled: boolean } }>('/auth/mfa/disable', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return response.data
+}
+
+export async function resetPlatformStaffUserMfa(userId: string) {
+  const response = await apiRequest<{ data: { id: string; email: string; totpEnrolled: boolean } }>(
+    `/platform/security/staff-users/${userId}/reset-mfa`,
+    { method: 'POST', body: JSON.stringify({}) },
+  )
+  return response.data
+}
+
+export type PlatformOwnerRow = {
+  id: string
+  name: string
+  email: string
+  isActive: boolean
+  createdAt: string
+  totpEnrolled: boolean
+}
+
+export async function fetchPlatformOwners() {
+  const response = await apiRequest<{ data: PlatformOwnerRow[] }>(
+    '/platform/security/platform-owners',
+  )
+  return response.data
+}
+
+export async function resetPlatformOwnerMfa(userId: string) {
+  const response = await apiRequest<{ data: { id: string; email: string; totpEnrolled: boolean } }>(
+    `/platform/security/platform-owners/${userId}/reset-mfa`,
+    { method: 'POST', body: JSON.stringify({}) },
+  )
+  return response.data
+}
+
+export async function resetBusinessMemberMfa(businessId: string, targetUserId: string) {
+  const response = await apiRequest<{ data: { id: string; email: string; totpEnrolled: boolean } }>(
+    `/businesses/${businessId}/members/${targetUserId}/reset-mfa`,
+    {
+      method: 'POST',
+      headers: { 'x-business-id': businessId },
+      body: JSON.stringify({}),
+    },
+  )
   return response.data
 }
 
@@ -1686,6 +1840,7 @@ export type PlatformBusinessMemberRow = {
     role: string
     isActive: boolean
     createdAt: string
+    totpEnrolled?: boolean
   }
 }
 
@@ -2356,6 +2511,7 @@ export type PlatformStaffUserRow = {
   createdAt: string
   platformFunctionGroupId: string | null
   platformFunctionGroup: { id: string; name: string } | null
+  totpEnrolled?: boolean
 }
 
 export async function fetchPlatformSecurityModules() {
