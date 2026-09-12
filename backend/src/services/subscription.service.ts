@@ -37,12 +37,17 @@ import { isCorporateIndustry } from "../utils/corporate-industry.js";
 import { queueInternalPartnerSubscriptionUpdated } from "./internal-partner-webhook-queue.service.js";
 
 /**
- * True when the user owns at least one business whose latest subscription is expired or past due.
- * Prevents creating additional organizations until the existing subscription is brought current.
+ * True when the user owns at least one *usable* business whose latest subscription is expired
+ * or past due (or has an overdue pending invoice). Soft-deleted (TERMINATED) businesses are
+ * ignored so merchants can provision a new organization after termination.
  */
 export async function userOwnsBusinessBlockingNewOrganization(userId: string): Promise<boolean> {
   const owned = await prisma.businessMembership.findMany({
-    where: { userId, isOwner: true },
+    where: {
+      userId,
+      isOwner: true,
+      business: { operationalStatus: { not: "TERMINATED" } },
+    },
     select: { businessId: true },
   });
   const now = new Date();
