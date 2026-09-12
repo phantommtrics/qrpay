@@ -19,7 +19,7 @@ const quotationGuestInclude = {
     orderBy: { sortOrder: "asc" as const },
     include: { chartOfAccount: { select: { id: true, code: true, name: true } } },
   },
-  business: { select: { name: true } },
+  business: { select: { name: true, logoUrl: true } },
 } as const;
 
 const invoiceGuestInclude = {
@@ -30,7 +30,7 @@ const invoiceGuestInclude = {
     orderBy: { sortOrder: "asc" as const },
     include: { chartOfAccount: { select: { id: true, code: true, name: true } } },
   },
-  business: { select: { name: true } },
+  business: { select: { name: true, logoUrl: true } },
 } as const;
 
 export async function getGuestQuotationByToken(guestToken: string) {
@@ -48,6 +48,7 @@ export async function getGuestQuotationByToken(guestToken: string) {
   const canRespond = q.status === SalesQuotationStatus.SENT;
   return {
     businessName: q.business.name,
+    logoUrl: q.business.logoUrl ?? null,
     canRespond,
     document: formatSalesQuotationApi(q),
   };
@@ -78,6 +79,7 @@ export async function guestRespondQuotation(guestToken: string, action: "accept"
     }
     return {
       businessName: qAfter.business.name,
+      logoUrl: qAfter.business.logoUrl ?? null,
       canRespond: false,
       document: formatSalesQuotationApi(qAfter),
     };
@@ -93,6 +95,7 @@ export async function guestRespondQuotation(guestToken: string, action: "accept"
   }
   return {
     businessName: qAfter.business.name,
+    logoUrl: qAfter.business.logoUrl ?? null,
     canRespond: false,
     document: formatSalesQuotationApi(qAfter),
     createdInvoice: formatSalesInvoiceApi(invoice),
@@ -114,6 +117,7 @@ export async function getGuestInvoiceByToken(guestToken: string) {
   const canPay = inv.status === SalesInvoiceStatus.APPROVED && !inv.journalEntryId;
   return {
     businessName: inv.business.name,
+    logoUrl: inv.business.logoUrl ?? null,
     canPay,
     document: formatSalesInvoiceApi(inv),
   };

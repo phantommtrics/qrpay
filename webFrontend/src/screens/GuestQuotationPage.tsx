@@ -96,7 +96,12 @@ export function GuestQuotationPage() {
           <p className="text-center text-sm text-slate-600">This quotation was accepted.</p>
         ) : null}
 
-        <SalesDocumentPaper variant="quotation" document={payload.document} businessName={payload.businessName} />
+        <SalesDocumentPaper
+          variant="quotation"
+          document={payload.document}
+          businessName={payload.businessName}
+          logoUrl={payload.logoUrl}
+        />
 
         {payload.canRespond ? (
           <div className="flex flex-wrap justify-center gap-3 pb-8">

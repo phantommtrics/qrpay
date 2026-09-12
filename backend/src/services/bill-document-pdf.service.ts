@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import PDFDocument from "pdfkit";
 
-import { drawEasypayLogoPdfHeader } from "../lib/easypay-logo.js";
+import { drawDocumentLogoPdfHeader } from "../lib/easypay-logo.js";
 import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -40,7 +40,7 @@ function lineTotal(l: {
 }
 
 const billForPdfInclude = {
-  business: { select: { name: true, ownerEmail: true, slug: true } },
+  business: { select: { name: true, ownerEmail: true, slug: true, logoUrl: true } },
   contact: { select: { id: true, name: true, email: true } },
   journalEntry: { select: { id: true, postedAt: true } },
   lines: {
@@ -77,7 +77,7 @@ export function buildBillPdfBuffer(row: BillPdfRow): Promise<Buffer> {
     }
 
     let y = margin;
-    y = drawEasypayLogoPdfHeader(doc, margin, y);
+    y = drawDocumentLogoPdfHeader(doc, margin, y, row.business.logoUrl);
 
     doc.font("Helvetica-Bold").fontSize(8).fillColor(COL.teal600);
     doc.text("PURCHASE BILL", margin, y, { characterSpacing: 2 });

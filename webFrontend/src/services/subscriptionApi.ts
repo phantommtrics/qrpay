@@ -32,6 +32,8 @@ export type BackendBusiness = {
   ownerName: string
   ownerEmail: string
   createdAt: string
+  /** Merchant document logo URL. */
+  logoUrl?: string | null
   /** True when this tenant was provisioned through the internal partner API. */
   isInternalPartner?: boolean
   partnerProvisioningExternalUserId?: string | null
@@ -294,6 +296,7 @@ export function mapAccessibleBusinessToOrganization(entry: BackendAccessibleBusi
     membershipStatus: entry.membershipStatus,
     assignedStationId: entry.assignedStationId ?? null,
     isInternalPartner,
+    logoUrl: entry.business.logoUrl ?? null,
     createdAt: entry.business.createdAt,
   }
 }
@@ -1562,6 +1565,87 @@ export type PlatformDashboardSummary = {
     ownerEmail: string
     createdAt: string
   }>
+  finance: {
+    cashTotal: number
+    cashPositions: Array<{
+      id: string
+      code: string
+      name: string
+      balance: number
+    }>
+    pnl: {
+      income: number
+      costOfSales: number
+      operatingExpenses: number
+      grossProfit: number
+      netProfit: number
+    }
+    netProfitMtd: number
+    cashFlowTrend: Array<{
+      period: string
+      income: number
+      expenses: number
+    }>
+    receivables: {
+      count: number
+      total: number
+      overdueCount: number
+      overdueTotal: number
+      samples: Array<{
+        id: string
+        publicCode: string
+        partyName: string
+        dueDate: string | null
+        amount: number
+        currency: string
+        overdue: boolean
+      }>
+    }
+    payables: {
+      count: number
+      total: number
+      overdueCount: number
+      overdueTotal: number
+      samples: Array<{
+        id: string
+        publicCode: string
+        partyName: string
+        dueDate: string | null
+        amount: number
+        currency: string
+        overdue: boolean
+      }>
+    }
+    expenses: {
+      operatingExpenses: number
+      billsToPayTotal: number
+    }
+    journals: {
+      postedLast7Days: number
+      postedLast30Days: number
+      recent: Array<{
+        id: string
+        memo: string | null
+        reference: string | null
+        sourceType: string | null
+        postedAt: string
+      }>
+    }
+    tasks: Array<{
+      id: string
+      label: string
+      count: number
+      href: string
+    }>
+    recentPaidInvoices: Array<{
+      id: string
+      publicCode: string
+      partyName: string
+      amount: number
+      currency: string
+      paidAt: string
+    }>
+  }
 }
 
 export async function fetchPlatformDashboardSummary(): Promise<PlatformDashboardSummary> {
@@ -3195,6 +3279,63 @@ export async function postPlatformMerchantFundTransfer(body: {
   const res = await apiRequest<{
     data: { id: string; merchantJournalId: string }
   }>('/platform/accounting/journal-entries/merchant-fund-transfer', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  return res.data
+}
+
+export type PlatformSettlementRequestRow = {
+  id: string
+  businessId: string
+  businessName: string
+  amount: number
+  currency: string
+  note: string | null
+  status: 'OPEN' | 'CANCELLED' | 'COMPLETED'
+  ticketingRef: string | null
+  ticketingTicketId: string | null
+  requestedByName: string | null
+  createdAt: string
+  completedAt: string | null
+  platformJournalId: string | null
+  clearingBalance: number | null
+}
+
+export async function fetchPlatformSettlementRequests(params?: {
+  status?: 'OPEN' | 'COMPLETED' | 'CANCELLED' | 'ALL'
+}): Promise<PlatformSettlementRequestRow[]> {
+  const qs = new URLSearchParams()
+  if (params?.status) qs.set('status', params.status)
+  const q = qs.toString()
+  const res = await apiRequest<{ data: PlatformSettlementRequestRow[] }>(
+    `/platform/sales-settlement/requests${q ? `?${q}` : ''}`,
+  )
+  return res.data
+}
+
+export async function completePlatformSettlementRequest(
+  requestId: string,
+  body: {
+    platformCreditAccountId: string
+    postedAt: string
+    memo?: string | null
+    reference?: string | null
+  },
+) {
+  const res = await apiRequest<{
+    data: {
+      platformJournalId: string
+      merchantJournalId: string
+      request: {
+        id: string
+        businessName: string
+        amount: number
+        currency: string
+        ticketingRef: string | null
+      }
+    }
+  }>(`/platform/sales-settlement/requests/${encodeURIComponent(requestId)}/complete`, {
     method: 'POST',
     body: JSON.stringify(body),
   })

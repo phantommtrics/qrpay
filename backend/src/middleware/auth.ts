@@ -187,7 +187,7 @@ export function requireBusinessOwnerOnly() {
         where: { userId: req.user.id, businessId, isOwner: true },
       });
       if (!membership) {
-        throw new HttpError(403, "Only the business owner can access the activity log.");
+        throw new HttpError(403, "Only the business owner can access this.");
       }
       next();
     } catch (error) {

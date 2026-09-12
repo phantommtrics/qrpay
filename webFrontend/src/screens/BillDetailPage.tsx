@@ -121,7 +121,12 @@ export function BillDetailPage() {
           </PageCard>
         ) : row ? (
           <div className="mx-auto max-w-[210mm] print:p-0">
-            <SalesDocumentPaper variant="bill" document={row} businessName={businessName} />
+            <SalesDocumentPaper
+              variant="bill"
+              document={row}
+              businessName={businessName}
+              logoUrl={currentOrganization?.logoUrl}
+            />
           </div>
         ) : null}
       </div>

@@ -17,6 +17,7 @@ export const ACTIVITY_EVENT = {
   PLATFORM_JOURNAL_MANUAL_POSTED: "platform.journal.manual_posted",
   PLATFORM_JOURNAL_REVERSED: "platform.journal.reversed",
   PLATFORM_MERCHANT_FUND_TRANSFER_POSTED: "platform.journal.merchant_fund_transfer_posted",
+  PLATFORM_SETTLEMENT_COMPLETED: "platform.settlement.completed",
   PLATFORM_BILL_PAID: "platform.bill.paid",
   DIGITALOCEAN_INVOICE_POSTED: "platform.digitalocean.invoice_posted",
   WAVE_SELF_SETTLEMENT_SUCCEEDED: "wave.self_settlement.succeeded",

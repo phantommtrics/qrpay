@@ -248,7 +248,12 @@ export function GuestInvoicePage() {
           />
         </div>
         <div className="mx-auto hidden w-full max-w-[210mm] lg:block">
-          <SalesDocumentPaper variant="invoice" document={doc} businessName={payload.businessName} />
+          <SalesDocumentPaper
+            variant="invoice"
+            document={doc}
+            businessName={payload.businessName}
+            logoUrl={payload.logoUrl}
+          />
         </div>
 
         {!isPaid && payload.canPay ? (

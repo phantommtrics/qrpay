@@ -18,6 +18,7 @@
     "prisma:seed:product-barcode": "tsx prisma/seed-product-barcode-entitlement.ts",
     "prisma:seed:default-chart-of-accounts": "tsx prisma/seed-default-chart-of-accounts.ts",
     "check:migrations": "node scripts/check-prisma-migrations.mjs",
+    "cleanup:dev-pay-clearing": "tsx scripts/reverse-dev-pay-subscription-clearing.ts",
     "test": "tsx --test src/services/wave-merchant-tx-summary.test.ts src/services/business-gateway-credential-wave.test.ts src/services/wave-self-settlement.util.test.ts src/services/wave-ops-transactions.util.test.ts src/utils/sales-invoice-recurrence.test.ts"
   },
   "dependencies": {

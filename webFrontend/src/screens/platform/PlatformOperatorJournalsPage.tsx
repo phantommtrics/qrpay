@@ -11,14 +11,17 @@ import { APP_PATHS } from '../../config/navigation'
 import { useAuth } from '../../features/auth/AuthContext'
 import {
   ApiError,
+  completePlatformSettlementRequest,
   fetchPlatformAccountingChart,
   fetchPlatformBusinessesList,
   fetchPlatformJournalEntries,
+  fetchPlatformSettlementRequests,
   postPlatformManualJournal,
   postPlatformMerchantFundTransfer,
   type PlatformBusinessListRow,
   type PlatformChartAccountDetail,
   type PlatformJournalEntryRow,
+  type PlatformSettlementRequestRow,
 } from '../../services/subscriptionApi'
 import { formatMoney } from '../../utils/formatMoney'
 
@@ -92,7 +95,7 @@ export function PlatformOperatorJournalsPage() {
   const [formError, setFormError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null)
 
-  const [tab, setTab] = useState<'journal' | 'transfer'>('journal')
+  const [tab, setTab] = useState<'journal' | 'transfer' | 'settlements'>('journal')
   const [merchants, setMerchants] = useState<PlatformBusinessListRow[]>([])
   const [transferBusinessId, setTransferBusinessId] = useState('')
   const [transferAmount, setTransferAmount] = useState('')
@@ -103,6 +106,15 @@ export function PlatformOperatorJournalsPage() {
   const [transferCreditAccountId, setTransferCreditAccountId] = useState('')
   const [transferSubmitting, setTransferSubmitting] = useState(false)
   const [transferError, setTransferError] = useState<string | null>(null)
+
+  const [settlementRequests, setSettlementRequests] = useState<PlatformSettlementRequestRow[]>([])
+  const [settlementsLoading, setSettlementsLoading] = useState(false)
+  const [settlementCreditAccountId, setSettlementCreditAccountId] = useState('')
+  const [settlementPostedAt, setSettlementPostedAt] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  )
+  const [completingId, setCompletingId] = useState<string | null>(null)
+  const [settlementError, setSettlementError] = useState<string | null>(null)
 
   const dismissToast = useCallback(() => setToast(null), [])
   const lineSelectOptions = useMemo(() => accountOptions(accounts), [accounts])
@@ -168,6 +180,29 @@ export function PlatformOperatorJournalsPage() {
     const pick = waveClearing ?? firstAsset
     if (pick) setTransferCreditAccountId(pick.id)
   }, [accounts, transferCreditAccountId])
+
+  useEffect(() => {
+    if (settlementCreditAccountId || accounts.length === 0) return
+    const waveClearing = accounts.find((a) => a.code === 'P-1200')
+    const firstAsset = accounts.find((a) => a.category === 'ASSET' || a.kind === 'BANK')
+    const pick = waveClearing ?? firstAsset
+    if (pick) setSettlementCreditAccountId(pick.id)
+  }, [accounts, settlementCreditAccountId])
+
+  const loadSettlements = useCallback(() => {
+    setSettlementsLoading(true)
+    setSettlementError(null)
+    void fetchPlatformSettlementRequests({ status: 'OPEN' })
+      .then(setSettlementRequests)
+      .catch((e) =>
+        setSettlementError(e instanceof ApiError ? e.message : 'Could not load settlement requests.'),
+      )
+      .finally(() => setSettlementsLoading(false))
+  }, [])
+
+  useEffect(() => {
+    if (tab === 'settlements' && canCreate) loadSettlements()
+  }, [tab, canCreate, loadSettlements])
 
   useEffect(() => {
     loadEntries()
@@ -295,6 +330,36 @@ export function PlatformOperatorJournalsPage() {
     }
   }
 
+  const completeSettlement = async (requestId: string) => {
+    setSettlementError(null)
+    setToast(null)
+    if (!settlementCreditAccountId) {
+      const message = 'Select the platform account to credit.'
+      setSettlementError(message)
+      setToast({ message, variant: 'error' })
+      return
+    }
+    setCompletingId(requestId)
+    try {
+      const result = await completePlatformSettlementRequest(requestId, {
+        platformCreditAccountId: settlementCreditAccountId,
+        postedAt: settlementPostedAt,
+      })
+      setToast({
+        message: `Completed ${result.request.ticketingRef ?? 'settlement'} for ${result.request.businessName}.`,
+        variant: 'success',
+      })
+      loadSettlements()
+      loadEntries()
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not complete settlement.'
+      setSettlementError(message)
+      setToast({ message, variant: 'error' })
+    } finally {
+      setCompletingId(null)
+    }
+  }
+
   const fieldClass =
     'w-full rounded-sm border border-qb-border bg-white px-3 py-2 text-sm text-qb-heading placeholder:text-qb-muted/60 focus:border-qb-primary focus:outline-none focus:ring-1 focus:ring-qb-primary/35'
 
@@ -360,6 +425,7 @@ export function PlatformOperatorJournalsPage() {
                 [
                   ['journal', 'Journal posting'],
                   ['transfer', 'Transfer funds to a merchant'],
+                  ['settlements', 'Settlement requests'],
                 ] as const
               ).map(([id, label]) => (
                 <button
@@ -369,6 +435,7 @@ export function PlatformOperatorJournalsPage() {
                     setTab(id)
                     setFormError(null)
                     setTransferError(null)
+                    setSettlementError(null)
                     setToast(null)
                   }}
                   className={`relative -mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
@@ -393,9 +460,10 @@ export function PlatformOperatorJournalsPage() {
               <div>
                 <h2 className="text-lg font-semibold text-qb-heading">Transfer funds to a merchant</h2>
                 <p className="mt-1 text-sm text-qb-muted">
-                  Credits a platform account you choose and debits that merchant&apos;s dedicated
-                  DirectPay settlement asset. Use this when you settle a merchant by bank and Wave
-                  payout is not available. The business owner is notified by push.
+                  Ad-hoc bank transfer when Wave payout is not available. Credits a platform account
+                  and posts merchant income to DirectPay settlement asset. For merchant{' '}
+                  <span className="font-medium text-qb-heading">DirectPay settlement</span> requests
+                  that clear wallet clearing, use the Settlement requests tab.
                 </p>
               </div>
 
@@ -520,6 +588,127 @@ export function PlatformOperatorJournalsPage() {
                 </button>
               </div>
             </form>
+          </PageCard>
+        ) : null}
+
+        {canCreate && tab === 'settlements' ? (
+          <PageCard
+            variant="default"
+            className="space-y-6 rounded-md border-qb-border p-5 shadow-[0_1px_2px_rgba(57,58,61,0.08)]"
+          >
+            <div>
+              <h2 className="text-lg font-semibold text-qb-heading">Settlement requests</h2>
+              <p className="mt-1 text-sm text-qb-muted">
+                Complete open merchant DirectPay settlement requests. Posts platform expense, credits
+                your bank/cash account, and clears the merchant&apos;s wallet clearing balance.
+              </p>
+            </div>
+
+            {settlementError ? (
+              <div className="rounded-md border border-red-200 bg-red-50/80 p-3">
+                <p className="text-sm font-medium text-red-800">{settlementError}</p>
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">
+                  Credit platform account
+                </span>
+                <SearchableSelect
+                  value={settlementCreditAccountId}
+                  onChange={setSettlementCreditAccountId}
+                  options={creditAccountOptions}
+                  placeholder="Account to credit"
+                  emptyMessage="No accounts"
+                  noResultsMessage="No match"
+                  buttonClassName={QB_SELECT_TABLE}
+                  listMaxHeightClass={ACCOUNT_LIST_MAX}
+                  dropdownClassName={QB_DROPDOWN}
+                />
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-qb-muted">Date</span>
+                <input
+                  type="date"
+                  value={settlementPostedAt}
+                  onChange={(e) => setSettlementPostedAt(e.target.value)}
+                  className={fieldClass}
+                />
+              </label>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={() => loadSettlements()}
+                  disabled={settlementsLoading}
+                  className="rounded-sm border border-qb-border bg-white px-4 py-2.5 text-sm font-semibold text-qb-heading shadow-sm hover:bg-qb-surface disabled:opacity-50"
+                >
+                  {settlementsLoading ? 'Loading…' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+
+            {settlementsLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-qb-muted" />
+              </div>
+            ) : settlementRequests.length === 0 ? (
+              <p className="text-sm text-qb-muted">No open settlement requests.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-qb-border text-xs uppercase tracking-wide text-qb-muted">
+                      <th className="py-2 pr-3 font-semibold">Merchant</th>
+                      <th className="py-2 pr-3 font-semibold">Ticket</th>
+                      <th className="py-2 pr-3 font-semibold">Amount</th>
+                      <th className="py-2 pr-3 font-semibold">Clearing</th>
+                      <th className="py-2 pr-3 font-semibold">Requested</th>
+                      <th className="py-2 font-semibold" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {settlementRequests.map((row) => {
+                      const shortClearing =
+                        row.clearingBalance != null && row.clearingBalance + 0.001 < row.amount
+                      return (
+                        <tr key={row.id} className="border-b border-qb-border/70 align-top">
+                          <td className="py-3 pr-3 text-qb-heading">
+                            <p className="font-medium">{row.businessName}</p>
+                            {row.requestedByName ? (
+                              <p className="text-xs text-qb-muted">{row.requestedByName}</p>
+                            ) : null}
+                          </td>
+                          <td className="py-3 pr-3 text-qb-heading">{row.ticketingRef ?? '—'}</td>
+                          <td className="py-3 pr-3 font-medium tabular-nums text-qb-heading">
+                            {formatMoney(row.amount)}
+                          </td>
+                          <td className="py-3 pr-3 tabular-nums text-qb-heading">
+                            {row.clearingBalance == null ? '—' : formatMoney(row.clearingBalance)}
+                          </td>
+                          <td className="py-3 pr-3 tabular-nums text-qb-muted">
+                            {new Date(row.createdAt).toLocaleString()}
+                          </td>
+                          <td className="py-3 text-right">
+                            <button
+                              type="button"
+                              disabled={Boolean(completingId) || shortClearing || !settlementCreditAccountId}
+                              onClick={() => void completeSettlement(row.id)}
+                              className="inline-flex h-9 items-center gap-2 rounded-sm border border-qb-border bg-white px-3 text-sm font-semibold text-qb-heading hover:bg-qb-surface disabled:cursor-not-allowed disabled:opacity-45"
+                            >
+                              {completingId === row.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : null}
+                              Complete
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </PageCard>
         ) : null}
 

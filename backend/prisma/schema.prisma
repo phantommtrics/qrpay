@@ -311,6 +311,12 @@ enum SalesLedgerStatus {
   REVERSED
 }
 
+enum MerchantSettlementRequestStatus {
+  OPEN
+  CANCELLED
+  COMPLETED
+}
+
 /**
  * Local copy of a DigitalOcean customer invoice (finalized months only; preview is never stored).
  */
@@ -391,6 +397,11 @@ model Business {
   industry                      String?
   ownerName                     String
   ownerEmail                    String
+  /**
+   * Optional merchant logo for sales invoices / merchant bills (not platform bills).
+   * Usually an absolute URL under `/uploads/business-logos/…`.
+   */
+  logoUrl                       String?
   createdAt                     DateTime                       @default(now())
   updatedAt                     DateTime                       @updatedAt
   /**
@@ -441,6 +452,7 @@ model Business {
   salesInvoiceShareBundles      SalesInvoiceShareBundle[]
   salesInvoiceRecurrences       SalesInvoiceRecurrence[]
   bills                         Bill[]
+  merchantSettlementRequests    MerchantSettlementRequest[]
   activityLogs                  ActivityLog[]
 }
 
@@ -1297,6 +1309,32 @@ model SalesLedgerEntry {
   @@index([orderId])
 }
 
+/** Merchant request to pay out MERCHANT_WALLET_CLEARING balance; mirrored to Deskline ticketing. */
+model MerchantSettlementRequest {
+  id                 String                          @id @default(cuid())
+  businessId         String
+  amount             Decimal                         @db.Decimal(12, 2)
+  currency           String                          @default("GMD")
+  note               String?                         @db.Text
+  status             MerchantSettlementRequestStatus @default(OPEN)
+  ticketingTicketId  String?
+  ticketingRef       String?
+  requestedByUserId  String
+  /** Platform journal that completed this settlement (fund transfer + clearing release). */
+  platformJournalId  String?                         @unique
+  completedAt        DateTime?
+  completedByUserId  String?
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
+  business           Business                        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  requestedBy        User                            @relation("SettlementRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  completedBy        User?                           @relation("SettlementCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
+  @@index([status])
+  @@index([ticketingTicketId])
+}
+
 model MenuCategory {
   id         String         @id @default(cuid())
   businessId String
@@ -1423,6 +1461,8 @@ model User {
   journalEntriesPostedAsPlatform     JournalEntry[]                 @relation("JournalEntryPostedByPlatform")
   ownerPushSubscriptions             BusinessOwnerPushSubscription[]
   digitalOceanInvoicesPosted         DigitalOceanInvoice[]          @relation("DigitalOceanInvoicePostedBy")
+  merchantSettlementRequests         MerchantSettlementRequest[]    @relation("SettlementRequestedBy")
+  merchantSettlementsCompleted       MerchantSettlementRequest[]    @relation("SettlementCompletedBy")
 
   @@index([platformFunctionGroupId])
 }

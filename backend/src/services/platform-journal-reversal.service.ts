@@ -4,6 +4,7 @@ import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import { notifyBusinessOwnersOfFundTransfer } from "./business-owner-push.service.js";
 import { reverseMerchantJournalForPlatformFundTransfer } from "./merchant-payout-journal.service.js";
+import { reopenSettlementRequestForReversedJournal } from "./platform-settlement-complete.service.js";
 
 function canReversePlatformSourceType(st: PlatformJournalSourceType | null): boolean {
   return (
@@ -168,6 +169,7 @@ export async function reversePlatformJournalEntry(
 
     if (isFundTransfer) {
       await reverseMerchantJournalForPlatformFundTransfer(tx, original.id, postedAt);
+      await reopenSettlementRequestForReversedJournal(tx, original.id);
     }
 
     const transferAmount = original.lines.reduce((max, ln) => {

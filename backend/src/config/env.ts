@@ -44,6 +44,12 @@ const envSchema = z.object({
    * Default: `uploads/` next to compiled `dist/` (may be read-only in some hosts — set this on production).
    */
   UPLOADS_DIR: z.string().optional(),
+  /**
+   * Deskline (pro-ticketing) for merchant settlement requests.
+   * Base URL should end with `/api` (or will be normalized). Optional — requests fail with 503 when unset.
+   */
+  TICKETING_API_BASE_URL: z.string().optional(),
+  TICKETING_API_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.parse(process.env);

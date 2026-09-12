@@ -121,7 +121,12 @@ export function SalesQuotationDetailPage() {
           </PageCard>
         ) : row ? (
           <div className="mx-auto max-w-[210mm] print:p-0">
-            <SalesDocumentPaper variant="quotation" document={row} businessName={businessName} />
+            <SalesDocumentPaper
+              variant="quotation"
+              document={row}
+              businessName={businessName}
+              logoUrl={currentOrganization?.logoUrl}
+            />
           </div>
         ) : null}
       </div>

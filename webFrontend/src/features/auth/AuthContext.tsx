@@ -97,6 +97,8 @@ type AuthContextValue = {
   createStaffAccount: (payload: CreateStaffPayload) => Promise<AuthActionResult>
   logout: () => void
   setActiveOrganization: (organizationId: string) => void
+  /** Patch fields on a cached organization (e.g. logoUrl after profile upload). */
+  patchOrganization: (organizationId: string, patch: Partial<Organization>) => void
   canAccess: (permission: PermissionKey) => boolean
   updatePlanPermission: (
     planId: PlanId,
@@ -917,6 +919,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       setActiveOrganization: (organizationId) => {
         setStoredActiveOrganizationId(organizationId)
+      },
+      patchOrganization: (organizationId, patch) => {
+        setOrganizations((current) =>
+          current.map((org) => (org.id === organizationId ? { ...org, ...patch } : org)),
+        )
       },
       canAccess: (permission) => {
         if (!user) {

@@ -76,3 +76,48 @@ export function drawEasypayLogoPdfHeader(doc: PdfDoc, margin: number, startY: nu
     return startY;
   }
 }
+
+/**
+ * Draws a merchant business logo when available, otherwise the DirectPay product logo.
+ * `logoUrl` should point at `/uploads/business-logos/…` (absolute or path).
+ */
+export function drawDocumentLogoPdfHeader(
+  doc: PdfDoc,
+  margin: number,
+  startY: number,
+  logoUrl?: string | null,
+): number {
+  const businessBuf = tryLoadBusinessLogoBuffer(logoUrl);
+  if (businessBuf) {
+    try {
+      doc.image(businessBuf, margin, startY, {
+        fit: [PDF_LOGO_MAX_W, PDF_LOGO_MAX_H],
+      });
+      return startY + PDF_LOGO_MAX_H + 12;
+    } catch (err) {
+      console.warn("[easypay-logo] business logo PDF draw failed:", err);
+    }
+  }
+  return drawEasypayLogoPdfHeader(doc, margin, startY);
+}
+
+function tryLoadBusinessLogoBuffer(logoUrl?: string | null): Buffer | null {
+  if (!logoUrl?.trim()) return null;
+  const match = logoUrl.trim().match(/\/uploads\/business-logos\/([^/?#]+)$/i);
+  if (!match?.[1]) return null;
+  const filename = match[1];
+  if (!/^[a-zA-Z0-9._-]+$/.test(filename)) return null;
+
+  const uploadsRoot = env.UPLOADS_DIR?.trim()
+    ? path.resolve(env.UPLOADS_DIR.trim())
+    : path.resolve(process.cwd(), "uploads");
+  const filePath = path.join(uploadsRoot, "business-logos", filename);
+  if (!existsSync(filePath)) {
+    return null;
+  }
+  try {
+    return readFileSync(filePath);
+  } catch {
+    return null;
+  }
+}

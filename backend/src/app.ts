@@ -256,7 +256,15 @@ import {
   reversePlatformJournalEntry,
 } from "./services/platform-journal-reversal.service.js";
 import { createPlatformManualJournal, listPlatformJournalEntries } from "./services/platform-journal.service.js";
+import {
+  getMerchantProfile,
+  updateBusinessLogoUrl,
+} from "./services/merchant-profile.service.js";
 import { createPlatformMerchantFundTransfer } from "./services/platform-merchant-fund-transfer.service.js";
+import {
+  completePlatformSettlementRequest,
+  listPlatformSettlementRequests,
+} from "./services/platform-settlement-complete.service.js";
 import { getAccountingSummaryForBusiness } from "./services/accounting-summary.service.js";
 import {
   createBusinessContact,
@@ -337,6 +345,12 @@ import {
   getGuestInvoiceShareBundle,
 } from "./services/sales-invoice-share-bundle.service.js";
 import { listSalesInvoiceRecurrenceCalendar } from "./services/sales-invoice-recurrence.service.js";
+import {
+  createMerchantSettlementRequest,
+  getMerchantSettlementRequestDetail,
+  getMerchantSettlementSummary,
+  listMerchantSettlementRequests,
+} from "./services/merchant-settlement.service.js";
 import {
   getGuestPlatformBillPayload,
   renderGuestPlatformBillPdf,
@@ -505,12 +519,14 @@ const uploadsRoot = env.UPLOADS_DIR?.trim()
   ? path.resolve(env.UPLOADS_DIR.trim())
   : path.resolve(__dirname, "../uploads");
 const productUploadsDir = path.join(uploadsRoot, "products");
+const businessLogoUploadsDir = path.join(uploadsRoot, "business-logos");
 try {
   ensureDirectorySync(productUploadsDir);
+  ensureDirectorySync(businessLogoUploadsDir);
 } catch (e) {
   console.error(
-    "[uploads] Failed to ensure product image directory (check UPLOADS_DIR and permissions):",
-    productUploadsDir,
+    "[uploads] Failed to ensure upload directories (check UPLOADS_DIR and permissions):",
+    { productUploadsDir, businessLogoUploadsDir },
     e,
   );
   throw e;
@@ -547,6 +563,27 @@ const upload = multer({
     filename: (_req, file, cb) => {
       const ext = path.extname(file.originalname || "").toLowerCase();
       const safeExt = ext && /^[.][a-z0-9]{1,8}$/.test(ext) ? ext : ".jpg";
+      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${safeExt}`);
+    },
+  }),
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+  fileFilter: (_req, file, cb) => {
+    if (isAllowedProductImageFile(file)) {
+      cb(null, true);
+      return;
+    }
+    cb(new HttpError(400, "Only image uploads are allowed."));
+  },
+});
+
+const uploadBusinessLogo = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, businessLogoUploadsDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || "").toLowerCase();
+      const safeExt = ext && /^[.][a-z0-9]{1,8}$/.test(ext) ? ext : ".png";
       cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${safeExt}`);
     },
   }),
@@ -2886,6 +2923,13 @@ const platformMerchantFundTransferBodySchema = z.object({
   platformCreditAccountId: z.string().trim().min(1),
 });
 
+const platformSettlementCompleteBodySchema = z.object({
+  platformCreditAccountId: z.string().trim().min(1),
+  postedAt: z.string().trim().min(1),
+  memo: z.string().trim().max(4000).optional().nullable(),
+  reference: z.string().trim().max(200).optional().nullable(),
+});
+
 const platformChartAccountCreateBodySchema = z.object({
   code: z.string().trim().min(1).max(64),
   name: z.string().trim().min(1).max(200),
@@ -3259,6 +3303,70 @@ app.post(
           })),
         },
       });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.get(
+  "/api/platform/sales-settlement/requests",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformManualJournalPostGates),
+  async (req, res, next) => {
+    try {
+      const query = z
+        .object({
+          status: z.enum(["OPEN", "COMPLETED", "CANCELLED", "ALL"]).optional(),
+        })
+        .parse({
+          status: typeof req.query.status === "string" ? req.query.status : undefined,
+        });
+      const data = await listPlatformSettlementRequests({
+        status: query.status as "OPEN" | "COMPLETED" | "CANCELLED" | "ALL" | undefined,
+      });
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+app.post(
+  "/api/platform/sales-settlement/requests/:requestId/complete",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccessAny(platformManualJournalPostGates),
+  async (req, res, next) => {
+    try {
+      const body = platformSettlementCompleteBodySchema.parse(req.body);
+      const created = await completePlatformSettlementRequest({
+        requestId: req.params.requestId as string,
+        platformCreditAccountId: body.platformCreditAccountId,
+        postedAt: body.postedAt,
+        memo: body.memo ?? null,
+        reference: body.reference ?? null,
+        completedByUserId: req.user!.id,
+      });
+      if (req.user?.id) {
+        await appendActivityLog(prisma, {
+          businessId: created.request.businessId,
+          actorUserId: req.user.id,
+          actorKind: ActivityActorKind.USER,
+          eventType: ACTIVITY_EVENT.PLATFORM_SETTLEMENT_COMPLETED,
+          resourceType: "merchant_settlement_request",
+          resourceId: created.request.id,
+          metadata: {
+            platformJournalId: created.platformJournalId,
+            merchantJournalId: created.merchantJournalId,
+            amount: created.request.amount,
+            currency: created.request.currency,
+            ticketingRef: created.request.ticketingRef,
+          },
+        });
+      }
+      res.status(201).json({ data: created });
     } catch (e) {
       next(e);
     }
@@ -5151,6 +5259,64 @@ app.post(
           imageUrl,
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/merchant-profile",
+  authenticateToken,
+  requireEntitlement("merchant.profile"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: req.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !req.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const data = await getMerchantProfile(req.user!.id, businessId as string);
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/merchant-profile/logo",
+  authenticateToken,
+  requireEntitlement("merchant.profile"),
+  requireBusinessOwnerOnly(),
+  uploadBusinessLogo.single("logo"),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      if (!req.file) {
+        throw new HttpError(400, "Logo file is required.");
+      }
+      const logoUrl = `${resolveUploadsPublicOrigin(req)}/uploads/business-logos/${req.file.filename}`;
+      const data = await updateBusinessLogoUrl(businessId as string, logoUrl);
+      res.status(201).json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.delete(
+  "/api/businesses/:businessId/merchant-profile/logo",
+  authenticateToken,
+  requireEntitlement("merchant.profile"),
+  requireBusinessOwnerOnly(),
+  async (req, res, next) => {
+    try {
+      const { businessId } = req.params;
+      const data = await updateBusinessLogoUrl(businessId as string, null);
+      res.json({ data });
     } catch (error) {
       next(error);
     }
@@ -10280,6 +10446,116 @@ app.post(
       }
       const row = await voidBill(businessId as string, billId as string);
       response.json({ data: formatBillApi(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/sales-settlement/summary",
+  authenticateToken,
+  requireEntitlement("sales.settlement"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const data = await getMerchantSettlementSummary(businessId as string);
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/sales-settlement/requests",
+  authenticateToken,
+  requireEntitlement("sales.settlement"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const query = z
+        .object({
+          from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+          to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        })
+        .parse({
+          from: typeof request.query.from === "string" ? request.query.from : undefined,
+          to: typeof request.query.to === "string" ? request.query.to : undefined,
+        });
+      const result = await listMerchantSettlementRequests(businessId as string, query);
+      response.json({
+        data: result.rows,
+        meta: { total: result.total, from: result.from, to: result.to },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  "/api/businesses/:businessId/sales-settlement/requests/:requestId",
+  authenticateToken,
+  requireEntitlement("sales.settlement"),
+  async (request, response, next) => {
+    try {
+      const { businessId, requestId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const data = await getMerchantSettlementRequestDetail(
+        businessId as string,
+        requestId as string,
+      );
+      response.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/sales-settlement/requests",
+  authenticateToken,
+  requireEntitlement("sales.settlement"),
+  async (request, response, next) => {
+    try {
+      const { businessId } = request.params;
+      const membership = await prisma.businessMembership.findFirst({
+        where: { userId: request.user!.id, businessId: businessId as string },
+      });
+      if (!membership && !request.user?.isPlatformOwner) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+      const body = z
+        .object({
+          amount: z.number().positive(),
+          note: z.string().max(2000).nullable().optional(),
+        })
+        .parse(request.body);
+      const data = await createMerchantSettlementRequest({
+        businessId: businessId as string,
+        amount: body.amount,
+        note: body.note ?? null,
+        requestedByUserId: request.user!.id,
+      });
+      response.status(201).json({ data });
     } catch (error) {
       next(error);
     }

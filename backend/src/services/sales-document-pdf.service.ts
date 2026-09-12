@@ -3,7 +3,7 @@ import PDFDocument from "pdfkit";
 
 type PdfDoc = InstanceType<typeof PDFDocument>;
 
-import { drawEasypayLogoPdfHeader } from "../lib/easypay-logo.js";
+import { drawDocumentLogoPdfHeader } from "../lib/easypay-logo.js";
 import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -40,7 +40,7 @@ function lineTotal(l: {
 }
 
 const invoiceForPdfInclude = {
-  business: { select: { name: true, ownerEmail: true, slug: true } },
+  business: { select: { name: true, ownerEmail: true, slug: true, logoUrl: true } },
   contact: { select: { id: true, name: true, email: true } },
   sourceQuotation: { select: { id: true, publicCode: true } },
   journalEntry: { select: { id: true, postedAt: true } },
@@ -51,7 +51,7 @@ const invoiceForPdfInclude = {
 } as const;
 
 const quotationForPdfInclude = {
-  business: { select: { name: true, ownerEmail: true, slug: true } },
+  business: { select: { name: true, ownerEmail: true, slug: true, logoUrl: true } },
   contact: { select: { id: true, name: true, email: true } },
   invoiceFromQuote: { select: { id: true, publicCode: true, status: true } },
   lines: {
@@ -89,7 +89,7 @@ export function buildSalesInvoicePdfBuffer(row: SalesInvoicePdfRow): Promise<Buf
     }
 
     let y = margin;
-    y = drawEasypayLogoPdfHeader(doc, margin, y);
+    y = drawDocumentLogoPdfHeader(doc, margin, y, row.business.logoUrl);
 
     doc.font("Helvetica-Bold").fontSize(8).fillColor(COL.teal600);
     doc.text("SALES INVOICE", margin, y, { characterSpacing: 2 });
@@ -225,7 +225,7 @@ export function buildSalesQuotationPdfBuffer(row: SalesQuotationPdfRow): Promise
     }
 
     let y = margin;
-    y = drawEasypayLogoPdfHeader(doc, margin, y);
+    y = drawDocumentLogoPdfHeader(doc, margin, y, row.business.logoUrl);
 
     doc.font("Helvetica-Bold").fontSize(8).fillColor(COL.teal600);
     doc.text("QUOTATION", margin, y, { characterSpacing: 2 });

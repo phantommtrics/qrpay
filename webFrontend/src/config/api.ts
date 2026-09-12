@@ -77,3 +77,17 @@ export function normalizeProductImageUrlForDisplay(stored: string | null | undef
   }
   return s
 }
+
+/** Merchant business logos under `/uploads/business-logos/…`. */
+export function normalizeBusinessLogoUrlForDisplay(stored: string | null | undefined): string {
+  if (!stored?.trim()) return ''
+  const s = stored.trim()
+  const tail = s.match(/\/uploads\/business-logos\/[^/?#]+$/i)
+  if (tail) {
+    return `${getApiPublicOrigin()}${tail[0]}`
+  }
+  if (s.startsWith('/uploads/business-logos/')) {
+    return `${getApiPublicOrigin()}${s}`
+  }
+  return s
+}

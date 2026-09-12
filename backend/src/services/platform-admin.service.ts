@@ -1,6 +1,10 @@
 import {
+  BillStatus,
   BillingLedgerEntryType,
   BillingLedgerStatus,
+  ChartAccountCategory,
+  ChartAccountKind,
+  DigitalOceanInvoiceStatus,
   InvoiceStatus,
   ManualRefundReviewStatus,
   Prisma,
@@ -9,6 +13,12 @@ import {
 
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
+import {
+  ensureDefaultPlatformChartAccounts,
+  PLATFORM_CHART_AGGREGATOR_WAVE_CLEARING,
+  PLATFORM_CHART_SUBSCRIPTION_AR_PENDING,
+  PLATFORM_CHART_SUBSCRIPTION_CLEARING,
+} from "./platform-chart-of-accounts.service.js";
 import { recordSubscriptionRefundBillingAndJournalTx } from "./platform-subscription-journal.service.js";
 import {
   queueSubscriptionInvoiceRefundApprovedEmail,
@@ -475,6 +485,97 @@ export type PlatformDashboardRecentBusiness = {
   createdAt: string;
 };
 
+export type PlatformDashboardCashPosition = {
+  id: string;
+  code: string;
+  name: string;
+  balance: number;
+};
+
+export type PlatformDashboardPnl = {
+  income: number;
+  costOfSales: number;
+  operatingExpenses: number;
+  grossProfit: number;
+  netProfit: number;
+};
+
+export type PlatformDashboardCashFlowPoint = {
+  period: string;
+  income: number;
+  expenses: number;
+};
+
+export type PlatformDashboardDocumentSample = {
+  id: string;
+  publicCode: string;
+  partyName: string;
+  dueDate: string | null;
+  amount: number;
+  currency: string;
+  overdue: boolean;
+};
+
+export type PlatformDashboardReceivablesPayables = {
+  count: number;
+  total: number;
+  overdueCount: number;
+  overdueTotal: number;
+  samples: PlatformDashboardDocumentSample[];
+};
+
+export type PlatformDashboardExpenses = {
+  operatingExpenses: number;
+  billsToPayTotal: number;
+};
+
+export type PlatformDashboardJournalRow = {
+  id: string;
+  memo: string | null;
+  reference: string | null;
+  sourceType: string | null;
+  postedAt: string;
+};
+
+export type PlatformDashboardJournals = {
+  postedLast7Days: number;
+  postedLast30Days: number;
+  recent: PlatformDashboardJournalRow[];
+};
+
+export type PlatformDashboardTask = {
+  id: string;
+  label: string;
+  count: number;
+  href: string;
+};
+
+export type PlatformDashboardPaidInvoice = {
+  id: string;
+  publicCode: string;
+  partyName: string;
+  amount: number;
+  currency: string;
+  paidAt: string;
+};
+
+export type PlatformDashboardFinance = {
+  cashTotal: number;
+  cashPositions: PlatformDashboardCashPosition[];
+  pnl: PlatformDashboardPnl;
+  /** Month-to-date net profit from platform journals (UTC calendar month). */
+  netProfitMtd: number;
+  cashFlowTrend: PlatformDashboardCashFlowPoint[];
+  /** Pending subscription invoices (money owed to DirectPay). */
+  receivables: PlatformDashboardReceivablesPayables;
+  /** Approved platform supplier bills. */
+  payables: PlatformDashboardReceivablesPayables;
+  expenses: PlatformDashboardExpenses;
+  journals: PlatformDashboardJournals;
+  tasks: PlatformDashboardTask[];
+  recentPaidInvoices: PlatformDashboardPaidInvoice[];
+};
+
 export type PlatformDashboardSummary = {
   businessesTotal: number;
   businessesCreatedLast7Days: number;
@@ -484,7 +585,455 @@ export type PlatformDashboardSummary = {
   invoicesPendingPayment: number;
   refundReviewsPending: number;
   recentBusinesses: PlatformDashboardRecentBusiness[];
+  finance: PlatformDashboardFinance;
 };
+
+const DOCUMENT_SAMPLE_LIMIT = 5;
+const RECENT_JOURNALS_LIMIT = 5;
+const RECENT_PAID_LIMIT = 5;
+
+const PLATFORM_CASH_CODES = new Set([
+  PLATFORM_CHART_SUBSCRIPTION_CLEARING,
+  PLATFORM_CHART_AGGREGATOR_WAVE_CLEARING,
+  PLATFORM_CHART_SUBSCRIPTION_AR_PENDING,
+]);
+
+function utcStartOfDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+}
+
+function addUtcDays(d: Date, days: number): Date {
+  const x = new Date(d);
+  x.setUTCDate(x.getUTCDate() + days);
+  return x;
+}
+
+function signedPlatformBalance(
+  category: ChartAccountCategory,
+  debits: Prisma.Decimal,
+  credits: Prisma.Decimal,
+): number {
+  const d = new Prisma.Decimal(debits);
+  const c = new Prisma.Decimal(credits);
+  if (category === ChartAccountCategory.ASSET || category === ChartAccountCategory.EXPENSE) {
+    return Number(d.minus(c));
+  }
+  return Number(c.minus(d));
+}
+
+function isPlatformCogsAccount(code: string): boolean {
+  const u = code.toUpperCase();
+  return u === "310" || u === "COGS" || u.startsWith("COGS_");
+}
+
+function billLineTotal(line: {
+  quantity: Prisma.Decimal;
+  unitAmount: Prisma.Decimal;
+  taxAmount: Prisma.Decimal;
+}): number {
+  const t = line.taxAmount ?? new Prisma.Decimal(0);
+  return Number(line.quantity.mul(line.unitAmount).add(t).toFixed(2));
+}
+
+function billLinesTotal(
+  lines: Array<{
+    quantity: Prisma.Decimal;
+    unitAmount: Prisma.Decimal;
+    taxAmount: Prisma.Decimal;
+  }>,
+): number {
+  return lines.reduce((sum, line) => sum + billLineTotal(line), 0);
+}
+
+function isOverdue(dueDate: Date | null, todayStart: Date): boolean {
+  if (!dueDate) return false;
+  return dueDate < todayStart;
+}
+
+async function buildPlatformMonthlyTrend(): Promise<PlatformDashboardCashFlowPoint[]> {
+  const now = new Date();
+  const points: PlatformDashboardCashFlowPoint[] = [];
+
+  for (let offset = 5; offset >= 0; offset -= 1) {
+    const anchor = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1, 0, 0, 0, 0),
+    );
+    const next = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+
+    const lines = await prisma.platformJournalLine.findMany({
+      where: {
+        journalEntry: {
+          postedAt: { gte: anchor, lt: next },
+        },
+      },
+      include: { chartOfAccount: true },
+    });
+
+    let income = 0;
+    let expenses = 0;
+    for (const line of lines) {
+      const cat = line.chartOfAccount.category;
+      const dr = Number(line.debitAmount);
+      const cr = Number(line.creditAmount);
+      if (cat === ChartAccountCategory.REVENUE) {
+        income += cr - dr;
+      } else if (cat === ChartAccountCategory.EXPENSE) {
+        expenses += dr - cr;
+      }
+    }
+
+    points.push({
+      period: anchor.toLocaleString("en-GB", { month: "short", year: "2-digit", timeZone: "UTC" }),
+      income,
+      expenses,
+    });
+  }
+
+  return points;
+}
+
+async function buildPlatformFinanceSection(input: {
+  subscriptionsPastDue: number;
+  invoicesPendingPayment: number;
+  refundReviewsPending: number;
+}): Promise<PlatformDashboardFinance> {
+  await ensureDefaultPlatformChartAccounts(prisma);
+
+  const now = new Date();
+  const todayStart = utcStartOfDay(now);
+  const sevenDaysAgo = addUtcDays(todayStart, -7);
+  const thirtyDaysAgo = addUtcDays(todayStart, -30);
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+
+  const accountsRaw = await prisma.platformChartOfAccount.findMany({
+    orderBy: [{ category: "asc" }, { code: "asc" }],
+  });
+
+  const sums = await prisma.platformJournalLine.groupBy({
+    by: ["chartOfAccountId"],
+    _sum: { debitAmount: true, creditAmount: true },
+  });
+  const sumByAccount = new Map(
+    sums.map((s) => [
+      s.chartOfAccountId,
+      {
+        debits: s._sum.debitAmount ?? new Prisma.Decimal(0),
+        credits: s._sum.creditAmount ?? new Prisma.Decimal(0),
+      },
+    ]),
+  );
+
+  const accountBalances = accountsRaw.map((a) => {
+    const agg = sumByAccount.get(a.id);
+    const debits = agg?.debits ?? new Prisma.Decimal(0);
+    const credits = agg?.credits ?? new Prisma.Decimal(0);
+    return {
+      id: a.id,
+      code: a.code,
+      name: a.name,
+      category: a.category,
+      kind: a.kind ?? ChartAccountKind.LEDGER,
+      balance: signedPlatformBalance(a.category, debits, credits),
+    };
+  });
+
+  const cashPositions = accountBalances
+    .filter(
+      (a) =>
+        a.category === ChartAccountCategory.ASSET &&
+        (PLATFORM_CASH_CODES.has(a.code) || a.kind === ChartAccountKind.BANK),
+    )
+    .map((a) => ({
+      id: a.id,
+      code: a.code,
+      name: a.name,
+      balance: a.balance,
+    }));
+  const cashTotal = cashPositions.reduce((s, a) => s + a.balance, 0);
+
+  let totalIncome = 0;
+  let totalCogs = 0;
+  let totalOpex = 0;
+  for (const a of accountBalances) {
+    if (a.category === ChartAccountCategory.REVENUE) {
+      totalIncome += a.balance;
+    } else if (a.category === ChartAccountCategory.EXPENSE) {
+      if (isPlatformCogsAccount(a.code)) {
+        totalCogs += a.balance;
+      } else {
+        totalOpex += a.balance;
+      }
+    }
+  }
+  const grossProfit = totalIncome - totalCogs;
+  const netProfit = grossProfit - totalOpex;
+  const pnl: PlatformDashboardPnl = {
+    income: totalIncome,
+    costOfSales: totalCogs,
+    operatingExpenses: totalOpex,
+    grossProfit,
+    netProfit,
+  };
+
+  const mtdLines = await prisma.platformJournalLine.findMany({
+    where: {
+      journalEntry: { postedAt: { gte: monthStart } },
+      chartOfAccount: {
+        category: { in: [ChartAccountCategory.REVENUE, ChartAccountCategory.EXPENSE] },
+      },
+    },
+    include: { chartOfAccount: true },
+  });
+  let mtdIncome = 0;
+  let mtdCogs = 0;
+  let mtdOpex = 0;
+  for (const line of mtdLines) {
+    const cat = line.chartOfAccount.category;
+    const dr = Number(line.debitAmount);
+    const cr = Number(line.creditAmount);
+    if (cat === ChartAccountCategory.REVENUE) {
+      mtdIncome += cr - dr;
+    } else if (isPlatformCogsAccount(line.chartOfAccount.code)) {
+      mtdCogs += dr - cr;
+    } else {
+      mtdOpex += dr - cr;
+    }
+  }
+  const netProfitMtd = mtdIncome - mtdCogs - mtdOpex;
+
+  const [
+    pendingInvoices,
+    approvedBills,
+    draftBillCount,
+    doUnpostedCount,
+    journalsLast30,
+    recentJournals,
+    recentPaid,
+    cashFlowTrend,
+  ] = await Promise.all([
+    prisma.subscriptionInvoice.findMany({
+      where: { status: InvoiceStatus.PENDING },
+      select: {
+        id: true,
+        amount: true,
+        currency: true,
+        dueDate: true,
+        business: { select: { name: true } },
+        plan: { select: { name: true } },
+      },
+      orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
+    }),
+    prisma.platformBill.findMany({
+      where: { status: BillStatus.APPROVED },
+      select: {
+        id: true,
+        publicCode: true,
+        dueDate: true,
+        currency: true,
+        supplier: { select: { name: true } },
+        lines: { select: { quantity: true, unitAmount: true, taxAmount: true } },
+      },
+      orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
+    }),
+    prisma.platformBill.count({ where: { status: BillStatus.DRAFT } }),
+    prisma.digitalOceanInvoice.count({
+      where: { status: DigitalOceanInvoiceStatus.SYNCED },
+    }),
+    prisma.platformJournalEntry.findMany({
+      where: { postedAt: { gte: thirtyDaysAgo } },
+      select: { id: true, postedAt: true },
+    }),
+    prisma.platformJournalEntry.findMany({
+      orderBy: { postedAt: "desc" },
+      take: RECENT_JOURNALS_LIMIT,
+      select: {
+        id: true,
+        memo: true,
+        reference: true,
+        sourceType: true,
+        postedAt: true,
+      },
+    }),
+    prisma.subscriptionInvoice.findMany({
+      where: { status: InvoiceStatus.PAID, paidAt: { not: null } },
+      orderBy: { paidAt: "desc" },
+      take: RECENT_PAID_LIMIT,
+      select: {
+        id: true,
+        amount: true,
+        currency: true,
+        paidAt: true,
+        business: { select: { name: true } },
+        plan: { select: { name: true } },
+      },
+    }),
+    buildPlatformMonthlyTrend(),
+  ]);
+
+  const receivablesSamples: PlatformDashboardDocumentSample[] = [];
+  let receivablesTotal = 0;
+  let overdueCount = 0;
+  let overdueTotal = 0;
+  const receivableMeta = pendingInvoices.map((inv) => {
+    const amount = Number(inv.amount);
+    const overdue = isOverdue(inv.dueDate, todayStart);
+    receivablesTotal += amount;
+    if (overdue) {
+      overdueCount += 1;
+      overdueTotal += amount;
+    }
+    return {
+      id: inv.id,
+      publicCode: inv.plan.name,
+      partyName: inv.business.name,
+      dueDate: inv.dueDate.toISOString(),
+      amount,
+      currency: inv.currency,
+      overdue,
+    };
+  });
+  receivablesSamples.push(
+    ...[...receivableMeta]
+      .sort((a, b) => {
+        if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+        if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+        return 0;
+      })
+      .slice(0, DOCUMENT_SAMPLE_LIMIT),
+  );
+
+  const receivables: PlatformDashboardReceivablesPayables = {
+    count: pendingInvoices.length,
+    total: receivablesTotal,
+    overdueCount,
+    overdueTotal,
+    samples: receivablesSamples,
+  };
+
+  let payablesTotal = 0;
+  let payablesOverdueCount = 0;
+  let payablesOverdueTotal = 0;
+  const payableMeta = approvedBills.map((bill) => {
+    const amount = billLinesTotal(bill.lines);
+    const overdue = isOverdue(bill.dueDate, todayStart);
+    payablesTotal += amount;
+    if (overdue) {
+      payablesOverdueCount += 1;
+      payablesOverdueTotal += amount;
+    }
+    return {
+      id: bill.id,
+      publicCode: bill.publicCode,
+      partyName: bill.supplier.name,
+      dueDate: bill.dueDate?.toISOString() ?? null,
+      amount,
+      currency: bill.currency,
+      overdue,
+    };
+  });
+  const payables: PlatformDashboardReceivablesPayables = {
+    count: approvedBills.length,
+    total: payablesTotal,
+    overdueCount: payablesOverdueCount,
+    overdueTotal: payablesOverdueTotal,
+    samples: [...payableMeta]
+      .sort((a, b) => {
+        if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+        if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+        if (a.dueDate) return -1;
+        if (b.dueDate) return 1;
+        return 0;
+      })
+      .slice(0, DOCUMENT_SAMPLE_LIMIT),
+  };
+
+  const postedLast7Days = journalsLast30.filter((j) => j.postedAt >= sevenDaysAgo).length;
+  const postedLast30Days = journalsLast30.length;
+
+  const tasks: PlatformDashboardTask[] = [];
+  if (input.subscriptionsPastDue > 0) {
+    tasks.push({
+      id: "past_due_subscriptions",
+      label: "Past due subscriptions",
+      count: input.subscriptionsPastDue,
+      href: "/platform/subscriptions",
+    });
+  }
+  if (input.invoicesPendingPayment > 0) {
+    tasks.push({
+      id: "pending_invoices",
+      label: "Subscription invoices to collect",
+      count: input.invoicesPendingPayment,
+      href: "/platform/invoices",
+    });
+  }
+  if (input.refundReviewsPending > 0) {
+    tasks.push({
+      id: "refund_reviews",
+      label: "Refund reviews pending",
+      count: input.refundReviewsPending,
+      href: "/platform/billing-review",
+    });
+  }
+  if (draftBillCount > 0) {
+    tasks.push({
+      id: "draft_bills",
+      label: "Draft platform bills to finalise",
+      count: draftBillCount,
+      href: "/platform/bills",
+    });
+  }
+  if (payables.overdueCount > 0) {
+    tasks.push({
+      id: "overdue_bills",
+      label: "Overdue supplier bills",
+      count: payables.overdueCount,
+      href: "/platform/bills",
+    });
+  }
+  if (doUnpostedCount > 0) {
+    tasks.push({
+      id: "digitalocean_unposted",
+      label: "DigitalOcean invoices to review",
+      count: doUnpostedCount,
+      href: "/platform/digitalocean-billing",
+    });
+  }
+
+  return {
+    cashTotal,
+    cashPositions,
+    pnl,
+    netProfitMtd,
+    cashFlowTrend,
+    receivables,
+    payables,
+    expenses: {
+      operatingExpenses: totalOpex,
+      billsToPayTotal: payables.total,
+    },
+    journals: {
+      postedLast7Days,
+      postedLast30Days,
+      recent: recentJournals.map((j) => ({
+        id: j.id,
+        memo: j.memo,
+        reference: j.reference,
+        sourceType: j.sourceType,
+        postedAt: j.postedAt.toISOString(),
+      })),
+    },
+    tasks,
+    recentPaidInvoices: recentPaid.map((inv) => ({
+      id: inv.id,
+      publicCode: inv.plan.name,
+      partyName: inv.business.name,
+      amount: Number(inv.amount),
+      currency: inv.currency,
+      paidAt: inv.paidAt!.toISOString(),
+    })),
+  };
+}
 
 /**
  * Aggregated KPIs for the platform operator home screen (one round-trip).
@@ -526,6 +1075,12 @@ export async function getPlatformDashboardSummary(): Promise<PlatformDashboardSu
     }),
   ]);
 
+  const finance = await buildPlatformFinanceSection({
+    subscriptionsPastDue,
+    invoicesPendingPayment,
+    refundReviewsPending,
+  });
+
   return {
     businessesTotal,
     businessesCreatedLast7Days,
@@ -541,5 +1096,6 @@ export async function getPlatformDashboardSummary(): Promise<PlatformDashboardSu
       ownerEmail: b.ownerEmail,
       createdAt: b.createdAt.toISOString(),
     })),
+    finance,
   };
 }

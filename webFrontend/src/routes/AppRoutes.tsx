@@ -147,6 +147,16 @@ const SalesInvoicesPage = lazy(() =>
     default: module.SalesInvoicesPage,
   })),
 )
+const SalesSettlementPage = lazy(() =>
+  import('../screens/SalesSettlementPage').then((module) => ({
+    default: module.SalesSettlementPage,
+  })),
+)
+const SalesSettlementDetailPage = lazy(() =>
+  import('../screens/SalesSettlementDetailPage').then((module) => ({
+    default: module.SalesSettlementDetailPage,
+  })),
+)
 const SalesQuotationDetailPage = lazy(() =>
   import('../screens/SalesQuotationDetailPage').then((module) => ({
     default: module.SalesQuotationDetailPage,
@@ -536,6 +546,11 @@ const SubscriptionInvoiceDetailPage = lazy(() =>
 const MerchantApiPage = lazy(() =>
   import('../screens/MerchantApiPage').then((module) => ({
     default: module.MerchantApiPage,
+  })),
+)
+const MerchantProfilePage = lazy(() =>
+  import('../screens/MerchantProfilePage').then((module) => ({
+    default: module.MerchantProfilePage,
   })),
 )
 
@@ -1002,6 +1017,18 @@ export function AppRoutes() {
       permission: 'sales.bill' as const,
     },
     {
+      path: APP_PATHS.salesSettlement,
+      element: <SalesSettlementPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'sales.settlement' as const,
+    },
+    {
+      path: APP_PATHS.salesSettlementDetail,
+      element: <SalesSettlementDetailPage />,
+      roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
+      permission: 'sales.settlement' as const,
+    },
+    {
       path: APP_PATHS.salesQuotationDetail,
       element: <SalesQuotationDetailPage />,
       roles: MAIN_NAV_ITEMS.find((item) => item.path === APP_PATHS.accounting)!.roles,
@@ -1135,6 +1162,12 @@ export function AppRoutes() {
       element: <MerchantApiPage />,
       roles: ['admin', 'merchant', 'platform_owner'] as UserRole[],
       permission: 'merchant.api' as const,
+    },
+    {
+      path: APP_PATHS.merchantProfile,
+      element: <MerchantProfilePage />,
+      roles: ['admin', 'merchant', 'platform_owner'] as UserRole[],
+      permission: 'merchant.profile' as const,
     },
   ]
 

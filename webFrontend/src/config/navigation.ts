@@ -36,6 +36,9 @@ export const APP_PATHS = {
   salesQuotations: '/sales/quotations',
   salesInvoices: '/sales/invoices',
   salesBills: '/sales/bills',
+  salesSettlement: '/sales/settlement',
+  /** Dynamic: `/sales/settlement/${requestId}` */
+  salesSettlementDetail: '/sales/settlement/:requestId',
   /** Dynamic: `/sales/quotations/${quotationId}` */
   salesQuotationDetail: '/sales/quotations/:quotationId',
   /** Dynamic: `/sales/invoices/${invoiceId}` */
@@ -135,6 +138,7 @@ export const APP_PATHS = {
   restaurantManualMenu: '/restaurant/manual-menu',
   /** Petrol: branches and pumps (one merchant, many sites). */
   petrolStations: '/petrol/stations',
+  merchantProfile: '/merchant/profile',
 } as const
 
 export function salesQuotationDetailPath(quotationId: string) {
@@ -158,8 +162,16 @@ export function salesBillDetailPath(billId: string) {
   return `/sales/bills/${encodeURIComponent(billId)}`
 }
 
+export function salesSettlementDetailPath(requestId: string) {
+  return `/sales/settlement/${encodeURIComponent(requestId)}`
+}
+
 export function platformBillDetailPath(billId: string) {
   return `/platform/bills/${encodeURIComponent(billId)}`
+}
+
+export function platformInvoiceDetailPath(invoiceId: string) {
+  return `/platform/invoices/${encodeURIComponent(invoiceId)}`
 }
 
 export function accountingReversedJournalDetailPath(journalEntryId: string) {
@@ -805,6 +817,12 @@ export function getPageTitle(pathname: string) {
   if (pathname.includes('/accounting/transaction-journal')) {
     return 'Transaction journal'
   }
+  if (/^\/sales\/settlement\/[^/]+/.test(pathname)) {
+    return 'Settlement request'
+  }
+  if (pathname.includes(APP_PATHS.salesSettlement)) {
+    return 'DirectPay settlement'
+  }
   if (pathname.includes(APP_PATHS.salesQuotations)) {
     return 'Sales quotations'
   }
@@ -813,6 +831,9 @@ export function getPageTitle(pathname: string) {
   }
   if (pathname.includes(APP_PATHS.salesInvoices)) {
     return 'Sales invoices'
+  }
+  if (pathname.includes(APP_PATHS.merchantProfile)) {
+    return 'Profile'
   }
   if (pathname.includes(APP_PATHS.petrolStations)) {
     return 'Stations & pumps'

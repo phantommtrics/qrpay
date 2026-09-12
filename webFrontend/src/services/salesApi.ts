@@ -479,6 +479,93 @@ export type DashboardRecentOrder = {
   tableLabel: string | null
 }
 
+export type DashboardCashPosition = {
+  id: string
+  code: string
+  name: string
+  balance: number
+}
+
+export type DashboardPnl = {
+  income: number
+  costOfSales: number
+  operatingExpenses: number
+  grossProfit: number
+  netProfit: number
+}
+
+export type DashboardCashFlowPoint = {
+  period: string
+  income: number
+  expenses: number
+}
+
+export type DashboardDocumentSample = {
+  id: string
+  publicCode: string
+  contactName: string
+  dueDate: string | null
+  amount: number
+  currency: string
+  overdue: boolean
+}
+
+export type DashboardReceivablesPayables = {
+  count: number
+  total: number
+  overdueCount: number
+  overdueTotal: number
+  samples: DashboardDocumentSample[]
+}
+
+export type DashboardExpenses = {
+  operatingExpenses: number
+  billsToPayTotal: number
+}
+
+export type DashboardJournalRow = {
+  id: string
+  memo: string | null
+  reference: string | null
+  sourceType: string | null
+  postedAt: string
+}
+
+export type DashboardJournals = {
+  postedLast7Days: number
+  postedLast30Days: number
+  recent: DashboardJournalRow[]
+}
+
+export type DashboardTask = {
+  id: string
+  label: string
+  count: number
+  href: string
+}
+
+export type DashboardPaidInvoice = {
+  id: string
+  publicCode: string
+  contactName: string
+  amount: number
+  currency: string
+  paidAt: string
+}
+
+export type DashboardFinance = {
+  cashTotal: number
+  cashPositions: DashboardCashPosition[]
+  pnl: DashboardPnl
+  cashFlowTrend: DashboardCashFlowPoint[]
+  receivables: DashboardReceivablesPayables
+  payables: DashboardReceivablesPayables
+  expenses: DashboardExpenses
+  journals: DashboardJournals
+  tasks: DashboardTask[]
+  recentPaidInvoices: DashboardPaidInvoice[]
+}
+
 export type DashboardSummary = {
   industry: string | null
   catalogEnabled: boolean
@@ -490,6 +577,7 @@ export type DashboardSummary = {
   recentOrders: DashboardRecentOrder[]
   productCount: number | null
   lowStockCount: number | null
+  finance: DashboardFinance
 }
 
 export async function fetchDashboardSummary(businessId: string): Promise<DashboardSummary> {
@@ -604,6 +692,7 @@ export async function fetchPublicPayInfo(publicToken: string): Promise<PublicPay
 
 export type GuestQuotationPayload = {
   businessName: string
+  logoUrl?: string | null
   canRespond: boolean
   document: SalesQuotationRow
   createdInvoice?: SalesInvoiceRow
@@ -657,6 +746,7 @@ export async function respondGuestQuotation(
 
 export type GuestInvoicePayload = {
   businessName: string
+  logoUrl?: string | null
   canPay: boolean
   document: SalesInvoiceRow
 }

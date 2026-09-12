@@ -96,6 +96,7 @@ export type PermissionKey =
   | 'sales.quotation'
   | 'sales.invoice'
   | 'sales.bill'
+  | 'sales.settlement'
   | 'pos.access'
   | 'dashboard.view'
   | 'organization.manage'
@@ -105,6 +106,7 @@ export type PermissionKey =
   | 'subscriptions.invoices'
   | 'subscriptions.billing_activity'
   | 'merchant.api'
+  | 'merchant.profile'
   | 'activity.log'
 
 export interface User {
@@ -151,6 +153,8 @@ export interface Organization {
   assignedStationId?: string | null
   /** Provisioned via the internal partner API; catalogue SKUs live in the partner system. */
   isInternalPartner?: boolean
+  /** Merchant logo for sales invoices / merchant bills. */
+  logoUrl?: string | null
   createdAt: string
 }
 

@@ -399,6 +399,105 @@ export async function postMerchantJournalForWaveOpsPayout(
 }
 
 /**
+ * Merchant books when platform completes a DirectPay settlement request (POS clearing payout):
+ *   Dr PLATFORM_FUND_TRANSFERS   amount (money received)
+ *   Cr MERCHANT_WALLET_CLEARING  amount (release digital collections)
+ */
+export async function postMerchantJournalForClearingSettlement(
+  tx: Tx,
+  row: {
+    platformJournalId: string;
+    businessId: string;
+    currency: string;
+    amount: Prisma.Decimal | string | number;
+    memo?: string | null;
+    reference?: string | null;
+    settlementRequestId?: string | null;
+  },
+  postedAt?: Date | null,
+): Promise<MerchantPayoutJournalResult | null> {
+  const existing = await tx.journalEntry.findFirst({
+    where: {
+      sourceType: JournalSourceType.PLATFORM_FUND_TRANSFER,
+      sourceId: row.platformJournalId,
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    return { id: existing.id, created: false };
+  }
+
+  await ensureDefaultChartOfAccountsForBusiness(tx, row.businessId);
+  const [moneyIn, clearing] = await Promise.all([
+    getChartAccountByCode(tx, row.businessId, CHART_CODE_PLATFORM_FUND_TRANSFERS),
+    getChartAccountByCode(tx, row.businessId, CHART_CODE_MERCHANT_WALLET_CLEARING),
+  ]);
+  if (!moneyIn || !clearing) {
+    throw new Error("Chart accounts missing for clearing settlement.");
+  }
+
+  const amount = money(row.amount);
+  if (amount.lte(0)) {
+    return null;
+  }
+
+  const zero = new Prisma.Decimal(0);
+  const journal = await tx.journalEntry.create({
+    data: {
+      postedAt: postedAt ?? new Date(),
+      businessId: row.businessId,
+      memo: row.memo?.trim() || `DirectPay clearing settlement (${row.currency})`,
+      reference: row.reference?.trim() || null,
+      sourceType: JournalSourceType.PLATFORM_FUND_TRANSFER,
+      sourceId: row.platformJournalId,
+      journalApprovalExempt: true,
+      lines: {
+        create: [
+          {
+            chartOfAccountId: moneyIn.id,
+            debitAmount: amount,
+            creditAmount: zero,
+            description: "DirectPay settlement received (bank / manual)",
+          },
+          {
+            chartOfAccountId: clearing.id,
+            debitAmount: zero,
+            creditAmount: amount,
+            description: "Clear MERCHANT_WALLET_CLEARING for settlement payout",
+          },
+        ],
+      },
+    },
+    select: { id: true },
+  });
+
+  await tx.salesLedgerEntry.create({
+    data: {
+      businessId: row.businessId,
+      orderId: null,
+      paymentId: null,
+      journalEntryId: journal.id,
+      type: SalesLedgerEntryType.PLATFORM_FUND_TRANSFER,
+      direction: SalesLedgerDirection.MONEY_IN,
+      status: SalesLedgerStatus.SUCCEEDED,
+      amount,
+      currency: row.currency,
+      provider: "directpay",
+      providerPaymentRef: row.platformJournalId,
+      metadata: {
+        amount: amount.toString(),
+        debitAccountCode: CHART_CODE_PLATFORM_FUND_TRANSFERS,
+        creditAccountCode: CHART_CODE_MERCHANT_WALLET_CLEARING,
+        clearingSettlement: true,
+        settlementRequestId: row.settlementRequestId ?? null,
+      },
+    },
+  });
+
+  return { id: journal.id, created: true };
+}
+
+/**
  * Merchant books when platform admin moves funds without a Wave payout:
  *   Dr PLATFORM_FUND_TRANSFERS   amount (dedicated money-in asset)
  *   Cr other revenue (260)       amount

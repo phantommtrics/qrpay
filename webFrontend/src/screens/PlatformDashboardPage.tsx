@@ -1,8 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import {
   AlertTriangle,
   ArrowRight,
+  BookOpenText,
   Building2,
+  CheckSquare,
   ClipboardList,
   CreditCard,
   FileText,
@@ -16,27 +28,25 @@ import {
 } from 'lucide-react'
 import { generatePath, Link } from 'react-router-dom'
 
+import { DocumentBucketWidget } from '../components/dashboard/DocumentBucketWidget'
+import { DashboardMetricLink, DashboardStatTile } from '../components/dashboard/DashboardStatTile'
+import { DashboardWidget, DashboardWidgetLink } from '../components/dashboard/DashboardWidget'
 import { PageCard } from '../components/ui/PageCard'
 import { PageSectionHeader } from '../components/ui/PageSectionHeader'
 import { PageTransition } from '../components/ui/PageTransition'
-import { APP_PATHS } from '../config/navigation'
+import {
+  APP_PATHS,
+  platformBillDetailPath,
+  platformInvoiceDetailPath,
+  platformMerchantJournalDetailPath,
+} from '../config/navigation'
 import { useAuth } from '../features/auth/AuthContext'
 import {
   ApiError,
   fetchPlatformDashboardSummary,
-  fetchPlatformProfitLossReport,
   type PlatformDashboardSummary,
 } from '../services/subscriptionApi'
 import { formatMoney } from '../utils/formatMoney'
-
-function firstOfMonthYmd(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-}
-
-function todayYmd(): string {
-  return new Date().toISOString().slice(0, 10)
-}
 
 type Shortcut = {
   to: string
@@ -46,15 +56,29 @@ type Shortcut = {
   ok: boolean
 }
 
+function formatShortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+  })
+}
+
 export function PlatformDashboardPage() {
   const { user, canAccess } = useAuth()
   const [summary, setSummary] = useState<PlatformDashboardSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [netProfitMtd, setNetProfitMtd] = useState<number | null>(null)
-  const [pnlLoading, setPnlLoading] = useState(false)
 
+  const canAccounting = canAccess('platform.accounting.view')
   const canPnl = canAccess('platform.accounting.reports.pnl')
+  const canInvoices = canAccess('platform.invoices.view')
+  const canBills = canAccess('platform.bills.view')
+  const canBillingReview = canAccess('platform.billing_review.view')
+  const canSubscriptions = canAccess('platform.subscriptions.view')
+  const canDigitalOcean = canAccess('platform.digitalocean_billing.view')
+  const canMerchantJournals = canAccess('platform.accounting.transaction_journal')
+  const showFinance = canAccounting || canInvoices || canBills || canPnl
+
   const roleLabel = user?.isPlatformOwner ? 'DirectPay' : 'DirectPay admin'
 
   const load = useCallback(async () => {
@@ -74,28 +98,6 @@ export function PlatformDashboardPage() {
   useEffect(() => {
     void load()
   }, [load])
-
-  useEffect(() => {
-    if (!canPnl) {
-      setNetProfitMtd(null)
-      return
-    }
-    let cancelled = false
-    setPnlLoading(true)
-    void fetchPlatformProfitLossReport(firstOfMonthYmd(), todayYmd())
-      .then((d) => {
-        if (!cancelled) setNetProfitMtd(d.netProfit)
-      })
-      .catch(() => {
-        if (!cancelled) setNetProfitMtd(null)
-      })
-      .finally(() => {
-        if (!cancelled) setPnlLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [canPnl])
 
   const shortcuts: Shortcut[] = useMemo(
     () => [
@@ -168,7 +170,6 @@ export function PlatformDashboardPage() {
 
   const visibleShortcuts = shortcuts.filter((s) => s.ok)
 
-  /** API returns ≤6; sort newest-first and cap at 6 for the table. */
   const recentBusinessRows = useMemo(() => {
     const rows = summary?.recentBusinesses ?? []
     return [...rows]
@@ -176,16 +177,79 @@ export function PlatformDashboardPage() {
       .slice(0, 6)
   }, [summary?.recentBusinesses])
 
-  const statClass =
-    'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md'
+  const finance = summary?.finance
+
+  const cashFlowData = useMemo(
+    () =>
+      (finance?.cashFlowTrend ?? []).map((p) => ({
+        name: p.period,
+        income: p.income,
+        expenses: p.expenses,
+      })),
+    [finance],
+  )
+
+  const opsTiles = useMemo(() => {
+    if (!summary) return []
+    return [
+      {
+        key: 'biz',
+        title: 'Businesses',
+        value: String(summary.businessesTotal),
+        icon: Building2,
+        iconColor: 'text-indigo-600',
+        iconBg: 'bg-indigo-100',
+        footnote: `+${summary.businessesCreatedLast7Days} new in the last 7 days`,
+      },
+      {
+        key: 'active',
+        title: 'Active subscriptions',
+        value: String(summary.subscriptionsActive),
+        icon: CreditCard,
+        iconColor: 'text-emerald-600',
+        iconBg: 'bg-emerald-100',
+        footnote: `${summary.subscriptionsTrialing} in trial`,
+      },
+      {
+        key: 'pastdue',
+        title: 'Past due subscriptions',
+        value: String(summary.subscriptionsPastDue),
+        icon: AlertTriangle,
+        iconColor:
+          summary.subscriptionsPastDue > 0 ? 'text-amber-700' : 'text-slate-500',
+        iconBg: summary.subscriptionsPastDue > 0 ? 'bg-amber-100' : 'bg-slate-100',
+        footnote: 'Needs payment or attention',
+        footIsTrend: summary.subscriptionsPastDue > 0,
+        footPositive: false,
+      },
+      {
+        key: 'pending',
+        title: 'Pending invoices',
+        value: String(summary.invoicesPendingPayment),
+        icon: Receipt,
+        iconColor: summary.invoicesPendingPayment > 0 ? 'text-rose-600' : 'text-slate-500',
+        iconBg: summary.invoicesPendingPayment > 0 ? 'bg-rose-100' : 'bg-slate-100',
+        footnote: 'Subscription invoices not yet paid',
+      },
+      {
+        key: 'refunds',
+        title: 'Refund reviews',
+        value: String(summary.refundReviewsPending),
+        icon: ClipboardList,
+        iconColor: summary.refundReviewsPending > 0 ? 'text-violet-700' : 'text-slate-500',
+        iconBg: summary.refundReviewsPending > 0 ? 'bg-violet-100' : 'bg-slate-100',
+        footnote: 'Awaiting finance decision',
+      },
+    ]
+  }, [summary])
 
   return (
-    <PageTransition className="space-y-8" withSlide>
+    <PageTransition className="space-y-6" withSlide>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Platform dashboard</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Platform overview</h1>
           <p className="mt-1 text-sm text-slate-500">
-            {roleLabel} · DirectPay-wide health, subscriptions, and shortcuts into operator tools.
+            {roleLabel} · Cash, profitability, subscriptions, bills, and operator tasks.
           </p>
         </div>
         <button
@@ -206,37 +270,6 @@ export function PlatformDashboardPage() {
         </PageCard>
       ) : null}
 
-      {canPnl ? (
-        <PageCard className="border border-teal-100 bg-gradient-to-br from-teal-50/80 to-white p-6">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-teal-800/80">
-                Platform net profit (month to date)
-              </p>
-              <p className="mt-2 text-3xl font-bold tabular-nums text-slate-900">
-                {pnlLoading ? (
-                  <span className="inline-flex items-center gap-2 text-lg font-medium text-slate-500">
-                    <Loader2 className="h-5 w-5 animate-spin" /> Loading…
-                  </span>
-                ) : netProfitMtd === null ? (
-                  '—'
-                ) : (
-                  formatMoney(netProfitMtd, { decimals: 0 })
-                )}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">From platform chart of accounts · same period as P&amp;L report</p>
-            </div>
-            <Link
-              to={APP_PATHS.platformAccountingReportPnl}
-              className="inline-flex items-center gap-1 text-sm font-semibold text-teal-700 hover:text-teal-800"
-            >
-              Open P&amp;L
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-        </PageCard>
-      ) : null}
-
       {loading && !summary ? (
         <PageCard className="flex items-center justify-center gap-3 p-12 text-slate-500">
           <Loader2 className="h-6 w-6 animate-spin" />
@@ -246,164 +279,421 @@ export function PlatformDashboardPage() {
 
       {summary ? (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <div className={statClass}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-500">Businesses</p>
-                  <p className="mt-1 text-3xl font-bold tabular-nums text-slate-900">
-                    {summary.businessesTotal}
-                  </p>
-                </div>
-                <div className="rounded-xl bg-indigo-100 p-3 text-indigo-600">
-                  <Building2 className="h-6 w-6" />
-                </div>
-              </div>
-              <p className="mt-3 text-sm text-slate-500">
-                +{summary.businessesCreatedLast7Days} new in the last 7 days
-              </p>
+          <section className="space-y-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Operations
+            </h2>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              {opsTiles.map((tile) => (
+                <DashboardStatTile
+                  key={tile.key}
+                  title={tile.title}
+                  value={tile.value}
+                  icon={tile.icon}
+                  iconColor={tile.iconColor}
+                  iconBg={tile.iconBg}
+                  footnote={tile.footnote}
+                  footIsTrend={tile.footIsTrend}
+                  footPositive={tile.footPositive}
+                />
+              ))}
             </div>
 
-            <div className={statClass}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-500">Active subscriptions</p>
-                  <p className="mt-1 text-3xl font-bold tabular-nums text-slate-900">
-                    {summary.subscriptionsActive}
-                  </p>
-                </div>
-                <div className="rounded-xl bg-emerald-100 p-3 text-emerald-600">
-                  <CreditCard className="h-6 w-6" />
-                </div>
-              </div>
-              <p className="mt-3 text-sm text-slate-500">
-                {summary.subscriptionsTrialing} in trial · see past due below
-              </p>
-            </div>
-
-            <div className={statClass}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-500">Past due subscriptions</p>
-                  <p
-                    className={`mt-1 text-3xl font-bold tabular-nums ${
-                      summary.subscriptionsPastDue > 0 ? 'text-amber-700' : 'text-slate-900'
-                    }`}
-                  >
-                    {summary.subscriptionsPastDue}
-                  </p>
-                </div>
-                <div
-                  className={`rounded-xl p-3 ${
-                    summary.subscriptionsPastDue > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
-                  }`}
-                >
-                  <AlertTriangle className="h-6 w-6" />
-                </div>
-              </div>
-              <p className="mt-3 text-sm text-slate-500">Needs payment or attention</p>
-            </div>
-
-            <div className={statClass}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-500">Pending invoices</p>
-                  <p
-                    className={`mt-1 text-3xl font-bold tabular-nums ${
-                      summary.invoicesPendingPayment > 0 ? 'text-rose-700' : 'text-slate-900'
-                    }`}
-                  >
-                    {summary.invoicesPendingPayment}
-                  </p>
-                </div>
-                <div className="rounded-xl bg-rose-100 p-3 text-rose-600">
-                  <Receipt className="h-6 w-6" />
-                </div>
-              </div>
-              <p className="mt-3 text-sm text-slate-500">Subscription invoices not yet paid</p>
-            </div>
-
-            <div className={statClass}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-500">Refund reviews</p>
-                  <p
-                    className={`mt-1 text-3xl font-bold tabular-nums ${
-                      summary.refundReviewsPending > 0 ? 'text-violet-800' : 'text-slate-900'
-                    }`}
-                  >
-                    {summary.refundReviewsPending}
-                  </p>
-                </div>
-                <div className="rounded-xl bg-violet-100 p-3 text-violet-700">
-                  <ClipboardList className="h-6 w-6" />
-                </div>
-              </div>
-              <p className="mt-3 text-sm text-slate-500">Awaiting finance decision</p>
-            </div>
-
-          </div>
-
-          <PageCard className="p-6">
-            <PageSectionHeader
-              title="Recently onboarded businesses"
-              subtitle="Latest 6 by sign-up date (newest first)."
-              className="mb-4"
-              action={
-                canAccess('platform.businesses.manage') ? (
-                  <Link
-                    to={APP_PATHS.platformBusinesses}
-                    className="text-sm font-medium text-teal-600 hover:text-teal-700"
-                  >
-                    View all
-                  </Link>
-                ) : null
-              }
-            />
-            {recentBusinessRows.length === 0 ? (
-              <p className="text-sm text-slate-500">No businesses yet.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[520px] text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500">
-                      <th className="pb-2 font-medium">Business</th>
-                      <th className="pb-2 font-medium">Owner email</th>
-                      <th className="pb-2 font-medium">Industry</th>
-                      <th className="pb-2 font-medium">Created</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {recentBusinessRows.map((b) => (
-                      <tr key={b.id} className="hover:bg-slate-50/80">
-                        <td className="py-2.5 pr-3 font-medium text-slate-800">
-                          {canAccess('platform.businesses.manage') ? (
-                            <Link
-                              to={generatePath(APP_PATHS.platformBusinessDetail, { businessId: b.id })}
-                              className="text-teal-700 hover:underline"
-                            >
-                              {b.name}
-                            </Link>
-                          ) : (
-                            b.name
-                          )}
-                        </td>
-                        <td className="py-2.5 text-slate-600">{b.ownerEmail}</td>
-                        <td className="py-2.5 text-slate-500">{b.industry ?? '—'}</td>
-                        <td className="py-2.5 tabular-nums text-slate-500">
-                          {new Date(b.createdAt).toLocaleDateString(undefined, {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                          })}
-                        </td>
+            <PageCard className="p-6">
+              <PageSectionHeader
+                title="Recently onboarded businesses"
+                subtitle="Latest 6 by sign-up date (newest first)."
+                className="mb-4"
+                action={
+                  canAccess('platform.businesses.manage') ? (
+                    <Link
+                      to={APP_PATHS.platformBusinesses}
+                      className="text-sm font-medium text-teal-600 hover:text-teal-700"
+                    >
+                      View all
+                    </Link>
+                  ) : null
+                }
+              />
+              {recentBusinessRows.length === 0 ? (
+                <p className="text-sm text-slate-500">No businesses yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[520px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-500">
+                        <th className="pb-2 font-medium">Business</th>
+                        <th className="pb-2 font-medium">Owner email</th>
+                        <th className="pb-2 font-medium">Industry</th>
+                        <th className="pb-2 font-medium">Created</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </PageCard>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {recentBusinessRows.map((b) => (
+                        <tr key={b.id} className="hover:bg-slate-50/80">
+                          <td className="py-2.5 pr-3 font-medium text-slate-800">
+                            {canAccess('platform.businesses.manage') ? (
+                              <Link
+                                to={generatePath(APP_PATHS.platformBusinessDetail, {
+                                  businessId: b.id,
+                                })}
+                                className="text-teal-700 hover:underline"
+                              >
+                                {b.name}
+                              </Link>
+                            ) : (
+                              b.name
+                            )}
+                          </td>
+                          <td className="py-2.5 text-slate-600">{b.ownerEmail}</td>
+                          <td className="py-2.5 text-slate-500">{b.industry ?? '—'}</td>
+                          <td className="py-2.5 tabular-nums text-slate-500">
+                            {new Date(b.createdAt).toLocaleDateString(undefined, {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </PageCard>
+          </section>
+
+          {showFinance && finance ? (
+            <>
+              {canAccounting || canPnl ? (
+                <section className="space-y-4">
+                  <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Cash &amp; profit
+                  </h2>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    {canAccounting ? (
+                      <DashboardMetricLink
+                        to={APP_PATHS.platformAccounting}
+                        label="Cash & clearing"
+                        value={formatMoney(finance.cashTotal, { decimals: 0 })}
+                        hint={`${finance.cashPositions.length} position${
+                          finance.cashPositions.length === 1 ? '' : 's'
+                        }`}
+                      />
+                    ) : null}
+                    {canPnl || canAccounting ? (
+                      <DashboardMetricLink
+                        to={
+                          canPnl
+                            ? APP_PATHS.platformAccountingReportPnl
+                            : APP_PATHS.platformAccounting
+                        }
+                        label="Net profit (MTD)"
+                        value={formatMoney(finance.netProfitMtd, { decimals: 0 })}
+                        hint={`${formatMoney(finance.pnl.netProfit, {
+                          decimals: 0,
+                        })} all-time net`}
+                      />
+                    ) : null}
+                    {canAccounting ? (
+                      <DashboardMetricLink
+                        to={
+                          canPnl
+                            ? APP_PATHS.platformAccountingReportPnl
+                            : APP_PATHS.platformAccounting
+                        }
+                        label="Income"
+                        value={formatMoney(finance.pnl.income, { decimals: 0 })}
+                        hint="Ledger revenue balances"
+                      />
+                    ) : null}
+                    {canAccounting ? (
+                      <DashboardMetricLink
+                        to={canBills ? APP_PATHS.platformBills : APP_PATHS.platformAccounting}
+                        label="Expenses"
+                        value={formatMoney(finance.expenses.operatingExpenses, { decimals: 0 })}
+                        hint={`${formatMoney(finance.expenses.billsToPayTotal, {
+                          decimals: 0,
+                        })} in unpaid bills`}
+                      />
+                    ) : null}
+                  </div>
+
+                  {canAccounting && finance.cashPositions.length > 0 ? (
+                    <DashboardWidget
+                      title="Cash positions"
+                      action={
+                        <DashboardWidgetLink to={APP_PATHS.platformAccounting}>
+                          Accounting
+                        </DashboardWidgetLink>
+                      }
+                    >
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {finance.cashPositions.map((pos) => (
+                          <div
+                            key={pos.id}
+                            className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-slate-800">
+                                {pos.name}
+                              </p>
+                              <p className="font-mono text-xs text-slate-500">{pos.code}</p>
+                            </div>
+                            <p className="shrink-0 tabular-nums text-sm font-semibold text-slate-800">
+                              {formatMoney(pos.balance, { decimals: 0 })}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </DashboardWidget>
+                  ) : null}
+
+                  {canAccounting ? (
+                    <DashboardWidget
+                      title="Cash in & out"
+                      subtitle="Six-month income vs expenses from platform journals"
+                      action={
+                        canPnl ? (
+                          <DashboardWidgetLink to={APP_PATHS.platformAccountingReportPnl}>
+                            Open P&amp;L
+                          </DashboardWidgetLink>
+                        ) : (
+                          <DashboardWidgetLink to={APP_PATHS.platformAccounting}>
+                            Accounting
+                          </DashboardWidgetLink>
+                        )
+                      }
+                    >
+                      <div className="h-72">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={cashFlowData}>
+                            <defs>
+                              <linearGradient id="platIncomeFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#0D9488" stopOpacity={0.25} />
+                                <stop offset="95%" stopColor="#0D9488" stopOpacity={0} />
+                              </linearGradient>
+                              <linearGradient id="platExpenseFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#F43F5E" stopOpacity={0.2} />
+                                <stop offset="95%" stopColor="#F43F5E" stopOpacity={0} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" vertical={false} />
+                            <XAxis
+                              dataKey="name"
+                              axisLine={false}
+                              tickLine={false}
+                              tick={{ fill: '#64748B', fontSize: 12 }}
+                            />
+                            <YAxis
+                              axisLine={false}
+                              tickLine={false}
+                              tick={{ fill: '#64748B', fontSize: 12 }}
+                              tickFormatter={(value) =>
+                                `D${Number(value).toLocaleString(undefined, {
+                                  maximumFractionDigits: 0,
+                                })}`
+                              }
+                            />
+                            <Tooltip
+                              formatter={(value, name) => [
+                                formatMoney(Number(value ?? 0), { decimals: 0 }),
+                                name === 'income' ? 'Income' : 'Expenses',
+                              ]}
+                              contentStyle={{
+                                border: 'none',
+                                borderRadius: '12px',
+                                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                              }}
+                            />
+                            <Legend />
+                            <Area
+                              type="monotone"
+                              dataKey="income"
+                              name="income"
+                              stroke="#0D9488"
+                              strokeWidth={2}
+                              fill="url(#platIncomeFill)"
+                            />
+                            <Area
+                              type="monotone"
+                              dataKey="expenses"
+                              name="expenses"
+                              stroke="#F43F5E"
+                              strokeWidth={2}
+                              fill="url(#platExpenseFill)"
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </DashboardWidget>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {canInvoices || canBills ? (
+                <section className="space-y-4">
+                  <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Invoices &amp; bills
+                  </h2>
+                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                    {canInvoices ? (
+                      <DocumentBucketWidget
+                        title="Subscription invoices owed to you"
+                        bucket={finance.receivables}
+                        listPath={APP_PATHS.platformInvoices}
+                        newPath={APP_PATHS.platformInvoices}
+                        detailPath={platformInvoiceDetailPath}
+                        canCreate={false}
+                        emptyLabel="No pending subscription invoices."
+                      />
+                    ) : null}
+                    {canBills ? (
+                      <DocumentBucketWidget
+                        title="Bills to pay"
+                        bucket={finance.payables}
+                        listPath={APP_PATHS.platformBills}
+                        newPath={APP_PATHS.platformBillNew}
+                        detailPath={platformBillDetailPath}
+                        canCreate={canAccess('platform.bills.manage')}
+                        emptyLabel="No approved supplier bills awaiting payment."
+                      />
+                    ) : null}
+                  </div>
+
+                  {canInvoices && finance.recentPaidInvoices.length > 0 ? (
+                    <DashboardWidget
+                      title="Recent subscription payments"
+                      action={
+                        <DashboardWidgetLink to={APP_PATHS.platformInvoices}>
+                          View invoices
+                        </DashboardWidgetLink>
+                      }
+                    >
+                      <div className="divide-y divide-slate-100">
+                        {finance.recentPaidInvoices.map((inv) => (
+                          <Link
+                            key={inv.id}
+                            to={platformInvoiceDetailPath(inv.id)}
+                            className="flex items-center justify-between gap-3 py-3 transition-colors hover:bg-slate-50"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-slate-800">
+                                {inv.partyName}
+                              </p>
+                              <p className="text-xs text-slate-500">
+                                {inv.publicCode} · paid {formatShortDate(inv.paidAt)}
+                              </p>
+                            </div>
+                            <p className="shrink-0 font-semibold tabular-nums text-emerald-700">
+                              {formatMoney(inv.amount, { decimals: 0 })}
+                            </p>
+                          </Link>
+                        ))}
+                      </div>
+                    </DashboardWidget>
+                  ) : null}
+                </section>
+              ) : null}
+
+              <section className="space-y-4">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Activity
+                </h2>
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <DashboardWidget title="Tasks" subtitle="Items that need operator attention">
+                    {finance.tasks.length === 0 ? (
+                      <div className="flex items-start gap-3 rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800">
+                        <CheckSquare className="mt-0.5 h-5 w-5 shrink-0" />
+                        <p>You&apos;re caught up — no flagged subscriptions, bills, or reviews.</p>
+                      </div>
+                    ) : (
+                      <ul className="space-y-2">
+                        {finance.tasks.map((task) => {
+                          const allowed =
+                            (task.href.startsWith('/platform/subscriptions') &&
+                              canSubscriptions) ||
+                            (task.href.startsWith('/platform/invoices') && canInvoices) ||
+                            (task.href.startsWith('/platform/billing-review') &&
+                              canBillingReview) ||
+                            (task.href.startsWith('/platform/bills') && canBills) ||
+                            (task.href.startsWith('/platform/digitalocean-billing') &&
+                              canDigitalOcean) ||
+                            canAccounting
+                          if (!allowed) return null
+                          return (
+                            <li key={task.id}>
+                              <Link
+                                to={task.href}
+                                className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-3 py-3 transition-colors hover:border-slate-200 hover:bg-slate-50"
+                              >
+                                <span className="text-sm font-medium text-slate-800">
+                                  {task.label}
+                                </span>
+                                <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-800">
+                                  {task.count}
+                                </span>
+                              </Link>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </DashboardWidget>
+
+                  {canAccounting ? (
+                    <DashboardWidget
+                      title="Recent journals"
+                      subtitle={`${finance.journals.postedLast7Days} posted in last 7 days · ${finance.journals.postedLast30Days} in 30 days`}
+                      action={
+                        <DashboardWidgetLink
+                          to={
+                            canMerchantJournals
+                              ? APP_PATHS.platformAccountingMerchantJournalEntries
+                              : APP_PATHS.platformAccountingJournals
+                          }
+                        >
+                          View journals
+                        </DashboardWidgetLink>
+                      }
+                    >
+                      {finance.journals.recent.length === 0 ? (
+                        <p className="text-sm text-slate-500">No platform journal entries yet.</p>
+                      ) : (
+                        <div className="divide-y divide-slate-100">
+                          {finance.journals.recent.map((j) => {
+                            const to = canMerchantJournals
+                              ? platformMerchantJournalDetailPath(j.id)
+                              : APP_PATHS.platformAccountingJournals
+                            return (
+                              <Link
+                                key={j.id}
+                                to={to}
+                                className="flex items-start justify-between gap-3 py-3 transition-colors hover:bg-slate-50"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium text-slate-800">
+                                    {j.memo?.trim() || j.reference?.trim() || 'Journal entry'}
+                                  </p>
+                                  <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+                                    <BookOpenText className="h-3.5 w-3.5" />
+                                    {j.sourceType?.replace(/_/g, ' ') || 'Manual'}
+                                    {' · '}
+                                    {formatShortDate(j.postedAt)}
+                                  </p>
+                                </div>
+                                <Receipt className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                              </Link>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </DashboardWidget>
+                  ) : null}
+                </div>
+              </section>
+            </>
+          ) : null}
         </>
       ) : null}
 
