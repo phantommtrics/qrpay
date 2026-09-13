@@ -1961,6 +1961,19 @@ export async function postPlatformBusinessRestore(
   return res.data
 }
 
+export async function renamePlatformBusiness(
+  businessId: string,
+  body: { name: string },
+) {
+  const res = await apiRequest<{
+    data: { id: string; name: string; slug: string; updatedAt: string }
+  }>(`/platform/businesses/${encodeURIComponent(businessId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+  return res.data
+}
+
 export async function fetchPlatformBusinessDetail(
   businessId: string,
   params?: {

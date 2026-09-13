@@ -1230,3 +1230,43 @@ export async function restorePlatformBusiness(input: {
     errorIfInvalid: "Only a terminated business can be restored.",
   });
 }
+
+/** Platform admin: update display name (slug stays stable). */
+export async function renamePlatformBusiness(input: {
+  businessId: string;
+  name: string;
+}) {
+  const name = input.name.trim();
+  if (name.length < 2) {
+    throw new HttpError(400, "Business name must be at least 2 characters.");
+  }
+  if (name.length > 160) {
+    throw new HttpError(400, "Business name is too long.");
+  }
+
+  const existing = await prisma.business.findUnique({
+    where: { id: input.businessId },
+    select: { id: true },
+  });
+  if (!existing) {
+    throw new HttpError(404, "Business not found.");
+  }
+
+  const updated = await prisma.business.update({
+    where: { id: input.businessId },
+    data: { name },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      updatedAt: true,
+    },
+  });
+
+  return {
+    id: updated.id,
+    name: updated.name,
+    slug: updated.slug,
+    updatedAt: updated.updatedAt.toISOString(),
+  };
+}

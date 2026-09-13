@@ -188,6 +188,7 @@ import {
   parseDateFilterDayEnd,
   parseDateFilterDayStart,
   patchSubscriptionInvoiceManualRefundReview,
+  renamePlatformBusiness,
   restorePlatformBusiness,
   subscriptionDaysRemaining,
   terminatePlatformBusiness,
@@ -1470,6 +1471,29 @@ app.get(
 const platformBusinessLifecycleBodySchema = z.object({
   reason: z.string().trim().max(500).optional().nullable(),
 });
+
+const platformBusinessRenameBodySchema = z.object({
+  name: z.string().trim().min(2).max(160),
+});
+
+app.patch(
+  "/api/platform/businesses/:businessId",
+  authenticateToken,
+  requirePlatformOperator,
+  requirePlatformAccess(PLATFORM_MODULE_SLUGS.BUSINESSES, "edit"),
+  async (req, res, next) => {
+    try {
+      const body = platformBusinessRenameBodySchema.parse(req.body ?? {});
+      const data = await renamePlatformBusiness({
+        businessId: req.params.businessId as string,
+        name: body.name,
+      });
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 app.post(
   "/api/platform/businesses/:businessId/block",

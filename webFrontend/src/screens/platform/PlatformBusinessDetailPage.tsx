@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, Building2, Mail, Package, Plug, User } from 'lucide-react'
+import { ArrowLeft, Building2, Mail, Package, Pencil, Plug, User } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 
 import { MerchantApiIntegrationPanel } from '../../components/integrations/MerchantApiIntegrationPanel'
@@ -24,6 +24,7 @@ import {
   postPlatformBusinessTerminate,
   postPlatformBusinessUnblock,
   resetBusinessMemberMfa,
+  renamePlatformBusiness,
   upgradePlatformBusinessToCorporate,
   type CorporateBillingPlanRow,
   type CorporateEntitlementCatalogItem,
@@ -85,6 +86,11 @@ export function PlatformBusinessDetailPage() {
   const [corpError, setCorpError] = useState<string | null>(null)
   const [corpMessage, setCorpMessage] = useState<string | null>(null)
   const [tab, setTab] = useState<DetailTab>('overview')
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+  const [nameBusy, setNameBusy] = useState(false)
+  const [nameError, setNameError] = useState<string | null>(null)
+  const [nameMessage, setNameMessage] = useState<string | null>(null)
   const [waveCredPack, setWaveCredPack] = useState<{
     platformWaveConfigured: boolean
     waveRow: BusinessGatewayCredentialStatusRow | null
@@ -117,6 +123,9 @@ export function PlatformBusinessDetailPage() {
       setCorpMessage(null)
       setCorpError(null)
       setTab('overview')
+      setEditingName(false)
+      setNameError(null)
+      setNameMessage(null)
     })()
   }, [businessId])
 
@@ -314,6 +323,33 @@ export function PlatformBusinessDetailPage() {
     subscriptionsPage,
   ])
 
+  const handleRenameBusiness = useCallback(async () => {
+    if (!businessId || !canEditBusiness || nameBusy) return
+    const next = nameDraft.trim()
+    if (next.length < 2) {
+      setNameError('Business name must be at least 2 characters.')
+      return
+    }
+    if (detail && next === detail.name) {
+      setEditingName(false)
+      setNameError(null)
+      return
+    }
+    setNameBusy(true)
+    setNameError(null)
+    setNameMessage(null)
+    try {
+      const updated = await renamePlatformBusiness(businessId, { name: next })
+      setDetail((prev) => (prev ? { ...prev, name: updated.name } : prev))
+      setEditingName(false)
+      setNameMessage('Business name updated.')
+    } catch (e) {
+      setNameError(e instanceof ApiError ? e.message : 'Could not update business name.')
+    } finally {
+      setNameBusy(false)
+    }
+  }, [businessId, canEditBusiness, detail, nameBusy, nameDraft])
+
   if (!isPlatformOperator(user)) {
     return null
   }
@@ -356,9 +392,77 @@ export function PlatformBusinessDetailPage() {
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-100 text-teal-700">
                   <Building2 className="h-6 w-6" />
                 </div>
-                <div>
-                  <h1 className="text-3xl font-bold text-slate-900">{detail.name}</h1>
+                <div className="min-w-0 flex-1">
+                  {editingName && canEditBusiness ? (
+                    <div className="space-y-2">
+                      <label className="block">
+                        <span className="sr-only">Business name</span>
+                        <input
+                          value={nameDraft}
+                          onChange={(e) => setNameDraft(e.target.value)}
+                          disabled={nameBusy}
+                          autoFocus
+                          className="w-full max-w-xl rounded-xl border border-slate-200 px-3 py-2 text-xl font-bold text-slate-900 outline-none focus:border-teal-500"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              void handleRenameBusiness()
+                            }
+                            if (e.key === 'Escape') {
+                              setEditingName(false)
+                              setNameError(null)
+                            }
+                          }}
+                        />
+                      </label>
+                      {nameError ? <p className="text-sm text-red-600">{nameError}</p> : null}
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={nameBusy}
+                          onClick={() => void handleRenameBusiness()}
+                          className="rounded-xl bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-500 disabled:opacity-50"
+                        >
+                          {nameBusy ? 'Saving…' : 'Save name'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={nameBusy}
+                          onClick={() => {
+                            setEditingName(false)
+                            setNameError(null)
+                          }}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h1 className="text-3xl font-bold text-slate-900">{detail.name}</h1>
+                      {canEditBusiness ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNameDraft(detail.name)
+                            setNameError(null)
+                            setNameMessage(null)
+                            setEditingName(true)
+                          }}
+                          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-teal-700"
+                          aria-label="Edit business name"
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Edit
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
                   <p className="text-slate-500">{detail.slug}</p>
+                  {nameMessage ? (
+                    <p className="mt-1 text-sm font-medium text-teal-800">{nameMessage}</p>
+                  ) : null}
                 </div>
               </div>
               <p className="mt-4 text-sm text-slate-600">
