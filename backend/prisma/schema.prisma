@@ -200,6 +200,11 @@ enum JournalSourceType {
    */
   MANUAL_GENERAL_JOURNAL
   /**
+   * Migration / opening balance onto a chart account (two-line balanced entry).
+   * Offset defaults to equity 970 when not specified.
+   */
+  OPENING_BALANCE
+  /**
    * Opposite debits/credits to undo a prior journal (audit trail).
    */
   MANUAL_JOURNAL_REVERSAL

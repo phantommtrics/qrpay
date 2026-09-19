@@ -30,6 +30,9 @@ export const CHART_CODE_WAVE_MERCHANT_PAYOUTS = "WAVE_MERCHANT_PAYOUTS";
 /** Money in: platform admin fund transfer (bank / manual settlement, not a Wave payout). */
 export const CHART_CODE_PLATFORM_FUND_TRANSFERS = "PLATFORM_FUND_TRANSFERS";
 
+/** Default offset for opening-balance / migration journals. */
+export const CHART_CODE_OWNER_SHARE_CAPITAL = "970";
+
 const DEFAULT_ACCOUNTS: Array<{
   code: string;
   name: string;
@@ -118,7 +121,7 @@ const DEFAULT_ACCOUNTS: Array<{
     isSystem: true,
   },
   {
-    code: "970",
+    code: CHART_CODE_OWNER_SHARE_CAPITAL,
     name: "Owner a share capital",
     description:
       "Nominal equity from issued share capital or formal owner investment at incorporation.",
@@ -256,6 +259,12 @@ export async function createChartOfAccountForBusiness(
     bankAccountNumber?: string | null;
     bankName?: string | null;
     bankDetails?: string | null;
+    openingBalance?: number | null;
+    offsetChartOfAccountId?: string | null;
+    openingBalancePostedAt?: Date | null;
+    openingBalanceMemo?: string | null;
+    openingBalanceReference?: string | null;
+    postedByPlatformUserId?: string | null;
   },
 ) {
   await ensureDefaultChartOfAccountsForBusiness(prisma, businessId);
@@ -287,10 +296,23 @@ export async function createChartOfAccountForBusiness(
     throw new HttpError(409, "An account with this code already exists.");
   }
 
+  const openingAmount =
+    input.openingBalance != null && Number.isFinite(input.openingBalance)
+      ? input.openingBalance
+      : null;
+  if (openingAmount != null && openingAmount <= 0) {
+    throw new HttpError(400, "Opening balance amount must be greater than zero.");
+  }
+
+  let bankName: string | null = null;
+  let bankAccountNumber: string | null = null;
+  let bankDetails: string | null = null;
+  let category = input.category;
+
   if (kind === ChartAccountKind.BANK) {
-    const bankName = input.bankName?.trim() ?? "";
-    const bankAccountNumber = input.bankAccountNumber?.trim() ?? "";
-    const bankDetails = input.bankDetails?.trim() || null;
+    bankName = input.bankName?.trim() ?? "";
+    bankAccountNumber = input.bankAccountNumber?.trim() ?? "";
+    bankDetails = input.bankDetails?.trim() || null;
     if (!bankName) {
       throw new HttpError(400, "Bank name is required for a bank account.");
     }
@@ -306,35 +328,48 @@ export async function createChartOfAccountForBusiness(
     if (bankDetails && bankDetails.length > 4000) {
       throw new HttpError(400, "Bank details are too long.");
     }
+    category = ChartAccountCategory.ASSET;
+  }
 
-    return prisma.chartOfAccount.create({
+  // Lazy import avoids circular dependency with manual-journal.service.
+  const { postOpeningBalanceJournal } = openingAmount != null
+    ? await import("./manual-journal.service.js")
+    : { postOpeningBalanceJournal: null };
+
+  return prisma.$transaction(async (tx) => {
+    const account = await tx.chartOfAccount.create({
       data: {
         businessId,
         code,
         name,
         description,
-        category: ChartAccountCategory.ASSET,
-        kind: ChartAccountKind.BANK,
-        bankName,
-        bankAccountNumber,
-        bankDetails,
+        category,
+        kind: kind === ChartAccountKind.BANK ? ChartAccountKind.BANK : ChartAccountKind.LEDGER,
+        bankName: kind === ChartAccountKind.BANK ? bankName : null,
+        bankAccountNumber: kind === ChartAccountKind.BANK ? bankAccountNumber : null,
+        bankDetails: kind === ChartAccountKind.BANK ? bankDetails : null,
         isSystem: false,
       },
     });
-  }
 
-  return prisma.chartOfAccount.create({
-    data: {
-      businessId,
-      code,
-      name,
-      description,
-      category: input.category,
-      kind: ChartAccountKind.LEDGER,
-      bankAccountNumber: null,
-      bankName: null,
-      bankDetails: null,
-      isSystem: false,
-    },
+    let openingJournalEntryId: string | null = null;
+    if (openingAmount != null && postOpeningBalanceJournal) {
+      const journal = await postOpeningBalanceJournal(
+        businessId,
+        {
+          targetChartOfAccountId: account.id,
+          amount: openingAmount,
+          offsetChartOfAccountId: input.offsetChartOfAccountId ?? null,
+          postedAt: input.openingBalancePostedAt ?? null,
+          memo: input.openingBalanceMemo ?? null,
+          reference: input.openingBalanceReference ?? null,
+          postedByPlatformUserId: input.postedByPlatformUserId ?? null,
+        },
+        tx,
+      );
+      openingJournalEntryId = journal.id;
+    }
+
+    return { account, openingJournalEntryId };
   });
 }

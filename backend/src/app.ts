@@ -311,6 +311,7 @@ import {
   postManualGeneralJournal,
   postManualMoneyIn,
   postManualMoneyOut,
+  postOpeningBalanceJournal,
 } from "./services/manual-journal.service.js";
 import {
   formatBillApi,
@@ -9464,6 +9465,11 @@ const createChartAccountBodySchema = z
     bankAccountNumber: z.string().trim().max(64).optional().nullable(),
     bankName: z.string().trim().max(200).optional().nullable(),
     bankDetails: z.string().trim().max(4000).optional().nullable(),
+    openingBalance: z.coerce.number().positive().optional().nullable(),
+    offsetChartOfAccountId: z.string().trim().min(1).optional().nullable(),
+    openingBalancePostedAt: z.string().trim().min(1).optional().nullable(),
+    openingBalanceMemo: z.string().trim().max(2000).optional().nullable(),
+    openingBalanceReference: z.string().trim().max(200).optional().nullable(),
   })
   .superRefine((data, ctx) => {
     if (data.kind === ChartAccountKind.BANK) {
@@ -9483,6 +9489,14 @@ const createChartAccountBodySchema = z
       }
     }
   });
+
+const openingBalanceBodySchema = z.object({
+  amount: z.coerce.number().positive(),
+  offsetChartOfAccountId: z.string().trim().min(1).optional().nullable(),
+  postedAt: z.string().trim().min(1).optional().nullable(),
+  memo: z.string().trim().max(2000).optional().nullable(),
+  reference: z.string().trim().max(200).optional().nullable(),
+});
 
 app.post(
   "/api/businesses/:businessId/chart-of-accounts",
@@ -9504,16 +9518,52 @@ app.post(
         throw new HttpError(403, "Access denied to this business");
       }
 
-      const row = await createChartOfAccountForBusiness(businessId as string, {
-        code: body.code,
-        name: body.name,
-        category: body.category,
-        description: body.description ?? null,
-        kind: body.kind,
-        bankAccountNumber: body.bankAccountNumber ?? null,
-        bankName: body.bankName ?? null,
-        bankDetails: body.bankDetails ?? null,
-      });
+      const hasOpening =
+        body.openingBalance != null && Number.isFinite(body.openingBalance) && body.openingBalance > 0;
+      if (hasOpening) {
+        const isPlatformOp =
+          Boolean(request.user?.isPlatformOwner) || request.user?.role === UserRole.PLATFORM_ADMIN;
+        if (
+          !isPlatformOp &&
+          !(await userHasEntitlement(
+            request.user!.id,
+            businessId as string,
+            "accounting.journals.general",
+          ))
+        ) {
+          throw new HttpError(
+            403,
+            "Posting an opening balance requires general journal access for this business.",
+          );
+        }
+      }
+
+      const postedByPlatformUserId = postedByPlatformUserIdForMerchantJournal(
+        request.user!,
+        Boolean(membership),
+      );
+
+      const { account: row, openingJournalEntryId } = await createChartOfAccountForBusiness(
+        businessId as string,
+        {
+          code: body.code,
+          name: body.name,
+          category: body.category,
+          description: body.description ?? null,
+          kind: body.kind,
+          bankAccountNumber: body.bankAccountNumber ?? null,
+          bankName: body.bankName ?? null,
+          bankDetails: body.bankDetails ?? null,
+          openingBalance: hasOpening ? body.openingBalance : null,
+          offsetChartOfAccountId: body.offsetChartOfAccountId ?? null,
+          openingBalancePostedAt: body.openingBalancePostedAt
+            ? parsePostedAt(body.openingBalancePostedAt)
+            : null,
+          openingBalanceMemo: body.openingBalanceMemo ?? null,
+          openingBalanceReference: body.openingBalanceReference ?? null,
+          postedByPlatformUserId,
+        },
+      );
 
       response.status(201).json({
         data: {
@@ -9526,6 +9576,60 @@ app.post(
           bankAccountNumber: row.bankAccountNumber,
           bankName: row.bankName,
           bankDetails: row.bankDetails,
+          openingJournalEntryId,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/businesses/:businessId/chart-of-accounts/:accountId/opening-balance",
+  authenticateToken,
+  requireEntitlement("accounting.journals.general"),
+  async (request, response, next) => {
+    try {
+      const { businessId, accountId } = request.params;
+      const body = openingBalanceBodySchema.parse(request.body);
+
+      const membership = await prisma.businessMembership.findFirst({
+        where: {
+          userId: request.user!.id,
+          businessId: businessId as string,
+        },
+      });
+
+      if (
+        !membership &&
+        !request.user?.isPlatformOwner &&
+        request.user?.role !== UserRole.PLATFORM_ADMIN
+      ) {
+        throw new HttpError(403, "Access denied to this business");
+      }
+
+      const postedByPlatformUserId = postedByPlatformUserIdForMerchantJournal(
+        request.user!,
+        Boolean(membership),
+      );
+
+      const entry = await postOpeningBalanceJournal(businessId as string, {
+        targetChartOfAccountId: accountId as string,
+        amount: body.amount,
+        offsetChartOfAccountId: body.offsetChartOfAccountId ?? null,
+        postedAt: body.postedAt ? parsePostedAt(body.postedAt) : null,
+        memo: body.memo ?? null,
+        reference: body.reference ?? null,
+        postedByPlatformUserId,
+      });
+
+      response.status(201).json({
+        data: {
+          journalEntryId: entry.id,
+          postedAt: entry.postedAt.toISOString(),
+          memo: entry.memo,
+          approvedAt: entry.approvedAt?.toISOString() ?? null,
         },
       });
     } catch (error) {

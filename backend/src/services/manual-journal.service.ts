@@ -9,6 +9,7 @@ import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
 import {
   CHART_CODE_MERCHANT_WALLET_CLEARING,
+  CHART_CODE_OWNER_SHARE_CAPITAL,
   ensureDefaultChartOfAccountsForBusiness,
   getChartAccountByCode,
 } from "./chart-of-accounts.service.js";
@@ -791,6 +792,95 @@ export async function postManualGeneralJournal(
           description: ln.description,
           taxAmount: dec(0),
         })),
+      },
+    },
+    include: { lines: { include: { chartOfAccount: { select: { code: true, name: true } } } } },
+  });
+}
+
+/**
+ * Migration opening balance: two-line balanced entry on a target chart account.
+ * ASSET/EXPENSE → debit target; LIABILITY/EQUITY/REVENUE → credit target.
+ * Offset defaults to equity 970 (Owner share capital).
+ */
+export async function postOpeningBalanceJournal(
+  businessId: string,
+  input: {
+    targetChartOfAccountId: string;
+    amount: number;
+    offsetChartOfAccountId?: string | null;
+    postedAt?: Date | null;
+    memo?: string | null;
+    reference?: string | null;
+    postedByPlatformUserId?: string | null;
+  },
+  db: DbClient = prisma,
+) {
+  await ensureDefaultChartOfAccountsForBusiness(db, businessId);
+
+  const amount = roundMoney(dec(input.amount));
+  if (amount.lte(0)) {
+    throw new HttpError(400, "Opening balance amount must be greater than zero.");
+  }
+
+  const target = await loadChartAccount(businessId, input.targetChartOfAccountId, db);
+
+  let offsetId = input.offsetChartOfAccountId?.trim() || null;
+  if (!offsetId) {
+    const equity = await getChartAccountByCode(db, businessId, CHART_CODE_OWNER_SHARE_CAPITAL);
+    if (!equity) {
+      throw new HttpError(500, "Default equity account (970) is missing for this business.");
+    }
+    offsetId = equity.id;
+  }
+
+  if (offsetId === target.id) {
+    throw new HttpError(400, "Offset account must be different from the target account.");
+  }
+
+  const offset = await loadChartAccount(businessId, offsetId, db);
+
+  const targetIsDebitNormal =
+    target.category === ChartAccountCategory.ASSET ||
+    target.category === ChartAccountCategory.EXPENSE;
+
+  const targetDebit = targetIsDebitNormal ? amount : dec(0);
+  const targetCredit = targetIsDebitNormal ? dec(0) : amount;
+  const offsetDebit = targetIsDebitNormal ? dec(0) : amount;
+  const offsetCredit = targetIsDebitNormal ? amount : dec(0);
+
+  const postedAt = input.postedAt ?? new Date();
+  const memoParts = [
+    input.memo?.trim() || `Opening balance | ${target.code} ${target.name}`,
+    input.reference?.trim() ? `Ref: ${input.reference.trim()}` : null,
+  ].filter(Boolean);
+
+  return db.journalEntry.create({
+    data: {
+      businessId,
+      postedAt,
+      memo: memoParts.join(" | "),
+      reference: input.reference?.trim() || null,
+      sourceType: JournalSourceType.OPENING_BALANCE,
+      sourceId: target.id,
+      postedByPlatformUserId: input.postedByPlatformUserId?.trim() || null,
+      lines: {
+        create: [
+          {
+            chartOfAccountId: target.id,
+            debitAmount: targetDebit,
+            creditAmount: targetCredit,
+            description: `Opening balance — ${target.code} ${target.name}`,
+            taxAmount: dec(0),
+          },
+          {
+            chartOfAccountId: offset.id,
+            debitAmount: offsetDebit,
+            creditAmount: offsetCredit,
+            description: `Opening balance offset — ${offset.code} ${offset.name}`,
+            taxAmount: dec(0),
+          },
+        ],
       },
     },
     include: { lines: { include: { chartOfAccount: { select: { code: true, name: true } } } } },

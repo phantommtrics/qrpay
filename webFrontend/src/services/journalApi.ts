@@ -162,6 +162,7 @@ export const JOURNAL_SOURCE_FILTER_OPTIONS: Array<{ value: string; label: string
   { value: 'SALES_INVOICE_PAYMENT', label: 'Sales invoice payment' },
   { value: 'PURCHASE_BILL_PAYMENT', label: 'Purchase bill payment' },
   { value: 'MANUAL_GENERAL_JOURNAL', label: 'General journal' },
+  { value: 'OPENING_BALANCE', label: 'Opening balance' },
   { value: 'MANUAL_JOURNAL_REVERSAL', label: 'Journal reversal' },
 ]
 

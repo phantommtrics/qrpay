@@ -16,6 +16,7 @@ This folder contains **architecture**, **component**, and **workflow** documenta
 | [Sales documents & guest links](./workflows-sales-documents-and-guest.md) | Quotations, invoices, PDFs, public guest URLs, invoice wallet pay |
 | [Restaurant](./workflows-restaurant.md) | Guest menu, table tokens, rate limits |
 | [Accounting](./workflows-accounting.md) | Business chart of accounts, journals, GL and profit-and-loss reports |
+| [Merchant operations booklet](./merchant-operations-booklet.md) | Customer handbook: POS → sales docs → settlement → DR/CR accounting, P&L/GL/statements (GMD) |
 | [Operations & environment](./operations-and-env.md) | Env vars, migrations, webhooks, deployment notes |
 | [Platform administration](./platform-admin.md) | Platform owner UI, APIs, date filters (existing doc) |
 | [7-aside internal partner integration](./INTEGRATION_7ASIDE.md) | Server-to-server API, webhooks, HMAC verification, log prefixes for booking app integration |

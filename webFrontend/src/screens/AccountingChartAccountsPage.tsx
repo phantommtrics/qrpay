@@ -9,7 +9,7 @@ import {
   type FormEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ChevronDown, Plus, Search, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Plus, Search, Scale, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { CenteredModal } from '../components/ui/CenteredModal'
@@ -38,10 +38,130 @@ import {
 import {
   createChartAccount,
   fetchAccountingSummary,
+  OPENING_BALANCE_DEFAULT_EQUITY_CODE,
+  postOpeningBalance,
   type AccountingAccountRow,
 } from '../services/accountingApi'
 import { ApiError } from '../services/subscriptionApi'
 import { formatMoney } from '../utils/formatMoney'
+
+const emptyCreateForm = () => ({
+  accountKind: 'ledger' as 'ledger' | 'bank',
+  code: '',
+  name: '',
+  description: '',
+  accountTypeKey: DEFAULT_CHART_ACCOUNT_TYPE_KEY,
+  bankName: '',
+  bankAccountNumber: '',
+  bankDetails: '',
+  openingBalance: '',
+  offsetChartOfAccountId: '',
+  openingBalancePostedAt: '',
+})
+
+const emptyOpeningForm = () => ({
+  amount: '',
+  offsetChartOfAccountId: '',
+  postedAt: '',
+  memo: '',
+})
+
+function defaultEquityOffsetId(accounts: AccountingAccountRow[]): string {
+  const equity = accounts.find((a) => a.code === OPENING_BALANCE_DEFAULT_EQUITY_CODE)
+  return equity?.id ?? ''
+}
+
+function OpeningBalanceFields({
+  amount,
+  offsetChartOfAccountId,
+  postedAt,
+  accounts,
+  excludeAccountId,
+  disabled,
+  onAmountChange,
+  onOffsetChange,
+  onPostedAtChange,
+  amountLabel = 'Amount (GMD)',
+}: {
+  amount: string
+  offsetChartOfAccountId: string
+  postedAt: string
+  accounts: AccountingAccountRow[]
+  excludeAccountId?: string | null
+  disabled?: boolean
+  onAmountChange: (v: string) => void
+  onOffsetChange: (v: string) => void
+  onPostedAtChange: (v: string) => void
+  amountLabel?: string
+}) {
+  const offsetOptions = accounts
+    .filter((a) => a.id !== excludeAccountId)
+    .slice()
+    .sort((a, b) => compareChartAccountCodes(a.code, b.code))
+
+  return (
+    <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Opening balance (migration)
+        </p>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">
+          Use when moving balances from another system. Posts a journal that needs approval before
+          it appears on reports.
+        </p>
+      </div>
+      <label className="block space-y-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          {amountLabel}
+        </span>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={amount}
+          onChange={(e) => onAmountChange(e.target.value)}
+          disabled={disabled}
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-slate-900 tabular-nums outline-none transition-shadow placeholder:text-slate-400 focus:border-teal-400 focus:ring-2 focus:ring-teal-500/20"
+          placeholder="0.00"
+          autoComplete="off"
+        />
+      </label>
+      <label className="block space-y-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Offset account
+        </span>
+        <select
+          value={offsetChartOfAccountId}
+          onChange={(e) => onOffsetChange(e.target.value)}
+          disabled={disabled}
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-shadow focus:border-teal-400 focus:ring-2 focus:ring-teal-500/20"
+        >
+          <option value="">Default — equity {OPENING_BALANCE_DEFAULT_EQUITY_CODE}</option>
+          {offsetOptions.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.code} — {a.name}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-slate-500">
+          Balancing side of the entry. Defaults to Owner share capital ({OPENING_BALANCE_DEFAULT_EQUITY_CODE}).
+        </p>
+      </label>
+      <label className="block space-y-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          As-of date{' '}
+          <span className="font-normal normal-case text-slate-400">(optional)</span>
+        </span>
+        <input
+          type="date"
+          value={postedAt}
+          onChange={(e) => onPostedAtChange(e.target.value)}
+          disabled={disabled}
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-slate-900 outline-none transition-shadow focus:border-teal-400 focus:ring-2 focus:ring-teal-500/20"
+        />
+      </label>
+    </div>
+  )
+}
 
 function chartAccountDetailsCell(a: AccountingAccountRow) {
   if (a.kind === 'BANK') {
@@ -277,25 +397,23 @@ function AccountTypeSearchCombobox({
 }
 
 export function AccountingChartAccountsPage() {
-  const { currentOrganization } = useAuth()
+  const { currentOrganization, canAccess } = useAuth()
   const businessId = currentOrganization?.id
+  const canPostOpeningBalance = canAccess('accounting.journals.general')
+  const canTransactionJournal = canAccess('accounting.transaction_journal')
   const [accounts, setAccounts] = useState<AccountingAccountRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successNote, setSuccessNote] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
-  const [form, setForm] = useState({
-    accountKind: 'ledger' as 'ledger' | 'bank',
-    code: '',
-    name: '',
-    description: '',
-    accountTypeKey: DEFAULT_CHART_ACCOUNT_TYPE_KEY,
-    bankName: '',
-    bankAccountNumber: '',
-    bankDetails: '',
-  })
+  const [form, setForm] = useState(emptyCreateForm)
+  const [openingTarget, setOpeningTarget] = useState<AccountingAccountRow | null>(null)
+  const [openingForm, setOpeningForm] = useState(emptyOpeningForm)
+  const [openingError, setOpeningError] = useState<string | null>(null)
+  const [openingSubmitting, setOpeningSubmitting] = useState(false)
 
   const load = useCallback(() => {
     if (!businessId) return
@@ -358,27 +476,70 @@ export function AccountingChartAccountsPage() {
   const closeModal = () => {
     setModalOpen(false)
     setFormError(null)
+    setForm(emptyCreateForm())
+  }
+
+  const openCreateModal = () => {
+    setFormError(null)
     setForm({
-      accountKind: 'ledger',
-      code: '',
-      name: '',
-      description: '',
-      accountTypeKey: DEFAULT_CHART_ACCOUNT_TYPE_KEY,
-      bankName: '',
-      bankAccountNumber: '',
-      bankDetails: '',
+      ...emptyCreateForm(),
+      offsetChartOfAccountId: defaultEquityOffsetId(accounts),
     })
+    setModalOpen(true)
+  }
+
+  const closeOpeningModal = () => {
+    setOpeningTarget(null)
+    setOpeningError(null)
+    setOpeningForm(emptyOpeningForm())
+  }
+
+  const openOpeningModal = (account: AccountingAccountRow) => {
+    setOpeningError(null)
+    setOpeningForm({
+      ...emptyOpeningForm(),
+      offsetChartOfAccountId: defaultEquityOffsetId(accounts.filter((a) => a.id !== account.id)),
+    })
+    setOpeningTarget(account)
+  }
+
+  const parseAmount = (raw: string): number | null => {
+    const t = raw.trim().replace(/,/g, '')
+    if (!t) return null
+    const n = Number(t)
+    if (!Number.isFinite(n) || n <= 0) return NaN
+    return n
   }
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault()
     if (!businessId) return
     setFormError(null)
+    const openingAmount = parseAmount(form.openingBalance)
+    if (form.openingBalance.trim() && (openingAmount === null || Number.isNaN(openingAmount))) {
+      setFormError('Opening balance must be a positive amount.')
+      return
+    }
+    if (openingAmount != null && !canPostOpeningBalance) {
+      setFormError('Posting an opening balance requires general journal access.')
+      return
+    }
     setSubmitting(true)
     try {
       const desc = form.description.trim()
+      const openingPayload =
+        openingAmount != null
+          ? {
+              openingBalance: openingAmount,
+              offsetChartOfAccountId: form.offsetChartOfAccountId.trim() || null,
+              openingBalancePostedAt: form.openingBalancePostedAt.trim()
+                ? `${form.openingBalancePostedAt.trim()}T00:00:00.000Z`
+                : null,
+            }
+          : {}
+      let created
       if (form.accountKind === 'bank') {
-        await createChartAccount(businessId, {
+        created = await createChartAccount(businessId, {
           kind: 'BANK',
           code: form.code.trim(),
           name: form.name.trim(),
@@ -387,22 +548,62 @@ export function AccountingChartAccountsPage() {
           bankAccountNumber: form.bankAccountNumber.trim(),
           bankDetails: form.bankDetails.trim() || null,
           ...(desc ? { description: desc } : {}),
+          ...openingPayload,
         })
       } else {
-        await createChartAccount(businessId, {
+        created = await createChartAccount(businessId, {
           kind: 'LEDGER',
           code: form.code.trim(),
           name: form.name.trim(),
           category: chartAccountCategoryForTypeKey(form.accountTypeKey),
           ...(desc ? { description: desc } : {}),
+          ...openingPayload,
         })
       }
       closeModal()
+      if (created.openingJournalEntryId) {
+        setSuccessNote(
+          'Account created. Opening balance journal is pending approval before it appears on reports.',
+        )
+      } else {
+        setSuccessNote(null)
+      }
       load()
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : 'Could not create account.')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleOpeningSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!businessId || !openingTarget) return
+    setOpeningError(null)
+    const amount = parseAmount(openingForm.amount)
+    if (amount == null || Number.isNaN(amount)) {
+      setOpeningError('Enter a positive opening balance amount.')
+      return
+    }
+    setOpeningSubmitting(true)
+    try {
+      await postOpeningBalance(businessId, openingTarget.id, {
+        amount,
+        offsetChartOfAccountId: openingForm.offsetChartOfAccountId.trim() || null,
+        postedAt: openingForm.postedAt.trim()
+          ? `${openingForm.postedAt.trim()}T00:00:00.000Z`
+          : null,
+        memo: openingForm.memo.trim() || null,
+      })
+      closeOpeningModal()
+      setSuccessNote(
+        `Opening balance posted for ${openingTarget.code}. Approve the journal before it appears on reports.`,
+      )
+      load()
+    } catch (err) {
+      setOpeningError(err instanceof ApiError ? err.message : 'Could not post opening balance.')
+    } finally {
+      setOpeningSubmitting(false)
     }
   }
 
@@ -505,13 +706,36 @@ export function AccountingChartAccountsPage() {
             </div>
             <button
               type="button"
-              onClick={() => setModalOpen(true)}
+              onClick={openCreateModal}
               className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-teal-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
             >
               <Plus className="h-4 w-4" strokeWidth={2} />
               New account
             </button>
           </div>
+
+          {successNote ? (
+            <div className="flex flex-col gap-2 rounded-xl border border-teal-200 bg-teal-50/80 px-4 py-3 text-sm text-teal-900 sm:flex-row sm:items-center sm:justify-between">
+              <p className="leading-relaxed">{successNote}</p>
+              <div className="flex shrink-0 items-center gap-3">
+                {canTransactionJournal ? (
+                  <Link
+                    to={APP_PATHS.accountingTransactionJournal}
+                    className="font-medium text-teal-800 underline decoration-teal-300 underline-offset-2 hover:text-teal-950"
+                  >
+                    Open transaction journal
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setSuccessNote(null)}
+                  className="rounded-lg px-2 py-1 text-xs font-medium text-teal-700 hover:bg-teal-100"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative max-w-md flex-1">
@@ -631,7 +855,7 @@ export function AccountingChartAccountsPage() {
                   </div>
 
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                    <table className="w-full min-w-[720px] border-collapse text-left text-sm">
                       <thead>
                         <tr className="border-b border-slate-200 bg-white">
                           <th className="px-5 py-3.5 font-medium text-slate-500 sm:px-6">Code</th>
@@ -642,18 +866,29 @@ export function AccountingChartAccountsPage() {
                           <th className="px-5 py-3.5 text-right font-medium text-slate-500 sm:px-6">
                             Balance
                           </th>
+                          {canPostOpeningBalance ? (
+                            <th className="px-3 py-3.5 text-right font-medium text-slate-500 sm:pr-6">
+                              <span className="sr-only">Actions</span>
+                            </th>
+                          ) : null}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 bg-white">
                         {loading ? (
                           <tr>
-                            <td colSpan={4} className="px-6 py-10 text-center text-slate-400">
+                            <td
+                              colSpan={canPostOpeningBalance ? 5 : 4}
+                              className="px-6 py-10 text-center text-slate-400"
+                            >
                               Loading…
                             </td>
                           </tr>
                         ) : rows.length === 0 ? (
                           <tr>
-                            <td colSpan={4} className="px-6 py-10 text-center text-slate-400">
+                            <td
+                              colSpan={canPostOpeningBalance ? 5 : 4}
+                              className="px-6 py-10 text-center text-slate-400"
+                            >
                               No accounts in this section
                               {filterActive ? ' for this search' : ''}.
                             </td>
@@ -687,6 +922,19 @@ export function AccountingChartAccountsPage() {
                               <td className="px-5 py-4 text-right text-sm font-semibold tabular-nums text-slate-900 whitespace-nowrap sm:px-6">
                                 {formatMoney(a.balance, { decimals: 0 })}
                               </td>
+                              {canPostOpeningBalance ? (
+                                <td className="px-3 py-4 text-right sm:pr-6">
+                                  <button
+                                    type="button"
+                                    onClick={() => openOpeningModal(a)}
+                                    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-teal-700 transition-colors hover:bg-teal-50"
+                                    title="Add opening balance"
+                                  >
+                                    <Scale className="h-3.5 w-3.5" strokeWidth={2} />
+                                    Opening
+                                  </button>
+                                </td>
+                              ) : null}
                             </tr>
                           ))
                         )}
@@ -878,6 +1126,25 @@ export function AccountingChartAccountsPage() {
                   </p>
                 </div>
               ) : null}
+
+              {canPostOpeningBalance ? (
+                <OpeningBalanceFields
+                  amount={form.openingBalance}
+                  offsetChartOfAccountId={form.offsetChartOfAccountId}
+                  postedAt={form.openingBalancePostedAt}
+                  accounts={accounts}
+                  disabled={submitting}
+                  amountLabel="Opening balance (GMD, optional)"
+                  onAmountChange={(openingBalance) => setForm((f) => ({ ...f, openingBalance }))}
+                  onOffsetChange={(offsetChartOfAccountId) =>
+                    setForm((f) => ({ ...f, offsetChartOfAccountId }))
+                  }
+                  onPostedAtChange={(openingBalancePostedAt) =>
+                    setForm((f) => ({ ...f, openingBalancePostedAt }))
+                  }
+                />
+              ) : null}
+
               {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
               <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-6">
                 <button
@@ -893,6 +1160,80 @@ export function AccountingChartAccountsPage() {
                   className="rounded-lg bg-teal-600 px-5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-teal-700 disabled:opacity-50"
                 >
                   {submitting ? 'Saving…' : 'Create account'}
+                </button>
+              </div>
+            </form>
+          </CenteredModal>
+        </div>
+      ) : null}
+
+      {openingTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <ModalOverlay
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+            onClick={() => !openingSubmitting && closeOpeningModal()}
+          />
+          <CenteredModal className="relative z-10 max-h-[min(90vh,640px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200/80 bg-white p-8 shadow-xl ring-1 ring-slate-900/5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Add opening balance</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  <span className="font-mono text-slate-700">{openingTarget.code}</span>
+                  {' — '}
+                  {openingTarget.name}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !openingSubmitting && closeOpeningModal()}
+                className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form className="mt-8 space-y-5" onSubmit={(e) => void handleOpeningSubmit(e)}>
+              <OpeningBalanceFields
+                amount={openingForm.amount}
+                offsetChartOfAccountId={openingForm.offsetChartOfAccountId}
+                postedAt={openingForm.postedAt}
+                accounts={accounts}
+                excludeAccountId={openingTarget.id}
+                disabled={openingSubmitting}
+                onAmountChange={(amount) => setOpeningForm((f) => ({ ...f, amount }))}
+                onOffsetChange={(offsetChartOfAccountId) =>
+                  setOpeningForm((f) => ({ ...f, offsetChartOfAccountId }))
+                }
+                onPostedAtChange={(postedAt) => setOpeningForm((f) => ({ ...f, postedAt }))}
+              />
+              <label className="block space-y-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Memo <span className="font-normal normal-case text-slate-400">(optional)</span>
+                </span>
+                <input
+                  value={openingForm.memo}
+                  onChange={(e) => setOpeningForm((f) => ({ ...f, memo: e.target.value }))}
+                  disabled={openingSubmitting}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-slate-900 outline-none transition-shadow placeholder:text-slate-400 focus:border-teal-400 focus:ring-2 focus:ring-teal-500/20"
+                  placeholder="e.g. Migrated from previous books"
+                  autoComplete="off"
+                />
+              </label>
+              {openingError ? <p className="text-sm text-red-600">{openingError}</p> : null}
+              <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-6">
+                <button
+                  type="button"
+                  onClick={() => !openingSubmitting && closeOpeningModal()}
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={openingSubmitting}
+                  className="rounded-lg bg-teal-600 px-5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-teal-700 disabled:opacity-50"
+                >
+                  {openingSubmitting ? 'Posting…' : 'Post opening balance'}
                 </button>
               </div>
             </form>
