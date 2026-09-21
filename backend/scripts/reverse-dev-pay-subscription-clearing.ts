@@ -12,11 +12,13 @@
  *   npx tsx scripts/reverse-dev-pay-subscription-clearing.ts --apply
  *   npx tsx scripts/reverse-dev-pay-subscription-clearing.ts --apply --revert-invoices
  *   npx tsx scripts/reverse-dev-pay-subscription-clearing.ts --apply --wipe
+ *   npx tsx scripts/reverse-dev-pay-subscription-clearing.ts --apply --repair-orphans
  *   npx tsx scripts/reverse-dev-pay-subscription-clearing.ts --dev-pay-only --apply --revert-invoices
  *
  * Flags:
  *   --apply             Write changes (default is dry-run)
  *   --wipe              Hard-delete platform journals + billing ledger (instead of reverse + cancel)
+ *   --repair-orphans    Unpost DigitalOcean invoices / reopen platform bills whose journal is gone
  *   --revert-invoices   VOID PAID invoices linked to ledgers being cleared (ignored with --wipe unless also set)
  *   --dev-pay-only      Limit to Dev Pay / internal_dev billing + subscription payment journals only
  *   --provider=X        Dev Pay provider filter when --dev-pay-only (default: internal_dev)
@@ -24,6 +26,8 @@
 import "dotenv/config";
 import {
   BillingLedgerStatus,
+  BillStatus,
+  DigitalOceanInvoiceStatus,
   InvoiceStatus,
   PlatformJournalSourceType,
   Prisma,
@@ -49,6 +53,7 @@ type Args = {
   wipe: boolean;
   revertInvoices: boolean;
   devPayOnly: boolean;
+  repairOrphans: boolean;
   provider: string;
 };
 
@@ -57,18 +62,20 @@ function parseArgs(argv: string[]): Args {
   let wipe = false;
   let revertInvoices = false;
   let devPayOnly = false;
+  let repairOrphans = false;
   let provider = DEV_PAY_PROVIDER_DEFAULT;
   for (const raw of argv) {
     if (raw === "--apply") apply = true;
     else if (raw === "--wipe") wipe = true;
     else if (raw === "--revert-invoices") revertInvoices = true;
     else if (raw === "--dev-pay-only") devPayOnly = true;
+    else if (raw === "--repair-orphans") repairOrphans = true;
     else if (raw.startsWith("--provider=")) {
       const v = raw.slice("--provider=".length).trim();
       if (v) provider = v;
     }
   }
-  return { apply, wipe, revertInvoices, devPayOnly, provider };
+  return { apply, wipe, revertInvoices, devPayOnly, repairOrphans, provider };
 }
 
 function money(n: Prisma.Decimal | number): string {
@@ -280,12 +287,176 @@ async function voidInvoices(invoiceIds: string[], apply: boolean): Promise<numbe
   return n;
 }
 
-async function wipePlatformJournals(apply: boolean): Promise<number> {
+/**
+ * After journals are wiped/reversed, DO invoices and platform bills must not stay POSTED/PAID
+ * with a missing journal — UI still treats them as posted.
+ */
+async function unpostPlatformDocumentsMissingJournals(
+  tx: Prisma.TransactionClient,
+  opts: { apply: boolean },
+): Promise<{ digitalOceanUnposted: number; platformBillsReopened: number; doBillsDeleted: number }> {
+  const postedDo = await tx.digitalOceanInvoice.findMany({
+    where: {
+      OR: [
+        { status: DigitalOceanInvoiceStatus.POSTED },
+        { platformJournalEntryId: { not: null } },
+        { postedAt: { not: null } },
+      ],
+    },
+    select: {
+      id: true,
+      invoiceId: true,
+      billingPeriod: true,
+      status: true,
+      platformJournalEntryId: true,
+      platformBillId: true,
+    },
+  });
+
+  // Only unpost when the linked journal is gone (wipe) or already reversed.
+  const toUnpost = [];
+  for (const row of postedDo) {
+    if (!row.platformJournalEntryId) {
+      toUnpost.push(row);
+      continue;
+    }
+    const journal = await tx.platformJournalEntry.findUnique({
+      where: { id: row.platformJournalEntryId },
+      select: {
+        id: true,
+        reversedByPlatformEntry: { select: { id: true } },
+      },
+    });
+    if (!journal || journal.reversedByPlatformEntry) toUnpost.push(row);
+  }
+
+  const paidBills = await tx.platformBill.findMany({
+    where: {
+      OR: [
+        { status: BillStatus.PAID },
+        { platformJournalEntryId: { not: null } },
+        { paidAt: { not: null } },
+      ],
+    },
+    select: {
+      id: true,
+      publicCode: true,
+      status: true,
+      platformJournalEntryId: true,
+      paymentGatewayCode: true,
+    },
+  });
+
+  const billsMissingJournal = [];
+  for (const bill of paidBills) {
+    if (!bill.platformJournalEntryId) {
+      billsMissingJournal.push(bill);
+      continue;
+    }
+    const journal = await tx.platformJournalEntry.findUnique({
+      where: { id: bill.platformJournalEntryId },
+      select: {
+        id: true,
+        reversedByPlatformEntry: { select: { id: true } },
+      },
+    });
+    if (!journal || journal.reversedByPlatformEntry) billsMissingJournal.push(bill);
+  }
+
+  console.log(
+    `\n[platform-clear] DigitalOcean invoices to unpost: ${toUnpost.length}` +
+      (toUnpost.length
+        ? ` (${toUnpost.map((r) => `${r.invoiceId}/${r.billingPeriod}`).join(", ")})`
+        : ""),
+  );
+  console.log(`[platform-clear] Platform bills missing journal to reopen/delete: ${billsMissingJournal.length}`);
+
+  if (!opts.apply) {
+    return {
+      digitalOceanUnposted: toUnpost.length,
+      platformBillsReopened: billsMissingJournal.filter((b) => b.paymentGatewayCode !== "DIGITALOCEAN")
+        .length,
+      doBillsDeleted: billsMissingJournal.filter((b) => b.paymentGatewayCode === "DIGITALOCEAN").length,
+    };
+  }
+
+  let doBillsDeleted = 0;
+  let platformBillsReopened = 0;
+
+  for (const row of toUnpost) {
+    const billId = row.platformBillId;
+    await tx.digitalOceanInvoice.update({
+      where: { id: row.id },
+      data: {
+        status: DigitalOceanInvoiceStatus.SYNCED,
+        platformJournalEntryId: null,
+        platformBillId: null,
+        settlementChartAccountId: null,
+        fxRateGmdPerUsd: null,
+        amountGmd: null,
+        postedAt: null,
+        postedByUserId: null,
+      },
+    });
+    if (billId) {
+      await tx.platformBillLine.deleteMany({ where: { billId } });
+      await tx.platformBill.delete({ where: { id: billId } }).catch(() => undefined);
+      doBillsDeleted += 1;
+    }
+  }
+
+  for (const bill of billsMissingJournal) {
+    // Already deleted with DO invoice unlink above.
+    const stillThere = await tx.platformBill.findUnique({
+      where: { id: bill.id },
+      select: { id: true, paymentGatewayCode: true },
+    });
+    if (!stillThere) continue;
+
+    if (stillThere.paymentGatewayCode === "DIGITALOCEAN") {
+      await tx.platformBillLine.deleteMany({ where: { billId: bill.id } });
+      await tx.platformBill.delete({ where: { id: bill.id } });
+      doBillsDeleted += 1;
+      continue;
+    }
+
+    await tx.platformBill.update({
+      where: { id: bill.id },
+      data: {
+        status: BillStatus.APPROVED,
+        paidAt: null,
+        platformJournalEntryId: null,
+        settlementChartAccountId: null,
+      },
+    });
+    platformBillsReopened += 1;
+  }
+
+  return {
+    digitalOceanUnposted: toUnpost.length,
+    platformBillsReopened,
+    doBillsDeleted,
+  };
+}
+
+async function wipePlatformJournals(apply: boolean): Promise<{
+  wiped: number;
+  digitalOceanUnposted: number;
+  platformBillsReopened: number;
+  doBillsDeleted: number;
+}> {
   const count = await prisma.platformJournalEntry.count();
   console.log(`\n[platform-clear] Platform journals to wipe: ${count}`);
-  if (!apply || count === 0) return count;
 
-  await prisma.$transaction(async (tx) => {
+  if (!apply) {
+    const preview = await prisma.$transaction((tx) =>
+      unpostPlatformDocumentsMissingJournals(tx, { apply: false }),
+    );
+    // Dry-run still reports DO/bills that are already orphaned from a prior wipe.
+    return { wiped: count, ...preview };
+  }
+
+  return prisma.$transaction(async (tx) => {
     await tx.waveSelfSettlementPayout.updateMany({
       where: { platformJournalEntryId: { not: null } },
       data: { platformJournalEntryId: null },
@@ -315,9 +486,10 @@ async function wipePlatformJournals(apply: boolean): Promise<number> {
 
     await tx.platformJournalLine.deleteMany({});
     await tx.platformJournalEntry.deleteMany({});
-  });
 
-  return count;
+    const docStats = await unpostPlatformDocumentsMissingJournals(tx, { apply: true });
+    return { wiped: count, ...docStats };
+  });
 }
 
 async function reverseAllPlatformJournals(args: Args): Promise<{
@@ -436,7 +608,8 @@ async function main() {
   }
   console.log(
     `[platform-clear] mode=${args.apply ? "APPLY" : "DRY-RUN"} wipe=${args.wipe} ` +
-      `devPayOnly=${args.devPayOnly} provider=${args.provider} revertInvoices=${args.revertInvoices}`,
+      `repairOrphans=${args.repairOrphans} devPayOnly=${args.devPayOnly} provider=${args.provider} ` +
+      `revertInvoices=${args.revertInvoices}`,
   );
   console.log(
     "[platform-clear] Merchant journals / sales ledgers / tenant CoA will NOT be modified.",
@@ -453,18 +626,38 @@ async function main() {
     skippedIsReversal: 0,
     skippedEmpty: 0,
   };
-  let wipedJournals = 0;
+  let wipeStats = {
+    wiped: 0,
+    digitalOceanUnposted: 0,
+    platformBillsReopened: 0,
+    doBillsDeleted: 0,
+  };
+  let orphanStats = {
+    digitalOceanUnposted: 0,
+    platformBillsReopened: 0,
+    doBillsDeleted: 0,
+  };
 
-  if (args.wipe) {
-    wipedJournals = await wipePlatformJournals(args.apply);
+  if (args.repairOrphans && !args.wipe) {
+    orphanStats = await prisma.$transaction((tx) =>
+      unpostPlatformDocumentsMissingJournals(tx, { apply: args.apply }),
+    );
+  } else if (args.wipe) {
+    wipeStats = await wipePlatformJournals(args.apply);
   } else {
     journalStats = await reverseAllPlatformJournals(args);
+    // Reversing purchase-bill journals leaves DO invoices / bills marked posted/paid.
+    orphanStats = await prisma.$transaction((tx) =>
+      unpostPlatformDocumentsMissingJournals(tx, { apply: args.apply }),
+    );
   }
 
-  const ledgerStats = await clearBillingLedgers(args, null);
+  const ledgerStats = args.repairOrphans && !args.wipe
+    ? { cancelled: 0, deleted: 0, invoiceIds: [] as string[] }
+    : await clearBillingLedgers(args, null);
 
   let invoicesVoided = 0;
-  if (args.revertInvoices) {
+  if (args.revertInvoices && !(args.repairOrphans && !args.wipe)) {
     invoicesVoided = await voidInvoices(ledgerStats.invoiceIds, args.apply);
   }
 
@@ -477,18 +670,32 @@ async function main() {
     printBalances("Platform account nets AFTER", balancesAfter);
   }
 
+  const doUnposted = args.wipe ? wipeStats.digitalOceanUnposted : orphanStats.digitalOceanUnposted;
+  const billsReopened = args.wipe ? wipeStats.platformBillsReopened : orphanStats.platformBillsReopened;
+  const doBillsDeleted = args.wipe ? wipeStats.doBillsDeleted : orphanStats.doBillsDeleted;
+
   console.log("\n[platform-clear] Summary");
-  if (args.wipe) {
-    console.log(`  platform journals wiped:        ${wipedJournals}`);
+  if (args.repairOrphans && !args.wipe) {
+    console.log(`  DigitalOcean invoices unposted: ${doUnposted}`);
+    console.log(`  platform bills reopened:        ${billsReopened}`);
+    console.log(`  DO platform bills deleted:      ${doBillsDeleted}`);
+  } else if (args.wipe) {
+    console.log(`  platform journals wiped:        ${wipeStats.wiped}`);
+    console.log(`  DigitalOcean invoices unposted: ${wipeStats.digitalOceanUnposted}`);
+    console.log(`  platform bills reopened:        ${wipeStats.platformBillsReopened}`);
+    console.log(`  DO platform bills deleted:      ${wipeStats.doBillsDeleted}`);
     console.log(`  billing ledgers deleted:        ${ledgerStats.deleted}`);
   } else {
     console.log(`  journals reversed:              ${journalStats.reversed}`);
     console.log(`  skipped already reversed:       ${journalStats.skippedAlreadyReversed}`);
     console.log(`  skipped (is a reversal):        ${journalStats.skippedIsReversal}`);
     console.log(`  skipped empty:                  ${journalStats.skippedEmpty}`);
+    console.log(`  DigitalOcean invoices unposted: ${doUnposted}`);
+    console.log(`  platform bills reopened:        ${billsReopened}`);
+    console.log(`  DO platform bills deleted:      ${doBillsDeleted}`);
     console.log(`  billing ledgers cancelled:      ${ledgerStats.cancelled}`);
   }
-  if (args.revertInvoices) {
+  if (args.revertInvoices && !(args.repairOrphans && !args.wipe)) {
     console.log(`  invoices voided / to void:      ${invoicesVoided}`);
   }
   console.log(
@@ -498,7 +705,8 @@ async function main() {
   if (!args.apply) {
     console.log("\nDry-run only. Re-run with --apply to write changes.");
     console.log("  --apply                         reverse all unreversed platform journals + cancel billing ledgers");
-    console.log("  --apply --wipe                  hard-delete platform journals + billing ledgers");
+    console.log("  --apply --wipe                  hard-delete platform journals + billing ledgers + unpost DO bills");
+    console.log("  --apply --repair-orphans        unpost DO invoices / reopen bills whose journal is already gone");
     console.log("  --apply --revert-invoices       also VOID linked PAID subscription invoices");
     console.log("  --dev-pay-only                  limit to Dev Pay / internal_dev activity only");
     console.log(
