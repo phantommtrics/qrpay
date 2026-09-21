@@ -1,27 +1,32 @@
 /**
- * Clear merchant "Wave operations payouts received" (WAVE_MERCHANT_PAYOUTS) ledgers.
+ * Clear merchant "Wave operations payouts received" (WAVE_MERCHANT_PAYOUTS) ledger legs.
  *
- * Live cleanup case: platform WAVE_OPS journals were wiped, but merchant
- * WAVE_OPS_MERCHANT_PAYOUT journals (and sales ledger rows) remain as orphans.
+ * Live case: platform WAVE_OPS journals were wiped, but merchant journals still have
+ * legs on WAVE_MERCHANT_PAYOUTS — e.g. ref:
+ *   "DPAY-12 DirectPay settlement — BarakahFunds — 48900.00 GMD"
  *
- * Usage (from backend/, against the target DATABASE_URL):
+ * Matching is by **account lines** (not only WAVE_OPS sourceType), so mis-tagged or
+ * orphan journals are still found.
+ *
+ * Usage (from backend/, against live DATABASE_URL):
  *   npx tsx scripts/wipe-wave-ops-merchant-payout-ledgers.ts --orphans
- *   npx tsx scripts/wipe-wave-ops-merchant-payout-ledgers.ts --orphans --apply
- *   npx tsx scripts/wipe-wave-ops-merchant-payout-ledgers.ts --orphans --apply --wipe
- *   npx tsx scripts/wipe-wave-ops-merchant-payout-ledgers.ts --all --apply --wipe
+ *   npx tsx scripts/wipe-wave-ops-merchant-payout-ledgers.ts --reference-contains="DPAY-12" --amount=48900
+ *   npx tsx scripts/wipe-wave-ops-merchant-payout-ledgers.ts --reference-contains="DPAY-12" --amount=48900 --apply --wipe
+ *   npx tsx scripts/wipe-wave-ops-merchant-payout-ledgers.ts --memo-contains=BarakahFunds --apply --wipe
  *
  * Flags:
- *   --orphans               Only merchant WAVE_OPS journals with no platform journal left (default recommended)
- *   --apply                 Write changes (default dry-run)
- *   --wipe                  Hard-delete matched journals + sales ledger (after reverse if needed)
- *   --all                   Include every WAVE_OPS merchant payout journal (paired or orphan)
- *   --merchant-contains=X   Filter by business name
- *   --memo-contains=X       Filter by journal memo
- *   --reference=X           Filter by journal reference / Wave client reference
- *   --amount=N              Filter by journal line amount
- *   --journal-id=ID         Exact merchant journal id (original or reversal)
- *   --source-id=ID          WaveOpsPayout id (journal sourceId)
- *   --posted-at=YYYY-MM-DD  Reversal date when an open original must be reversed first
+ *   --orphans                  Only journals whose WaveOpsPayout has no platform journal
+ *   --apply                    Write changes (default dry-run)
+ *   --wipe                     Hard-delete matched journals + sales ledger (after reverse if needed)
+ *   --all                      Every journal that has a WAVE_MERCHANT_PAYOUTS line
+ *   --merchant-contains=X      Filter by business name
+ *   --memo-contains=X          Substring on journal memo
+ *   --reference=X              Exact journal reference
+ *   --reference-contains=X     Substring on journal reference OR line description
+ *   --amount=N                 Match line amount on WAVE_MERCHANT_PAYOUTS
+ *   --journal-id=ID            Exact merchant journal id
+ *   --source-id=ID             WaveOpsPayout id / journal sourceId
+ *   --posted-at=YYYY-MM-DD     Reversal posted date
  */
 import "dotenv/config";
 import {
@@ -36,6 +41,7 @@ import {
 import { reverseMerchantJournalForWaveOpsPayout } from "../src/services/merchant-payout-journal.service.js";
 
 const prisma = new PrismaClient();
+const ACCOUNT_CODE = "WAVE_MERCHANT_PAYOUTS";
 
 type Args = {
   apply: boolean;
@@ -45,6 +51,7 @@ type Args = {
   merchantContains: string | null;
   memoContains: string | null;
   reference: string | null;
+  referenceContains: string | null;
   amount: Prisma.Decimal | null;
   journalId: string | null;
   sourceId: string | null;
@@ -59,6 +66,7 @@ function parseArgs(argv: string[]): Args {
   let merchantContains: string | null = null;
   let memoContains: string | null = null;
   let reference: string | null = null;
+  let referenceContains: string | null = null;
   let amount: Prisma.Decimal | null = null;
   let journalId: string | null = null;
   let sourceId: string | null = null;
@@ -73,6 +81,8 @@ function parseArgs(argv: string[]): Args {
       merchantContains = raw.slice("--merchant-contains=".length).trim() || null;
     } else if (raw.startsWith("--memo-contains=")) {
       memoContains = raw.slice("--memo-contains=".length).trim() || null;
+    } else if (raw.startsWith("--reference-contains=")) {
+      referenceContains = raw.slice("--reference-contains=".length).trim() || null;
     } else if (raw.startsWith("--reference=")) {
       reference = raw.slice("--reference=".length).trim() || null;
     } else if (raw.startsWith("--amount=")) {
@@ -88,8 +98,17 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
-  // Default to orphans when no other scope flag is given.
-  if (!all && !orphans && !journalId && !sourceId) {
+  if (
+    !all &&
+    !orphans &&
+    !journalId &&
+    !sourceId &&
+    !reference &&
+    !referenceContains &&
+    !memoContains &&
+    !merchantContains &&
+    !amount
+  ) {
     orphans = true;
   }
 
@@ -101,6 +120,7 @@ function parseArgs(argv: string[]): Args {
     merchantContains,
     memoContains,
     reference,
+    referenceContains,
     amount,
     journalId,
     sourceId,
@@ -133,14 +153,10 @@ type Match = {
   isReversal: boolean;
   orphan: boolean;
   amount: Prisma.Decimal;
+  waveOpsLegs: Array<{ debit: string; credit: string; description: string | null }>;
   lines: Array<{ code: string; name: string; debit: string; credit: string; description: string | null }>;
 };
 
-/**
- * A merchant WAVE_OPS journal is an orphan when the platform GL for that payout is gone:
- *  - WaveOpsPayout.platformJournalEntryId is null (or payout missing), AND
- *  - no PlatformJournalEntry WAVE_OPS_PAYOUT / REVERSAL with sourceId = payout id
- */
 async function payoutIdsWithPlatformJournal(): Promise<Set<string>> {
   const withLink = await prisma.waveOpsPayout.findMany({
     where: { platformJournalEntryId: { not: null } },
@@ -149,7 +165,10 @@ async function payoutIdsWithPlatformJournal(): Promise<Set<string>> {
   const platformRows = await prisma.platformJournalEntry.findMany({
     where: {
       sourceType: {
-        in: [PlatformJournalSourceType.WAVE_OPS_PAYOUT, PlatformJournalSourceType.WAVE_OPS_PAYOUT_REVERSAL],
+        in: [
+          PlatformJournalSourceType.WAVE_OPS_PAYOUT,
+          PlatformJournalSourceType.WAVE_OPS_PAYOUT_REVERSAL,
+        ],
       },
       sourceId: { not: null },
     },
@@ -163,29 +182,113 @@ async function payoutIdsWithPlatformJournal(): Promise<Set<string>> {
   return ids;
 }
 
+/**
+ * Find journals that have at least one line on WAVE_MERCHANT_PAYOUTS, then apply filters.
+ * Also pulls in reversal/original pairs so wipe removes both legs.
+ */
 async function findMatches(args: Args): Promise<Match[]> {
-  const where: Prisma.JournalEntryWhereInput = {
-    sourceType: {
-      in: [
-        JournalSourceType.WAVE_OPS_MERCHANT_PAYOUT,
-        JournalSourceType.WAVE_OPS_MERCHANT_PAYOUT_REVERSAL,
-      ],
-    },
+  const lineWhere: Prisma.JournalLineWhereInput = {
+    chartOfAccount: { code: ACCOUNT_CODE },
   };
+  if (args.amount) {
+    lineWhere.OR = [
+      { debitAmount: args.amount },
+      { creditAmount: args.amount },
+    ];
+  }
 
-  if (args.journalId) {
-    where.OR = [{ id: args.journalId }, { reversesJournalEntryId: args.journalId }];
-  } else {
-    if (args.sourceId) where.sourceId = args.sourceId;
-    if (args.reference) where.reference = { equals: args.reference, mode: "insensitive" };
-    if (args.memoContains) where.memo = { contains: args.memoContains, mode: "insensitive" };
-    if (args.merchantContains) {
-      where.business = { name: { contains: args.merchantContains, mode: "insensitive" } };
+  const legRows = await prisma.journalLine.findMany({
+    where: lineWhere,
+    select: { journalEntryId: true },
+    take: 5000,
+  });
+  const seedIds = new Set(legRows.map((r) => r.journalEntryId));
+
+  // Also seed from journal-level filters (ref may be on the entry, not the line).
+  if (
+    args.journalId ||
+    args.sourceId ||
+    args.reference ||
+    args.referenceContains ||
+    args.memoContains ||
+    args.merchantContains
+  ) {
+    const entryWhere: Prisma.JournalEntryWhereInput = {};
+    if (args.journalId) {
+      entryWhere.OR = [{ id: args.journalId }, { reversesJournalEntryId: args.journalId }];
+    } else {
+      const and: Prisma.JournalEntryWhereInput[] = [];
+      if (args.sourceId) and.push({ sourceId: args.sourceId });
+      if (args.reference) and.push({ reference: { equals: args.reference, mode: "insensitive" } });
+      if (args.referenceContains) {
+        and.push({
+          OR: [
+            { reference: { contains: args.referenceContains, mode: "insensitive" } },
+            { memo: { contains: args.referenceContains, mode: "insensitive" } },
+            {
+              lines: {
+                some: {
+                  description: { contains: args.referenceContains, mode: "insensitive" },
+                },
+              },
+            },
+          ],
+        });
+      }
+      if (args.memoContains) and.push({ memo: { contains: args.memoContains, mode: "insensitive" } });
+      if (args.merchantContains) {
+        and.push({ business: { name: { contains: args.merchantContains, mode: "insensitive" } } });
+      }
+      // Prefer journals that touch WAVE_MERCHANT_PAYOUTS when searching by text.
+      and.push({ lines: { some: { chartOfAccount: { code: ACCOUNT_CODE } } } });
+      if (and.length) entryWhere.AND = and;
+    }
+
+    const entries = await prisma.journalEntry.findMany({
+      where: entryWhere,
+      select: { id: true, reversesJournalEntryId: true },
+      take: 500,
+    });
+    for (const e of entries) {
+      seedIds.add(e.id);
+      if (e.reversesJournalEntryId) seedIds.add(e.reversesJournalEntryId);
     }
   }
 
+  if (!seedIds.size && (args.all || args.orphans)) {
+    const allLegs = await prisma.journalLine.findMany({
+      where: { chartOfAccount: { code: ACCOUNT_CODE } },
+      select: { journalEntryId: true },
+      take: 5000,
+    });
+    for (const r of allLegs) seedIds.add(r.journalEntryId);
+  }
+
+  if (!seedIds.size) return [];
+
+  // Expand to include originals + reversals for every seed.
+  const linked = await prisma.journalEntry.findMany({
+    where: {
+      OR: [
+        { id: { in: [...seedIds] } },
+        { reversesJournalEntryId: { in: [...seedIds] } },
+      ],
+    },
+    select: { id: true, reversesJournalEntryId: true },
+  });
+  const allIds = new Set<string>();
+  for (const j of linked) {
+    allIds.add(j.id);
+    if (j.reversesJournalEntryId) allIds.add(j.reversesJournalEntryId);
+  }
+  const reverseLinks = await prisma.journalEntry.findMany({
+    where: { reversesJournalEntryId: { in: [...allIds] } },
+    select: { id: true },
+  });
+  for (const j of reverseLinks) allIds.add(j.id);
+
   const rows = await prisma.journalEntry.findMany({
-    where,
+    where: { id: { in: [...allIds] } },
     include: {
       lines: {
         include: { chartOfAccount: { select: { code: true, name: true } } },
@@ -195,13 +298,13 @@ async function findMatches(args: Args): Promise<Match[]> {
       reversedByEntry: { select: { id: true } },
     },
     orderBy: [{ postedAt: "asc" }, { createdAt: "asc" }],
-    take: 500,
   });
 
   const platformPresent = await payoutIdsWithPlatformJournal();
 
   return rows
     .map((row) => {
+      const waveOpsLegs = row.lines.filter((ln) => ln.chartOfAccount.code === ACCOUNT_CODE);
       const orphan = !row.sourceId || !platformPresent.has(row.sourceId);
       return {
         id: row.id,
@@ -216,7 +319,12 @@ async function findMatches(args: Args): Promise<Match[]> {
         alreadyReversed: Boolean(row.reversedByEntry),
         isReversal: Boolean(row.reversesJournalEntryId),
         orphan,
-        amount: lineAmount(row.lines),
+        amount: lineAmount(waveOpsLegs.length ? waveOpsLegs : row.lines),
+        waveOpsLegs: waveOpsLegs.map((ln) => ({
+          debit: ln.debitAmount.toString(),
+          credit: ln.creditAmount.toString(),
+          description: ln.description,
+        })),
         lines: row.lines.map((ln) => ({
           code: ln.chartOfAccount.code,
           name: ln.chartOfAccount.name,
@@ -226,7 +334,17 @@ async function findMatches(args: Args): Promise<Match[]> {
         })),
       };
     })
+    .filter((r) => r.waveOpsLegs.length > 0)
     .filter((r) => (args.amount ? r.amount.eq(args.amount) : true))
+    .filter((r) => {
+      if (!args.referenceContains) return true;
+      const needle = args.referenceContains.toLowerCase();
+      return (
+        (r.reference ?? "").toLowerCase().includes(needle) ||
+        (r.memo ?? "").toLowerCase().includes(needle) ||
+        r.lines.some((ln) => (ln.description ?? "").toLowerCase().includes(needle))
+      );
+    })
     .filter((r) => (args.orphans && !args.all ? r.orphan : true));
 }
 
@@ -239,10 +357,13 @@ function printMatch(m: Match) {
   console.log(`  memo: ${m.memo}`);
   console.log(`  amount: ${money(m.amount)}`);
   console.log(
-    `  flags: orphan=${m.orphan} isReversal=${m.isReversal} alreadyReversed=${m.alreadyReversed} reverses=${m.reversesJournalEntryId ?? "-"}`,
+    `  flags: orphan=${m.orphan} isReversal=${m.isReversal} alreadyReversed=${m.alreadyReversed}`,
   );
   for (const ln of m.lines) {
-    console.log(`    ${ln.code} (${ln.name}) Dr ${ln.debit} Cr ${ln.credit} — ${ln.description ?? ""}`);
+    const mark = ln.code === ACCOUNT_CODE ? " ★" : "";
+    console.log(
+      `    ${ln.code} (${ln.name}) Dr ${ln.debit} Cr ${ln.credit} — ${ln.description ?? ""}${mark}`,
+    );
   }
 }
 
@@ -250,7 +371,7 @@ async function waveOpsAccountNets(): Promise<
   Array<{ business: string; debit: string; credit: string; net: string; lines: number }>
 > {
   const accounts = await prisma.chartOfAccount.findMany({
-    where: { code: "WAVE_MERCHANT_PAYOUTS" },
+    where: { code: ACCOUNT_CODE },
     select: { id: true, business: { select: { name: true } } },
   });
   const out = [];
@@ -292,18 +413,15 @@ async function wipeJournalIds(ids: string[]) {
   });
 }
 
-/**
- * Reverse an open merchant WAVE_OPS journal even when WaveOpsPayout / platform side is gone.
- * Uses sourceId when present; otherwise reverses by journal id directly.
- */
-async function reverseOrphanMerchantJournal(m: Match, postedAt: Date): Promise<string | null> {
-  if (m.sourceId) {
+async function reverseOpenJournal(m: Match, postedAt: Date): Promise<string | null> {
+  if (m.sourceType === JournalSourceType.WAVE_OPS_MERCHANT_PAYOUT && m.sourceId) {
     const result = await prisma.$transaction(async (tx) => {
       return reverseMerchantJournalForWaveOpsPayout(tx, m.sourceId!, postedAt);
     });
     return result?.id ?? null;
   }
 
+  // Generic reverse for any journal that still has open WAVE_MERCHANT_PAYOUTS legs.
   return prisma.$transaction(async (tx) => {
     const original = await tx.journalEntry.findUnique({
       where: { id: m.id },
@@ -321,7 +439,7 @@ async function reverseOrphanMerchantJournal(m: Match, postedAt: Date): Promise<s
         postedAt,
         memo: original.memo?.trim()
           ? `Reversal of ${original.memo.trim()}`
-          : `Reversal of orphan Wave ops merchant payout (${original.id})`,
+          : `Reversal of WAVE_MERCHANT_PAYOUTS legs (${original.id})`,
         reference: original.reference,
         sourceType: JournalSourceType.WAVE_OPS_MERCHANT_PAYOUT_REVERSAL,
         sourceId: original.sourceId ?? original.id,
@@ -346,7 +464,6 @@ async function reverseOrphanMerchantJournal(m: Match, postedAt: Date): Promise<s
     await tx.salesLedgerEntry.updateMany({
       where: {
         journalEntryId: original.id,
-        type: SalesLedgerEntryType.WAVE_OPS_PAYOUT,
         status: SalesLedgerStatus.SUCCEEDED,
       },
       data: { status: SalesLedgerStatus.REVERSED },
@@ -362,27 +479,18 @@ async function main() {
       `orphans=${args.orphans} all=${args.all}`,
   );
   console.log(
-    "[wave-ops-ledger] Scope: merchant WAVE_OPS journals only (platform journals are not modified).",
+    `[wave-ops-ledger] Matching journal lines on account ${ACCOUNT_CODE} ` +
+      `(platform journals are not modified).`,
   );
-
-  const hasFilter = Boolean(
-    args.all ||
-      args.orphans ||
-      args.journalId ||
-      args.sourceId ||
-      args.reference ||
-      args.memoContains ||
-      args.merchantContains ||
-      args.amount,
+  console.log(
+    `[wave-ops-ledger] filters reference=${args.reference ?? "-"} ` +
+      `referenceContains=${args.referenceContains ?? "-"} ` +
+      `memoContains=${args.memoContains ?? "-"} amount=${args.amount ? money(args.amount) : "-"} ` +
+      `merchantContains=${args.merchantContains ?? "-"}`,
   );
-  if (!hasFilter) {
-    throw new Error(
-      "Refusing broad run. Pass --orphans (recommended), --all, or a specific filter.",
-    );
-  }
 
   const before = await waveOpsAccountNets();
-  console.log("\n[wave-ops-ledger] WAVE_MERCHANT_PAYOUTS nets BEFORE");
+  console.log(`\n[wave-ops-ledger] ${ACCOUNT_CODE} nets BEFORE`);
   if (!before.length) console.log("  (no lines)");
   for (const r of before) {
     console.log(`  ${r.business}: net ${r.net} (Dr ${r.debit} / Cr ${r.credit}, lines=${r.lines})`);
@@ -394,34 +502,35 @@ async function main() {
 
   if (!matches.length) {
     console.log(
-      "\nNothing to clear on this DATABASE_URL. If this is local, point .env at live and re-run --orphans.",
+      "\nNothing matched. Try:\n" +
+        '  --reference-contains="DPAY-12" --amount=48900\n' +
+        "  --memo-contains=BarakahFunds --amount=48900\n" +
+        "  --orphans --all\n" +
+        "and confirm DATABASE_URL points at live.",
     );
     return;
   }
 
-  const openOriginals = matches.filter(
-    (m) =>
-      m.sourceType === JournalSourceType.WAVE_OPS_MERCHANT_PAYOUT &&
-      !m.isReversal &&
-      !m.alreadyReversed,
-  );
+  const openOriginals = matches.filter((m) => !m.isReversal && !m.alreadyReversed);
 
   if (!args.apply) {
     console.log("\nDry-run only.");
     console.log(`  orphans in match set: ${matches.filter((m) => m.orphan).length}`);
     console.log(`  open originals to reverse: ${openOriginals.length}`);
-    console.log(`  journals that --wipe would delete: ${matches.length}`);
-    console.log("Re-run with --apply (add --wipe to remove history after reverse).");
+    console.log(`  journals --wipe would delete: ${matches.length}`);
+    console.log(
+      "\nTo remove the WAVE_MERCHANT_PAYOUTS legs from history, re-run with --apply --wipe.",
+    );
     return;
   }
 
   const postedAt = new Date(`${args.postedAt}T12:00:00.000Z`);
   let reversed = 0;
   for (const m of openOriginals) {
-    const reversalId = await reverseOrphanMerchantJournal(m, postedAt);
+    const reversalId = await reverseOpenJournal(m, postedAt);
     reversed += 1;
     console.log(
-      `[wave-ops-ledger] Reversed open orphan journal ${m.id} → ${reversalId ?? "(already reversed)"}`,
+      `[wave-ops-ledger] Reversed open journal ${m.id} → ${reversalId ?? "(already reversed)"}`,
     );
   }
 
@@ -434,8 +543,13 @@ async function main() {
   if (sourceIds.length) {
     const extraLedgers = await prisma.salesLedgerEntry.findMany({
       where: {
-        type: SalesLedgerEntryType.WAVE_OPS_PAYOUT,
-        providerPaymentRef: { in: sourceIds },
+        OR: [
+          { journalEntryId: { in: wipeIds } },
+          {
+            type: SalesLedgerEntryType.WAVE_OPS_PAYOUT,
+            providerPaymentRef: { in: sourceIds },
+          },
+        ],
       },
       select: { journalEntryId: true },
     });
@@ -447,24 +561,31 @@ async function main() {
     if (sourceIds.length) {
       await prisma.salesLedgerEntry.deleteMany({
         where: {
-          type: SalesLedgerEntryType.WAVE_OPS_PAYOUT,
-          providerPaymentRef: { in: sourceIds },
+          OR: [
+            { journalEntryId: { in: [...new Set(wipeIds)] } },
+            {
+              type: SalesLedgerEntryType.WAVE_OPS_PAYOUT,
+              providerPaymentRef: { in: sourceIds },
+            },
+          ],
         },
       });
     }
     console.log(
-      `[wave-ops-ledger] Wiped ${[...new Set(wipeIds)].length} merchant journal(s) + linked sales ledger rows.`,
+      `[wave-ops-ledger] Wiped ${[...new Set(wipeIds)].length} journal(s) + linked sales ledger rows.`,
     );
   } else if (reversed) {
-    console.log(`[wave-ops-ledger] Reversed ${reversed} open journal(s). Add --wipe to delete history.`);
+    console.log(
+      `[wave-ops-ledger] Reversed ${reversed} open journal(s). Add --wipe to delete the legs from history.`,
+    );
   } else {
     console.log(
-      "[wave-ops-ledger] Nothing open to reverse (already netted). Re-run with --wipe to delete the orphan history rows.",
+      "[wave-ops-ledger] Already reversed/netted. Re-run with --wipe to delete the orphan legs.",
     );
   }
 
   const after = await waveOpsAccountNets();
-  console.log("\n[wave-ops-ledger] WAVE_MERCHANT_PAYOUTS nets AFTER");
+  console.log(`\n[wave-ops-ledger] ${ACCOUNT_CODE} nets AFTER`);
   if (!after.length) console.log("  (no lines — account is clear)");
   for (const r of after) {
     console.log(`  ${r.business}: net ${r.net} (Dr ${r.debit} / Cr ${r.credit}, lines=${r.lines})`);
