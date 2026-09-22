@@ -21,6 +21,7 @@
     "cleanup:dev-pay-clearing": "tsx scripts/reverse-dev-pay-subscription-clearing.ts",
     "cleanup:wrong-settlement": "tsx scripts/reverse-wrong-merchant-settlement.ts",
     "cleanup:wave-ops-merchant-ledgers": "tsx scripts/wipe-wave-ops-merchant-payout-ledgers.ts",
+    "repair:document-payment-journals": "tsx scripts/repair-document-payment-journal-approval.ts",
     "test": "tsx --test src/services/wave-merchant-tx-summary.test.ts src/services/business-gateway-credential-wave.test.ts src/services/wave-self-settlement.util.test.ts src/services/wave-ops-transactions.util.test.ts src/utils/sales-invoice-recurrence.test.ts"
   },
   "dependencies": {

@@ -187,6 +187,8 @@ type MoneyInJournalPayload = {
   settlementChartAccountId: string;
   settlementDebitDescription: string;
   postedByPlatformUserId?: string | null;
+  /** When true, GL/reports include this entry without a separate journal approval step. */
+  journalApprovalExempt?: boolean;
   lineRows: Array<{
     chartOfAccountId: string;
     creditAmount: Prisma.Decimal;
@@ -213,6 +215,8 @@ async function createMoneyInJournalEntry(
       sourceType: payload.sourceType,
       sourceId: payload.sourceId,
       postedByPlatformUserId: payload.postedByPlatformUserId?.trim() || null,
+      // Cash-basis document payments (and optional callers) hit the ledger immediately.
+      journalApprovalExempt: payload.journalApprovalExempt ?? false,
       lines: {
         create: [
           {
@@ -298,6 +302,7 @@ export async function postMoneyInJournalForSalesInvoice(
       sourceId: input.invoiceId,
       settlementChartAccountId: settlement.id,
       settlementDebitDescription: `Sales invoice payment — ${settlement.name} (${settlement.code}).`,
+      journalApprovalExempt: true,
       lineRows,
       creditSum,
     },
@@ -393,6 +398,8 @@ export async function postMoneyInJournalForSalesInvoiceWalletClearing(
       contactId: input.contactId,
       sourceType: JournalSourceType.SALES_INVOICE_PAYMENT,
       sourceId: input.invoiceId,
+      // Marking the invoice paid is the posting decision — include in GL immediately.
+      journalApprovalExempt: true,
       lines: {
         create: [
           {
@@ -497,6 +504,8 @@ export async function postMoneyOutJournalForBill(
       contactId: input.contactId,
       sourceType: JournalSourceType.PURCHASE_BILL_PAYMENT,
       sourceId: input.billId,
+      // Marking the bill paid is the posting decision — include in GL immediately.
+      journalApprovalExempt: true,
       lines: {
         create: [
           ...lineRows.map((r) => ({
