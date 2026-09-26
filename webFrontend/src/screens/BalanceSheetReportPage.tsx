@@ -30,9 +30,10 @@ function todayYmd(): string {
 function pushGroupRows(
   rows: string[][],
   section: string,
-  group: BalanceSheetGroup,
+  group: BalanceSheetGroup | undefined,
   includeSubtotal: boolean,
 ) {
+  if (!group?.lines) return
   for (const l of group.lines) {
     rows.push([section, group.label, l.code, l.name, l.amount.toFixed(2)])
   }
@@ -57,8 +58,8 @@ function buildPdfSections(data: BalanceSheetReportData, orgName: string): PdfTab
   ]
 
   const assetRows: string[][] = []
-  const pushAssetGroup = (g: BalanceSheetGroup) => {
-    if (g.lines.length === 0 && Math.abs(g.subtotal) < 1e-9) return
+  const pushAssetGroup = (g: BalanceSheetGroup | undefined) => {
+    if (!g?.lines || (g.lines.length === 0 && Math.abs(g.subtotal) < 1e-9)) return
     assetRows.push([g.label, ''])
     assetRows.push(...lineRows(g.lines))
     assetRows.push([`Total ${g.label}`, formatBs(g.subtotal)])
@@ -71,8 +72,8 @@ function buildPdfSections(data: BalanceSheetReportData, orgName: string): PdfTab
   sections[0].rows = assetRows
 
   const liabRows: string[][] = []
-  const pushLiab = (g: BalanceSheetGroup) => {
-    if (g.lines.length === 0 && Math.abs(g.subtotal) < 1e-9) return
+  const pushLiab = (g: BalanceSheetGroup | undefined) => {
+    if (!g?.lines || (g.lines.length === 0 && Math.abs(g.subtotal) < 1e-9)) return
     liabRows.push([g.label, ''])
     liabRows.push(...lineRows(g.lines))
     liabRows.push([`Total ${g.label}`, formatBs(g.subtotal)])
@@ -241,8 +242,8 @@ export function BalanceSheetReportPage() {
     )
   }
 
-  function GroupBlock({ group }: { group: BalanceSheetGroup }) {
-    if (group.lines.length === 0 && Math.abs(group.subtotal) < 1e-9) {
+  function GroupBlock({ group }: { group: BalanceSheetGroup | undefined }) {
+    if (!group?.lines || (group.lines.length === 0 && Math.abs(group.subtotal) < 1e-9)) {
       return null
     }
     return (
