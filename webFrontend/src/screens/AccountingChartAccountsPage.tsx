@@ -23,17 +23,22 @@ import {
   BANK_ACCOUNT_REPORT_NOTE,
   CHART_ACCOUNT_TYPE_OPTIONS,
   CHART_CATEGORY_META,
-  CHART_CATEGORY_ORDER,
   CHART_ACCOUNT_TYPE_GROUPS,
   chartAccountCategoryForTypeKey,
   chartAccountReportExplainerRows,
+  chartCategoryForSection,
+  chartAccountTypeForTypeKey,
+  chartAccountTypeLabel,
+  chartAccountTypeMatchesQuery,
   chartAccountTypeOptionSearchBlob,
   chartAccountsMatchQuery,
   compareChartAccountCodes,
   DEFAULT_CHART_ACCOUNT_TYPE_KEY,
-  toChartAccountView,
-  type ChartAccountView,
-  type ChartCategoryOrder,
+  effectiveChartAccountType,
+  REPORT_SECTION_META,
+  REPORT_SECTION_ORDER,
+  reportSectionForAccount,
+  type ReportSectionKey,
 } from '../models/chartAccount'
 import {
   createChartAccount,
@@ -210,8 +215,7 @@ function AccountTypeSearchCombobox({
     const q = filter.trim().toLowerCase()
     if (!q) return CHART_ACCOUNT_TYPE_OPTIONS
     return CHART_ACCOUNT_TYPE_OPTIONS.filter((o) => {
-      const blob = chartAccountTypeOptionSearchBlob(o)
-      return q.split(/\s+/).every((t) => blob.includes(t))
+      return chartAccountTypeMatchesQuery(chartAccountTypeOptionSearchBlob(o), q)
     })
   }, [filter])
 
@@ -436,39 +440,40 @@ export function AccountingChartAccountsPage() {
     [accounts, query],
   )
 
-  const views = useMemo(
-    () => filteredRows.map((a) => toChartAccountView(a)),
-    [filteredRows],
-  )
-
   const grouped = useMemo(() => {
-    const map = new Map<ChartCategoryOrder, ChartAccountView[]>()
-    for (const c of CHART_CATEGORY_ORDER) {
-      map.set(c, [])
+    const map = new Map<ReportSectionKey, typeof filteredRows>()
+    for (const section of REPORT_SECTION_ORDER) map.set(section, [])
+    for (const row of filteredRows) {
+      const section = reportSectionForAccount(row)
+      const list = map.get(section) ?? []
+      list.push(row)
+      map.set(section, list)
     }
-    for (const v of views) {
-      const list = map.get(v.categoryKey) ?? []
-      list.push(v)
-      map.set(v.categoryKey, list)
-    }
-    return CHART_CATEGORY_ORDER.map((cat) => {
-      const rows = [...(map.get(cat) ?? [])].sort((x, y) => compareChartAccountCodes(x.code, y.code))
-      const meta = CHART_CATEGORY_META[cat]
-      return {
-        category: cat,
-        meta,
-        rows,
-        total: rows.reduce((s, r) => s + r.balance, 0),
-      }
+    return REPORT_SECTION_ORDER.flatMap((section) => {
+      const rows = [...(map.get(section) ?? [])].sort((x, y) =>
+        compareChartAccountCodes(x.code, y.code),
+      )
+      if (rows.length === 0) return []
+      const meta = REPORT_SECTION_META[section]
+      const style = CHART_CATEGORY_META[chartCategoryForSection(section)]
+      return [
+        {
+          section,
+          meta,
+          style,
+          rows,
+          total: rows.reduce((s, r) => s + r.balance, 0),
+        },
+      ]
     })
-  }, [views])
+  }, [filteredRows])
 
-  const totalsByCategory = useMemo(() => {
-    const map = new Map<ChartCategoryOrder, number>()
-    for (const c of CHART_CATEGORY_ORDER) map.set(c, 0)
+  const totalsBySection = useMemo(() => {
+    const map = new Map<ReportSectionKey, number>()
+    for (const section of REPORT_SECTION_ORDER) map.set(section, 0)
     for (const a of accounts) {
-      const v = toChartAccountView(a)
-      map.set(v.categoryKey, (map.get(v.categoryKey) ?? 0) + 1)
+      const section = reportSectionForAccount(a)
+      map.set(section, (map.get(section) ?? 0) + 1)
     }
     return map
   }, [accounts])
@@ -556,6 +561,7 @@ export function AccountingChartAccountsPage() {
           code: form.code.trim(),
           name: form.name.trim(),
           category: chartAccountCategoryForTypeKey(form.accountTypeKey),
+          accountType: chartAccountTypeForTypeKey(form.accountTypeKey),
           ...(desc ? { description: desc } : {}),
           ...openingPayload,
         })
@@ -654,7 +660,7 @@ export function AccountingChartAccountsPage() {
                   </span>
                 </summary>
                 <p className="mt-3 text-xs leading-relaxed text-slate-600">
-                  Each account type is booked to your ledger the same way; the labels below show where balances typically appear on a{' '}
+                  The account type decides where the balance appears on the{' '}
                   <span className="font-medium text-slate-700">Profit &amp; Loss</span> vs{' '}
                   <span className="font-medium text-slate-700">balance sheet</span>. Period{' '}
                   <span className="font-medium text-slate-700">net profit</span> closes into equity (retained earnings), which links the two statements.
@@ -783,17 +789,18 @@ export function AccountingChartAccountsPage() {
 
           {!loading && accounts.length > 0 ? (
             <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-6">
-              {CHART_CATEGORY_ORDER.map((cat) => {
-                const meta = CHART_CATEGORY_META[cat]
-                const n = totalsByCategory.get(cat) ?? 0
-                const { Icon } = meta
+              {REPORT_SECTION_ORDER.map((section) => {
+                const n = totalsBySection.get(section) ?? 0
+                if (n === 0) return null
+                const headline = REPORT_SECTION_META[section].headline
+                const { Icon } = CHART_CATEGORY_META[chartCategoryForSection(section)]
                 return (
                   <span
-                    key={cat}
+                    key={section}
                     className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600"
                   >
                     <Icon className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
-                    <span className="font-medium text-slate-800">{meta.label}</span>
+                    <span className="font-medium text-slate-800">{headline}</span>
                     <span className="tabular-nums text-slate-500">{n}</span>
                   </span>
                 )
@@ -804,7 +811,11 @@ export function AccountingChartAccountsPage() {
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
         </PageCard>
 
-        {!loading && filterActive && visibleCount === 0 ? (
+        {loading && accounts.length === 0 ? (
+          <PageCard variant="plain" className="py-16 text-center">
+            <p className="text-slate-500">Loading accounts…</p>
+          </PageCard>
+        ) : !loading && filterActive && visibleCount === 0 ? (
           <PageCard variant="plain" className="py-16 text-center">
             <p className="text-slate-600">No accounts match your search.</p>
             <button
@@ -818,29 +829,29 @@ export function AccountingChartAccountsPage() {
         ) : (
           <div className="space-y-12">
             {grouped.map((g) => {
-              const { meta, rows, total } = g
-              const { Icon } = meta
+              const { meta, style, rows, total } = g
+              const { Icon } = style
               return (
                 <section
-                  key={g.category}
-                  className={`overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-900/5 ${meta.stripeClass} border-l-4`}
+                  key={g.section}
+                  className={`overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-900/5 ${style.stripeClass} border-l-4`}
                 >
                   <div className="border-b border-slate-100 bg-slate-50/50 px-5 py-5 sm:px-6">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex min-w-0 items-start gap-4">
                         <div
-                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${meta.iconWrapClass}`}
+                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${style.iconWrapClass}`}
                         >
                           <Icon className="h-5 w-5" strokeWidth={2} />
                         </div>
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <h2 className="text-base font-semibold text-slate-900">{meta.label}</h2>
+                            <h2 className="text-base font-semibold text-slate-900">{meta.headline}</h2>
                             <span className="rounded-md bg-white px-2 py-0.5 text-xs font-medium tabular-nums text-slate-500 ring-1 ring-slate-200">
                               {rows.length} {rows.length === 1 ? 'account' : 'accounts'}
                             </span>
                           </div>
-                          <p className="mt-1 text-sm leading-relaxed text-slate-600">{meta.hint}</p>
+                          <p className="mt-1 text-sm leading-relaxed text-slate-600">{meta.diagramLabel}</p>
                         </div>
                       </div>
                       <p className="shrink-0 text-right">
@@ -904,6 +915,9 @@ export function AccountingChartAccountsPage() {
                               </td>
                               <td className="max-w-[200px] px-3 py-4 sm:max-w-none sm:pr-6">
                                 <span className="font-medium text-slate-900">{a.name}</span>
+                                <span className="ml-2 inline-flex align-middle text-[10px] font-semibold uppercase tracking-wide text-slate-500 ring-1 ring-slate-200 bg-slate-50 px-1.5 py-0.5 rounded">
+                                  {chartAccountTypeLabel(effectiveChartAccountType(a))}
+                                </span>
                                 {a.kind === 'BANK' ? (
                                   <span className="ml-2 inline-flex align-middle text-[10px] font-semibold uppercase tracking-wide text-sky-700 ring-1 ring-sky-200 bg-sky-50 px-1.5 py-0.5 rounded">
                                     Bank

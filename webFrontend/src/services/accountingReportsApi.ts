@@ -22,6 +22,7 @@ export type GlBalanceReportData = {
     code: string
     name: string
     category: string
+    accountType?: string
     debitTotal: number
     creditTotal: number
     balance: number
@@ -60,13 +61,14 @@ export type BalanceSheetGroup = {
 export type BalanceSheetReportData = {
   asOf: string
   assets: {
-    bank: BalanceSheetGroup
-    otherCurrentAssets: BalanceSheetGroup
+    current: BalanceSheetGroup
+    fixed: BalanceSheetGroup
+    nonCurrent: BalanceSheetGroup
     total: number
   }
   liabilities: {
     current: BalanceSheetGroup
-    nonCurrent: BalanceSheetGroup
+    longTerm: BalanceSheetGroup
     total: number
   }
   netAssets: number
@@ -102,9 +104,11 @@ export type ProfitLossReportData = {
   from: string
   to: string
   revenue: { lines: PnlLine[]; total: number }
+  otherIncome: { lines: PnlLine[]; total: number }
   costOfSales: { lines: PnlLine[]; total: number }
   operatingExpenses: { lines: PnlLine[]; total: number }
   grossProfit: number
+  operatingProfit: number
   netProfit: number
 }
 

@@ -1,7 +1,11 @@
-import { ChartAccountCategory, ChartAccountKind, type Prisma } from "@prisma/client";
+import { ChartAccountCategory, ChartAccountKind, ChartAccountType, type Prisma } from "@prisma/client";
 
 import { HttpError } from "../lib/http-error.js";
 import { prisma } from "../lib/prisma.js";
+import {
+  categoryForChartAccountType,
+  defaultChartAccountTypeForCategory,
+} from "./chart-account-type.js";
 
 /** Primary sales revenue account (customer sale journals credit this). */
 export const CHART_CODE_SALES = "200";
@@ -38,6 +42,7 @@ const DEFAULT_ACCOUNTS: Array<{
   name: string;
   description: string;
   category: ChartAccountCategory;
+  accountType: ChartAccountType;
   isSystem: boolean;
 }> = [
   {
@@ -46,6 +51,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Physical cash and till takings. Use for counter sales recorded as cash or upfront pay at checkout.",
     category: ChartAccountCategory.ASSET,
+    accountType: ChartAccountType.CURRENT_ASSET,
     isSystem: true,
   },
   {
@@ -54,6 +60,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Wallet and card sales before the provider settles to your bank. Easypay debits this when customers pay by QR or card; clear to your bank account when money arrives.",
     category: ChartAccountCategory.ASSET,
+    accountType: ChartAccountType.CURRENT_ASSET,
     isSystem: true,
   },
   {
@@ -62,6 +69,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Estimated fees charged by Wave, Yonna, or similar on customer wallet payments (orders/POS). Easypay debits this and credits digital clearing when a rate is configured per business or server default.",
     category: ChartAccountCategory.EXPENSE,
+    accountType: ChartAccountType.EXPENSE,
     isSystem: true,
   },
   {
@@ -70,6 +78,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Cash received on the merchant Wave / mobile money number when Easypay self-settlement payout succeeds. Debited when the payout lands; not POS till cash.",
     category: ChartAccountCategory.ASSET,
+    accountType: ChartAccountType.CURRENT_ASSET,
     isSystem: true,
   },
   {
@@ -78,6 +87,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Money in from platform Wave Operations payouts to this business. Debited for the net receive amount after Wave's payout fee; the fee is a platform cost. Pairs with other revenue.",
     category: ChartAccountCategory.ASSET,
+    accountType: ChartAccountType.CURRENT_ASSET,
     isSystem: true,
   },
   {
@@ -86,6 +96,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Money in when DirectPay credits this business from operator books (bank or manual settlement) without a Wave payout. Pairs with other revenue.",
     category: ChartAccountCategory.ASSET,
+    accountType: ChartAccountType.CURRENT_ASSET,
     isSystem: true,
   },
   {
@@ -94,6 +105,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Amounts paid in advance for goods or services not yet received (e.g. annual subscriptions, deposits to suppliers).",
     category: ChartAccountCategory.ASSET,
+    accountType: ChartAccountType.PREPAYMENT,
     isSystem: true,
   },
   {
@@ -102,6 +114,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Salaries and wages owed to staff but not yet paid. Credit when payroll is accrued; debit when paid.",
     category: ChartAccountCategory.LIABILITY,
+    accountType: ChartAccountType.CURRENT_LIABILITY,
     isSystem: true,
   },
   {
@@ -110,6 +123,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Personal withdrawals by the owner (cash or goods for private use). Reduces equity; not a business expense.",
     category: ChartAccountCategory.LIABILITY,
+    accountType: ChartAccountType.CURRENT_LIABILITY,
     isSystem: true,
   },
   {
@@ -118,6 +132,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Money or assets the owner puts into the business. Increases equity; use when injecting capital or repaying a director loan.",
     category: ChartAccountCategory.LIABILITY,
+    accountType: ChartAccountType.CURRENT_LIABILITY,
     isSystem: true,
   },
   {
@@ -126,6 +141,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Nominal equity from issued share capital or formal owner investment at incorporation.",
     category: ChartAccountCategory.EQUITY,
+    accountType: ChartAccountType.CAPITAL_EQUITY,
     isSystem: true,
   },
   {
@@ -134,6 +150,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Retail and POS turnover. Easypay credits this automatically when a sale is paid (cash or wallet).",
     category: ChartAccountCategory.REVENUE,
+    accountType: ChartAccountType.SALES,
     isSystem: true,
   },
   {
@@ -142,6 +159,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Income outside normal product sales: interest received, scrap sales, grants, or one-off items.",
     category: ChartAccountCategory.REVENUE,
+    accountType: ChartAccountType.OTHER_INCOME,
     isSystem: true,
   },
   {
@@ -150,6 +168,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Direct cost of inventory sold (purchase price, inbound freight). Pairs with sales for gross margin.",
     category: ChartAccountCategory.EXPENSE,
+    accountType: ChartAccountType.DIRECT_COST,
     isSystem: true,
   },
   {
@@ -158,6 +177,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Charges from your bank or payment processors: account fees, wire charges, card processing not netted in sales.",
     category: ChartAccountCategory.EXPENSE,
+    accountType: ChartAccountType.EXPENSE,
     isSystem: true,
   },
   {
@@ -166,6 +186,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Day-to-day overheads that do not fit a specific category (small supplies, minor repairs, miscellaneous).",
     category: ChartAccountCategory.EXPENSE,
+    accountType: ChartAccountType.EXPENSE,
     isSystem: true,
   },
   {
@@ -174,6 +195,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Utilities for business premises: electricity, water, gas, and similar recurring utility bills.",
     category: ChartAccountCategory.EXPENSE,
+    accountType: ChartAccountType.EXPENSE,
     isSystem: true,
   },
   {
@@ -182,6 +204,7 @@ const DEFAULT_ACCOUNTS: Array<{
     description:
       "Lease or rental cost for shops, offices, warehouses, or equipment rentals treated as operating rent.",
     category: ChartAccountCategory.EXPENSE,
+    accountType: ChartAccountType.EXPENSE,
     isSystem: true,
   },
 ];
@@ -201,12 +224,14 @@ export async function ensureDefaultChartOfAccountsForBusiness(
         name: def.name,
         description: def.description,
         category: def.category,
+        accountType: def.accountType,
         isSystem: def.isSystem,
       },
       update: {
         name: def.name,
         description: def.description,
         category: def.category,
+        accountType: def.accountType,
       },
     });
   }
@@ -232,6 +257,7 @@ export async function createMissingDefaultChartAccountsForBusiness(
         name: def.name,
         description: def.description,
         category: def.category,
+        accountType: def.accountType,
         isSystem: def.isSystem,
       },
     });
@@ -254,6 +280,7 @@ export async function createChartOfAccountForBusiness(
     code: string;
     name: string;
     category: ChartAccountCategory;
+    accountType?: ChartAccountType | null;
     description?: string | null;
     kind?: ChartAccountKind;
     bankAccountNumber?: string | null;
@@ -308,6 +335,7 @@ export async function createChartOfAccountForBusiness(
   let bankAccountNumber: string | null = null;
   let bankDetails: string | null = null;
   let category = input.category;
+  let accountType = input.accountType ?? null;
 
   if (kind === ChartAccountKind.BANK) {
     bankName = input.bankName?.trim() ?? "";
@@ -329,6 +357,14 @@ export async function createChartOfAccountForBusiness(
       throw new HttpError(400, "Bank details are too long.");
     }
     category = ChartAccountCategory.ASSET;
+    accountType = ChartAccountType.CURRENT_ASSET;
+  } else if (accountType) {
+    const expected = categoryForChartAccountType(accountType);
+    if (expected !== category) {
+      throw new HttpError(400, "Account type does not match the ledger category.");
+    }
+  } else {
+    accountType = defaultChartAccountTypeForCategory(category);
   }
 
   // Lazy import avoids circular dependency with manual-journal.service.
@@ -344,6 +380,7 @@ export async function createChartOfAccountForBusiness(
         name,
         description,
         category,
+        accountType,
         kind: kind === ChartAccountKind.BANK ? ChartAccountKind.BANK : ChartAccountKind.LEDGER,
         bankName: kind === ChartAccountKind.BANK ? bankName : null,
         bankAccountNumber: kind === ChartAccountKind.BANK ? bankAccountNumber : null,

@@ -1,4 +1,4 @@
-import { ChartAccountCategory, ChartAccountKind, Prisma } from "@prisma/client";
+import { ChartAccountCategory, ChartAccountKind, ChartAccountType, Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 import {
@@ -9,6 +9,7 @@ import {
   CHART_CODE_WAVE_MERCHANT_PAYOUTS,
   ensureDefaultChartOfAccountsForBusiness,
 } from "./chart-of-accounts.service.js";
+import { pnlSectionForType, resolveChartAccountType } from "./chart-account-type.js";
 
 function signedBalance(
   category: ChartAccountCategory,
@@ -23,17 +24,13 @@ function signedBalance(
   return Number(c.minus(d));
 }
 
-function isCogsAccount(code: string): boolean {
-  const u = code.toUpperCase();
-  return u === "310" || u === "COGS" || u.startsWith("COGS_");
-}
-
 export type AccountingAccountRow = {
   id: string;
   code: string;
   name: string;
   description: string | null;
   category: ChartAccountCategory;
+  accountType: ChartAccountType;
   balance: number;
   isSystem: boolean;
   kind: ChartAccountKind;
@@ -43,7 +40,11 @@ export type AccountingAccountRow = {
 };
 
 export type AccountingPnl = {
+  /** All revenue-category balances, including other income. Dashboard rollup. */
   income: number;
+  /** Revenue and sales account types (excludes other income). */
+  tradingIncome: number;
+  otherIncome: number;
   costOfSales: number;
   operatingExpenses: number;
   grossProfit: number;
@@ -135,6 +136,7 @@ export async function getAccountingSummaryForBusiness(businessId: string) {
       name: a.name,
       description: a.description ?? null,
       category: a.category,
+      accountType: resolveChartAccountType(a),
       balance: signedBalance(a.category, debits, credits),
       isSystem: a.isSystem,
       kind: a.kind ?? ChartAccountKind.LEDGER,
@@ -154,34 +156,41 @@ export async function getAccountingSummaryForBusiness(businessId: string) {
   const cashPositions = accounts.filter((a) => cashCodeSet.has(a.code));
   const cashTotal = cashPositions.reduce((s, a) => s + a.balance, 0);
 
-  const revenueAccounts = accounts.filter((a) => a.category === ChartAccountCategory.REVENUE);
-  const expenseAccounts = accounts.filter((a) => a.category === ChartAccountCategory.EXPENSE);
-
-  let totalIncome = 0;
-  for (const a of revenueAccounts) {
-    totalIncome += a.balance;
-  }
-
-  let totalCogs = 0;
-  let totalOpex = 0;
+  const tradingAccounts: AccountingAccountRow[] = [];
+  const otherIncomeAccounts: AccountingAccountRow[] = [];
   const costOfGoodsSoldAccounts: AccountingAccountRow[] = [];
   const operatingExpenseAccounts: AccountingAccountRow[] = [];
 
-  for (const a of expenseAccounts) {
-    if (isCogsAccount(a.code)) {
+  let tradingIncome = 0;
+  let otherIncome = 0;
+  let totalCogs = 0;
+  let totalOpex = 0;
+
+  for (const a of accounts) {
+    const section = pnlSectionForType(a.accountType);
+    if (section === "revenue") {
+      tradingIncome += a.balance;
+      tradingAccounts.push(a);
+    } else if (section === "otherIncome") {
+      otherIncome += a.balance;
+      otherIncomeAccounts.push(a);
+    } else if (section === "costOfSales") {
       totalCogs += a.balance;
       costOfGoodsSoldAccounts.push(a);
-    } else {
+    } else if (section === "expenses") {
       totalOpex += a.balance;
       operatingExpenseAccounts.push(a);
     }
   }
 
+  const totalIncome = tradingIncome + otherIncome;
   const grossProfit = totalIncome - totalCogs;
   const netProfit = grossProfit - totalOpex;
 
   const pnl: AccountingPnl = {
     income: totalIncome,
+    tradingIncome,
+    otherIncome,
     costOfSales: totalCogs,
     operatingExpenses: totalOpex,
     grossProfit,
@@ -196,7 +205,8 @@ export async function getAccountingSummaryForBusiness(businessId: string) {
     cashTotal,
     pnl,
     trend,
-    incomeAccounts: revenueAccounts,
+    incomeAccounts: tradingAccounts,
+    otherIncomeAccounts,
     costOfGoodsSoldAccounts,
     operatingExpenseAccounts,
   };

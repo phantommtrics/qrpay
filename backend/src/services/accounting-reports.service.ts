@@ -1,10 +1,15 @@
-import { ChartAccountCategory, ChartAccountKind } from "@prisma/client";
+import { ChartAccountCategory, ChartAccountType } from "@prisma/client";
 
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../lib/http-error.js";
 import { ensureDefaultChartOfAccountsForBusiness } from "./chart-of-accounts.service.js";
+import {
+  balanceSheetSectionForType,
+  pnlSectionForType,
+  resolveChartAccountType,
+} from "./chart-account-type.js";
 
 function lineNetMovement(category: ChartAccountCategory, debit: number, credit: number): number {
   if (category === ChartAccountCategory.ASSET || category === ChartAccountCategory.EXPENSE) {
@@ -32,11 +37,6 @@ function isNonZeroPnlAmount(amount: number): boolean {
   return Math.abs(amount) > 1e-9;
 }
 
-function isCogsAccount(code: string): boolean {
-  const u = code.toUpperCase();
-  return u === "310" || u === "COGS" || u.startsWith("COGS_");
-}
-
 /** GL / P&L / account statement: only approved journals, except customer sale POS/QR postings (exempt). Removed postings never count. */
 export const merchantJournalReportingWhere: Prisma.JournalEntryWhereInput = {
   cancelledAt: null,
@@ -48,6 +48,7 @@ export type GlBalanceRow = {
   code: string;
   name: string;
   category: ChartAccountCategory;
+  accountType: ChartAccountType;
   debitTotal: number;
   creditTotal: number;
   balance: number;
@@ -91,10 +92,35 @@ export async function getGlBalanceReport(businessId: string, asOfRaw: string) {
       code: a.code,
       name: a.name,
       category: a.category,
+      accountType: resolveChartAccountType(a),
       debitTotal: agg.dr,
       creditTotal: agg.cr,
       balance,
     };
+  });
+
+  const typeOrder: ChartAccountType[] = [
+    ChartAccountType.CURRENT_ASSET,
+    ChartAccountType.INVENTORY,
+    ChartAccountType.PREPAYMENT,
+    ChartAccountType.FIXED_ASSET,
+    ChartAccountType.NON_CURRENT_ASSET,
+    ChartAccountType.CURRENT_LIABILITY,
+    ChartAccountType.LONG_TERM_LIABILITY,
+    ChartAccountType.CAPITAL_EQUITY,
+    ChartAccountType.REVENUE,
+    ChartAccountType.SALES,
+    ChartAccountType.OTHER_INCOME,
+    ChartAccountType.DIRECT_COST,
+    ChartAccountType.EXPENSE,
+    ChartAccountType.DEPRECIATION,
+    ChartAccountType.OVERHEAD,
+  ];
+  const typeRank = new Map(typeOrder.map((t, i) => [t, i]));
+  rows.sort((a, b) => {
+    const byType = (typeRank.get(a.accountType) ?? 99) - (typeRank.get(b.accountType) ?? 99);
+    if (byType !== 0) return byType;
+    return a.code.localeCompare(b.code, undefined, { numeric: true });
   });
 
   const totalDebit = rows.reduce((s, r) => s + r.debitTotal, 0);
@@ -170,6 +196,7 @@ export async function getProfitLossReport(businessId: string, fromRaw: string, t
   });
 
   const revenueLines: PnlLineRow[] = [];
+  const otherIncomeLines: PnlLineRow[] = [];
   const cogsLines: PnlLineRow[] = [];
   const opexLines: PnlLineRow[] = [];
 
@@ -185,9 +212,12 @@ export async function getProfitLossReport(businessId: string, fromRaw: string, t
       name: a.name,
       amount,
     };
-    if (a.category === ChartAccountCategory.REVENUE) {
+    const section = pnlSectionForType(resolveChartAccountType(a));
+    if (section === "revenue") {
       revenueLines.push(row);
-    } else if (isCogsAccount(a.code)) {
+    } else if (section === "otherIncome") {
+      otherIncomeLines.push(row);
+    } else if (section === "costOfSales") {
       cogsLines.push(row);
     } else {
       opexLines.push(row);
@@ -195,18 +225,22 @@ export async function getProfitLossReport(businessId: string, fromRaw: string, t
   }
 
   const totalRevenue = revenueLines.reduce((s, r) => s + r.amount, 0);
+  const totalOtherIncome = otherIncomeLines.reduce((s, r) => s + r.amount, 0);
   const totalCogs = cogsLines.reduce((s, r) => s + r.amount, 0);
   const totalOpex = opexLines.reduce((s, r) => s + r.amount, 0);
   const grossProfit = totalRevenue - totalCogs;
-  const netProfit = grossProfit - totalOpex;
+  const operatingProfit = grossProfit - totalOpex;
+  const netProfit = operatingProfit + totalOtherIncome;
 
   return {
     from: from.toISOString(),
     to: to.toISOString(),
     revenue: { lines: revenueLines, total: totalRevenue },
+    otherIncome: { lines: otherIncomeLines, total: totalOtherIncome },
     costOfSales: { lines: cogsLines, total: totalCogs },
     operatingExpenses: { lines: opexLines, total: totalOpex },
     grossProfit,
+    operatingProfit,
     netProfit,
   };
 }
@@ -222,19 +256,10 @@ function isNonZeroBsAmount(n: number): boolean {
   return Math.abs(n) > 1e-9;
 }
 
-/** Long-term debt / non-current — heuristic from code and name (e.g. LOAN, NC_*). */
-function isNonCurrentLiability(code: string, name: string): boolean {
-  const trimmed = code.trim();
-  if (/^NC[_-]/i.test(trimmed)) {
-    return true;
-  }
-  const t = `${code} ${name}`.toUpperCase();
-  return /\b(LOAN|BORROWING|MORTGAGE|TERM\s*LOAN|LONG[\s-]*TERM|DEBENTURE)\b/.test(t);
-}
-
 /**
  * Statement of financial position: assets and liabilities from GL balances; equity reconciles to net assets
  * using posted equity accounts plus YTD P&amp;L and a residual for retained / prior periods.
+ * Sections follow the chart account type (current assets, fixed assets, current liabilities, long-term liabilities, capital).
  */
 export async function getBalanceSheetReport(businessId: string, asOfRaw: string) {
   await ensureDefaultChartOfAccountsForBusiness(prisma, businessId);
@@ -271,10 +296,11 @@ export async function getBalanceSheetReport(businessId: string, asOfRaw: string)
     return lineNetMovement(a.category, agg.dr, agg.cr);
   }
 
-  const bankLines: BalanceSheetLine[] = [];
-  const otherAssetLines: BalanceSheetLine[] = [];
+  const currentAssetLines: BalanceSheetLine[] = [];
+  const fixedAssetLines: BalanceSheetLine[] = [];
+  const nonCurrentAssetLines: BalanceSheetLine[] = [];
   const currentLiabLines: BalanceSheetLine[] = [];
-  const nonCurrentLiabLines: BalanceSheetLine[] = [];
+  const longTermLiabLines: BalanceSheetLine[] = [];
   const equityGlLines: BalanceSheetLine[] = [];
 
   for (const a of accounts) {
@@ -282,39 +308,32 @@ export async function getBalanceSheetReport(businessId: string, asOfRaw: string)
     if (!isNonZeroBsAmount(bal)) {
       continue;
     }
+    const section = balanceSheetSectionForType(resolveChartAccountType(a));
+    if (!section) continue;
     const row: BalanceSheetLine = {
       chartOfAccountId: a.id,
       code: a.code,
       name: a.name,
       amount: bal,
     };
-
-    if (a.category === ChartAccountCategory.ASSET) {
-      if (a.kind === ChartAccountKind.BANK) {
-        bankLines.push(row);
-      } else {
-        otherAssetLines.push(row);
-      }
-    } else if (a.category === ChartAccountCategory.LIABILITY) {
-      if (isNonCurrentLiability(a.code, a.name)) {
-        nonCurrentLiabLines.push(row);
-      } else {
-        currentLiabLines.push(row);
-      }
-    } else if (a.category === ChartAccountCategory.EQUITY) {
-      equityGlLines.push(row);
-    }
+    if (section === "currentAssets") currentAssetLines.push(row);
+    else if (section === "fixedAssets") fixedAssetLines.push(row);
+    else if (section === "nonCurrentAssets") nonCurrentAssetLines.push(row);
+    else if (section === "currentLiabilities") currentLiabLines.push(row);
+    else if (section === "longTermLiabilities") longTermLiabLines.push(row);
+    else equityGlLines.push(row);
   }
 
   const sumLines = (lines: BalanceSheetLine[]) => lines.reduce((s, r) => s + r.amount, 0);
 
-  const bankSubtotal = sumLines(bankLines);
-  const otherAssetsSubtotal = sumLines(otherAssetLines);
-  const totalAssets = bankSubtotal + otherAssetsSubtotal;
+  const currentAssetsSubtotal = sumLines(currentAssetLines);
+  const fixedAssetsSubtotal = sumLines(fixedAssetLines);
+  const nonCurrentAssetsSubtotal = sumLines(nonCurrentAssetLines);
+  const totalAssets = currentAssetsSubtotal + fixedAssetsSubtotal + nonCurrentAssetsSubtotal;
 
   const currentLiabSubtotal = sumLines(currentLiabLines);
-  const nonCurrentLiabSubtotal = sumLines(nonCurrentLiabLines);
-  const totalLiabilities = currentLiabSubtotal + nonCurrentLiabSubtotal;
+  const longTermLiabSubtotal = sumLines(longTermLiabLines);
+  const totalLiabilities = currentLiabSubtotal + longTermLiabSubtotal;
 
   const netAssets = totalAssets - totalLiabilities;
 
@@ -333,12 +352,23 @@ export async function getBalanceSheetReport(businessId: string, asOfRaw: string)
   return {
     asOf: asOf.toISOString(),
     assets: {
-      bank: { key: "bank", label: "Bank", lines: bankLines, subtotal: bankSubtotal },
-      otherCurrentAssets: {
-        key: "other_assets",
-        label: "Other current assets",
-        lines: otherAssetLines,
-        subtotal: otherAssetsSubtotal,
+      current: {
+        key: "current_assets",
+        label: "Current assets",
+        lines: currentAssetLines,
+        subtotal: currentAssetsSubtotal,
+      },
+      fixed: {
+        key: "fixed_assets",
+        label: "Fixed assets",
+        lines: fixedAssetLines,
+        subtotal: fixedAssetsSubtotal,
+      },
+      nonCurrent: {
+        key: "non_current_assets",
+        label: "Non-current assets",
+        lines: nonCurrentAssetLines,
+        subtotal: nonCurrentAssetsSubtotal,
       },
       total: totalAssets,
     },
@@ -349,11 +379,11 @@ export async function getBalanceSheetReport(businessId: string, asOfRaw: string)
         lines: currentLiabLines,
         subtotal: currentLiabSubtotal,
       },
-      nonCurrent: {
-        key: "non_current_liab",
-        label: "Non-current liabilities",
-        lines: nonCurrentLiabLines,
-        subtotal: nonCurrentLiabSubtotal,
+      longTerm: {
+        key: "long_term_liab",
+        label: "Long-term liabilities",
+        lines: longTermLiabLines,
+        subtotal: longTermLiabSubtotal,
       },
       total: totalLiabilities,
     },

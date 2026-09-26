@@ -1,3 +1,4 @@
+import type { ChartAccountType } from '../models/chartAccount'
 import { apiRequest } from './salesApi'
 
 export type ChartAccountKind = 'LEDGER' | 'BANK'
@@ -8,6 +9,8 @@ export type AccountingAccountRow = {
   name: string
   description: string | null
   category: string
+  /** Statement subtype. Omitted on older API responses; the chart infers one from category. */
+  accountType?: ChartAccountType | null
   balance: number
   /** Seeded / required for automation; not user-created. Omitted on older API responses. */
   isSystem?: boolean
@@ -20,6 +23,8 @@ export type AccountingAccountRow = {
 
 export type AccountingPnl = {
   income: number
+  tradingIncome?: number
+  otherIncome?: number
   costOfSales: number
   operatingExpenses: number
   grossProfit: number
@@ -39,6 +44,7 @@ export type AccountingSummary = {
   pnl: AccountingPnl
   trend: AccountingTrendPoint[]
   incomeAccounts: AccountingAccountRow[]
+  otherIncomeAccounts?: AccountingAccountRow[]
   costOfGoodsSoldAccounts: AccountingAccountRow[]
   operatingExpenseAccounts: AccountingAccountRow[]
 }
@@ -57,6 +63,7 @@ export type CreateChartAccountBody = {
   code: string
   name: string
   category: ChartAccountCategory
+  accountType?: ChartAccountType | null
   description?: string | null
   kind?: ChartAccountKind
   bankAccountNumber?: string | null
@@ -75,6 +82,7 @@ export type CreatedChartAccount = {
   name: string
   description: string | null
   category: string
+  accountType?: ChartAccountType | null
   kind: ChartAccountKind
   bankAccountNumber: string | null
   bankName: string | null

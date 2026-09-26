@@ -77,10 +77,12 @@ export function ProfitLossReportPage() {
       }
       rows.push([section, '', 'Section total', total.toFixed(2)])
     }
-    push('Total trading income', data.revenue.lines, data.revenue.total)
+    push('Revenue or sales', data.revenue.lines, data.revenue.total)
     push('Cost of sales', data.costOfSales.lines, data.costOfSales.total)
     rows.push(['', '', 'Gross profit', data.grossProfit.toFixed(2)])
-    push('Total operating expenses', data.operatingExpenses.lines, data.operatingExpenses.total)
+    push('Expenses', data.operatingExpenses.lines, data.operatingExpenses.total)
+    rows.push(['', '', 'Operating profit', data.operatingProfit.toFixed(2)])
+    push('Other income', data.otherIncome.lines, data.otherIncome.total)
     rows.push(['', '', 'Net profit', data.netProfit.toFixed(2)])
     downloadCsv(`profit-loss-${from}-${to}.csv`, headers, rows)
   }
@@ -91,7 +93,7 @@ export function ProfitLossReportPage() {
       title: 'Profit & loss',
       subtitle: `${currentOrganization.name} · ${periodLabel}`,
       sections: [
-        pnlSectionRows('Total trading income', data.revenue.lines, data.revenue.total),
+        pnlSectionRows('Revenue or sales', data.revenue.lines, data.revenue.total),
         pnlSectionRows('Cost of sales', data.costOfSales.lines, data.costOfSales.total),
         {
           heading: 'Gross profit',
@@ -100,7 +102,15 @@ export function ProfitLossReportPage() {
           columnWeights: [2.6, 1.1],
           columnAlign: ['left', 'right'],
         },
-        pnlSectionRows('Total operating expenses', data.operatingExpenses.lines, data.operatingExpenses.total),
+        pnlSectionRows('Expenses', data.operatingExpenses.lines, data.operatingExpenses.total),
+        {
+          heading: 'Operating profit',
+          headers: ['Line', 'Amount'],
+          rows: [['Operating profit', formatMoney(data.operatingProfit, { decimals: 2 })]],
+          columnWeights: [2.6, 1.1],
+          columnAlign: ['left', 'right'],
+        },
+        pnlSectionRows('Other income', data.otherIncome.lines, data.otherIncome.total),
         {
           heading: 'Net profit',
           headers: ['Line', 'Amount'],
@@ -166,7 +176,7 @@ export function ProfitLossReportPage() {
     <PageTransition>
       <FinanceReportChrome
         title="Profit & loss report"
-        description="Income statement for the selected period. Only revenue and expense accounts appear; asset, liability, and equity ledgers are on the balance sheet and trial balance. Account lines with net zero activity in the period are hidden; positive and negative amounts are shown as posted."
+        description="Income statement for the selected period. Revenue or sales, cost of sales, expenses, and other income are shown separately. Asset, liability, and capital accounts stay on the balance sheet. Account lines with net zero activity in the period are hidden."
         toolbar={
           <ReportExportToolbar
             canExport={canExport}
@@ -231,12 +241,12 @@ export function ProfitLossReportPage() {
 
               <section className="space-y-3">
                 <div className="flex items-baseline justify-between gap-4">
-                  <h3 className={rowLabel}>Total trading income</h3>
+                  <h3 className={rowLabel}>Revenue or sales</h3>
                   <span className={rowValue}>{formatMoney(data.revenue.total, { decimals: 2 })}</span>
                 </div>
                 <AccountLines
                   lines={data.revenue.lines}
-                  emptyHint="No trading income in this period."
+                  emptyHint="No revenue or sales in this period."
                 />
               </section>
 
@@ -260,16 +270,41 @@ export function ProfitLossReportPage() {
 
               <section className="space-y-3">
                 <div className="flex items-baseline justify-between gap-4">
-                  <h3 className={rowLabel}>Total operating expenses</h3>
+                  <h3 className={rowLabel}>Expenses</h3>
                   <span className={rowValue}>
                     {formatMoney(data.operatingExpenses.total, { decimals: 2 })}
                   </span>
                 </div>
                 <AccountLines
                   lines={data.operatingExpenses.lines}
-                  emptyHint="No operating expenses in this period."
+                  emptyHint="No expenses in this period."
                 />
               </section>
+
+              <div className="flex items-baseline justify-between gap-4 border-y border-qb-border py-4">
+                <h3 className="text-base font-semibold text-qb-heading">Operating profit</h3>
+                <span className="text-base font-semibold tabular-nums text-qb-heading">
+                  {formatMoney(data.operatingProfit, { decimals: 2 })}
+                </span>
+              </div>
+
+              <section className="space-y-3">
+                <div className="flex items-baseline justify-between gap-4">
+                  <h3 className={rowLabel}>Other income</h3>
+                  <span className={rowValue}>{formatMoney(data.otherIncome.total, { decimals: 2 })}</span>
+                </div>
+                <AccountLines
+                  lines={data.otherIncome.lines}
+                  emptyHint="No other income in this period."
+                />
+              </section>
+
+              <div className="flex items-baseline justify-between gap-4 border-y border-qb-border py-4">
+                <h3 className="text-base font-semibold text-qb-heading">Net profit</h3>
+                <span className="text-base font-semibold tabular-nums text-qb-heading">
+                  {formatMoney(data.netProfit, { decimals: 2 })}
+                </span>
+              </div>
             </div>
           ) : null}
         </PageCard>

@@ -75,10 +75,11 @@ export function AccountingProfitLossPage() {
           <p className="text-xs uppercase tracking-wide text-slate-400">Summary</p>
           <dl className="mt-10 space-y-8">
             {[
-              ['Income', pnl?.income],
+              ['Revenue or sales', pnl?.tradingIncome],
               ['Cost of sales', pnl?.costOfSales],
-              ['Gross profit', pnl?.grossProfit],
-              ['Operating expenses', pnl?.operatingExpenses],
+              ['Gross profit', pnl ? (pnl.tradingIncome ?? pnl.income) - pnl.costOfSales : undefined],
+              ['Expenses', pnl?.operatingExpenses],
+              ['Other income', pnl?.otherIncome],
               ['Net profit', pnl?.netProfit],
             ].map(([label, value]) => (
               <div key={label} className="flex justify-between gap-8">
@@ -91,11 +92,12 @@ export function AccountingProfitLossPage() {
           </dl>
         </PageCard>
 
-        <div className="grid gap-16 lg:grid-cols-3">
+        <div className="grid gap-16 lg:grid-cols-2">
           {[
-            { title: 'Income', rows: data?.incomeAccounts ?? [] },
-            { title: 'COGS', rows: data?.costOfGoodsSoldAccounts ?? [] },
-            { title: 'Operating expenses', rows: data?.operatingExpenseAccounts ?? [] },
+            { title: 'Revenue or sales', rows: data?.incomeAccounts ?? [] },
+            { title: 'Other income', rows: data?.otherIncomeAccounts ?? [] },
+            { title: 'Cost of sales', rows: data?.costOfGoodsSoldAccounts ?? [] },
+            { title: 'Expenses', rows: data?.operatingExpenseAccounts ?? [] },
           ].map((block) => (
             <PageCard key={block.title} variant="plain">
               <p className="text-xs uppercase tracking-wide text-slate-400">{block.title}</p>

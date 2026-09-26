@@ -63,8 +63,9 @@ function buildPdfSections(data: BalanceSheetReportData, orgName: string): PdfTab
     assetRows.push(...lineRows(g.lines))
     assetRows.push([`Total ${g.label}`, formatBs(g.subtotal)])
   }
-  pushAssetGroup(data.assets.bank)
-  pushAssetGroup(data.assets.otherCurrentAssets)
+  pushAssetGroup(data.assets.current)
+  pushAssetGroup(data.assets.fixed)
+  pushAssetGroup(data.assets.nonCurrent)
   assetRows.push(['Total assets', formatBs(data.assets.total)])
 
   sections[0].rows = assetRows
@@ -77,7 +78,7 @@ function buildPdfSections(data: BalanceSheetReportData, orgName: string): PdfTab
     liabRows.push([`Total ${g.label}`, formatBs(g.subtotal)])
   }
   pushLiab(data.liabilities.current)
-  pushLiab(data.liabilities.nonCurrent)
+  pushLiab(data.liabilities.longTerm)
   liabRows.push(['Total liabilities', formatBs(data.liabilities.total)])
 
   sections.push({
@@ -104,10 +105,10 @@ function buildPdfSections(data: BalanceSheetReportData, orgName: string): PdfTab
   if (Math.abs(data.equity.retainedAndOtherEquity) > 1e-6) {
     eqRows.push(['Retained & prior periods (balancing)', formatBs(data.equity.retainedAndOtherEquity)])
   }
-  eqRows.push(['Total equity', formatBs(data.equity.total)])
+  eqRows.push(['Total capital or equity', formatBs(data.equity.total)])
 
   sections.push({
-    heading: 'Equity',
+    heading: 'Capital or equity',
     headers: ['', 'Amount'],
     rows: eqRows,
     columnWeights: [2.8, 1],
@@ -177,30 +178,31 @@ export function BalanceSheetReportPage() {
     const headers = ['Section', 'Group', 'Code', 'Account', 'Amount']
     const rows: string[][] = []
 
-    pushGroupRows(rows, 'Assets', data.assets.bank, true)
-    pushGroupRows(rows, 'Assets', data.assets.otherCurrentAssets, true)
+    pushGroupRows(rows, 'Assets', data.assets.current, true)
+    pushGroupRows(rows, 'Assets', data.assets.fixed, true)
+    pushGroupRows(rows, 'Assets', data.assets.nonCurrent, true)
     rows.push(['Assets', '', '', 'Total assets', data.assets.total.toFixed(2)])
 
     pushGroupRows(rows, 'Liabilities', data.liabilities.current, true)
-    pushGroupRows(rows, 'Liabilities', data.liabilities.nonCurrent, true)
+    pushGroupRows(rows, 'Liabilities', data.liabilities.longTerm, true)
     rows.push(['Liabilities', '', '', 'Total liabilities', data.liabilities.total.toFixed(2)])
 
     rows.push(['', '', '', 'Net assets', data.netAssets.toFixed(2)])
 
     for (const l of data.equity.glLines) {
-      rows.push(['Equity', 'Chart accounts', l.code, l.name, l.amount.toFixed(2)])
+      rows.push(['Capital or equity', 'Chart accounts', l.code, l.name, l.amount.toFixed(2)])
     }
-    rows.push(['Equity', '', '', 'Net income (year-to-date)', data.equity.ytdNetIncome.toFixed(2)])
+    rows.push(['Capital or equity', '', '', 'Net income (year-to-date)', data.equity.ytdNetIncome.toFixed(2)])
     if (Math.abs(data.equity.retainedAndOtherEquity) > 1e-6) {
       rows.push([
-        'Equity',
+        'Capital or equity',
         '',
         '',
         'Retained & prior periods (balancing)',
         data.equity.retainedAndOtherEquity.toFixed(2),
       ])
     }
-    rows.push(['Equity', '', '', 'Total equity', data.equity.total.toFixed(2)])
+    rows.push(['Capital or equity', '', '', 'Total capital or equity', data.equity.total.toFixed(2)])
 
     downloadCsv(`balance-sheet-${asOf}.csv`, headers, rows)
   }
@@ -263,7 +265,7 @@ export function BalanceSheetReportPage() {
     <PageTransition>
       <FinanceReportChrome
         title="Balance sheet"
-        description="Statement of financial position as at a single date. Assets and liabilities use approved GL balances (same basis as the trial balance). Equity includes posted equity accounts, year-to-date net income from the P&L, and a balancing line for retained and prior-period results. Accounts with a zero balance are omitted."
+        description="Statement of financial position as at a single date. Assets are split into current, fixed, and non-current. Liabilities are split into current and long-term. Capital or equity includes posted capital accounts, year-to-date net income from the P&L, and a balancing line for retained and prior-period results. Accounts with a zero balance are omitted."
         toolbar={
           <ReportExportToolbar
             canExport={canExport}
@@ -319,8 +321,9 @@ export function BalanceSheetReportPage() {
               <section>
                 <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-qb-heading">Assets</h3>
                 <div className="space-y-2">
-                  <GroupBlock group={data.assets.bank} />
-                  <GroupBlock group={data.assets.otherCurrentAssets} />
+                  <GroupBlock group={data.assets.current} />
+                  <GroupBlock group={data.assets.fixed} />
+                  <GroupBlock group={data.assets.nonCurrent} />
                   <div className="flex items-baseline justify-between gap-6 border-y-2 border-qb-border py-3 text-base font-bold text-qb-heading">
                     <span>Total assets</span>
                     <span className="tabular-nums">{formatBs(data.assets.total)}</span>
@@ -332,7 +335,7 @@ export function BalanceSheetReportPage() {
                 <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-qb-heading">Liabilities</h3>
                 <div className="space-y-2">
                   <GroupBlock group={data.liabilities.current} />
-                  <GroupBlock group={data.liabilities.nonCurrent} />
+                  <GroupBlock group={data.liabilities.longTerm} />
                   <div className="flex items-baseline justify-between gap-6 border-y-2 border-qb-border py-3 text-base font-bold text-qb-heading">
                     <span>Total liabilities</span>
                     <span className="tabular-nums">{formatBs(data.liabilities.total)}</span>
@@ -346,7 +349,7 @@ export function BalanceSheetReportPage() {
               </div>
 
               <section>
-                <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-qb-heading">Equity</h3>
+                <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-qb-heading">Capital or equity</h3>
                 <div className="rounded-sm border border-qb-border/90 bg-white">
                   {data.equity.glLines.map((l) => (
                     <LineRow key={l.chartOfAccountId} line={l} indent />
@@ -375,7 +378,7 @@ export function BalanceSheetReportPage() {
                     </div>
                   ) : null}
                   <div className="flex items-baseline justify-between gap-6 border-t-2 border-qb-border bg-qb-surface/50 px-3 py-3 text-base font-bold text-qb-heading">
-                    <span>Total equity</span>
+                    <span>Total capital or equity</span>
                     <span className="tabular-nums">{formatBs(data.equity.total)}</span>
                   </div>
                 </div>

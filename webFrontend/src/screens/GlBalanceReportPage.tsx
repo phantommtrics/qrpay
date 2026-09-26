@@ -6,6 +6,7 @@ import { ReportExportToolbar } from '../components/finance/ReportExportToolbar'
 import { PageCard } from '../components/ui/PageCard'
 import { PageTransition } from '../components/ui/PageTransition'
 import { useAuth } from '../features/auth/AuthContext'
+import { chartAccountTypeLabel } from '../models/chartAccount'
 import { fetchGlBalanceReport, type GlBalanceReportData } from '../services/accountingReportsApi'
 import { ApiError } from '../services/subscriptionApi'
 import { downloadCsv, downloadFinancePdf } from '../utils/financeReportExport'
@@ -41,11 +42,11 @@ export function GlBalanceReportPage() {
 
   const exportCsv = () => {
     if (!data) return
-    const headers = ['Code', 'Account', 'Category', 'Debit', 'Credit', 'Balance']
+    const headers = ['Code', 'Account', 'Account type', 'Debit', 'Credit', 'Balance']
     const rows = data.rows.map((r) => [
       r.code,
       r.name,
-      r.category,
+      chartAccountTypeLabel(r.accountType),
       r.debitTotal.toFixed(2),
       r.creditTotal.toFixed(2),
       r.balance.toFixed(2),
@@ -68,11 +69,11 @@ export function GlBalanceReportPage() {
       subtitle: `${currentOrganization.name} · As at ${asOf} · Generated ${new Date().toLocaleString()}`,
       sections: [
         {
-          headers: ['Code', 'Account', 'Category', 'Debit', 'Credit', 'Balance'],
+          headers: ['Code', 'Account', 'Account type', 'Debit', 'Credit', 'Balance'],
           rows: data.rows.map((r) => [
             r.code,
             r.name,
-            r.category,
+            chartAccountTypeLabel(r.accountType),
             formatMoney(r.debitTotal, { decimals: 2 }),
             formatMoney(r.creditTotal, { decimals: 2 }),
             formatMoney(r.balance, { decimals: 2 }),
@@ -165,7 +166,7 @@ export function GlBalanceReportPage() {
                     <tr className="border-b border-qb-border bg-qb-surface text-xs font-semibold uppercase tracking-wide text-qb-muted">
                       <th className="px-3 py-2.5">Code</th>
                       <th className="px-3 py-2.5">Account</th>
-                      <th className="px-3 py-2.5">Category</th>
+                      <th className="px-3 py-2.5">Account type</th>
                       <th className="px-3 py-2.5 text-right">Debit</th>
                       <th className="px-3 py-2.5 text-right">Credit</th>
                       <th className="px-3 py-2.5 text-right">Balance</th>
@@ -176,7 +177,7 @@ export function GlBalanceReportPage() {
                       <tr key={r.chartOfAccountId} className="hover:bg-qb-surface/40">
                         <td className="px-3 py-2 font-mono text-xs text-qb-heading">{r.code}</td>
                         <td className="px-3 py-2 text-qb-heading">{r.name}</td>
-                        <td className="px-3 py-2 text-qb-muted">{r.category}</td>
+                        <td className="px-3 py-2 text-qb-muted">{chartAccountTypeLabel(r.accountType)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {formatMoney(r.debitTotal, { decimals: 2 })}
                         </td>

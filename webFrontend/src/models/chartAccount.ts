@@ -13,10 +13,10 @@ import type { ChartAccountCategory } from '../services/accountingApi'
 /** Grouped “account type” choices when creating a ledger line; each maps to a `ChartAccountCategory` for the API. */
 export const CHART_ACCOUNT_TYPE_GROUPS = [
   'Assets',
-  'Equity',
-  'Expense',
   'Liabilities',
+  'Equity',
   'Revenue',
+  'Expenses',
 ] as const
 
 export type ChartAccountTypeGroup = (typeof CHART_ACCOUNT_TYPE_GROUPS)[number]
@@ -25,15 +25,16 @@ export type ChartAccountTypeGroup = (typeof CHART_ACCOUNT_TYPE_GROUPS)[number]
 export type FinancialStatement = 'profitAndLoss' | 'balanceSheet'
 
 export type ReportSectionKey =
+  | 'bs_current_assets'
+  | 'bs_fixed_assets'
+  | 'bs_non_current_assets'
+  | 'bs_current_liabilities'
+  | 'bs_long_term_liabilities'
+  | 'bs_equity'
   | 'pnl_income'
   | 'pnl_cost_of_sales'
   | 'pnl_other_income'
   | 'pnl_operating_expenses'
-  | 'bs_current_assets'
-  | 'bs_fixed_assets'
-  | 'bs_non_current_assets'
-  | 'bs_non_current_liabilities'
-  | 'bs_equity'
 
 export const REPORT_SECTION_META: Record<
   ReportSectionKey,
@@ -41,8 +42,8 @@ export const REPORT_SECTION_META: Record<
 > = {
   pnl_income: {
     statement: 'profitAndLoss',
-    headline: 'Income',
-    diagramLabel: 'Revenue & sales',
+    headline: 'Revenue or sales',
+    diagramLabel: 'Trading income',
   },
   pnl_cost_of_sales: {
     statement: 'profitAndLoss',
@@ -57,7 +58,7 @@ export const REPORT_SECTION_META: Record<
   pnl_operating_expenses: {
     statement: 'profitAndLoss',
     headline: 'Expenses',
-    diagramLabel: 'Operating expenses, depreciation & overheads',
+    diagramLabel: 'Operating expenses, depreciation and overheads',
   },
   bs_current_assets: {
     statement: 'balanceSheet',
@@ -74,15 +75,20 @@ export const REPORT_SECTION_META: Record<
     headline: 'Non-current assets',
     diagramLabel: 'Long-term assets',
   },
-  bs_non_current_liabilities: {
+  bs_current_liabilities: {
     statement: 'balanceSheet',
-    headline: 'Non-current liabilities',
-    diagramLabel: 'Long-term loans & similar',
+    headline: 'Current liabilities',
+    diagramLabel: 'Payables, tax, and amounts due within a year',
+  },
+  bs_long_term_liabilities: {
+    statement: 'balanceSheet',
+    headline: 'Long-term liabilities',
+    diagramLabel: 'Loans and amounts due after a year',
   },
   bs_equity: {
     statement: 'balanceSheet',
-    headline: 'Equity',
-    diagramLabel: 'Capital & retained results',
+    headline: 'Capital or equity',
+    diagramLabel: 'Capital and retained results',
   },
 }
 
@@ -90,11 +96,30 @@ export const REPORT_SECTION_META: Record<
 export const BANK_ACCOUNT_REPORT_NOTE =
   'Bank accounts (Account kind: Bank account) appear as cash at bank under current assets.'
 
+/** Stored on the chart account and used to place it on the balance sheet or profit and loss. */
+export type ChartAccountType =
+  | 'CURRENT_ASSET'
+  | 'FIXED_ASSET'
+  | 'INVENTORY'
+  | 'NON_CURRENT_ASSET'
+  | 'PREPAYMENT'
+  | 'CURRENT_LIABILITY'
+  | 'LONG_TERM_LIABILITY'
+  | 'CAPITAL_EQUITY'
+  | 'EXPENSE'
+  | 'DIRECT_COST'
+  | 'DEPRECIATION'
+  | 'OVERHEAD'
+  | 'REVENUE'
+  | 'SALES'
+  | 'OTHER_INCOME'
+
 export type ChartAccountTypeOption = {
   key: string
   group: ChartAccountTypeGroup
   label: string
   category: ChartAccountCategory
+  accountType: ChartAccountType
   searchText: string
   reportSection: ReportSectionKey
 }
@@ -103,33 +128,37 @@ export const CHART_ACCOUNT_TYPE_OPTIONS: ChartAccountTypeOption[] = [
   {
     key: 'asset-current',
     group: 'Assets',
-    label: 'current asset',
+    label: 'Current assets',
     category: 'ASSET',
-    searchText: 'asset current receivable cash bank',
+    accountType: 'CURRENT_ASSET',
+    searchText: 'current assets receivable cash bank',
     reportSection: 'bs_current_assets',
   },
   {
     key: 'asset-fixed',
     group: 'Assets',
-    label: 'fixed asset',
+    label: 'Fixed assets',
     category: 'ASSET',
-    searchText: 'asset fixed ppe property plant equipment',
+    accountType: 'FIXED_ASSET',
+    searchText: 'fixed assets ppe property plant equipment',
     reportSection: 'bs_fixed_assets',
   },
   {
     key: 'asset-inventory',
     group: 'Assets',
-    label: 'inventory',
+    label: 'Inventory',
     category: 'ASSET',
-    searchText: 'asset inventory stock',
+    accountType: 'INVENTORY',
+    searchText: 'inventory stock current assets',
     reportSection: 'bs_current_assets',
   },
   {
     key: 'asset-non-current',
     group: 'Assets',
-    label: 'non-current Asset',
+    label: 'Non-current asset',
     category: 'ASSET',
-    searchText: 'asset non-current long term',
+    accountType: 'NON_CURRENT_ASSET',
+    searchText: 'non-current asset long term asset',
     reportSection: 'bs_non_current_assets',
   },
   {
@@ -137,80 +166,99 @@ export const CHART_ACCOUNT_TYPE_OPTIONS: ChartAccountTypeOption[] = [
     group: 'Assets',
     label: 'Prepayment',
     category: 'ASSET',
-    searchText: 'asset prepayment prepaid deferral',
+    accountType: 'PREPAYMENT',
+    searchText: 'prepayment prepaid deferral current assets',
     reportSection: 'bs_current_assets',
   },
   {
-    key: 'equity-equity',
-    group: 'Equity',
-    label: 'Equity',
-    category: 'EQUITY',
-    searchText: 'equity capital retained owner',
-    reportSection: 'bs_equity',
-  },
-  {
-    key: 'expense-depreciation',
-    group: 'Expense',
-    label: 'Depreciation',
-    category: 'EXPENSE',
-    searchText: 'expense depreciation amortization',
-    reportSection: 'pnl_operating_expenses',
-  },
-  {
-    key: 'expense-direct-cost',
-    group: 'Expense',
-    label: 'Direct cost',
-    category: 'EXPENSE',
-    searchText: 'expense direct cost cogs cos',
-    reportSection: 'pnl_cost_of_sales',
-  },
-  {
-    key: 'expense-expense',
-    group: 'Expense',
-    label: 'expense',
-    category: 'EXPENSE',
-    searchText: 'expense operating opex',
-    reportSection: 'pnl_operating_expenses',
-  },
-  {
-    key: 'expense-overhead',
-    group: 'Expense',
-    label: 'overhead',
-    category: 'EXPENSE',
-    searchText: 'expense overhead indirect admin',
-    reportSection: 'pnl_operating_expenses',
-  },
-  {
-    key: 'liability-non-current',
+    key: 'liability-current',
     group: 'Liabilities',
-    label: 'non-current liability',
+    label: 'Current liability',
     category: 'LIABILITY',
-    searchText: 'liability non-current long term loan',
-    reportSection: 'bs_non_current_liabilities',
+    accountType: 'CURRENT_LIABILITY',
+    searchText: 'current liability payable short term',
+    reportSection: 'bs_current_liabilities',
   },
   {
-    key: 'revenue-other-income',
-    group: 'Revenue',
-    label: 'other income',
-    category: 'REVENUE',
-    searchText: 'revenue other income miscellaneous',
-    reportSection: 'pnl_other_income',
+    key: 'liability-long-term',
+    group: 'Liabilities',
+    label: 'Long-term liability',
+    category: 'LIABILITY',
+    accountType: 'LONG_TERM_LIABILITY',
+    searchText: 'long term liability long-term non-current loan',
+    reportSection: 'bs_long_term_liabilities',
+  },
+  {
+    key: 'equity-capital',
+    group: 'Equity',
+    label: 'Capital or equity',
+    category: 'EQUITY',
+    accountType: 'CAPITAL_EQUITY',
+    searchText: 'capital equity retained owner share',
+    reportSection: 'bs_equity',
   },
   {
     key: 'revenue-revenue',
     group: 'Revenue',
     label: 'Revenue',
     category: 'REVENUE',
-    searchText: 'revenue income',
+    accountType: 'REVENUE',
+    searchText: 'revenue sales income turnover',
     reportSection: 'pnl_income',
   },
   {
     key: 'revenue-sales',
     group: 'Revenue',
-    label: 'sales',
+    label: 'Sales',
     category: 'REVENUE',
-    searchText: 'revenue sales turnover',
+    accountType: 'SALES',
+    searchText: 'revenue sales turnover income',
     reportSection: 'pnl_income',
+  },
+  {
+    key: 'revenue-other-income',
+    group: 'Revenue',
+    label: 'Other income',
+    category: 'REVENUE',
+    accountType: 'OTHER_INCOME',
+    searchText: 'other income miscellaneous revenue',
+    reportSection: 'pnl_other_income',
+  },
+  {
+    key: 'expense-expense',
+    group: 'Expenses',
+    label: 'Expenses',
+    category: 'EXPENSE',
+    accountType: 'EXPENSE',
+    searchText: 'expenses expense operating opex',
+    reportSection: 'pnl_operating_expenses',
+  },
+  {
+    key: 'expense-direct-cost',
+    group: 'Expenses',
+    label: 'Direct cost',
+    category: 'EXPENSE',
+    accountType: 'DIRECT_COST',
+    searchText: 'direct cost cogs cost of sales expenses',
+    reportSection: 'pnl_cost_of_sales',
+  },
+  {
+    key: 'expense-depreciation',
+    group: 'Expenses',
+    label: 'Depreciation',
+    category: 'EXPENSE',
+    accountType: 'DEPRECIATION',
+    searchText: 'depreciation amortization expenses',
+    reportSection: 'pnl_operating_expenses',
+  },
+  {
+    key: 'expense-overhead',
+    group: 'Expenses',
+    label: 'Overhead',
+    category: 'EXPENSE',
+    accountType: 'OVERHEAD',
+    searchText: 'overhead indirect admin expenses',
+    reportSection: 'pnl_operating_expenses',
   },
 ]
 
@@ -224,17 +272,77 @@ export function chartAccountCategoryForTypeKey(key: string): ChartAccountCategor
   return TYPE_KEY_TO_CATEGORY.get(key) ?? 'EXPENSE'
 }
 
-const REPORT_SECTION_ORDER: ReportSectionKey[] = [
-  'pnl_income',
-  'pnl_cost_of_sales',
-  'pnl_other_income',
-  'pnl_operating_expenses',
+export const REPORT_SECTION_ORDER: ReportSectionKey[] = [
   'bs_current_assets',
   'bs_fixed_assets',
   'bs_non_current_assets',
-  'bs_non_current_liabilities',
+  'bs_current_liabilities',
+  'bs_long_term_liabilities',
   'bs_equity',
+  'pnl_income',
+  'pnl_cost_of_sales',
+  'pnl_operating_expenses',
+  'pnl_other_income',
 ]
+
+const CATEGORY_TYPE_FALLBACK: Record<string, ChartAccountType> = {
+  ASSET: 'CURRENT_ASSET',
+  LIABILITY: 'CURRENT_LIABILITY',
+  EQUITY: 'CAPITAL_EQUITY',
+  REVENUE: 'REVENUE',
+  EXPENSE: 'EXPENSE',
+}
+
+export function chartAccountTypeForTypeKey(key: string): ChartAccountType {
+  return CHART_ACCOUNT_TYPE_OPTIONS.find((o) => o.key === key)?.accountType ?? 'EXPENSE'
+}
+
+export function chartAccountTypeOption(accountType: string | null | undefined) {
+  return CHART_ACCOUNT_TYPE_OPTIONS.find((o) => o.accountType === accountType)
+}
+
+/** Effective type for display when older API rows omit `accountType`. */
+export function effectiveChartAccountType(row: {
+  accountType?: string | null
+  category: string
+  kind?: string | null
+}): ChartAccountType {
+  if (row.kind === 'BANK') return 'CURRENT_ASSET'
+  const known = chartAccountTypeOption(row.accountType)
+  if (known) return known.accountType
+  return CATEGORY_TYPE_FALLBACK[row.category] ?? 'EXPENSE'
+}
+
+export function chartAccountTypeLabel(accountType: string | null | undefined): string {
+  return chartAccountTypeOption(accountType)?.label ?? 'Account'
+}
+
+export function reportSectionForAccount(row: {
+  accountType?: string | null
+  category: string
+  kind?: string | null
+}): ReportSectionKey {
+  const type = effectiveChartAccountType(row)
+  return chartAccountTypeOption(type)?.reportSection ?? 'pnl_operating_expenses'
+}
+
+export function chartCategoryForSection(section: ReportSectionKey): ChartCategoryOrder {
+  switch (section) {
+    case 'bs_current_liabilities':
+    case 'bs_long_term_liabilities':
+      return 'LIABILITY'
+    case 'bs_equity':
+      return 'EQUITY'
+    case 'pnl_income':
+    case 'pnl_other_income':
+      return 'REVENUE'
+    case 'pnl_cost_of_sales':
+    case 'pnl_operating_expenses':
+      return 'EXPENSE'
+    default:
+      return 'ASSET'
+  }
+}
 
 export type ChartAccountReportExplainerRow = {
   statement: FinancialStatement
@@ -268,6 +376,16 @@ export function chartAccountReportExplainerRows(): ChartAccountReportExplainerRo
 export function chartAccountTypeOptionSearchBlob(o: ChartAccountTypeOption): string {
   const m = REPORT_SECTION_META[o.reportSection]
   return `${o.group} ${o.label} ${o.category} ${o.searchText} ${m.headline} ${m.diagramLabel}`.toLowerCase()
+}
+
+/** Match search tokens as whole words so "current" does not hit "non-current". */
+export function chartAccountTypeMatchesQuery(blob: string, raw: string): boolean {
+  const q = raw.trim().toLowerCase()
+  if (!q) return true
+  const words = blob.split(/[^a-z0-9-]+/).filter(Boolean)
+  return q.split(/\s+/).filter(Boolean).every((token) =>
+    words.some((word) => word === token || word.startsWith(token)),
+  )
 }
 
 /** One-line hint under the account type picker when creating a ledger account. */
@@ -363,11 +481,16 @@ export function toChartAccountView(row: AccountingAccountRow): ChartAccountView 
 }
 
 export function chartAccountSearchBlob(row: AccountingAccountRow): string {
+  const section = REPORT_SECTION_META[reportSectionForAccount(row)]
+  const typeLabel = chartAccountTypeLabel(effectiveChartAccountType(row))
   return [
     row.code,
     row.name,
     row.description ?? '',
     row.category,
+    typeLabel,
+    section.headline,
+    section.diagramLabel,
     row.bankName ?? '',
     row.bankAccountNumber ?? '',
     row.bankDetails ?? '',

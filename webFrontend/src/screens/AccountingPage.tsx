@@ -382,10 +382,10 @@ export function AccountingPage() {
             <p className="mb-6 text-xs font-semibold uppercase tracking-wide text-qb-muted">P&amp;L</p>
             <ul className="divide-y divide-qb-border">
               {[
-                { label: 'Income', value: pnl?.income },
-                { label: 'COGS', value: pnl?.costOfSales },
-                { label: 'Gross profit', value: pnl?.grossProfit },
-                { label: 'Operating expenses', value: pnl?.operatingExpenses },
+                { label: 'Revenue or sales', value: pnl?.tradingIncome ?? pnl?.income },
+                { label: 'Other income', value: pnl?.otherIncome },
+                { label: 'Cost of sales', value: pnl?.costOfSales },
+                { label: 'Expenses', value: pnl?.operatingExpenses },
               ].map((row) => (
                 <li
                   key={row.label}
